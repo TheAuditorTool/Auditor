@@ -2,6 +2,7 @@
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 
 EXPLANATIONS: dict[str, dict[str, str]] = {
@@ -1012,7 +1013,7 @@ JUNCTION TABLE PATTERN:
 }
 
 
-@click.command("manual")
+@click.command("manual", cls=RichCommand)
 @click.argument("concept", required=False)
 @click.option("--list", "list_concepts", is_flag=True, help="List all available concepts")
 def manual(concept, list_concepts):

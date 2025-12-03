@@ -138,6 +138,217 @@ class RichGroup(click.Group):
         console.print()
 
 
+class RichCommand(click.Command):
+    """Rich-enabled help formatter for individual commands."""
+
+    # Section markers recognized in docstrings
+    SECTIONS = [
+        "AI ASSISTANT CONTEXT",
+        "DESCRIPTION",
+        "EXAMPLES",
+        "COMMON WORKFLOWS",
+        "OUTPUT FILES",
+        "PERFORMANCE",
+        "EXIT CODES",
+        "RELATED COMMANDS",
+        "SEE ALSO",
+        "TROUBLESHOOTING",
+        "NOTE",
+        "WHAT IT DETECTS",
+        "DATA FLOW ANALYSIS METHOD",
+    ]
+
+    def format_help(self, ctx, formatter):
+        """Render help with Rich components."""
+        console = Console(force_terminal=sys.stdout.isatty())
+
+        # Header with command name
+        console.print()
+        console.rule(f"[bold]aud {ctx.info_name}[/bold]", characters="-")
+
+        # Parse and render docstring sections
+        if self.help:
+            sections = self._parse_docstring(self.help)
+            self._render_sections(console, sections)
+
+        # Render options
+        self._render_options(console, ctx)
+
+        console.print()
+
+    def _parse_docstring(self, docstring: str) -> dict[str, str]:
+        """Parse docstring into named sections."""
+        sections = {"summary": ""}
+        current_section = "summary"
+        lines = docstring.strip().split("\n")
+
+        for line in lines:
+            stripped = line.strip()
+
+            # Check for section header (uppercase, ends with colon or standalone)
+            section_found = False
+            for section_name in self.SECTIONS:
+                if stripped.upper().startswith(section_name.upper()):
+                    # Handle "SECTION:" or "SECTION" formats
+                    current_section = section_name.lower().replace(" ", "_")
+                    sections[current_section] = ""
+                    section_found = True
+                    break
+
+            if not section_found:
+                # Add to current section
+                if current_section in sections:
+                    sections[current_section] += line + "\n"
+                else:
+                    sections[current_section] = line + "\n"
+
+        return sections
+
+    def _render_sections(self, console: Console, sections: dict):
+        """Render parsed sections with Rich formatting."""
+
+        # Summary (first line, prominent)
+        if sections.get("summary"):
+            summary = sections["summary"].strip()
+            if summary:
+                console.print(f"\n{summary}\n")
+
+        # AI Assistant Context (panel - key section for AI tools)
+        if sections.get("ai_assistant_context"):
+            panel = Panel(
+                sections["ai_assistant_context"].strip(),
+                title="[bold cyan]AI Assistant Context[/bold cyan]",
+                border_style="cyan",
+                box=box.ROUNDED,
+            )
+            console.print(panel)
+
+        # What It Detects (for security commands)
+        if sections.get("what_it_detects"):
+            console.print("\n[bold]What It Detects:[/bold]")
+            for line in sections["what_it_detects"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  {line}")
+
+        # Data Flow Analysis Method
+        if sections.get("data_flow_analysis_method"):
+            console.print("\n[bold]Data Flow Analysis Method:[/bold]")
+            for line in sections["data_flow_analysis_method"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  {line}")
+
+        # Examples (code block style with syntax highlighting)
+        if sections.get("examples"):
+            console.print("\n[bold]Examples:[/bold]")
+            for line in sections["examples"].strip().split("\n"):
+                stripped = line.strip()
+                if stripped.startswith("aud "):
+                    console.print(f"  [green]{stripped}[/green]")
+                elif stripped.startswith("#"):
+                    console.print(f"  [dim]{stripped}[/dim]")
+                elif stripped:
+                    console.print(f"  {line}")
+
+        # Common Workflows (named scenarios)
+        if sections.get("common_workflows"):
+            console.print("\n[bold]Common Workflows:[/bold]")
+            for line in sections["common_workflows"].strip().split("\n"):
+                stripped = line.strip()
+                if stripped.endswith(":") and not stripped.startswith("aud"):
+                    console.print(f"\n  [cyan]{stripped}[/cyan]")
+                elif stripped.startswith("aud "):
+                    console.print(f"    [green]{stripped}[/green]")
+                elif stripped:
+                    console.print(f"    {line}")
+
+        # Output Files (file paths with descriptions)
+        if sections.get("output_files"):
+            console.print("\n[bold]Output Files:[/bold]")
+            for line in sections["output_files"].strip().split("\n"):
+                if line.strip():
+                    parts = line.strip().split(None, 1)
+                    if len(parts) == 2 and ("/" in parts[0] or "." in parts[0]):
+                        console.print(f"  [cyan]{parts[0]}[/cyan]  {parts[1]}")
+                    else:
+                        console.print(f"  {line}")
+
+        # Performance (timing expectations)
+        if sections.get("performance"):
+            console.print("\n[bold]Performance:[/bold]")
+            for line in sections["performance"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  [dim]{line.strip()}[/dim]")
+
+        # Exit Codes (meaningful codes for scripting)
+        if sections.get("exit_codes"):
+            console.print("\n[bold]Exit Codes:[/bold]")
+            for line in sections["exit_codes"].strip().split("\n"):
+                stripped = line.strip()
+                if stripped:
+                    if "=" in stripped:
+                        code, desc = stripped.split("=", 1)
+                        console.print(f"  [yellow]{code.strip()}[/yellow] = {desc.strip()}")
+                    else:
+                        console.print(f"  {stripped}")
+
+        # Related Commands (cross-references)
+        if sections.get("related_commands"):
+            console.print("\n[bold]Related Commands:[/bold]")
+            for line in sections["related_commands"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  [dim]{line.strip()}[/dim]")
+
+        # See Also (manual references)
+        if sections.get("see_also"):
+            console.print("\n[bold]See Also:[/bold]")
+            for line in sections["see_also"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  [cyan]{line.strip()}[/cyan]")
+
+        # Troubleshooting (problem -> solution format)
+        if sections.get("troubleshooting"):
+            console.print("\n[bold]Troubleshooting:[/bold]")
+            for line in sections["troubleshooting"].strip().split("\n"):
+                stripped = line.strip()
+                if stripped.startswith("->"):
+                    console.print(f"    [green]{stripped}[/green]")
+                elif stripped:
+                    console.print(f"  [yellow]{stripped}[/yellow]")
+
+        # Note (important caveats)
+        if sections.get("note"):
+            console.print()
+            console.print(
+                Panel(
+                    sections["note"].strip(),
+                    title="[bold yellow]Note[/bold yellow]",
+                    border_style="yellow",
+                    box=box.ROUNDED,
+                )
+            )
+
+    def _render_options(self, console: Console, ctx):
+        """Render options in a clean format."""
+        params = self.get_params(ctx)
+        options = [p for p in params if isinstance(p, click.Option)]
+
+        if not options:
+            return
+
+        console.print("\n[bold]Options:[/bold]")
+
+        for param in options:
+            opts = ", ".join(param.opts)
+            help_text = param.help or ""
+
+            # Show option name
+            console.print(f"  [cyan]{opts}[/cyan]")
+
+            # Show help text indented
+            if help_text:
+                console.print(f"      {help_text}")
+
+
 @click.group(cls=RichGroup)
 @click.version_option(version=__version__, prog_name="aud")
 @click.help_option("-h", "--help")
