@@ -4,8 +4,8 @@
 
 import * as ts from "typescript";
 import { z } from "zod";
-import { extractObjectLiterals } from "./extractors/data_flow";
-import { extractSequelizeModels } from "./extractors/sequelize_extractors";
+import { extractObjectLiterals } from "./extractors/data_flow.js";
+import { extractSequelizeModels } from "./extractors/sequelize_extractors.js";
 import {
   ObjectLiteralSchema,
   VariableUsageSchema,
@@ -16,7 +16,7 @@ import {
   ImportSchema,
   FunctionCallArgSchema,
   AssignmentSchema,
-} from "./schema";
+} from "./schema.js";
 
 // =============================================================================
 // TEST INFRASTRUCTURE
@@ -158,6 +158,7 @@ class Product extends Model {
   const classes = [
     {
       name: "Product",
+      type: "class" as const,
       line: 4,
       col: 0,
       extends_type: "Model",

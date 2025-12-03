@@ -8,6 +8,7 @@ from typing import Any
 from . import BaseExtractor
 from .javascript_resolvers import JavaScriptResolversMixin
 from .sql import parse_sql_query
+from theauditor.indexer.fidelity_utils import FidelityToken
 
 logger = logging.getLogger(__name__)
 
@@ -417,26 +418,27 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
             result.get("function_calls", []), file_info.get("path", "")
         )
 
-        manifest = {}
-        total_items = 0
+        # Check if Node already generated manifest (new architecture)
+        if "_extraction_manifest" in result:
+            node_manifest = result["_extraction_manifest"]
+            # Validate it's the new rich format (dict of dicts with tx_id)
+            first_value = next(iter(node_manifest.values()), None) if node_manifest else None
+            if isinstance(first_value, dict) and "tx_id" in first_value:
+                # Node generated rich manifest - pass through
+                logger.debug("Using Node-generated manifest (new architecture)")
+                # Add metadata
+                node_manifest["_total"] = sum(
+                    v.get("count", 0) for v in node_manifest.values()
+                    if isinstance(v, dict) and not str(v).startswith("_")
+                )
+                node_manifest["_timestamp"] = datetime.utcnow().isoformat()
+                node_manifest["_file"] = file_info.get("path", "unknown")
+                return result
 
-        for key, value in result.items():
-            if key.startswith("_"):
-                continue
-            if not isinstance(value, (list, dict)):
-                continue
-
-            count = len(value)
-            if count > 0:
-                manifest[key] = count
-                total_items += count
-
-        manifest["_total"] = total_items
-        manifest["_timestamp"] = datetime.utcnow().isoformat()
-
-        manifest["_file"] = file_info.get("path", "unknown")
-
-        result["_extraction_manifest"] = manifest
+        # Build manifest from Node output using polymorphic FidelityToken
+        # Handles both lists (rows) and dicts (refs) automatically
+        logger.debug("Building manifest from Node output (Python-side)")
+        result = FidelityToken.attach_manifest(result)
 
         return result
 

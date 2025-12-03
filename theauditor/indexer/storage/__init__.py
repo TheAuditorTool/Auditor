@@ -11,6 +11,8 @@ from .node_storage import NodeStorage
 from .python_storage import PythonStorage
 from .rust_storage import RustStorage
 
+from ..fidelity_utils import FidelityToken
+
 logger = logging.getLogger(__name__)
 
 # Priority order for parent-child relationships.
@@ -126,10 +128,44 @@ class DataStorer:
             if handler:
                 handler(file_path, data, jsx_pass)
 
-                if isinstance(data, (list, dict)):
-                    receipt[data_type] = len(data)
+                # Get manifest tx_id for receipt echo
+                manifest = extracted.get("_extraction_manifest", {})
+                table_manifest = manifest.get(data_type, {})
+                tx_id = table_manifest.get("tx_id") if isinstance(table_manifest, dict) else None
+
+                if isinstance(data, list):
+                    if len(data) > 0 and isinstance(data[0], dict):
+                        # Rich receipt for dict-based data
+                        columns = sorted(data[0].keys())
+                        data_bytes = sum(len(str(v)) for row in data for v in row.values())
+                        receipt[data_type] = FidelityToken.create_receipt(
+                            count=len(data),
+                            columns=columns,
+                            tx_id=tx_id,
+                            data_bytes=data_bytes
+                        )
+                    else:
+                        # Empty list or non-dict list - still use dict format
+                        receipt[data_type] = FidelityToken.create_receipt(
+                            count=len(data),
+                            columns=[],
+                            tx_id=tx_id,
+                            data_bytes=0
+                        )
+                elif isinstance(data, dict):
+                    receipt[data_type] = FidelityToken.create_receipt(
+                        count=len(data),
+                        columns=sorted(data.keys()) if data else [],
+                        tx_id=tx_id,
+                        data_bytes=len(str(data))
+                    )
                 else:
-                    receipt[data_type] = 1 if data else 0
+                    receipt[data_type] = FidelityToken.create_receipt(
+                        count=1 if data else 0,
+                        columns=[],
+                        tx_id=tx_id,
+                        data_bytes=len(str(data)) if data else 0
+                    )
             else:
                 # WARNING: Data being dropped - no handler registered
                 # This exposes schema/handler mismatches immediately

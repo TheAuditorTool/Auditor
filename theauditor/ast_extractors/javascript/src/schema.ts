@@ -587,6 +587,18 @@ export const CFGBlockStatementSchema = z.object({
   text: z.string(),
 });
 
+export const FidelityManifestSchema = z.object({
+  tx_id: z.string(),
+  columns: z.array(z.string()),
+  count: z.number(),
+  bytes: z.number(),
+});
+
+export const ExtractionManifestSchema = z.record(
+  z.string(),
+  FidelityManifestSchema
+).optional();
+
 export const ExtractedDataSchema = z.object({
   symbols: z.array(SymbolSchema).optional(),
   functions: z.array(FunctionSchema).optional(),
@@ -663,6 +675,7 @@ export const ExtractedDataSchema = z.object({
   cfg_blocks: z.array(CFGBlockSchema).optional(),
   cfg_edges: z.array(CFGEdgeSchema).optional(),
   cfg_block_statements: z.array(CFGBlockStatementSchema).optional(),
+  _extraction_manifest: ExtractionManifestSchema,
 });
 
 export const FileResultSchema = z.object({

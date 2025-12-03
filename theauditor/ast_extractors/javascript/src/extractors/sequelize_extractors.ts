@@ -5,7 +5,7 @@ import type {
   SequelizeAssociation,
   Class as IClass,
   FunctionCallArg as IFunctionCallArg,
-} from "../schema";
+} from "../schema.js";
 
 interface ExtractSequelizeResult {
   sequelize_models: SequelizeModel[];

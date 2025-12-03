@@ -12,7 +12,7 @@ import type {
   Assignment as IAssignment,
   Import as IImport,
   ImportSpecifier as IImportSpecifier,
-} from "../schema";
+} from "../schema.js";
 
 const ORM_METHODS = new Set([
   "findAll",
@@ -559,13 +559,13 @@ interface ExtractCDKResult {
 function extractConstructName(
   call: IFunctionCallArg,
   allCalls: IFunctionCallArg[],
-): string | null {
+): string | undefined {
   const args = allCalls.filter(
     (c) => c.line === call.line && c.callee_function === call.callee_function,
   );
 
   const idArg = args.find((a) => a.argument_index === 1);
-  if (!idArg || !idArg.argument_expr) return null;
+  if (!idArg || !idArg.argument_expr) return undefined;
 
   const expr = idArg.argument_expr.trim();
   if (

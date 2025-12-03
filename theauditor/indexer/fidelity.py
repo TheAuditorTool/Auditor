@@ -1,15 +1,15 @@
 """Data Fidelity Control System."""
 
-import logging
+from typing import Any
+
+from theauditor.utils.logging import logger
 
 from .exceptions import DataFidelityError
 
-logger = logging.getLogger(__name__)
-
 
 def reconcile_fidelity(
-    manifest: dict[str, int], receipt: dict[str, int], file_path: str, strict: bool = True
-) -> dict[str, any]:
+    manifest: dict[str, Any], receipt: dict[str, Any], file_path: str, strict: bool = True
+) -> dict[str, Any]:
     """Compare extraction manifest (what was found) vs storage receipt (what was saved)."""
 
     tables = {k for k in manifest if not k.startswith("_")}
@@ -19,15 +19,66 @@ def reconcile_fidelity(
     warnings = []
 
     for table in sorted(tables):
-        extracted = manifest.get(table, 0)
-        stored = receipt.get(table, 0)
+        m_data = manifest.get(table, {})
+        r_data = receipt.get(table, {})
 
-        if extracted > 0 and stored == 0:
-            errors.append(f"{table}: extracted {extracted} -> stored 0 (100% LOSS)")
+        # ZERO FALLBACK: Reject legacy int format. All producers must send dict.
+        if isinstance(m_data, int):
+            raise DataFidelityError(
+                f"LEGACY FORMAT VIOLATION: manifest['{table}'] is int ({m_data}). "
+                "Extractor must send dict with tx_id/columns/count/bytes.",
+                details={"table": table, "value": m_data, "source": "manifest"}
+            )
+        if isinstance(r_data, int):
+            raise DataFidelityError(
+                f"LEGACY FORMAT VIOLATION: receipt['{table}'] is int ({r_data}). "
+                "Storage must send dict with tx_id/columns/count/bytes.",
+                details={"table": table, "value": r_data, "source": "receipt"}
+            )
 
-        elif extracted != stored:
-            delta = extracted - stored
-            warnings.append(f"{table}: extracted {extracted} -> stored {stored} (delta: {delta})")
+        m_count = m_data.get("count", 0)
+        r_count = r_data.get("count", 0)
+
+        # IDENTITY CHECK: Did Storage process THIS batch?
+        m_tx = m_data.get("tx_id")
+        r_tx = r_data.get("tx_id")
+
+        if m_tx and r_tx and m_tx != r_tx:
+            errors.append(
+                f"{table}: TRANSACTION MISMATCH. "
+                f"Extractor sent batch '{m_tx[:8]}...', Storage confirmed '{r_tx[:8]}...'. "
+                "Possible pipeline cross-talk or stale buffer."
+            )
+
+        # TOPOLOGY CHECK: Did Storage preserve all columns?
+        m_cols = set(m_data.get("columns", []))
+        r_cols = set(r_data.get("columns", []))
+
+        dropped_cols = m_cols - r_cols
+        if dropped_cols:
+            errors.append(
+                f"{table}: SCHEMA VIOLATION. "
+                f"Extractor found {sorted(m_cols)}, Storage only saved {sorted(r_cols)}. "
+                f"Dropped columns: {dropped_cols}"
+            )
+
+        # COUNT CHECK: Row-level data loss (existing logic)
+        if m_count > 0 and r_count == 0:
+            errors.append(f"{table}: extracted {m_count} -> stored 0 (100% LOSS)")
+        elif m_count != r_count:
+            delta = m_count - r_count
+            warnings.append(f"{table}: extracted {m_count} -> stored {r_count} (delta: {delta})")
+
+        # VOLUME CHECK: Rough data integrity (warning only)
+        m_bytes = m_data.get("bytes", 0)
+        r_bytes = r_data.get("bytes", 0)
+
+        if m_count == r_count and m_bytes > 1000 and r_bytes > 0 and r_bytes < m_bytes * 0.1:
+            warnings.append(
+                f"{table}: Data volume collapsed. "
+                f"Extractor: {m_bytes} bytes, Storage: {r_bytes} bytes. "
+                "Possible NULL data issue."
+            )
 
     result = {
         "status": "FAILED" if errors else ("WARNING" if warnings else "OK"),

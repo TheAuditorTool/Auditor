@@ -1,6 +1,6 @@
 import * as path from "path";
 import type * as ts from "typescript";
-import { logger } from "../utils/logger";
+import { logger } from "../utils/logger.js";
 import type {
   CallSymbol as ICallSymbol,
   Assignment as IAssignment,
@@ -12,7 +12,7 @@ import type {
   Class as IClass,
   ObjectLiteral as IObjectLiteral,
   VariableUsage as IVariableUsage,
-} from "../schema";
+} from "../schema.js";
 
 export function extractCalls(
   sourceFile: ts.SourceFile,

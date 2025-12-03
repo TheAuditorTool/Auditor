@@ -23,7 +23,7 @@ import type {
   VueDirective as IVueDirective,
   GraphQLResolver as IGraphQLResolver,
   GraphQLResolverParam as IGraphQLResolverParam,
-} from "../schema";
+} from "../schema.js";
 
 interface ExtractReactComponentsResult {
   react_components: IReactComponent[];

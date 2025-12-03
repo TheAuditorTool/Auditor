@@ -1001,26 +1001,7 @@ def extract_all_python_data(context: FileContext) -> dict[str, Any]:
         if duplicates:
             result["symbols"] = unique_symbols
 
-    manifest = {}
-    total_items = 0
-
-    for key, value in result.items():
-        if key.startswith("_"):
-            continue
-        if not isinstance(value, (list, dict)):
-            continue
-
-        count = len(value)
-        if count > 0:
-            manifest[key] = count
-            total_items += count
-
-    from datetime import datetime
-
-    manifest["_total"] = total_items
-    manifest["_timestamp"] = datetime.utcnow().isoformat()
-    manifest["_file"] = context.file_path if hasattr(context, "file_path") else "unknown"
-
-    result["_extraction_manifest"] = manifest
+    # NOTE: Manifest generation moved to python.py (Late Binding pattern)
+    # python.py calls FidelityToken.attach_manifest() AFTER adding resolved_imports
 
     return result
