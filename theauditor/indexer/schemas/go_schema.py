@@ -358,6 +358,35 @@ GO_MIDDLEWARE = TableSchema(
 )
 
 
+# Go module (go.mod) package manager tables
+GO_MODULE_CONFIGS = TableSchema(
+    name="go_module_configs",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("module_path", "TEXT", nullable=False),
+        Column("go_version", "TEXT"),
+    ],
+    primary_key=["file_path"],
+    indexes=[
+        ("idx_go_mod_module", ["module_path"]),
+    ],
+)
+
+GO_MODULE_DEPENDENCIES = TableSchema(
+    name="go_module_dependencies",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("module_path", "TEXT", nullable=False),
+        Column("version", "TEXT", nullable=False),
+        Column("is_indirect", "BOOLEAN", default="0"),
+    ],
+    indexes=[
+        ("idx_go_mod_deps_file", ["file_path"]),
+        ("idx_go_mod_deps_module", ["module_path"]),
+    ],
+)
+
+
 GO_TABLES = {
     "go_packages": GO_PACKAGES,
     "go_imports": GO_IMPORTS,
@@ -381,4 +410,6 @@ GO_TABLES = {
     "go_type_params": GO_TYPE_PARAMS,
     "go_captured_vars": GO_CAPTURED_VARS,
     "go_middleware": GO_MIDDLEWARE,
+    "go_module_configs": GO_MODULE_CONFIGS,
+    "go_module_dependencies": GO_MODULE_DEPENDENCIES,
 }

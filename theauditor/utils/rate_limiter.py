@@ -8,6 +8,8 @@ RATE_LIMIT_PYPI = 0.1
 RATE_LIMIT_DOCKER = 0.15
 RATE_LIMIT_GITHUB = 0.1
 RATE_LIMIT_DOCS = 0.2
+RATE_LIMIT_CARGO = 1.0  # crates.io policy: 1 request per second
+RATE_LIMIT_GO = 0.5  # proxy.golang.org: be polite
 
 
 RATE_LIMIT_BACKOFF = 10
@@ -62,6 +64,8 @@ def get_rate_limiter(service: str) -> AsyncRateLimiter:
             "docker": RATE_LIMIT_DOCKER,
             "github": RATE_LIMIT_GITHUB,
             "docs": RATE_LIMIT_DOCS,
+            "cargo": RATE_LIMIT_CARGO,
+            "go": RATE_LIMIT_GO,
         }
         delay = delays.get(service, RATE_LIMIT_DOCS)
         _rate_limiters[service] = AsyncRateLimiter(delay)

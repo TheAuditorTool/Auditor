@@ -343,6 +343,37 @@ RUST_EXTERN_BLOCKS = TableSchema(
 )
 
 
+# Cargo package manager tables
+CARGO_PACKAGE_CONFIGS = TableSchema(
+    name="cargo_package_configs",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("package_name", "TEXT"),
+        Column("package_version", "TEXT"),
+        Column("edition", "TEXT"),
+    ],
+    primary_key=["file_path"],
+    indexes=[
+        ("idx_cargo_pkg_name", ["package_name"]),
+    ],
+)
+
+CARGO_DEPENDENCIES = TableSchema(
+    name="cargo_dependencies",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("name", "TEXT", nullable=False),
+        Column("version_spec", "TEXT"),
+        Column("is_dev", "BOOLEAN", default="0"),
+        Column("features", "TEXT"),  # JSON array
+    ],
+    indexes=[
+        ("idx_cargo_deps_file", ["file_path"]),
+        ("idx_cargo_deps_name", ["name"]),
+    ],
+)
+
+
 RUST_TABLES: dict[str, TableSchema] = {
     "rust_modules": RUST_MODULES,
     "rust_use_statements": RUST_USE_STATEMENTS,
@@ -364,4 +395,6 @@ RUST_TABLES: dict[str, TableSchema] = {
     "rust_trait_methods": RUST_TRAIT_METHODS,
     "rust_extern_functions": RUST_EXTERN_FUNCTIONS,
     "rust_extern_blocks": RUST_EXTERN_BLOCKS,
+    "cargo_package_configs": CARGO_PACKAGE_CONFIGS,
+    "cargo_dependencies": CARGO_DEPENDENCIES,
 }

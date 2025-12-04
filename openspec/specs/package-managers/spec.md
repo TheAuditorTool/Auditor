@@ -1,7 +1,8 @@
-# Specification: Package Managers
+# package-managers Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change add-polyglot-package-managers. Update Purpose after archive.
+## Requirements
 ### Requirement: Package Manager Registry
 
 The system SHALL provide a centralized registry for package manager implementations that routes operations by manager name.
@@ -171,7 +172,7 @@ The system SHALL extract Cargo.toml and go.mod manifests to the database during 
 #### Scenario: Extract go.mod to database
 - **WHEN** indexer encounters go.mod file
 - **THEN** store module config to `go_module_configs` table
-- **AND** store dependencies to `go_dependencies` table
+- **AND** store dependencies to `go_module_dependencies` table
 - **AND** include module path, go version
 - **AND** include dependency module path, version, is_indirect flag
 
@@ -196,3 +197,4 @@ The system SHALL use centralized logging and UI infrastructure.
 - **WHEN** generating any output strings
 - **THEN** use ASCII-only characters
 - **AND** use `[OK]`, `[FAIL]`, `->` instead of emojis
+

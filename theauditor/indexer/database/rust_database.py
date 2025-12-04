@@ -398,3 +398,29 @@ class RustDatabaseMixin:
     ) -> None:
         """Add a Rust extern block to the batch."""
         self.generic_batches["rust_extern_blocks"].append((file_path, line, end_line, abi))
+
+    # Cargo package manager methods
+    def add_cargo_package_config(
+        self,
+        file_path: str,
+        package_name: str | None,
+        package_version: str | None,
+        edition: str | None,
+    ) -> None:
+        """Add a Cargo package config to the batch."""
+        self.generic_batches["cargo_package_configs"].append(
+            (file_path, package_name, package_version, edition)
+        )
+
+    def add_cargo_dependency(
+        self,
+        file_path: str,
+        name: str,
+        version_spec: str | None,
+        is_dev: bool,
+        features: str | None,
+    ) -> None:
+        """Add a Cargo dependency to the batch."""
+        self.generic_batches["cargo_dependencies"].append(
+            (file_path, name, version_spec, 1 if is_dev else 0, features)
+        )

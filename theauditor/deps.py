@@ -12,6 +12,7 @@ from typing import Any
 import yaml
 
 from theauditor import __version__
+from theauditor.package_managers import get_manager
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter
@@ -78,25 +79,37 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
             )
         deps.extend(python_deps)
 
-    docker_compose_files = list(root.glob("docker-compose*.yml")) + list(
-        root.glob("docker-compose*.yaml")
-    )
-    if debug and docker_compose_files:
-        console.print(f"Debug: Found Docker Compose files: {docker_compose_files}", highlight=False)
-    for compose_file in docker_compose_files:
-        deps.extend(_parse_docker_compose(compose_file))
+    # Parse Docker files using package_managers module
+    docker_mgr = get_manager("docker")
+    if docker_mgr:
+        docker_compose_files = list(root.glob("docker-compose*.yml")) + list(
+            root.glob("docker-compose*.yaml")
+        )
+        if debug and docker_compose_files:
+            console.print(f"Debug: Found Docker Compose files: {docker_compose_files}", highlight=False)
+        for compose_file in docker_compose_files:
+            deps.extend(docker_mgr.parse_manifest(compose_file))
 
-    dockerfiles = list(root.glob("**/Dockerfile"))
-    if debug and dockerfiles:
-        console.print(f"Debug: Found Dockerfiles: {dockerfiles}", highlight=False)
-    for dockerfile in dockerfiles:
-        deps.extend(_parse_dockerfile(dockerfile))
+        dockerfiles = list(root.glob("**/Dockerfile"))
+        if debug and dockerfiles:
+            console.print(f"Debug: Found Dockerfiles: {dockerfiles}", highlight=False)
+        for dockerfile in dockerfiles:
+            deps.extend(docker_mgr.parse_manifest(dockerfile))
 
     cargo_toml = root / "Cargo.toml"
     if cargo_toml.exists():
         if debug:
             console.print(f"Debug: Found {cargo_toml}", highlight=False)
         deps.extend(_parse_cargo_toml(cargo_toml))
+
+    # Parse go.mod files using package_managers module
+    go_mgr = get_manager("go")
+    if go_mgr:
+        go_mod_files = list(root.glob("**/go.mod"))
+        if debug and go_mod_files:
+            console.print(f"Debug: Found go.mod files: {go_mod_files}", highlight=False)
+        for go_mod in go_mod_files:
+            deps.extend(go_mgr.parse_manifest(go_mod))
 
     if debug:
         console.print(f"Debug: Total dependencies found: {len(deps)}", highlight=False)
@@ -276,105 +289,6 @@ def _clean_version(version_spec: str) -> str:
     return version.strip()
 
 
-def _parse_docker_compose(path: Path) -> list[dict[str, Any]]:
-    """Parse Docker base images from docker-compose.yml files."""
-    deps = []
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-
-        if not data or "services" not in data:
-            return deps
-
-        for _service_name, service_config in data["services"].items():
-            if not isinstance(service_config, dict):
-                continue
-
-            if "image" in service_config:
-                image_spec = service_config["image"]
-
-                if ":" in image_spec:
-                    name, tag = image_spec.rsplit(":", 1)
-                else:
-                    name = image_spec
-                    tag = "latest"
-
-                if "/" in name:
-                    name_parts = name.split("/")
-                    if len(name_parts) >= 2:
-                        if name_parts[-2] == "library":
-                            name = name_parts[-1]
-                        else:
-                            name = "/".join(name_parts[-2:])
-
-                deps.append(
-                    {
-                        "name": name,
-                        "version": tag,
-                        "manager": "docker",
-                        "files": [],
-                        "source": path.name,
-                    }
-                )
-    except (yaml.YAMLError, KeyError, AttributeError) as e:
-        console.print(f"Warning: Could not parse {path}: {e}", highlight=False)
-
-    return deps
-
-
-def _parse_dockerfile(path: Path) -> list[dict[str, Any]]:
-    """Parse Docker base images from Dockerfile."""
-    deps = []
-
-    stages = set()
-
-    try:
-        with open(path, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-
-                if line.upper().startswith("FROM "):
-                    parts = line[5:].strip().split()
-                    image_part = parts[0]
-
-                    if image_part in stages:
-                        continue
-
-                    if len(parts) >= 3 and parts[1].upper() == "AS":
-                        stages.add(parts[2])
-
-                    if image_part.lower() == "scratch":
-                        continue
-
-                    if ":" in image_part:
-                        name, tag = image_part.rsplit(":", 1)
-                    else:
-                        name = image_part
-                        tag = "latest"
-
-                    if "/" in name:
-                        name_parts = name.split("/")
-                        if len(name_parts) >= 2:
-                            if name_parts[-2] == "library":
-                                name = name_parts[-1]
-                            else:
-                                name = "/".join(name_parts[-2:])
-
-                    deps.append(
-                        {
-                            "name": name,
-                            "version": tag,
-                            "manager": "docker",
-                            "files": [],
-                            "source": str(path.relative_to(Path.cwd())),
-                        }
-                    )
-    except Exception as e:
-        console.print(f"Warning: Could not parse {path}: {e}", highlight=False)
-
-    return deps
-
-
 def _parse_cargo_deps(deps_dict: dict[str, Any], kind: str) -> list[dict[str, Any]]:
     """Parse a Cargo.toml dependency section."""
     deps = []
@@ -480,61 +394,6 @@ async def _fetch_pypi_async(client, name: str, allow_prerelease: bool) -> str | 
     return None
 
 
-async def _fetch_docker_async(
-    client, name: str, current_tag: str, allow_prerelease: bool
-) -> str | None:
-    """Fetch latest Docker tag from Docker Hub (async)."""
-    if not _validate_package_name(name, "docker"):
-        return None
-    if "/" not in name:
-        name = f"library/{name}"
-
-    url = f"https://hub.docker.com/v2/repositories/{name}/tags?page_size=100"
-    try:
-        resp = await client.get(url, headers={"User-Agent": f"TheAuditor/{__version__}"})
-        if resp.status_code != 200:
-            return None
-
-        data = resp.json()
-        tags = data.get("results", [])
-        if not tags:
-            return None
-
-        parsed_tags = []
-        for tag in tags:
-            tag_name = tag.get("name", "")
-            parsed = _parse_docker_tag(tag_name)
-            if parsed:
-                parsed_tags.append(parsed)
-
-        if not parsed_tags:
-            return None
-
-        if allow_prerelease:
-            candidates = parsed_tags
-        else:
-            candidates = [t for t in parsed_tags if t["stability"] == "stable"]
-
-            if not candidates:
-                return None
-
-        if current_tag:
-            base_preference = _extract_base_preference(current_tag)
-            if base_preference:
-                matching_base = [t for t in candidates if base_preference in t["variant"].lower()]
-                if matching_base:
-                    candidates = matching_base
-                else:
-                    return None
-
-        candidates.sort(key=lambda x: (x["version"], x["is_clean"], -len(x["tag"])), reverse=True)
-
-        return candidates[0]["tag"] if candidates else None
-    except Exception:
-        pass
-    return None
-
-
 async def _check_latest_batch_async(
     deps_to_check: list[dict], allow_prerelease: bool
 ) -> dict[str, dict[str, Any]]:
@@ -573,11 +432,12 @@ async def _check_latest_batch_async(
                             latest = await _fetch_npm_async(client, dep["name"])
                         elif manager == "py":
                             latest = await _fetch_pypi_async(client, dep["name"], allow_prerelease)
-                        elif manager == "docker":
-                            current_tag = dep.get("version", "")
-                            latest = await _fetch_docker_async(
-                                client, dep["name"], current_tag, allow_prerelease
-                            )
+                        elif manager in ("docker", "cargo", "go"):
+                            # Use package_managers module for docker, cargo, and go
+                            mgr = get_manager(manager)
+                            if mgr:
+                                dep_with_prerelease = {**dep, "allow_prerelease": allow_prerelease}
+                                latest = await mgr.fetch_latest_async(client, dep_with_prerelease)
 
                         return key, latest, None
 
@@ -860,90 +720,16 @@ def _parse_pypi_version(version_str: str) -> tuple:
     return (0, 0, 0, 0)
 
 
-def _parse_docker_tag(tag: str) -> dict[str, Any] | None:
-    """Parse Docker tag into semantic components for proper version comparison."""
-
-    if tag in ["latest", "alpine", "slim", "bullseye", "bookworm", "main", "master"]:
-        return None
-
-    clean_tag = tag[1:] if tag.startswith("v") else tag
-
-    match = re.match(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?", clean_tag)
-    if not match:
-        return None
-
-    major = int(match.group(1))
-    minor = int(match.group(2) or 0)
-    patch = int(match.group(3) or 0)
-
-    variant = clean_tag[match.end() :].lstrip("-")
-    variant_lower = variant.lower()
-
-    stability = "stable"
-
-    if re.search(r"\d{8,}", variant):
-        stability = "dev"
-
-    elif variant_lower.startswith("a") or any(
-        marker in variant_lower for marker in ["alpha", "a1", "a2", "a3"]
-    ):
-        if not variant_lower.startswith("alpine"):
-            stability = "alpha"
-    elif variant_lower.startswith("b") or any(
-        marker in variant_lower for marker in ["beta", "b1", "b2"]
-    ):
-        if not (
-            variant_lower.startswith("bookworm")
-            or variant_lower.startswith("bullseye")
-            or variant_lower.startswith("buster")
-        ):
-            stability = "beta"
-    elif "rc" in variant_lower or any(marker in variant_lower for marker in ["rc1", "rc2", "rc3"]):
-        stability = "rc"
-    elif any(marker in variant_lower for marker in ["nightly", "dev", "snapshot", "edge"]):
-        stability = "dev"
-
-    return {
-        "tag": tag,
-        "version": (major, minor, patch),
-        "variant": variant,
-        "stability": stability,
-        "is_clean": len(variant) == 0,
-    }
-
-
-def _extract_base_preference(current_tag: str) -> str:
-    """Extract base image preference from current tag."""
-    tag_lower = current_tag.lower()
-
-    base_types = [
-        "windowsservercore",
-        "nanoserver",
-        "alpine",
-        "slim",
-        "distroless",
-        "bookworm",
-        "bullseye",
-        "buster",
-        "jammy",
-        "focal",
-        "bionic",
-        "trixie",
-        "sid",
-    ]
-
-    for base in base_types:
-        if base in tag_lower:
-            return base
-
-    return ""
-
-
 def _calculate_version_delta(locked: str, latest: str) -> str:
     """Calculate semantic version delta."""
-
-    locked_parsed = _parse_docker_tag(locked)
-    latest_parsed = _parse_docker_tag(latest)
+    # Use docker_mgr's tag parser for version extraction
+    docker_mgr = get_manager("docker")
+    if docker_mgr:
+        locked_parsed = docker_mgr._parse_docker_tag(locked)
+        latest_parsed = docker_mgr._parse_docker_tag(latest)
+    else:
+        locked_parsed = None
+        latest_parsed = None
 
     if locked_parsed and latest_parsed:
         locked_parts = list(locked_parsed["version"])
@@ -1016,7 +802,7 @@ def upgrade_all_deps(
     upgraded = {"requirements.txt": 0, "package.json": 0, "pyproject.toml": 0}
 
     if ecosystems is None:
-        ecosystems = ["py", "npm", "docker", "cargo"]
+        ecosystems = ["py", "npm", "docker", "cargo", "go"]
 
     deps_by_source = {}
     for dep in deps_list:
@@ -1093,50 +879,109 @@ def upgrade_all_deps(
                 )
                 upgraded["pyproject.toml"] += count
 
+    # Docker upgrades using package_managers module
     if "docker" in ecosystems:
-        docker_compose_files = list(root.glob("docker-compose*.yml")) + list(
-            root.glob("docker-compose*.yaml")
-        )
-        upgraded["docker-compose"] = 0
+        docker_mgr = get_manager("docker")
+        if docker_mgr:
+            docker_compose_files = list(root.glob("docker-compose*.yml")) + list(
+                root.glob("docker-compose*.yaml")
+            )
+            upgraded["docker-compose"] = 0
 
-        for compose_file in docker_compose_files:
-            try:
-                rel_path = compose_file.relative_to(root)
-                source_key = str(rel_path).replace("\\", "/")
-            except ValueError:
-                source_key = compose_file.name
+            for compose_file in docker_compose_files:
+                try:
+                    rel_path = compose_file.relative_to(root)
+                    source_key = str(rel_path).replace("\\", "/")
+                except ValueError:
+                    source_key = compose_file.name
 
-            docker_deps = []
-            for source_key_check in [source_key, compose_file.name]:
-                if source_key_check in deps_by_source:
+                docker_deps = []
+                for source_key_check in [source_key, compose_file.name]:
+                    if source_key_check in deps_by_source:
+                        docker_deps = [
+                            d for d in deps_by_source[source_key_check] if d.get("manager") == "docker"
+                        ]
+                        break
+
+                if docker_deps:
+                    _create_versioned_backup(compose_file)
+                    count = docker_mgr.upgrade_file(compose_file, latest_info, docker_deps)
+                    upgraded["docker-compose"] += count
+
+            dockerfiles = list(root.glob("**/Dockerfile"))
+            upgraded["dockerfile"] = 0
+
+            for dockerfile in dockerfiles:
+                try:
+                    rel_path = dockerfile.relative_to(root)
+                    source_key = str(rel_path).replace("\\", "/")
+                except ValueError:
+                    source_key = str(dockerfile)
+
+                docker_deps = []
+                if source_key in deps_by_source:
                     docker_deps = [
-                        d for d in deps_by_source[source_key_check] if d.get("manager") == "docker"
+                        d for d in deps_by_source[source_key] if d.get("manager") == "docker"
                     ]
-                    break
 
-            if docker_deps:
-                count = _upgrade_docker_compose(compose_file, latest_info, docker_deps)
-                upgraded["docker-compose"] += count
+                if docker_deps:
+                    _create_versioned_backup(dockerfile)
+                    count = docker_mgr.upgrade_file(dockerfile, latest_info, docker_deps)
+                    upgraded["dockerfile"] += count
 
-        dockerfiles = list(root.glob("**/Dockerfile"))
-        upgraded["dockerfile"] = 0
+    # Cargo upgrades using package_managers module
+    if "cargo" in ecosystems:
+        cargo_mgr = get_manager("cargo")
+        if cargo_mgr:
+            cargo_toml_files = list(root.glob("**/Cargo.toml"))
+            upgraded["Cargo.toml"] = 0
 
-        for dockerfile in dockerfiles:
-            try:
-                rel_path = dockerfile.relative_to(root)
-                source_key = str(rel_path).replace("\\", "/")
-            except ValueError:
-                source_key = str(dockerfile)
+            for cargo_toml in cargo_toml_files:
+                try:
+                    rel_path = cargo_toml.relative_to(root)
+                    source_key = str(rel_path).replace("\\", "/")
+                except ValueError:
+                    source_key = str(cargo_toml)
 
-            docker_deps = []
-            if source_key in deps_by_source:
-                docker_deps = [
-                    d for d in deps_by_source[source_key] if d.get("manager") == "docker"
-                ]
+                cargo_deps = []
+                if source_key in deps_by_source:
+                    cargo_deps = [
+                        d for d in deps_by_source[source_key] if d.get("manager") == "cargo"
+                    ]
+                elif "Cargo.toml" in deps_by_source:
+                    cargo_deps = [
+                        d for d in deps_by_source["Cargo.toml"] if d.get("manager") == "cargo"
+                    ]
 
-            if docker_deps:
-                count = _upgrade_dockerfile(dockerfile, latest_info, docker_deps)
-                upgraded["dockerfile"] += count
+                if cargo_deps:
+                    _create_versioned_backup(cargo_toml)
+                    count = cargo_mgr.upgrade_file(cargo_toml, latest_info, cargo_deps)
+                    upgraded["Cargo.toml"] += count
+
+    # Go upgrades using package_managers module
+    if "go" in ecosystems:
+        go_mgr = get_manager("go")
+        if go_mgr:
+            go_mod_files = list(root.glob("**/go.mod"))
+            upgraded["go.mod"] = 0
+
+            for go_mod in go_mod_files:
+                try:
+                    rel_path = go_mod.relative_to(root)
+                    source_key = str(rel_path).replace("\\", "/")
+                except ValueError:
+                    source_key = str(go_mod)
+
+                go_deps = []
+                if source_key in deps_by_source:
+                    go_deps = [
+                        d for d in deps_by_source[source_key] if d.get("manager") == "go"
+                    ]
+
+                if go_deps:
+                    _create_versioned_backup(go_mod)
+                    count = go_mgr.upgrade_file(go_mod, latest_info, go_deps)
+                    upgraded["go.mod"] += count
 
     return upgraded
 
@@ -1295,186 +1140,6 @@ def _upgrade_pyproject_toml(
             )
 
     return total_occurrences
-
-
-def _upgrade_docker_compose(
-    path: Path, latest_info: dict[str, dict[str, Any]], deps: list[dict[str, Any]]
-) -> int:
-    """Upgrade docker-compose.yml to latest Docker image versions."""
-    _create_versioned_backup(path)
-
-    with open(path, encoding="utf-8") as f:
-        lines = f.readlines()
-
-    latest_versions = {}
-    for dep in deps:
-        key = f"docker:{dep['name']}:{dep.get('version', '')}"
-        if key in latest_info and latest_info[key]["latest"] is not None:
-            latest_versions[dep["name"]] = latest_info[key]["latest"]
-
-    updated_lines = []
-    count = 0
-    updated_images = {}
-
-    for line in lines:
-        original_line = line
-        stripped = line.strip()
-
-        if stripped.startswith("image:"):
-            image_spec = stripped[6:].strip()
-
-            if ":" in image_spec:
-                name_part, tag = image_spec.rsplit(":", 1)
-
-                if "$" in tag or "{" in tag:
-                    updated_lines.append(original_line)
-                    continue
-
-                if "/" in name_part:
-                    name_parts = name_part.split("/")
-                    if len(name_parts) >= 2 and name_parts[-2] == "library":
-                        base_name = name_parts[-1]
-                    else:
-                        base_name = "/".join(name_parts[-2:])
-                else:
-                    base_name = name_part
-
-                if base_name in latest_versions:
-                    new_tag = latest_versions[base_name]
-                    old_tag = tag
-
-                    if new_tag is not None and old_tag != new_tag:
-                        old_parsed = _parse_docker_tag(old_tag)
-                        new_parsed = _parse_docker_tag(new_tag)
-                        if (
-                            old_parsed
-                            and new_parsed
-                            and new_parsed["version"] <= old_parsed["version"]
-                        ):
-                            updated_lines.append(original_line)
-                            continue
-
-                        updated_images[base_name] = (old_tag, new_tag)
-
-                        new_image_spec = f"{name_part}:{new_tag}"
-                        indent = len(line) - len(line.lstrip())
-                        updated_lines.append(" " * indent + f"image: {new_image_spec}\n")
-                        count += 1
-                    else:
-                        updated_lines.append(original_line)
-                else:
-                    updated_lines.append(original_line)
-            else:
-                updated_lines.append(original_line)
-        else:
-            updated_lines.append(original_line)
-
-    with open(path, "w", encoding="utf-8") as f:
-        f.writelines(updated_lines)
-
-    check_mark = "[OK]" if IS_WINDOWS else "✓"
-    arrow = "->" if IS_WINDOWS else "→"
-    for image, (old_tag, new_tag) in updated_images.items():
-        console.print(f"  {check_mark} {image}: {old_tag} {arrow} {new_tag}", highlight=False)
-
-    return count
-
-
-def _upgrade_dockerfile(
-    path: Path, latest_info: dict[str, dict[str, Any]], deps: list[dict[str, Any]]
-) -> int:
-    """Upgrade Dockerfile to latest Docker base image versions."""
-    _create_versioned_backup(path)
-
-    with open(path, encoding="utf-8") as f:
-        lines = f.readlines()
-
-    latest_versions = {}
-    for dep in deps:
-        key = f"docker:{dep['name']}:{dep.get('version', '')}"
-        if key in latest_info and latest_info[key]["latest"] is not None:
-            latest_versions[dep["name"]] = latest_info[key]["latest"]
-
-    updated_lines = []
-    count = 0
-    updated_images = {}
-
-    for line in lines:
-        original_line = line
-        stripped = line.strip().upper()
-
-        if stripped.startswith("FROM "):
-            image_spec = line[5:].strip()
-
-            if " AS " in image_spec.upper():
-                image_part, as_part = image_spec.split(" AS ", 1)
-                image_spec = image_part.strip()
-                as_clause = f" AS {as_part}"
-            elif " as " in image_spec:
-                image_part, as_part = image_spec.split(" as ", 1)
-                image_spec = image_part.strip()
-                as_clause = f" as {as_part}"
-            else:
-                as_clause = ""
-
-            if image_spec.lower() in ["scratch", "builder"]:
-                updated_lines.append(original_line)
-                continue
-
-            if ":" in image_spec:
-                name_part, tag = image_spec.rsplit(":", 1)
-
-                if "$" in tag or "{" in tag:
-                    updated_lines.append(original_line)
-                    continue
-
-                if "/" in name_part:
-                    name_parts = name_part.split("/")
-                    if len(name_parts) >= 2 and name_parts[-2] == "library":
-                        base_name = name_parts[-1]
-                    else:
-                        base_name = "/".join(name_parts[-2:])
-                else:
-                    base_name = name_part
-
-                if base_name in latest_versions:
-                    new_tag = latest_versions[base_name]
-                    old_tag = tag
-
-                    if new_tag is not None and old_tag != new_tag:
-                        old_parsed = _parse_docker_tag(old_tag)
-                        new_parsed = _parse_docker_tag(new_tag)
-                        if (
-                            old_parsed
-                            and new_parsed
-                            and new_parsed["version"] <= old_parsed["version"]
-                        ):
-                            updated_lines.append(original_line)
-                            continue
-
-                        updated_images[base_name] = (old_tag, new_tag)
-
-                        new_image_spec = f"{name_part}:{new_tag}"
-                        updated_lines.append(f"FROM {new_image_spec}{as_clause}\n")
-                        count += 1
-                    else:
-                        updated_lines.append(original_line)
-                else:
-                    updated_lines.append(original_line)
-            else:
-                updated_lines.append(original_line)
-        else:
-            updated_lines.append(original_line)
-
-    with open(path, "w", encoding="utf-8") as f:
-        f.writelines(updated_lines)
-
-    check_mark = "[OK]" if IS_WINDOWS else "✓"
-    arrow = "->" if IS_WINDOWS else "→"
-    for image, (old_tag, new_tag) in updated_images.items():
-        console.print(f"  {check_mark} {image}: {old_tag} {arrow} {new_tag}", highlight=False)
-
-    return count
 
 
 def generate_grouped_report(

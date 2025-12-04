@@ -353,3 +353,27 @@ class GoDatabaseMixin:
         self.generic_batches["go_middleware"].append(
             (file_path, line, framework, router_var, middleware_func, 1 if is_global else 0)
         )
+
+    # Go module (go.mod) package manager methods
+    def add_go_module_config(
+        self,
+        file_path: str,
+        module_path: str,
+        go_version: str | None,
+    ) -> None:
+        """Add a Go module config to the batch."""
+        self.generic_batches["go_module_configs"].append(
+            (file_path, module_path, go_version)
+        )
+
+    def add_go_module_dependency(
+        self,
+        file_path: str,
+        module_path: str,
+        version: str,
+        is_indirect: bool,
+    ) -> None:
+        """Add a Go module dependency to the batch."""
+        self.generic_batches["go_module_dependencies"].append(
+            (file_path, module_path, version, 1 if is_indirect else 0)
+        )

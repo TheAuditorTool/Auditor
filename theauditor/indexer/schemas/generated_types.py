@@ -245,6 +245,21 @@ class BullmqWorkersRow(TypedDict):
     worker_function: str | None
     processor_path: str | None
 
+class CargoDependenciesRow(TypedDict):
+    """Row type for cargo_dependencies table."""
+    file_path: str
+    name: str
+    version_spec: str | None
+    is_dev: bool | None
+    features: str | None
+
+class CargoPackageConfigsRow(TypedDict):
+    """Row type for cargo_package_configs table."""
+    file_path: str
+    package_name: str | None
+    package_version: str | None
+    edition: str | None
+
 class CdkConstructPropertiesRow(TypedDict):
     """Row type for cdk_construct_properties table."""
     id: int
@@ -884,6 +899,19 @@ class GoMiddlewareRow(TypedDict):
     router_var: str | None
     middleware_func: str
     is_global: bool | None
+
+class GoModuleConfigsRow(TypedDict):
+    """Row type for go_module_configs table."""
+    file_path: str
+    module_path: str
+    go_version: str | None
+
+class GoModuleDependenciesRow(TypedDict):
+    """Row type for go_module_dependencies table."""
+    file_path: str
+    module_path: str
+    version: str
+    is_indirect: bool | None
 
 class GoPackagesRow(TypedDict):
     """Row type for go_packages table."""

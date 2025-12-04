@@ -4,6 +4,8 @@ Single location for extracting:
 - package.json (Node.js)
 - pyproject.toml (Python)
 - requirements.txt / requirements-*.txt (Python)
+- Cargo.toml (Rust)
+- go.mod (Go)
 
 All extracted data is normalized into proper junction tables, not JSON blobs.
 """
@@ -88,7 +90,7 @@ class ManifestExtractor(BaseExtractor):
 
     def supported_extensions(self) -> list[str]:
         """Return extensions - we use should_extract for name-based matching."""
-        return [".json", ".toml", ".txt"]
+        return [".json", ".toml", ".txt", ".mod"]
 
     def should_extract(self, file_path: str) -> bool:
         """Check if this extractor should handle the file."""
@@ -101,6 +103,14 @@ class ManifestExtractor(BaseExtractor):
 
         # pyproject.toml
         if file_name == "pyproject.toml":
+            return True
+
+        # Cargo.toml
+        if file_name == "cargo.toml":
+            return True
+
+        # go.mod
+        if file_name == "go.mod":
             return True
 
         # requirements*.txt
@@ -129,12 +139,22 @@ class ManifestExtractor(BaseExtractor):
             "python_package_configs": [],
             "python_package_dependencies": [],
             "python_build_requires": [],
+            # Cargo (Rust) package data keys
+            "cargo_package_configs": [],
+            "cargo_dependencies": [],
+            # Go module data keys
+            "go_module_configs": [],
+            "go_module_dependencies": [],
         }
 
         if file_name == "package.json":
             self._extract_package_json(file_path, content, result)
         elif file_name == "pyproject.toml":
             self._extract_pyproject(file_path, content, result)
+        elif file_name == "cargo.toml":
+            self._extract_cargo_toml(file_path, content, result)
+        elif file_name == "go.mod":
+            self._extract_go_mod(file_path, content, result)
         elif file_name.startswith("requirements") and file_name.endswith(".txt"):
             self._extract_requirements(file_path, content, result)
 
@@ -332,3 +352,124 @@ class ManifestExtractor(BaseExtractor):
                     "extras": extras_json,
                     "git_url": dep_info["git_url"] or None,
                 })
+
+    def _extract_cargo_toml(
+        self, file_path: str, content: str, result: dict[str, Any]
+    ) -> None:
+        """Extract Cargo.toml into result data lists."""
+        try:
+            data = tomllib.loads(content)
+        except tomllib.TOMLDecodeError as e:
+            logger.error(f"[ManifestExtractor] Failed to parse {file_path}: {e}")
+            return
+
+        # Extract package info
+        package = data.get("package", {})
+        package_name = package.get("name")
+        package_version = package.get("version")
+        edition = package.get("edition")
+
+        result["cargo_package_configs"].append({
+            "file_path": file_path,
+            "package_name": package_name,
+            "package_version": package_version,
+            "edition": edition,
+        })
+
+        # Extract dependencies
+        self._extract_cargo_deps(file_path, data.get("dependencies", {}), False, result)
+
+        # Extract dev-dependencies
+        self._extract_cargo_deps(file_path, data.get("dev-dependencies", {}), True, result)
+
+        # Extract build-dependencies (also as dev)
+        self._extract_cargo_deps(file_path, data.get("build-dependencies", {}), True, result)
+
+    def _extract_cargo_deps(
+        self,
+        file_path: str,
+        deps_dict: dict[str, Any],
+        is_dev: bool,
+        result: dict[str, Any],
+    ) -> None:
+        """Extract Cargo dependencies from a section."""
+        for name, spec in deps_dict.items():
+            if isinstance(spec, str):
+                version_spec = spec
+                features = None
+            elif isinstance(spec, dict):
+                if spec.get("workspace") is True:
+                    version_spec = "workspace"
+                else:
+                    version_spec = spec.get("version")
+                features_list = spec.get("features", [])
+                features = json.dumps(features_list) if features_list else None
+            else:
+                continue
+
+            result["cargo_dependencies"].append({
+                "file_path": file_path,
+                "name": name,
+                "version_spec": version_spec,
+                "is_dev": is_dev,
+                "features": features,
+            })
+
+    def _extract_go_mod(
+        self, file_path: str, content: str, result: dict[str, Any]
+    ) -> None:
+        """Extract go.mod into result data lists."""
+        # Extract module path
+        module_match = re.search(r"^module\s+(\S+)", content, re.MULTILINE)
+        module_path = module_match.group(1) if module_match else ""
+
+        # Extract go version
+        go_version_match = re.search(r"^go\s+(\d+\.\d+)", content, re.MULTILINE)
+        go_version = go_version_match.group(1) if go_version_match else None
+
+        result["go_module_configs"].append({
+            "file_path": file_path,
+            "module_path": module_path,
+            "go_version": go_version,
+        })
+
+        # Find require block: require ( ... )
+        require_block_match = re.search(r"require\s*\((.*?)\)", content, re.DOTALL)
+        if require_block_match:
+            for line in require_block_match.group(1).strip().split("\n"):
+                line = line.strip()
+                if line and not line.startswith("//"):
+                    self._extract_go_mod_dep(file_path, line, result)
+
+        # Find single-line requires: require module version
+        # Module must start with letter, version must start with v
+        for match in re.finditer(r"^require\s+([a-zA-Z][\S]*)\s+(v[\S]+)", content, re.MULTILINE):
+            result["go_module_dependencies"].append({
+                "file_path": file_path,
+                "module_path": match.group(1),
+                "version": match.group(2),
+                "is_indirect": False,
+            })
+
+    def _extract_go_mod_dep(
+        self,
+        file_path: str,
+        line: str,
+        result: dict[str, Any],
+    ) -> None:
+        """Extract a single Go module dependency line."""
+        # Handle inline comments
+        is_indirect = "indirect" in line
+        if "//" in line:
+            code_part = line.split("//")[0].strip()
+        else:
+            code_part = line.strip()
+
+        parts = code_part.split()
+        if len(parts) >= 2:
+            result["go_module_dependencies"].append({
+                "file_path": file_path,
+                "module_path": parts[0],
+                "version": parts[1],
+                "is_indirect": is_indirect,
+            })

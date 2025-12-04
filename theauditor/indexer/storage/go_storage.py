@@ -32,6 +32,9 @@ class GoStorage(BaseStorage):
             "go_type_params": self._store_go_type_params,
             "go_captured_vars": self._store_go_captured_vars,
             "go_middleware": self._store_go_middleware,
+            # Go module (go.mod) package manager handlers
+            "go_module_configs": self._store_go_module_configs,
+            "go_module_dependencies": self._store_go_module_dependencies,
         }
 
     def _store_go_packages(self, file_path: str, go_packages: list, jsx_pass: bool):
@@ -360,3 +363,33 @@ class GoStorage(BaseStorage):
             if "go_middleware" not in self.counts:
                 self.counts["go_middleware"] = 0
             self.counts["go_middleware"] += 1
+
+    # Go module (go.mod) package manager handlers
+    def _store_go_module_configs(
+        self, file_path: str, go_module_configs: list, jsx_pass: bool
+    ) -> None:
+        """Store go.mod module configurations."""
+        for cfg in go_module_configs:
+            self.db_manager.add_go_module_config(
+                cfg.get("file_path", file_path),
+                cfg.get("module_path", ""),
+                cfg.get("go_version"),
+            )
+            if "go_module_configs" not in self.counts:
+                self.counts["go_module_configs"] = 0
+            self.counts["go_module_configs"] += 1
+
+    def _store_go_module_dependencies(
+        self, file_path: str, go_module_dependencies: list, jsx_pass: bool
+    ) -> None:
+        """Store go.mod dependencies."""
+        for dep in go_module_dependencies:
+            self.db_manager.add_go_module_dependency(
+                dep.get("file_path", file_path),
+                dep.get("module_path", ""),
+                dep.get("version", ""),
+                dep.get("is_indirect", False),
+            )
+            if "go_module_dependencies" not in self.counts:
+                self.counts["go_module_dependencies"] = 0
+            self.counts["go_module_dependencies"] += 1
