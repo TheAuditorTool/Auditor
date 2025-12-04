@@ -7,6 +7,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
+from theauditor.indexer.fidelity_utils import FidelityToken
 from theauditor.utils.logging import logger
 
 from ..graph.store import XGraphStore
@@ -382,13 +383,15 @@ class TerraformGraphBuilder:
                     "target": edge["target"],
                     "type": edge["edge_type"],
                     "file": edge["file"],
-                    "metadata": {"expression": edge["expression"], **edge["metadata"]},
+                    "line": 0,  # Terraform doesn't track line numbers
+                    "expression": edge["expression"],  # Top-level for store schema
+                    "metadata": edge["metadata"],
                 }
             )
 
-        self.store.save_custom_graph(
-            {"nodes": store_nodes, "edges": store_edges, "metadata": graph["metadata"]},
-            graph_type="terraform_provisioning",
+        store_graph = FidelityToken.attach_manifest(
+            {"nodes": store_nodes, "edges": store_edges, "metadata": graph["metadata"]}
         )
+        self.store.save_custom_graph(store_graph, graph_type="terraform_provisioning")
 
         logger.debug("Wrote Terraform provisioning graph to graphs.db")
