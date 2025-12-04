@@ -1,15 +1,17 @@
 ## 0. Verification (Pre-Implementation)
 
-- [ ] 0.1 Read `rules/go/injection_analyze.py:306-324` - understand existing `register_taint_patterns()` structure
+- [ ] 0.1 Read `rules/sql/sql_injection_analyze.py:45-50` - understand existing pattern with BOTH `find_*` and `register_taint_patterns()`
 - [ ] 0.2 Read `theauditor/taint/core.py:18-180` - understand TaintRegistry API
-- [ ] 0.3 Read `theauditor/rules/orchestrator.py:471-495` - understand auto-discovery via `collect_rule_patterns()`
-- [ ] 0.4 Query database to confirm Rust rows exist in assignments/function_call_args tables
-- [ ] 0.5 Confirm TaintRegistry currently has 0 Rust patterns
-- [ ] 0.6 **CRITICAL**: Verify Rust function call format in database:
+- [ ] 0.3 Read `theauditor/rules/orchestrator.py:68-100` - understand `_discover_all_rules()` requires `find_*` functions
+- [ ] 0.4 Read `theauditor/rules/orchestrator.py:471-495` - understand `collect_rule_patterns()` only iterates discovered modules
+- [ ] 0.5 Query database to confirm Rust rows exist in assignments/function_call_args tables
+- [ ] 0.6 Confirm TaintRegistry currently has 0 Rust patterns
+- [ ] 0.7 **CRITICAL**: Verify Rust function call format in database and document findings:
       ```sql
-      SELECT DISTINCT callee_function FROM function_call_args WHERE file LIKE '%.rs' LIMIT 20;
+      SELECT DISTINCT callee_function FROM function_call_args WHERE file LIKE '%.rs' ORDER BY callee_function LIMIT 50;
       ```
-      Document actual format (e.g., "Command" vs "std::process::Command") to ensure patterns will match
+      **Required output**: Document actual format in verification.md (e.g., "Command" vs "std::process::Command")
+      **Action**: Update pattern tables in proposal.md if patterns don't match database format
 
 ## 1. Create Pattern File
 
@@ -18,27 +20,46 @@
 
 - [ ] 1.1 Create `theauditor/rules/rust/rust_injection_analyze.py`
 - [ ] 1.2 Add module docstring explaining purpose
-- [ ] 1.3 Import TaintRegistry and logger
+- [ ] 1.3 Import StandardRuleContext, StandardFinding, logger
+- [ ] 1.4 **CRITICAL**: Add `find_rust_injection_issues()` stub for orchestrator discovery
 
 **File Structure:**
 ```python
 """Rust taint source and sink pattern registration.
 
 Registers Rust-specific patterns for:
-- Sources: stdin, env, web framework inputs (actix, axum, rocket)
+- Sources: stdin, env, web framework inputs (actix, axum, rocket, warp)
 - Sinks: Command execution, SQL, file writes, unsafe operations
 
-Auto-discovered by orchestrator.collect_rule_patterns() at orchestrator.py:471-495.
+IMPORTANT: The find_rust_injection_issues() function is required for orchestrator
+discovery. See sql_injection_analyze.py:48 - "Named find_* for orchestrator
+discovery - enables register_taint_patterns loading."
+
+Auto-discovered by orchestrator._discover_all_rules() at orchestrator.py:68-100.
+Pattern registration via collect_rule_patterns() at orchestrator.py:471-495.
 """
 
+from theauditor.rules.base import StandardFinding, StandardRuleContext
 from theauditor.utils.logging import logger
+
+
+def find_rust_injection_issues(context: StandardRuleContext) -> list[StandardFinding]:
+    """Stub for orchestrator discovery.
+
+    Named find_* for orchestrator discovery - enables register_taint_patterns loading.
+    Actual taint analysis happens via TaintRegistry, not this rule.
+
+    The orchestrator at orchestrator.py:93 only discovers modules with find_* functions.
+    Without this function, register_taint_patterns() would never be called.
+    """
+    return []  # Pattern-only module - taint analysis uses TaintRegistry
 
 
 def register_taint_patterns(taint_registry):
     """Register Rust source and sink patterns.
 
-    IMPORTANT: Function must be named exactly `register_taint_patterns`
-    for orchestrator auto-discovery to find it.
+    Called by orchestrator.collect_rule_patterns() after module is discovered
+    via find_rust_injection_issues().
     """
     # ... implementation
 ```
@@ -69,13 +90,21 @@ def register_taint_patterns(taint_registry):
 
 ## 4. Verify Auto-Discovery
 
-**NO MANUAL WIRING NEEDED** - Orchestrator auto-discovers `register_taint_patterns()` functions.
+**Discovery requires BOTH functions:**
+1. `find_rust_injection_issues()` - for orchestrator to discover the module
+2. `register_taint_patterns()` - called by orchestrator after discovery
 
 - [ ] 4.1 Verify module is importable: `python -c "from theauditor.rules.rust import rust_injection_analyze"`
-- [ ] 4.2 Verify function exists: `hasattr(rust_injection_analyze, 'register_taint_patterns')`
+- [ ] 4.2 Verify BOTH functions exist:
+      ```python
+      from theauditor.rules.rust import rust_injection_analyze
+      assert hasattr(rust_injection_analyze, 'find_rust_injection_issues'), "Missing find_* function!"
+      assert hasattr(rust_injection_analyze, 'register_taint_patterns'), "Missing register function!"
+      ```
 - [ ] 4.3 Run `aud full --offline` and check logs for Rust pattern registration
 - [ ] 4.4 Verify patterns appear in registry after initialization:
       ```python
+      from pathlib import Path
       from theauditor.rules.orchestrator import RulesOrchestrator
       from theauditor.taint.core import TaintRegistry
       registry = TaintRegistry()
@@ -83,6 +112,8 @@ def register_taint_patterns(taint_registry):
       orch.collect_rule_patterns(registry)
       print(f"Rust sources: {len(registry.get_source_patterns('rust'))}")
       print(f"Rust sinks: {len(registry.get_sink_patterns('rust'))}")
+      assert len(registry.get_source_patterns('rust')) > 0, "No Rust sources registered!"
+      assert len(registry.get_sink_patterns('rust')) > 0, "No Rust sinks registered!"
       ```
 
 ## 5. Testing

@@ -11,28 +11,54 @@ Rust extractor now populates language-agnostic tables (assignments, function_cal
 ## What Changes
 
 1. **New Pattern File** - Create `theauditor/rules/rust/rust_injection_analyze.py`
+   - **CRITICAL**: Must include a `find_rust_injection_issues()` stub function for orchestrator discovery
+     - Orchestrator at `orchestrator.py:93` only discovers modules with `find_*` functions
+     - See `sql_injection_analyze.py:48`: "Named find_* for orchestrator discovery - enables register_taint_patterns loading"
+   - Include `register_taint_patterns()` function to register sources/sinks
    - Register Rust-specific source patterns (stdin, env, web frameworks)
    - Register Rust-specific sink patterns (Command, file writes, SQL)
-   - Follow existing pattern from `rules/go/injection_analyze.py`
+   - Follow existing pattern from `rules/sql/sql_injection_analyze.py` (has both functions)
 
 2. **Pattern Registration** - Wire patterns into TaintRegistry
    - Add language key "rust" to registry
    - Orchestrator auto-discovers via `collect_rule_patterns()` at `orchestrator.py:471-495`
+   - Discovery requires `find_*` function in module (see point 1)
 
 **NOT changing:**
 - Rust extractor (already working)
 - Graph strategies (RustTraitStrategy, RustAsyncStrategy already exist)
 - Database schema
-- Orchestrator (auto-discovers `register_taint_patterns()` functions)
+- Orchestrator logic (just adding a new module it will discover)
 
 ## Impact
 
 - **Affected specs**: MODIFY existing `rust-extraction` capability (add source/sink patterns)
 - **Affected code**:
   - NEW: `theauditor/rules/rust/rust_injection_analyze.py` (~150 lines)
-  - NO WIRING CODE CHANGE: Orchestrator auto-discovers modules with `register_taint_patterns()` function
+  - NO WIRING CODE CHANGE: Orchestrator auto-discovers modules with `find_*` functions, then calls `register_taint_patterns()` if present
 - **Risk**: Low - adding patterns only, not modifying extraction logic
 - **Dependencies**: None (patterns are just data)
+
+## Pattern Matching Strategy
+
+**How patterns match database entries:**
+
+TaintRegistry uses **exact string matching** against the `callee_function` column in `function_call_args` table. The Rust extractor stores function calls in one of these formats:
+- Method calls: `method_name` (e.g., `new`, `arg`, `execute`)
+- Qualified paths: `module::function` (e.g., `std::env::var`)
+- Associated functions: `Type::method` (e.g., `Command::new`)
+
+**Before implementation, run this query to verify actual format:**
+```sql
+SELECT DISTINCT callee_function FROM function_call_args
+WHERE file LIKE '%.rs'
+ORDER BY callee_function LIMIT 50;
+```
+
+**Pattern writing rules:**
+1. Match the EXACT format stored in database
+2. If database stores `Command::new`, pattern must be `Command::new` (not `std::process::Command::new`)
+3. Multiple patterns may be needed for the same concept (e.g., both `Command` and `Command::new`)
 
 ## Success Criteria
 
@@ -42,7 +68,7 @@ After implementation:
 from theauditor.taint.core import TaintRegistry
 registry = TaintRegistry()
 
-# Use API methods (sources/sinks are dict[str, dict[str, list[str]]])
+# get_source_patterns/get_sink_patterns return list[str] (flattened from all categories)
 rust_sources = registry.get_source_patterns("rust")
 rust_sinks = registry.get_sink_patterns("rust")
 assert len(rust_sources) > 0, f"Expected Rust sources, got {rust_sources}"
@@ -70,6 +96,9 @@ Categories map to `TaintRegistry.CATEGORY_TO_VULN_TYPE` at `taint/core.py:27-47`
 | `axum::extract::Path` | http_request | Axum path parameters |
 | `axum::extract::Query` | http_request | Axum query parameters |
 | `rocket::request` | http_request | Rocket request data |
+| `rocket::form` | http_request | Rocket form data |
+| `warp::body::json` | http_request | Warp JSON body |
+| `warp::path::param` | http_request | Warp path parameters |
 
 ## Sink Patterns (Dangerous Operations)
 
@@ -86,3 +115,4 @@ Categories map to `TaintRegistry.CATEGORY_TO_VULN_TYPE` at `taint/core.py:27-47`
 | `std::fs::File::create` | path | File creation |
 | `std::ptr::write` | code_injection | Unsafe pointer write |
 | `std::mem::transmute` | code_injection | Type transmutation |
+| `TcpStream::connect` | ssrf | Network connection to user-controlled host |

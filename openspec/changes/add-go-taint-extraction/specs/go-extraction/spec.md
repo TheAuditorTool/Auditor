@@ -77,25 +77,27 @@ The Go extractor SHALL populate the language-agnostic `function_returns` and `fu
 
 ---
 
-### Requirement: Go Parameter Extraction for DFG
-The Go extractor SHALL populate the `func_params` table for all function parameter definitions in Go source files.
+### Requirement: Go Parameter Extraction (Language-Specific)
+Go function parameters SHALL be stored in the Go-specific `go_func_params` table (NOT the language-agnostic `func_params` table). This is because Go has richer parameter semantics (receivers, variadic, grouped params) that require dedicated schema.
+
+**Note:** This extraction is ALREADY IMPLEMENTED via `go_impl.extract_go_func_params()` and stored via `go_storage._store_go_func_params()`. No new work required for this proposal.
 
 #### Scenario: Simple parameter
 - **WHEN** a Go file contains `func process(data string)`
-- **THEN** the `func_params` table SHALL contain a row with function_name="process", param_name="data", param_index=0
+- **THEN** the `go_func_params` table SHALL contain a row with function_name="process", param_name="data", param_index=0
 
 #### Scenario: Grouped parameters
 - **WHEN** a Go file contains `func process(a, b int)`
-- **THEN** the `func_params` table SHALL contain rows for "a" (index 0) and "b" (index 1)
+- **THEN** the `go_func_params` table SHALL contain rows for "a" (index 0) and "b" (index 1)
 
 #### Scenario: Variadic parameter
 - **WHEN** a Go file contains `func process(args ...string)`
-- **THEN** the `func_params` table SHALL contain a row with param_name="args", param_index=0
+- **THEN** the `go_func_params` table SHALL contain a row with param_name="args", param_index=0, is_variadic=true
 
 #### Scenario: Receiver method
 - **WHEN** a Go file contains `func (s *Server) Handle(req Request)`
-- **THEN** the `func_params` table SHALL contain a row for "req" with param_index=0
-- **AND** the receiver "s" SHALL be tracked separately (language-specific table)
+- **THEN** the `go_func_params` table SHALL contain a row for "req" with param_index=0
+- **AND** the receiver "s" SHALL be tracked in `go_methods` table (receiver_type, receiver_name fields)
 
 ---
 

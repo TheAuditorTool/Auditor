@@ -56,15 +56,21 @@ theauditor/indexer/extractors/bash.py      # Thin wrapper (85 lines)
 
 **Why:** Bash doesn't have named parameters like other languages. The positional syntax IS the parameter name.
 
-**Example:**
+**Schema** (`theauditor/indexer/schemas/node_schema.py:847-862`):
+```sql
+func_params (file, function_line, function_name, param_index, param_name, param_type)
 ```
+
+**Example:**
+```bash
+# Line 5:
 function process() {
     echo $1 $2
 }
 ```
 Results in:
-- func_params: (process, $1, 0)
-- func_params: (process, $2, 1)
+- func_params: (file, 5, "process", 0, "$1", NULL)
+- func_params: (file, 5, "process", 1, "$2", NULL)
 
 ### Decision 3: Treat `read` as assignment from stdin
 **What:** When parsing `read VAR`, create assignment row with source indicating stdin.
@@ -83,16 +89,33 @@ Results in:
 
 **Why:** Follow existing pattern from `rules/go/injection_analyze.py:306-323`. The orchestrator calls `collect_rule_patterns()` which imports each rule module and calls `register_taint_patterns()` if it exists.
 
-**Reference implementation:**
+**Reference implementation** (full code from `theauditor/rules/go/injection_analyze.py:306-324`):
 ```python
-# From rules/go/injection_analyze.py:306-323
 def register_taint_patterns(taint_registry):
     """Register Go injection-specific taint patterns."""
     patterns = GoInjectionPatterns()
+
     for pattern in patterns.USER_INPUTS:
         taint_registry.register_source(pattern, "user_input", "go")
+
     for pattern in patterns.SQL_METHODS:
         taint_registry.register_sink(pattern, "sql", "go")
+
+    for pattern in patterns.COMMAND_METHODS:
+        taint_registry.register_sink(pattern, "command", "go")
+
+    for pattern in patterns.TEMPLATE_METHODS:
+        taint_registry.register_sink(pattern, "template", "go")
+
+    for pattern in patterns.PATH_METHODS:
+        taint_registry.register_sink(pattern, "path", "go")
+```
+
+**TaintRegistry API** (method signatures):
+```python
+# From theauditor/taint/registry.py
+taint_registry.register_source(pattern: str, category: str, language: str) -> None
+taint_registry.register_sink(pattern: str, category: str, language: str) -> None
 ```
 
 ### Decision 6: Storage layer integration via extractor return dict
