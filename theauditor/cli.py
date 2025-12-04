@@ -14,7 +14,10 @@ from rich.table import Table
 from theauditor import __version__
 
 if platform.system() == "Windows":
-    subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=1)
+    try:
+        subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=2)
+    except (subprocess.TimeoutExpired, OSError):
+        pass  # Codepage change is nice-to-have, not critical
     import codecs
 
     sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
