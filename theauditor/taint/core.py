@@ -826,26 +826,35 @@ def trace_taint(
         if mode == "complete":
             conn_temp = sqlite3.connect(db_path)
             cursor_temp = conn_temp.cursor()
+
+            # Count TOTAL flows across ALL engines (the truth)
             cursor_temp.execute(
-                "SELECT COUNT(*) FROM resolved_flow_audit WHERE engine = 'FlowResolver' AND status = 'VULNERABLE'"
+                "SELECT COUNT(*) FROM resolved_flow_audit WHERE status = 'VULNERABLE'"
             )
-            flow_resolver_vulnerable = cursor_temp.fetchone()[0]
+            total_vulnerable = cursor_temp.fetchone()[0]
             cursor_temp.execute(
-                "SELECT COUNT(*) FROM resolved_flow_audit WHERE engine = 'FlowResolver' AND status = 'SANITIZED'"
+                "SELECT COUNT(*) FROM resolved_flow_audit WHERE status = 'SANITIZED'"
             )
-            flow_resolver_sanitized = cursor_temp.fetchone()[0]
+            total_sanitized = cursor_temp.fetchone()[0]
+
+            # Per-engine breakdown for debugging
+            cursor_temp.execute(
+                "SELECT engine, status, COUNT(*) FROM resolved_flow_audit GROUP BY engine, status"
+            )
+            breakdown = {f"{row[0]}:{row[1]}": row[2] for row in cursor_temp.fetchall()}
             conn_temp.close()
 
-            result["flow_resolver_vulnerable"] = flow_resolver_vulnerable
-            result["flow_resolver_sanitized"] = flow_resolver_sanitized
+            result["total_vulnerable"] = total_vulnerable
+            result["total_sanitized"] = total_sanitized
             result["total_flows_resolved"] = total_flows
             result["mode"] = "complete"
             result["engines_used"] = ["IFDS (backward)", "FlowResolver (forward)"]
+            result["engine_breakdown"] = breakdown
 
             logger.info("COMPLETE MODE RESULTS:")
             logger.info(f"IFDS found: {len(unique_paths)} vulnerable paths")
             logger.info(f"FlowResolver resolved: {total_flows} total flows")
-            logger.info(f"resolved_flow_audit table: {flow_resolver_vulnerable} vulnerable, {flow_resolver_sanitized} sanitized")
+            logger.info(f"resolved_flow_audit table: {total_vulnerable} vulnerable, {total_sanitized} sanitized")
 
         return result
 

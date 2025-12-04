@@ -216,7 +216,7 @@ class TaintDiscovery:
 
             func_name = call.get("callee_function", "")
             if raw_sql_funcs and any(raw_func in func_name for raw_func in raw_sql_funcs):
-                arg_expr = call.get("argument_expr", "")
+                arg_expr = call.get("argument_expr") or ""
 
                 has_interpolation = "${" in arg_expr
                 risk = "critical" if has_interpolation else "high"
@@ -442,7 +442,7 @@ class TaintDiscovery:
         for call in self.cache.function_call_args:
             func_name = call.get("callee_function", "")
             if xss_funcs and any(xss_func in func_name for xss_func in xss_funcs):
-                arg_expr = call.get("argument_expr", "")
+                arg_expr = call.get("argument_expr") or ""
 
                 has_interpolation = "${" in arg_expr or "+" in arg_expr
                 risk = "critical" if has_interpolation else "high"
@@ -466,7 +466,7 @@ class TaintDiscovery:
         for call in self.cache.function_call_args:
             func_name = call.get("callee_function", "")
             if file_funcs and _matches_file_io_pattern(func_name, file_funcs):
-                arg = call.get("argument_expr", "")
+                arg = call.get("argument_expr") or ""
                 file_path = call.get("file", "")
 
                 if arg and not arg.startswith('"') and not arg.startswith("'"):

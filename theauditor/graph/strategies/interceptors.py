@@ -191,6 +191,19 @@ class InterceptorStrategy:
 
                             alias_node_id = f"{controller_file}::{full_func_name}::{full_alias}"
 
+                            if alias_node_id not in nodes:
+                                nodes[alias_node_id] = DFGNode(
+                                    id=alias_node_id,
+                                    file=controller_file,
+                                    variable_name=full_alias,
+                                    scope=full_func_name,
+                                    type="request_alias",
+                                    metadata={
+                                        "alias": full_alias,
+                                        "source_handler": current_node_id,
+                                    },
+                                )
+
                             bridge_edges = create_bidirectional_edges(
                                 source=current_node_id,
                                 target=alias_node_id,

@@ -42,8 +42,11 @@ class SQLInjectionPatterns:
     SAFE_PARAMS = frozenset(["?", ":1", ":2", "$1", "$2", "%s", "@param", ":param", "${param}"])
 
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Analyze codebase for SQL injection vulnerabilities."""
+def find_sql_injection_issues(context: StandardRuleContext) -> list[StandardFinding]:
+    """Analyze codebase for SQL injection vulnerabilities.
+
+    Named find_* for orchestrator discovery - enables register_taint_patterns loading.
+    """
     findings = []
     patterns = SQLInjectionPatterns()
 
@@ -296,7 +299,7 @@ def check_dynamic_query_construction(context: StandardRuleContext) -> list[Stand
     return findings
 
 
-def populate_taint(taint_registry):
+def register_taint_patterns(taint_registry):
     """Register SQL injection sinks and sources for taint analysis."""
 
     sql_sinks = [
@@ -335,6 +338,8 @@ def populate_taint(taint_registry):
         "req.query",
         "req.params",
         "req.body",
+        "req.headers",
+        "request.headers",
         "args.get",
         "form.get",
         "request.args",
