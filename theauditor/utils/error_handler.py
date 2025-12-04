@@ -1,6 +1,8 @@
 """Centralized error handler for TheAuditor commands."""
 
+import traceback
 from collections.abc import Callable
+from datetime import datetime
 from functools import wraps
 from typing import Any
 
@@ -23,22 +25,29 @@ def handle_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
             PF_DIR.mkdir(parents=True, exist_ok=True)
 
             error_log_path = ERROR_LOG_FILE
-
-            with open(error_log_path, "a", encoding="utf-8") as f:
-                f.write("\n" + "=" * 80 + "\n")
-                f.write(f"Error in command: {func.__name__}\n")
-                f.write("=" * 80 + "\n")
-
-                logger.exception("")
-                f.write("=" * 80 + "\n\n")
-
             error_type = type(e).__name__
             error_msg = str(e)
+            tb = traceback.format_exc()
+
+            # Log via loguru for console/Rich/Pino-NDJSON output
+            logger.opt(exception=True).error(
+                "Command '{cmd}' failed: {err}",
+                cmd=func.__name__,
+                err=error_msg,
+            )
+
+            # Also write to error.log file for persistent debugging
+            with open(error_log_path, "a", encoding="utf-8") as f:
+                f.write("\n" + "=" * 80 + "\n")
+                f.write(f"[{datetime.now().isoformat()}] Error in command: {func.__name__}\n")
+                f.write("=" * 80 + "\n")
+                f.write(f"{error_type}: {error_msg}\n\n")
+                f.write(tb)
+                f.write("=" * 80 + "\n\n")
 
             user_message = (
                 f"{error_type}: {error_msg}\n\n"
-                f"Detailed error information has been logged to: {error_log_path}\n"
-                f"Please check the log file for the full traceback and debugging information."
+                f"Full traceback logged to: {error_log_path}"
             )
 
             raise click.ClickException(user_message) from e
