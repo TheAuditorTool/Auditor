@@ -822,6 +822,15 @@ class XGraphBuilder:
                         short_name = callee.split(".")[-1]
                         target_candidates = function_defs.get(short_name, set())
 
+                    # FIX: Reverse lookup - if call is `login()` but stored as `ClassName.login`
+                    # Search for functions ending with `.callee` in function_defs
+                    if not target_candidates:
+                        suffix = f".{callee}"
+                        for func_name, paths in function_defs.items():
+                            if func_name.endswith(suffix):
+                                target_candidates = paths
+                                break
+
                     target_module = None
                     resolution_status = "unresolved"
 
