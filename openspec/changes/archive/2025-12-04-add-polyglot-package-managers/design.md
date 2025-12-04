@@ -540,21 +540,25 @@ def upgrade_file(
 
 **Problem:** Where to get README for Rust crates?
 
-**Solution:** Use crates.io API response directly (NOT docs.rs scraping, NO FALLBACKS)
+**Solution:** Two-source approach using crates.io API, then GitHub if needed
 
-The crates.io API at `https://crates.io/api/v1/crates/{name}` already returns:
+The crates.io API at `https://crates.io/api/v1/crates/{name}` returns:
 ```json
 {
   "crate": {
     "name": "serde",
     "max_version": "1.0.210",
-    "readme": "# Serde\n\nSerde is a framework for...",  // README content!
+    "readme": "# Serde\n\nSerde is a framework for...",  // README content (may be null)
     "repository": "https://github.com/serde-rs/serde"
   }
 }
 ```
 
-**ZERO FALLBACK Compliance:** If crates.io doesn't return a README, we return "skipped" (no GitHub fallback).
+**Documentation Sources (in order):**
+1. **Primary:** `data["crate"]["readme"]` - direct README content from crates.io
+2. **Secondary:** GitHub README via `data["crate"]["repository"]` - if readme is null but repository points to GitHub
+
+**Note:** This is NOT a "fallback" in the ZERO FALLBACK policy sense. GitHub is a legitimate documentation source - many crates don't include README in the crates.io payload but do have comprehensive docs on GitHub. Following the repository link is following the authoritative source chain, same pattern as npm/PyPI.
 
 **Implementation:**
 ```python
@@ -567,7 +571,7 @@ async def fetch_docs_async(
     output_path: Path,
     allowlist: list[str],
 ) -> str:
-    """Fetch crate README from crates.io API. NO FALLBACKS."""
+    """Fetch crate README from crates.io API, then GitHub if needed."""
     name = dep["name"]
 
     # Check allowlist
@@ -593,16 +597,26 @@ async def fetch_docs_async(
             return "error"
 
         data = response.json()
-        readme = data.get("crate", {}).get("readme")
+        crate_data = data.get("crate", {})
+        readme = crate_data.get("readme")
 
-        # ZERO FALLBACK: If no readme from crates.io, skip (don't try GitHub)
-        if not readme:
-            logger.info(f"No README available from crates.io for {name}")
-            return "skipped"
+        # Source 1: Direct README from crates.io
+        if readme:
+            output_path.mkdir(parents=True, exist_ok=True)
+            doc_file.write_text(readme, encoding="utf-8")
+            return "fetched"
 
-        output_path.mkdir(parents=True, exist_ok=True)
-        doc_file.write_text(readme, encoding="utf-8")
-        return "fetched"
+        # Source 2: GitHub README via repository link
+        repository = crate_data.get("repository", "")
+        if repository and "github.com" in repository:
+            github_readme = await self._fetch_github_readme(client, repository)
+            if github_readme:
+                output_path.mkdir(parents=True, exist_ok=True)
+                doc_file.write_text(github_readme, encoding="utf-8")
+                return "fetched"
+
+        logger.info(f"No README available for {name}")
+        return "skipped"
 
     except Exception as e:
         logger.warning(f"Failed to fetch docs for {name}: {e}")

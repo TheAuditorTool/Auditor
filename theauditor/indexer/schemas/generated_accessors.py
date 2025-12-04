@@ -717,6 +717,49 @@ class BullmqWorkersTable:
         return [dict(zip(['file', 'line', 'queue_name', 'worker_function', 'processor_path'], row, strict=True)) for row in cursor.fetchall()]
 
 
+class CargoDependenciesTable:
+    """Accessor class for cargo_dependencies table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from cargo_dependencies."""
+        query = build_query('cargo_dependencies', ['file_path', 'name', 'version_spec', 'is_dev', 'features'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'name', 'version_spec', 'is_dev', 'features'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file_path(cursor: sqlite3.Cursor, file_path: str) -> list[dict[str, Any]]:
+        """Get rows by file_path."""
+        query = build_query('cargo_dependencies', ['file_path', 'name', 'version_spec', 'is_dev', 'features'], where="file_path = ?")
+        cursor.execute(query, (file_path,))
+        return [dict(zip(['file_path', 'name', 'version_spec', 'is_dev', 'features'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_name(cursor: sqlite3.Cursor, name: str) -> list[dict[str, Any]]:
+        """Get rows by name."""
+        query = build_query('cargo_dependencies', ['file_path', 'name', 'version_spec', 'is_dev', 'features'], where="name = ?")
+        cursor.execute(query, (name,))
+        return [dict(zip(['file_path', 'name', 'version_spec', 'is_dev', 'features'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class CargoPackageConfigsTable:
+    """Accessor class for cargo_package_configs table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from cargo_package_configs."""
+        query = build_query('cargo_package_configs', ['file_path', 'package_name', 'package_version', 'edition'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'package_name', 'package_version', 'edition'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_package_name(cursor: sqlite3.Cursor, package_name: str) -> list[dict[str, Any]]:
+        """Get rows by package_name."""
+        query = build_query('cargo_package_configs', ['file_path', 'package_name', 'package_version', 'edition'], where="package_name = ?")
+        cursor.execute(query, (package_name,))
+        return [dict(zip(['file_path', 'package_name', 'package_version', 'edition'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class CdkConstructPropertiesTable:
     """Accessor class for cdk_construct_properties table."""
 
@@ -2305,6 +2348,49 @@ class GoMiddlewareTable:
         query = build_query('go_middleware', ['file', 'line', 'framework', 'router_var', 'middleware_func', 'is_global'], where="framework = ?")
         cursor.execute(query, (framework,))
         return [dict(zip(['file', 'line', 'framework', 'router_var', 'middleware_func', 'is_global'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoModuleConfigsTable:
+    """Accessor class for go_module_configs table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_module_configs."""
+        query = build_query('go_module_configs', ['file_path', 'module_path', 'go_version'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'module_path', 'go_version'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_module_path(cursor: sqlite3.Cursor, module_path: str) -> list[dict[str, Any]]:
+        """Get rows by module_path."""
+        query = build_query('go_module_configs', ['file_path', 'module_path', 'go_version'], where="module_path = ?")
+        cursor.execute(query, (module_path,))
+        return [dict(zip(['file_path', 'module_path', 'go_version'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class GoModuleDependenciesTable:
+    """Accessor class for go_module_dependencies table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from go_module_dependencies."""
+        query = build_query('go_module_dependencies', ['file_path', 'module_path', 'version', 'is_indirect'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'module_path', 'version', 'is_indirect'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file_path(cursor: sqlite3.Cursor, file_path: str) -> list[dict[str, Any]]:
+        """Get rows by file_path."""
+        query = build_query('go_module_dependencies', ['file_path', 'module_path', 'version', 'is_indirect'], where="file_path = ?")
+        cursor.execute(query, (file_path,))
+        return [dict(zip(['file_path', 'module_path', 'version', 'is_indirect'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_module_path(cursor: sqlite3.Cursor, module_path: str) -> list[dict[str, Any]]:
+        """Get rows by module_path."""
+        query = build_query('go_module_dependencies', ['file_path', 'module_path', 'version', 'is_indirect'], where="module_path = ?")
+        cursor.execute(query, (module_path,))
+        return [dict(zip(['file_path', 'module_path', 'version', 'is_indirect'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class GoPackagesTable:

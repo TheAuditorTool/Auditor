@@ -9,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from theauditor.package_managers import get_manager
+from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import (
     RATE_LIMIT_BACKOFF,
     TIMEOUT_CRAWL,
@@ -50,6 +52,12 @@ DEFAULT_ALLOWLIST = [
     "https://fastapi.tiangolo.com/",
     "https://django.readthedocs.io/",
     "https://www.django-rest-framework.org/",
+    # Rust/Cargo
+    "https://crates.io/",
+    "https://docs.rs/",
+    # Go
+    "https://pkg.go.dev/",
+    "https://proxy.golang.org/",
 ]
 
 
@@ -171,6 +179,12 @@ async def _fetch_one_doc(
                 return await _fetch_npm_docs_async(client, dep, output_path, allowlist)
             elif manager == "py":
                 return await _fetch_pypi_docs_async(client, dep, output_path, allowlist)
+            elif manager in ("cargo", "go"):
+                # Use package_managers module for cargo and go
+                mgr = get_manager(manager)
+                if mgr:
+                    return await mgr.fetch_docs_async(client, dep, output_path, allowlist)
+                return "skipped"
             else:
                 return "skipped"
         except httpx.HTTPStatusError as e:

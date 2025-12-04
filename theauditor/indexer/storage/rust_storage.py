@@ -30,6 +30,9 @@ class RustStorage(BaseStorage):
             "rust_trait_methods": self._store_rust_trait_methods,
             "rust_extern_functions": self._store_rust_extern_functions,
             "rust_extern_blocks": self._store_rust_extern_blocks,
+            # Cargo package manager handlers
+            "cargo_package_configs": self._store_cargo_package_configs,
+            "cargo_dependencies": self._store_cargo_dependencies,
         }
 
     def _store_rust_modules(self, file_path: str, rust_modules: list, jsx_pass: bool) -> None:
@@ -373,3 +376,35 @@ class RustStorage(BaseStorage):
             if "rust_extern_blocks" not in self.counts:
                 self.counts["rust_extern_blocks"] = 0
             self.counts["rust_extern_blocks"] += 1
+
+    # Cargo package manager handlers
+    def _store_cargo_package_configs(
+        self, file_path: str, cargo_package_configs: list, jsx_pass: bool
+    ) -> None:
+        """Store Cargo.toml package configurations."""
+        for cfg in cargo_package_configs:
+            self.db_manager.add_cargo_package_config(
+                cfg.get("file_path", file_path),
+                cfg.get("package_name"),
+                cfg.get("package_version"),
+                cfg.get("edition"),
+            )
+            if "cargo_package_configs" not in self.counts:
+                self.counts["cargo_package_configs"] = 0
+            self.counts["cargo_package_configs"] += 1
+
+    def _store_cargo_dependencies(
+        self, file_path: str, cargo_dependencies: list, jsx_pass: bool
+    ) -> None:
+        """Store Cargo.toml dependencies."""
+        for dep in cargo_dependencies:
+            self.db_manager.add_cargo_dependency(
+                dep.get("file_path", file_path),
+                dep.get("name", ""),
+                dep.get("version_spec"),
+                dep.get("is_dev", False),
+                dep.get("features"),
+            )
+            if "cargo_dependencies" not in self.counts:
+                self.counts["cargo_dependencies"] = 0
+            self.counts["cargo_dependencies"] += 1
