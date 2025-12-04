@@ -81,7 +81,7 @@ COMMON MISTAKES:
 ## Track 1: Security Concepts
 
 **AI Team 1 Assignment**
-**Topics:** 7
+**Topics:** 6
 
 ### Topics to Process
 
@@ -93,7 +93,6 @@ COMMON MISTAKES:
 | boundaries | Distance concept | How to measure trust boundaries step-by-step |
 | rules | Rule list | How to create custom rules, load them, verify |
 | fce | Correlation concept | How to use FCE to find compound vulns |
-| insights | Scoring layer | How to interpret and act on insights |
 
 ### Per-Topic Tasks
 
@@ -103,7 +102,7 @@ COMMON MISTAKES:
 - [ ] Add step-by-step: "How to find SQL injection"
 - [ ] Add step-by-step: "How to trace user input to dangerous sinks"
 - [ ] Include actual command sequence with expected output
-- [ ] Cross-reference with `aud taint-analyze --help`
+- [ ] Cross-reference with `aud taint --help`
 
 **patterns**
 - [ ] List all pattern categories with examples
@@ -132,15 +131,10 @@ COMMON MISTAKES:
 - [ ] Step-by-step: running FCE after indexing
 - [ ] How to interpret correlated findings
 
-**insights**
-- [ ] Explain scoring methodology
-- [ ] When to enable vs disable insights
-- [ ] How to customize scoring
-
 ### Track 1 Verification Checkpoint
 ```bash
 # Verify commands work as documented
-aud taint-analyze --help      # Taint analysis command
+aud taint --help              # Taint analysis command
 aud detect-patterns --help    # Pattern detection command
 aud boundaries --help         # Boundary analysis command
 aud manual taint              # Manual topic renders correctly

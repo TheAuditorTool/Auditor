@@ -215,7 +215,7 @@ RUST_ATTRIBUTES = TableSchema(
 - Extension filtering via `files.ext` JOIN is consistent with existing pattern
 - Avoids N+1 queries to language-specific tables
 
-**Implementation** (`theauditor/commands/blueprint.py:342-404`):
+**Implementation** (`theauditor/commands/blueprint.py:362-424`):
 ```sql
 -- Add these CASE clauses to existing query in _get_naming_conventions()
 -- Go functions (snake_case for private, PascalCase for exported)
@@ -227,18 +227,22 @@ SUM(CASE WHEN f.ext = '.go' AND s.type = 'function' THEN 1 ELSE 0 END) AS go_fun
 -- Rust/Bash similar patterns...
 ```
 
-### Decision 2: Create new tables for Cargo/Go dependencies
+### Decision 2: ~~Create new tables~~ Wire existing tables for Cargo/Go dependencies
 
-**What:** Add `cargo_package_configs` and `go_module_configs` tables to store manifest data.
+**What:** Use existing `cargo_package_configs` and `go_module_configs` tables for manifest data.
 
 **Why:**
-- These tables DO NOT currently exist (verified against all schema files)
-- `framework_detector.py` parses Cargo.toml and go.mod but stores results in-memory only
+- Tables ALREADY EXIST (verified 2025-12-05):
+  - `cargo_package_configs` at rust_schema.py:347-359
+  - `cargo_dependencies` at rust_schema.py:361-374
+  - `go_module_configs` at go_schema.py:362-373
+  - `go_module_dependencies` at go_schema.py:375-387
+- Tables exist but have 0 rows - need to wire extraction to populate them
 - ZFP requires storing during indexing, not parsing at query time
 
 **Implementation:**
-1. Add schema definitions (see Schema Reference above)
-2. Add storage handlers called during `aud full` indexing phase
+1. ~~Add schema definitions~~ DONE - schemas exist
+2. Add storage handlers called during `aud full` indexing phase (FOCUS HERE)
 3. Query in `_get_dependencies()` same pattern as npm/pip
 
 ### Decision 3: Use `go_routes` table for Go handler detection

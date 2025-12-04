@@ -5,7 +5,7 @@
 `aud manual` is the handbook for AI assistants. When Claude Code or other AIs need to understand HOW to use TheAuditor - not just what commands exist, but actual workflows - they go to the manual.
 
 Current state:
-- 42 topics exist (good coverage)
+- 41 topics exist (good coverage)
 - Content is human-centric, not AI-workflow-centric
 - No step-by-step "how to use this system" guidance
 - Missing integration with agent system
@@ -25,7 +25,7 @@ This is the GUIDE. The reference. The "how do I actually use this system" docume
 
 ## What Changes
 
-### Content Rewrite (All 42 Topics)
+### Content Rewrite (All 41 Topics)
 - Rewrite each topic as a WORKFLOW guide, not just a concept explanation
 - Include step-by-step command sequences
 - Include decision trees (when to use this vs that)
@@ -59,7 +59,7 @@ This is the GUIDE. The reference. The "how do I actually use this system" docume
 
 | Track | Focus | Topics | Theme |
 |-------|-------|--------|-------|
-| 1 | Security Concepts | 7 topics | taint, patterns, severity, boundaries, rules, fce, insights |
+| 1 | Security Concepts | 6 topics | taint, patterns, severity, boundaries, rules, fce |
 | 2 | Graph/Architecture | 7 topics | callgraph, dependencies, graph, cfg, architecture, blueprint, impact |
 | 3 | Code Analysis | 7 topics | deadcode, refactor, workset, context, explain, query, lint |
 | 4 | Infrastructure | 7 topics | pipeline, overview, database, env-vars, exit-codes, troubleshooting, setup |
@@ -114,7 +114,7 @@ For EVERY topic touched, the AI team MUST:
 
 ## Success Criteria
 
-- [ ] All 42 topics rewritten as workflow guides
+- [ ] All 41 topics rewritten as workflow guides
 - [ ] All topics reference agent system where applicable
 - [ ] All command sequences verified working
 - [ ] All cross-references to --help are accurate
@@ -136,7 +136,7 @@ For EVERY topic touched, the AI team MUST:
 - `.auditor_venv/.theauditor_tools/agents/dataflow.md` (391 lines) - Dataflow workflow
 
 **Implementation Details:**
-- See `design.md` for Topic Location Reference (file:line for all 42 topics)
+- See `design.md` for Topic Location Reference (file:line for all 41 topics)
 - See `design.md` for Content Schema (EXPLANATIONS dict structure)
 - See `design.md` for Rich Formatting Reference (supported syntax)
 - See `design.md` for Verified Command Reference (tested commands)
