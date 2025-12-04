@@ -70,6 +70,45 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                 }
             )
 
+        # Go routes (go_routes uses 'file' column, not 'file_path')
+        cursor.execute(
+            """
+            SELECT file, line, path, method FROM go_routes
+            WHERE path IS NOT NULL
+            LIMIT ?
+        """,
+            (max_entries // 4,),
+        )
+        for file, line, pattern, method in cursor.fetchall():
+            entry_points.append(
+                {
+                    "type": "http",
+                    "name": f"{method or 'GET'} {pattern}",
+                    "file": file,
+                    "line": line,
+                }
+            )
+
+        # Rust routes (from attributes)
+        cursor.execute(
+            """
+            SELECT file_path, target_line, args, attribute_name FROM rust_attributes
+            WHERE attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route')
+            AND args IS NOT NULL
+            LIMIT ?
+        """,
+            (max_entries // 4,),
+        )
+        for file, line, pattern, method in cursor.fetchall():
+            entry_points.append(
+                {
+                    "type": "http",
+                    "name": f"{method.upper()} {pattern}",
+                    "file": file,
+                    "line": line or 0,
+                }
+            )
+
         for entry in entry_points[:max_entries]:
             controls = find_all_paths_to_controls(
                 db_path=db_path,

@@ -257,13 +257,46 @@ class GraphDeadCodeDetector:
         cursor = self.repo_conn.cursor()
         entry_points = set()
 
+        # React/Vue components
         cursor.execute("SELECT DISTINCT file FROM react_components")
         entry_points.update(row[0] for row in cursor.fetchall())
 
         cursor.execute("SELECT DISTINCT file FROM vue_components")
         entry_points.update(row[0] for row in cursor.fetchall())
 
+        # Python routes
         cursor.execute("SELECT DISTINCT file FROM python_routes")
+        entry_points.update(row[0] for row in cursor.fetchall())
+
+        # Go routes (go_routes uses 'file' column, not 'file_path')
+        cursor.execute("SELECT DISTINCT file FROM go_routes")
+        entry_points.update(row[0] for row in cursor.fetchall())
+
+        # Go main packages and test files
+        cursor.execute("""
+            SELECT DISTINCT path FROM files
+            WHERE ext = '.go'
+            AND (path LIKE '%/main.go' OR path LIKE '%_test.go')
+        """)
+        entry_points.update(row[0] for row in cursor.fetchall())
+
+        # Rust route handlers (files with route attributes)
+        cursor.execute("""
+            SELECT DISTINCT file_path FROM rust_attributes
+            WHERE attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route', 'web', 'actix_web::main', 'tokio::main')
+        """)
+        entry_points.update(row[0] for row in cursor.fetchall())
+
+        # Rust main.rs and lib.rs (entry points)
+        cursor.execute("""
+            SELECT DISTINCT path FROM files
+            WHERE ext = '.rs'
+            AND (path LIKE '%/main.rs' OR path LIKE '%/lib.rs')
+        """)
+        entry_points.update(row[0] for row in cursor.fetchall())
+
+        # Bash scripts (all .sh files are potential entry points)
+        cursor.execute("SELECT DISTINCT path FROM files WHERE ext IN ('.sh', '.bash')")
         entry_points.update(row[0] for row in cursor.fetchall())
 
         return entry_points

@@ -94,6 +94,11 @@ SUPPORTED_AST_EXTENSIONS: list[str] = [
     ".rs",
     ".sh",
     ".bash",
+    # Manifest files (package managers)
+    ".toml",
+    ".mod",
+    ".json",
+    ".txt",
 ]
 
 

@@ -722,6 +722,80 @@ def extract_rust_macro_invocations(root_node: Any, file_path: str) -> list[dict]
     return invocations
 
 
+def extract_rust_attributes(root_node: Any, file_path: str) -> list[dict]:
+    """Extract attribute items from tree-sitter AST.
+
+    Captures #[attr] and #[attr(args)] attributes that decorate items.
+    This is different from macro_invocations - attributes use attribute_item nodes.
+
+    Key use case: Route attributes like #[get("/users")], #[derive(Debug)], etc.
+    """
+    attributes = []
+
+    def _find_target(node: Any) -> tuple[str | None, str | None, int | None]:
+        """Find the item following an attribute (function, struct, enum, etc.)."""
+        parent = node.parent
+        if parent is None:
+            return None, None, None
+
+        found_attr = False
+        for sibling in parent.children:
+            if sibling is node:
+                found_attr = True
+                continue
+            if found_attr and sibling.type not in (
+                "attribute_item",
+                "line_comment",
+                "block_comment",
+            ):
+                target_type = sibling.type.replace("_item", "")
+                name_node = _get_child_by_type(sibling, "identifier") or _get_child_by_type(
+                    sibling, "type_identifier"
+                )
+                target_name = _get_text(name_node) if name_node else None
+                target_line = sibling.start_point[0] + 1
+                return target_type, target_name, target_line
+        return None, None, None
+
+    def visit(node: Any) -> None:
+        if node.type == "attribute_item":
+            attr_node = _get_child_by_type(node, "attribute")
+            if attr_node:
+                path_node = None
+                args = None
+
+                for child in attr_node.children:
+                    if child.type in ("identifier", "scoped_identifier"):
+                        path_node = child
+                    elif child.type == "token_tree":
+                        args_text = _get_text(child)
+                        if args_text.startswith("(") and args_text.endswith(")"):
+                            args = args_text[1:-1]
+                        else:
+                            args = args_text
+
+                attr_name = _get_text(path_node) if path_node else ""
+                target_type, target_name, target_line = _find_target(node)
+
+                attributes.append(
+                    {
+                        "file_path": file_path,
+                        "line": node.start_point[0] + 1,
+                        "attribute_name": attr_name,
+                        "args": args,
+                        "target_type": target_type,
+                        "target_name": target_name,
+                        "target_line": target_line,
+                    }
+                )
+
+        for child in node.children:
+            visit(child)
+
+    visit(root_node)
+    return attributes
+
+
 def extract_rust_async_functions(root_node: Any, file_path: str) -> list[dict]:
     """Extract async function metadata from tree-sitter AST."""
     async_funcs = []
@@ -1251,8 +1325,10 @@ def extract_rust_assignments(root_node: Any, file_path: str) -> list[dict]:
         if node.type == "identifier":
             name = _get_text(node)
             # Filter out type names (PascalCase) and keywords
-            if name and not name[0].isupper() and name not in (
-                "self", "Self", "true", "false", "None", "Some", "Ok", "Err"
+            if (
+                name
+                and not name[0].isupper()
+                and name not in ("self", "Self", "true", "false", "None", "Some", "Ok", "Err")
             ):
                 vars_list.append(name)
         elif node.type == "field_expression":
@@ -1311,15 +1387,17 @@ def extract_rust_assignments(root_node: Any, file_path: str) -> list[dict]:
 
                 for target_var in target_vars:
                     if target_var:
-                        assignments.append({
-                            "target_var": target_var,
-                            "source_expr": source_expr,
-                            "line": node.start_point[0] + 1,
-                            "col": node.start_point[1],
-                            "in_function": in_function,
-                            "source_vars": source_vars,
-                            "property_path": None,
-                        })
+                        assignments.append(
+                            {
+                                "target_var": target_var,
+                                "source_expr": source_expr,
+                                "line": node.start_point[0] + 1,
+                                "col": node.start_point[1],
+                                "in_function": in_function,
+                                "source_vars": source_vars,
+                                "property_path": None,
+                            }
+                        )
 
         for child in node.children:
             visit(child)
@@ -1420,27 +1498,31 @@ def extract_rust_function_calls(root_node: Any, file_path: str) -> list[dict]:
 
             # If no arguments, still record the call
             if not args:
-                calls.append({
-                    "line": line,
-                    "caller_function": caller_function,
-                    "callee_function": callee_function,
-                    "argument_index": 0,
-                    "argument_expr": "",
-                    "param_name": "",
-                    "callee_file_path": None,
-                })
-            else:
-                for i, arg in enumerate(args):
-                    arg_expr = _get_text(arg)
-                    calls.append({
+                calls.append(
+                    {
                         "line": line,
                         "caller_function": caller_function,
                         "callee_function": callee_function,
-                        "argument_index": i,
-                        "argument_expr": arg_expr[:500] if arg_expr else "",
-                        "param_name": f"arg{i}",  # Rust doesn't have named args
+                        "argument_index": 0,
+                        "argument_expr": "",
+                        "param_name": "",
                         "callee_file_path": None,
-                    })
+                    }
+                )
+            else:
+                for i, arg in enumerate(args):
+                    arg_expr = _get_text(arg)
+                    calls.append(
+                        {
+                            "line": line,
+                            "caller_function": caller_function,
+                            "callee_function": callee_function,
+                            "argument_index": i,
+                            "argument_expr": arg_expr[:500] if arg_expr else "",
+                            "param_name": f"arg{i}",  # Rust doesn't have named args
+                            "callee_file_path": None,
+                        }
+                    )
 
         for child in node.children:
             visit(child)
@@ -1475,8 +1557,10 @@ def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
         if node.type == "identifier":
             name = _get_text(node)
             # Filter out type names (PascalCase) and keywords
-            if name and not name[0].isupper() and name not in (
-                "self", "Self", "true", "false", "None", "Some", "Ok", "Err"
+            if (
+                name
+                and not name[0].isupper()
+                and name not in ("self", "Self", "true", "false", "None", "Some", "Ok", "Err")
             ):
                 vars_list.append(name)
         elif node.type == "field_expression":
@@ -1521,8 +1605,11 @@ def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
 
         # If it's a direct expression (not wrapped in statement), it's implicit return
         if last_child.type not in [
-            "let_declaration", "macro_invocation", "empty_statement",
-            "attribute_item", "inner_attribute_item"
+            "let_declaration",
+            "macro_invocation",
+            "empty_statement",
+            "attribute_item",
+            "inner_attribute_item",
         ]:
             return last_child
 
@@ -1547,13 +1634,15 @@ def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
                     return_expr = _get_text(last_expr)
                     return_vars = extract_return_vars(last_expr)
 
-                    returns.append({
-                        "function_name": current_function[0],
-                        "line": last_expr.start_point[0] + 1,
-                        "col": last_expr.start_point[1],
-                        "return_expr": return_expr[:500] if return_expr else "",
-                        "return_vars": return_vars,
-                    })
+                    returns.append(
+                        {
+                            "function_name": current_function[0],
+                            "line": last_expr.start_point[0] + 1,
+                            "col": last_expr.start_point[1],
+                            "return_expr": return_expr[:500] if return_expr else "",
+                            "return_vars": return_vars,
+                        }
+                    )
 
             current_function[0] = old_func
             return
@@ -1575,13 +1664,15 @@ def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
                 return_expr = "()"  # Return unit type
                 return_vars = []
 
-            returns.append({
-                "function_name": function_name,
-                "line": node.start_point[0] + 1,
-                "col": node.start_point[1],
-                "return_expr": return_expr[:500] if return_expr else "",
-                "return_vars": return_vars,
-            })
+            returns.append(
+                {
+                    "function_name": function_name,
+                    "line": node.start_point[0] + 1,
+                    "col": node.start_point[1],
+                    "return_expr": return_expr[:500] if return_expr else "",
+                    "return_vars": return_vars,
+                }
+            )
 
         for child in node.children:
             visit(child)
@@ -1632,13 +1723,15 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
 
         # Create entry block
         entry_id = get_next_block_id()
-        blocks.append({
-            "id": entry_id,
-            "type": "entry",
-            "start_line": func_node.start_point[0] + 1,
-            "end_line": func_node.start_point[0] + 1,
-            "statements": [],
-        })
+        blocks.append(
+            {
+                "id": entry_id,
+                "type": "entry",
+                "start_line": func_node.start_point[0] + 1,
+                "end_line": func_node.start_point[0] + 1,
+                "statements": [],
+            }
+        )
 
         def process_block(block_node: Any, current_id: int) -> int | None:
             """Process a block and return the exit block id."""
@@ -1697,47 +1790,59 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                 # Create condition block
                 cond_id = get_id()
                 cond_text = _get_text(condition_node) if condition_node else ""
-                stmt_blocks.append({
-                    "id": cond_id,
-                    "type": "condition",
-                    "start_line": actual_stmt.start_point[0] + 1,
-                    "end_line": actual_stmt.start_point[0] + 1,
-                    "condition": cond_text[:200] if cond_text else "",
-                    "statements": [{"type": "if", "line": actual_stmt.start_point[0] + 1}],
-                })
+                stmt_blocks.append(
+                    {
+                        "id": cond_id,
+                        "type": "condition",
+                        "start_line": actual_stmt.start_point[0] + 1,
+                        "end_line": actual_stmt.start_point[0] + 1,
+                        "condition": cond_text[:200] if cond_text else "",
+                        "statements": [{"type": "if", "line": actual_stmt.start_point[0] + 1}],
+                    }
+                )
                 stmt_edges.append({"source": current_id, "target": cond_id, "type": "normal"})
 
                 # Create then block
                 then_id = get_id()
-                stmt_blocks.append({
-                    "id": then_id,
-                    "type": "basic",
-                    "start_line": consequence_node.start_point[0] + 1 if consequence_node else actual_stmt.start_point[0] + 1,
-                    "end_line": consequence_node.end_point[0] + 1 if consequence_node else actual_stmt.start_point[0] + 1,
-                    "statements": [],
-                })
+                stmt_blocks.append(
+                    {
+                        "id": then_id,
+                        "type": "basic",
+                        "start_line": consequence_node.start_point[0] + 1
+                        if consequence_node
+                        else actual_stmt.start_point[0] + 1,
+                        "end_line": consequence_node.end_point[0] + 1
+                        if consequence_node
+                        else actual_stmt.start_point[0] + 1,
+                        "statements": [],
+                    }
+                )
                 stmt_edges.append({"source": cond_id, "target": then_id, "type": "true"})
 
                 # Merge block
                 merge_id = get_id()
-                stmt_blocks.append({
-                    "id": merge_id,
-                    "type": "merge",
-                    "start_line": actual_stmt.end_point[0] + 1,
-                    "end_line": actual_stmt.end_point[0] + 1,
-                    "statements": [],
-                })
+                stmt_blocks.append(
+                    {
+                        "id": merge_id,
+                        "type": "merge",
+                        "start_line": actual_stmt.end_point[0] + 1,
+                        "end_line": actual_stmt.end_point[0] + 1,
+                        "statements": [],
+                    }
+                )
                 stmt_edges.append({"source": then_id, "target": merge_id, "type": "normal"})
 
                 if alternative_node:
                     else_id = get_id()
-                    stmt_blocks.append({
-                        "id": else_id,
-                        "type": "basic",
-                        "start_line": alternative_node.start_point[0] + 1,
-                        "end_line": alternative_node.end_point[0] + 1,
-                        "statements": [],
-                    })
+                    stmt_blocks.append(
+                        {
+                            "id": else_id,
+                            "type": "basic",
+                            "start_line": alternative_node.start_point[0] + 1,
+                            "end_line": alternative_node.end_point[0] + 1,
+                            "statements": [],
+                        }
+                    )
                     stmt_edges.append({"source": cond_id, "target": else_id, "type": "false"})
                     stmt_edges.append({"source": else_id, "target": merge_id, "type": "normal"})
                 else:
@@ -1759,39 +1864,51 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
 
                 scrutinee_text = _get_text(scrutinee_node) if scrutinee_node else ""
                 scrutinee_id = get_id()
-                stmt_blocks.append({
-                    "id": scrutinee_id,
-                    "type": "condition",
-                    "start_line": actual_stmt.start_point[0] + 1,
-                    "end_line": actual_stmt.start_point[0] + 1,
-                    "condition": scrutinee_text[:200] if scrutinee_text else "",
-                    "statements": [{"type": "match", "line": actual_stmt.start_point[0] + 1}],
-                })
+                stmt_blocks.append(
+                    {
+                        "id": scrutinee_id,
+                        "type": "condition",
+                        "start_line": actual_stmt.start_point[0] + 1,
+                        "end_line": actual_stmt.start_point[0] + 1,
+                        "condition": scrutinee_text[:200] if scrutinee_text else "",
+                        "statements": [{"type": "match", "line": actual_stmt.start_point[0] + 1}],
+                    }
+                )
                 stmt_edges.append({"source": current_id, "target": scrutinee_id, "type": "normal"})
 
                 merge_id = get_id()
-                stmt_blocks.append({
-                    "id": merge_id,
-                    "type": "merge",
-                    "start_line": actual_stmt.end_point[0] + 1,
-                    "end_line": actual_stmt.end_point[0] + 1,
-                    "statements": [],
-                })
+                stmt_blocks.append(
+                    {
+                        "id": merge_id,
+                        "type": "merge",
+                        "start_line": actual_stmt.end_point[0] + 1,
+                        "end_line": actual_stmt.end_point[0] + 1,
+                        "statements": [],
+                    }
+                )
 
                 # Process match arms
                 if match_body:
                     for child in match_body.children:
                         if child.type == "match_arm":
                             arm_id = get_id()
-                            stmt_blocks.append({
-                                "id": arm_id,
-                                "type": "basic",
-                                "start_line": child.start_point[0] + 1,
-                                "end_line": child.end_point[0] + 1,
-                                "statements": [{"type": "match_arm", "line": child.start_point[0] + 1}],
-                            })
-                            stmt_edges.append({"source": scrutinee_id, "target": arm_id, "type": "normal"})
-                            stmt_edges.append({"source": arm_id, "target": merge_id, "type": "normal"})
+                            stmt_blocks.append(
+                                {
+                                    "id": arm_id,
+                                    "type": "basic",
+                                    "start_line": child.start_point[0] + 1,
+                                    "end_line": child.end_point[0] + 1,
+                                    "statements": [
+                                        {"type": "match_arm", "line": child.start_point[0] + 1}
+                                    ],
+                                }
+                            )
+                            stmt_edges.append(
+                                {"source": scrutinee_id, "target": arm_id, "type": "normal"}
+                            )
+                            stmt_edges.append(
+                                {"source": arm_id, "target": merge_id, "type": "normal"}
+                            )
 
                 return stmt_blocks, stmt_edges, merge_id
 
@@ -1834,50 +1951,62 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
 
                 # Loop header/condition block
                 loop_id = get_id()
-                stmt_blocks.append({
-                    "id": loop_id,
-                    "type": "loop_condition",
-                    "start_line": actual_stmt.start_point[0] + 1,
-                    "end_line": actual_stmt.start_point[0] + 1,
-                    "condition": condition_text[:200] if condition_text else "",
-                    "statements": [{"type": loop_type, "line": actual_stmt.start_point[0] + 1}],
-                })
+                stmt_blocks.append(
+                    {
+                        "id": loop_id,
+                        "type": "loop_condition",
+                        "start_line": actual_stmt.start_point[0] + 1,
+                        "end_line": actual_stmt.start_point[0] + 1,
+                        "condition": condition_text[:200] if condition_text else "",
+                        "statements": [{"type": loop_type, "line": actual_stmt.start_point[0] + 1}],
+                    }
+                )
                 stmt_edges.append({"source": current_id, "target": loop_id, "type": "normal"})
 
                 # Loop body block
                 body_id = get_id()
-                stmt_blocks.append({
-                    "id": body_id,
-                    "type": "loop_body",
-                    "start_line": body_node.start_point[0] + 1 if body_node else actual_stmt.start_point[0] + 1,
-                    "end_line": body_node.end_point[0] + 1 if body_node else actual_stmt.end_point[0] + 1,
-                    "statements": [],
-                })
+                stmt_blocks.append(
+                    {
+                        "id": body_id,
+                        "type": "loop_body",
+                        "start_line": body_node.start_point[0] + 1
+                        if body_node
+                        else actual_stmt.start_point[0] + 1,
+                        "end_line": body_node.end_point[0] + 1
+                        if body_node
+                        else actual_stmt.end_point[0] + 1,
+                        "statements": [],
+                    }
+                )
                 stmt_edges.append({"source": loop_id, "target": body_id, "type": "true"})
                 stmt_edges.append({"source": body_id, "target": loop_id, "type": "back_edge"})
 
                 # Exit block
                 exit_id = get_id()
-                stmt_blocks.append({
-                    "id": exit_id,
-                    "type": "merge",
-                    "start_line": actual_stmt.end_point[0] + 1,
-                    "end_line": actual_stmt.end_point[0] + 1,
-                    "statements": [],
-                })
+                stmt_blocks.append(
+                    {
+                        "id": exit_id,
+                        "type": "merge",
+                        "start_line": actual_stmt.end_point[0] + 1,
+                        "end_line": actual_stmt.end_point[0] + 1,
+                        "statements": [],
+                    }
+                )
                 stmt_edges.append({"source": loop_id, "target": exit_id, "type": "false"})
 
                 return stmt_blocks, stmt_edges, exit_id
 
             elif actual_stmt.type == "return_expression":
                 return_id = get_id()
-                stmt_blocks.append({
-                    "id": return_id,
-                    "type": "return",
-                    "start_line": actual_stmt.start_point[0] + 1,
-                    "end_line": actual_stmt.start_point[0] + 1,
-                    "statements": [{"type": "return", "line": actual_stmt.start_point[0] + 1}],
-                })
+                stmt_blocks.append(
+                    {
+                        "id": return_id,
+                        "type": "return",
+                        "start_line": actual_stmt.start_point[0] + 1,
+                        "end_line": actual_stmt.start_point[0] + 1,
+                        "statements": [{"type": "return", "line": actual_stmt.start_point[0] + 1}],
+                    }
+                )
                 stmt_edges.append({"source": current_id, "target": return_id, "type": "normal"})
                 return None  # No continuation after return
 
@@ -1890,13 +2019,15 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
         # Create exit block if we have a continuation path
         if exit_id is not None:
             final_exit_id = get_next_block_id()
-            blocks.append({
-                "id": final_exit_id,
-                "type": "exit",
-                "start_line": func_node.end_point[0] + 1,
-                "end_line": func_node.end_point[0] + 1,
-                "statements": [],
-            })
+            blocks.append(
+                {
+                    "id": final_exit_id,
+                    "type": "exit",
+                    "start_line": func_node.end_point[0] + 1,
+                    "end_line": func_node.end_point[0] + 1,
+                    "statements": [],
+                }
+            )
             edges.append({"source": exit_id, "target": final_exit_id, "type": "normal"})
 
         return {

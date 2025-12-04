@@ -1475,6 +1475,46 @@ class CodeQueryEngine:
             result["framework"] = result.get("framework") or "sequelize"
             result["models"] = models
 
+        # Go routes
+        if ext == "go":
+            cursor.execute(
+                """
+                SELECT method, path, handler_func, framework, line
+                FROM go_routes
+                WHERE file_path LIKE ?
+            """,
+                (f"%{normalized_path}",),
+            )
+            routes = [dict(row) for row in cursor.fetchall()]
+            if routes:
+                result["framework"] = routes[0].get("framework", "gin")
+                result["routes"] = routes
+
+        # Rust routes (from attributes like #[get("/path")])
+        if ext == "rs":
+            cursor.execute(
+                """
+                SELECT attribute_name, args, target_name, target_line, line
+                FROM rust_attributes
+                WHERE file_path LIKE ?
+                AND attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route', 'web')
+            """,
+                (f"%{normalized_path}",),
+            )
+            routes = []
+            for row in cursor.fetchall():
+                routes.append(
+                    {
+                        "method": row["attribute_name"].upper(),
+                        "path": row["args"],
+                        "handler_function": row["target_name"],
+                        "line": row["target_line"] or row["line"],
+                    }
+                )
+            if routes:
+                result["framework"] = "actix-web"
+                result["routes"] = routes
+
         return result
 
     def get_file_context_bundle(self, file_path: str, limit: int = 20) -> dict:

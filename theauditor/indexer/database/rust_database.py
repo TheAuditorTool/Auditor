@@ -242,6 +242,21 @@ class RustDatabaseMixin:
             (file_path, line, macro_name, containing_function, args_sample)
         )
 
+    def add_rust_attribute(
+        self,
+        file_path: str,
+        line: int,
+        attribute_name: str,
+        args: str | None,
+        target_type: str | None,
+        target_name: str | None,
+        target_line: int | None,
+    ) -> None:
+        """Add a Rust attribute item to the batch."""
+        self.generic_batches["rust_attributes"].append(
+            (file_path, line, attribute_name, args, target_type, target_name, target_line)
+        )
+
     def add_rust_async_function(
         self,
         file_path: str,

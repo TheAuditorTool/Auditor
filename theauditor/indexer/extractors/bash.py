@@ -4,8 +4,8 @@ from typing import Any
 
 from theauditor.utils.logging import logger
 
-from . import BaseExtractor
 from ..fidelity_utils import FidelityToken
+from . import BaseExtractor
 
 
 class BashExtractor(BaseExtractor):
@@ -35,6 +35,35 @@ class BashExtractor(BaseExtractor):
                 try:
                     extracted = extract_all_bash_data(actual_tree, content, file_info["path"])
                     result.update(extracted)
+
+                    # Build unified symbols list for cross-language queries
+                    file_path = file_info["path"]
+                    symbols = []
+                    for func in result.get("bash_functions", []):
+                        symbols.append(
+                            {
+                                "path": file_path,
+                                "name": func.get("name", ""),
+                                "type": "function",
+                                "line": func.get("line", 0),
+                                "col": 0,
+                                "end_line": func.get("end_line"),
+                            }
+                        )
+                    result["symbols"] = symbols
+
+                    # Build imports list in format expected by _store_imports
+                    imports_for_refs = []
+                    for src in result.get("bash_sources", []):
+                        imports_for_refs.append(
+                            {
+                                "kind": "import",
+                                "value": src.get("sourced_file", ""),
+                                "line": src.get("line"),
+                            }
+                        )
+                    result["imports"] = imports_for_refs
+
                 except Exception as e:
                     logger.debug(f"Bash extraction failed: {e}")
 

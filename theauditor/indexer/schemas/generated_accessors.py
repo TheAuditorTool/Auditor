@@ -4812,6 +4812,24 @@ class RustAsyncFunctionsTable:
         return [dict(zip(['file_path', 'line', 'function_name', 'return_type', 'has_await', 'await_count'], row, strict=True)) for row in cursor.fetchall()]
 
 
+class RustAttributesTable:
+    """Accessor class for rust_attributes table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from rust_attributes."""
+        query = build_query('rust_attributes', ['file_path', 'line', 'attribute_name', 'args', 'target_type', 'target_name', 'target_line'])
+        cursor.execute(query)
+        return [dict(zip(['file_path', 'line', 'attribute_name', 'args', 'target_type', 'target_name', 'target_line'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_attribute_name(cursor: sqlite3.Cursor, attribute_name: str) -> list[dict[str, Any]]:
+        """Get rows by attribute_name."""
+        query = build_query('rust_attributes', ['file_path', 'line', 'attribute_name', 'args', 'target_type', 'target_name', 'target_line'], where="attribute_name = ?")
+        cursor.execute(query, (attribute_name,))
+        return [dict(zip(['file_path', 'line', 'attribute_name', 'args', 'target_type', 'target_name', 'target_line'], row, strict=True)) for row in cursor.fetchall()]
+
+
 class RustAwaitPointsTable:
     """Accessor class for rust_await_points table."""
 
