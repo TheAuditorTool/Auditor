@@ -202,6 +202,10 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
         "imports": ["src/utils/crypto.py"],
         "incoming_calls": [{"file": "src/api/login.py", "line": 15, ...}]
       }
+
+    SEE ALSO:
+      aud manual explain    Learn about the explain command
+      aud manual context    Apply business logic rules to findings
     """
     start_time = time.perf_counter()
 

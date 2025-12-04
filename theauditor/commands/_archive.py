@@ -6,13 +6,14 @@ from pathlib import Path
 
 import click
 
+from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
 CACHE_DIRS = frozenset({".cache", "context", "ml"})
 
 
-@click.command(name="_archive")
+@click.command(name="_archive", cls=RichCommand)
 @click.option(
     "--run-type",
     required=True,

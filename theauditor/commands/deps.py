@@ -109,6 +109,10 @@ def deps(
       0 = Success
       2 = Critical vulnerabilities found (--vuln-scan)
 
+    SEE ALSO:
+      aud manual deps          Learn about dependency analysis
+      aud manual dependencies  Package dependencies and vulnerability scanning
+
     Note: Respects proxy settings and npm/pip configurations."""
     import sys
 

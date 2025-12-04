@@ -1,19 +1,8 @@
 # rich-cli-help Specification
 
 ## Purpose
-
-Modernize all CLI help output to use Rich formatting, matching the quality of the main `aud --help` dashboard. Update content to reflect current architecture and fix grammar/style inconsistencies.
-
-## Current State (Broken)
-
-**Main help (`aud --help`):** Beautiful Rich panels with categorized commands
-**Subcommand help (`aud <cmd> --help`):** Plain Click text with bad line wrapping
-**Manual entries (`aud manual <topic>`):** ASCII boxes, no Rich markup
-
----
-
-## ADDED Requirements
-
+TBD - created by archiving change modernize-cli-output-rich. Update Purpose after archive.
+## Requirements
 ### Requirement: RichCommand Class for Subcommand Help
 
 The system SHALL provide a `RichCommand` Click class that renders subcommand help with Rich formatting.
@@ -76,8 +65,6 @@ Manual entries (`aud manual <topic>`) SHALL render with Rich formatting:
 
 ---
 
-## MODIFIED Requirements
-
 ### Requirement: Update Outdated Command Descriptions
 
 All command docstrings SHALL accurately describe current tool behavior.
@@ -115,13 +102,3 @@ All command help text SHALL follow consistent grammar and style:
 
 ---
 
-## Files Affected
-
-**New Code:**
-- `theauditor/cli.py` - Add RichCommand class
-
-**Modified Commands (36 files):**
-- `theauditor/commands/*.py` - All command docstrings
-
-**Modified Content:**
-- `theauditor/commands/manual.py` - 16 explanation entries

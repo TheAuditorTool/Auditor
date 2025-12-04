@@ -224,6 +224,10 @@ def refactor(
         -> Index changes, constraint changes not tracked
         -> Focus is on table/column structure only
 
+    SEE ALSO:
+      aud manual refactor     Learn about refactoring analysis
+      aud manual impact       Blast radius and coupling analysis
+
     NOTE: This command detects syntactic mismatches only, not semantic issues.
     Code may still break if schema change affects data types or constraints.
     """
