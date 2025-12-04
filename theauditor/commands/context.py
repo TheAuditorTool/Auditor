@@ -63,7 +63,7 @@ def context(context_file: str, output: str | None, verbose: bool):
 
       2. Load Analysis Findings:
          - Reads findings from .pf/raw/*.json
-         - Includes detect-patterns, taint-analyze, deadcode, etc.
+         - Includes detect-patterns, taint, deadcode, etc.
 
       3. Apply Classification Rules:
          - Matches findings against YAML patterns

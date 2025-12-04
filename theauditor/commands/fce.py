@@ -282,7 +282,7 @@ def fce(root, output_format, min_vectors, detailed, write):
 
     RELATED COMMANDS:
       aud full           # Run complete pipeline to populate data
-      aud taint-analyze  # Populates FLOW vector
+      aud taint  # Populates FLOW vector
       aud cfg-analyze    # Populates STRUCTURAL vector
       aud detect-patterns # Populates STATIC vector"""
     from theauditor.fce.engine import get_fce_json, run_fce, write_fce_report

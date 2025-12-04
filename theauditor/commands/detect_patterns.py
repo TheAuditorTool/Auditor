@@ -105,7 +105,7 @@ def detect_patterns(
 
     RELATED COMMANDS:
       aud full               # Runs this as part of complete pipeline
-      aud taint-analyze      # Complementary data flow analysis
+      aud taint      # Complementary data flow analysis
       aud fce                # Cross-references pattern findings
 
     SEE ALSO:

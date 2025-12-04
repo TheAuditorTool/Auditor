@@ -44,7 +44,7 @@ class RichGroup(click.Group):
             "title": "SECURITY SCANNING",
             "style": "bold red",
             "description": "Vulnerability detection and taint analysis",
-            "commands": ["detect-patterns", "taint-analyze", "boundaries", "detect-frameworks"],
+            "commands": ["detect-patterns", "taint", "boundaries", "detect-frameworks"],
         },
         "DEPENDENCIES": {
             "title": "DEPENDENCIES",

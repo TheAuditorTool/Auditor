@@ -161,7 +161,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
       3 = Pipeline failed (check .pf/pipeline.log)
 
     RELATED COMMANDS:
-      aud taint-analyze           Run taint analysis separately
+      aud taint           Run taint analysis separately
       aud detect-patterns         Run pattern detection separately
       aud workset                 Create focused file subset for analysis
       aud fce                     Run correlation engine separately

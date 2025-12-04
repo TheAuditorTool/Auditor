@@ -8,13 +8,13 @@ tags: [theauditor, dataflow, taint, trace]
 **Guardrails**
 - Define explicit source AND sink BEFORE running taint analysis - ask if ambiguous.
 - Run `aud blueprint` to identify framework-specific source/sink patterns (Flask: request.form, Express: req.body).
-- NO file reading - use `aud taint-analyze` and `aud query` for actual dataflow.
+- NO file reading - use `aud taint` and `aud query` for actual dataflow.
 - Refer to `.auditor_venv/.theauditor_tools/agents/dataflow.md` for the full protocol.
 
 **Steps**
 1. Clarify trace scope: "What source? (request.body, password, JWT)" and "What sink? (database, innerHTML, all)".
 2. Run `aud blueprint --structure | grep -A 10 "Framework Detection"` to identify backend/frontend/database.
-3. Construct and run: `aud taint-analyze --source "request.*" --sink ".*query.*"` (adjust patterns).
+3. Construct and run: `aud taint --source "request.*" --sink ".*query.*"` (adjust patterns).
 4. Parse paths and categorize by risk: HIGH (no validation), MEDIUM (validation, no sanitization), LOW (both).
 5. Query call graph: `aud query --symbol <source> --show-callers` to build complete chains.
 6. Identify sanitization gaps: X paths NO validation, Y paths validation but NO escaping.

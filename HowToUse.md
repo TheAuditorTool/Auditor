@@ -63,7 +63,7 @@ aud full
 aud detect-patterns
 
 # Step 3: Run taint analysis (15-30 seconds)
-aud taint-analyze
+aud taint
 
 # View critical findings
 aud query --category security --severity critical
@@ -83,7 +83,7 @@ aud workset --diff main..feature-branch
 
 # Step 2: Run security analysis on changed files
 aud detect-patterns --file-filter "workset"
-aud taint-analyze --workset
+aud taint --workset
 
 # Step 3: Query specific concerns
 aud query --category security --show-flow
@@ -199,7 +199,7 @@ aud workflows
 **Replacement**: Use `aud full` instead
 ```bash
 # OLD workflow
-aud init && aud taint-analyze
+aud init && aud taint
 
 # NEW workflow
 aud full  # Auto-creates .pf/ and runs complete audit
@@ -229,12 +229,12 @@ aud full --offline
 - `aud index` only runs Phase 1 (AST indexing ~30-60 seconds)
 - Modern analysis requires Phases 2-20 (frameworks, graphs, taint, patterns)
 - Running `aud index` alone leads to incomplete analysis context
-- Commands like `taint-analyze`, `deadcode`, `graph` need full pipeline context
+- Commands like `taint`, `deadcode`, `graph` need full pipeline context
 
 **Replacement**: Use `aud full` instead
 ```bash
 # OLD workflow (incomplete)
-aud index && aud taint-analyze && aud deadcode
+aud index && aud taint && aud deadcode
 
 # NEW workflow (complete audit)
 aud full  # Includes indexing + all 20 phases
@@ -336,7 +336,7 @@ aud workset --diff HEAD~1 --max-depth 2
 ```bash
 # Analyze workset only
 aud lint --workset
-aud taint-analyze --workset
+aud taint --workset
 aud detect-patterns --workset
 ```
 
@@ -442,13 +442,13 @@ aud detect-patterns --print-stats
 
 ---
 
-#### `aud taint-analyze`
+#### `aud taint`
 
 **Purpose**: Detect vulnerabilities via cross-file data flow tracking
 
 **Synopsis**:
 ```bash
-aud taint-analyze [OPTIONS]
+aud taint [OPTIONS]
 ```
 
 **Options**:
@@ -483,19 +483,19 @@ aud taint-analyze [OPTIONS]
 **Example**:
 ```bash
 # Full analysis
-aud taint-analyze
+aud taint
 
 # Critical issues only
-aud taint-analyze --severity critical
+aud taint --severity critical
 
 # Verbose output
-aud taint-analyze --json --verbose
+aud taint --json --verbose
 
 # Disable CFG (not recommended)
-aud taint-analyze --no-cfg
+aud taint --no-cfg
 
 # Workset mode
-aud taint-analyze --workset
+aud taint --workset
 ```
 
 **Output**:
@@ -1869,7 +1869,7 @@ Stage 2: Analysis Preparation (Sequential)
   └─ aud cfg analyze
 
 Stage 3: Heavy Analysis (3 Parallel Tracks)
-  ├─ Track A: aud taint-analyze (subprocess, isolated)
+  ├─ Track A: aud taint (subprocess, isolated)
   ├─ Track B: aud lint + aud detect-patterns + aud graph analyze
   └─ Track C: aud deps + aud docs (network I/O, skippable with --offline)
 
@@ -2184,9 +2184,9 @@ aud full
 #### Taint analysis timeout
 ```bash
 # Solution: Increase timeout or disable CFG
-aud taint-analyze --timeout 600
+aud taint --timeout 600
 # or
-aud taint-analyze --no-cfg
+aud taint --no-cfg
 ```
 
 #### Graph build interrupted
@@ -2204,7 +2204,7 @@ aud full
 
 # Taint analysis debug
 set THEAUDITOR_TAINT_DEBUG=1
-aud taint-analyze
+aud taint
 
 # CDK analysis debug
 set THEAUDITOR_CDK_DEBUG=1
@@ -2255,8 +2255,8 @@ sqlite3 graphs.db "SELECT COUNT(*) FROM nodes;"
 | Code | Meaning | Triggered By |
 |------|---------|--------------|
 | 0 | Success, no critical issues | All commands (default) |
-| 1 | High severity findings | `aud full`, `aud taint-analyze`, `aud impact` |
-| 2 | Critical vulnerabilities | `aud full`, `aud taint-analyze`, `aud deps --vuln-scan` |
+| 1 | High severity findings | `aud full`, `aud taint`, `aud impact` |
+| 2 | Critical vulnerabilities | `aud full`, `aud taint`, `aud deps --vuln-scan` |
 | 3 | Analysis incomplete/failed | `aud full`, `aud impact` |
 
 **Usage in CI/CD**:

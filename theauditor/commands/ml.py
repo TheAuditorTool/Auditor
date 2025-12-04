@@ -417,7 +417,7 @@ def suggest(db_path, workset, model_dir, topk, out, print_plan):
       Input: .pf/ml/ (trained models), .pf/workset.json (files to analyze)
       Output: .pf/insights/ml_suggestions.json (ranked file list with scores)
       Prerequisites: aud learn (must train models first), aud workset (files to rank)
-      Integration: Priority list for human reviewers or targeted 'aud taint-analyze'
+      Integration: Priority list for human reviewers or targeted 'aud taint'
       Performance: ~1-5 seconds (inference only, no training)
 
     WHAT IT PREDICTS:
@@ -472,7 +472,7 @@ def suggest(db_path, workset, model_dir, topk, out, print_plan):
       aud suggest --out ./build/review_priority.json
 
       # Use Case 4: Focus taint analysis on high-risk files
-      aud suggest --topk 3 && aud taint-analyze --files $(cat .pf/insights/ml_suggestions.json | jq -r '.suggestions[].file')
+      aud suggest --topk 3 && aud taint --files $(cat .pf/insights/ml_suggestions.json | jq -r '.suggestions[].file')
 
     COMMON WORKFLOWS:
       Code Review Prioritization:

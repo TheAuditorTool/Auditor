@@ -47,7 +47,7 @@ Every recommendation cites a database query. No exceptions.
 | Change impact/coupling | `aud impact --symbol X --planning-context` |
 | Full analysis pipeline | `aud full` |
 
-**Performance Note:** `aud blueprint --taint` and `--boundaries` read from database (fast). Use these for summaries instead of re-running `aud taint-analyze` (slow).
+**Performance Note:** `aud blueprint --taint` and `--boundaries` read from database (fast). Use these for summaries instead of re-running `aud taint` (slow).
 
 **First time?** Run `aud --help` and `aud <command> --help`. Never guess syntax.
 

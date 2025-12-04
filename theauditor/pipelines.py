@@ -26,7 +26,6 @@ COMMAND_TIMEOUTS = {
     "detect-patterns": 1800,
     "graph": 600,
     "terraform": 600,
-    "taint-analyze": 1800,
     "taint": 1800,
     "fce": 900,
 }
@@ -335,7 +334,7 @@ async def run_chain_silent(
 
         cmd_str = " ".join(str(c) for c in cmd)
         is_findings_command = (
-            "taint-analyze" in cmd_str
+            "taint" in cmd_str
             or ("deps" in cmd_str and "--vuln-scan" in cmd_str)
             or "cdk" in cmd_str
             or "terraform" in cmd_str
@@ -477,7 +476,7 @@ async def run_full_pipeline(
             ("graph", ["viz", "--view", "layers", "--include-analysis"]),
             ("cfg", ["analyze", "--complexity-threshold", "10"]),
             ("metadata", ["churn"]),
-            ("taint-analyze", []),
+            ("taint", []),
             ("fce", []),
             ("session", ["analyze"]),
         ]
@@ -557,7 +556,7 @@ async def run_full_pipeline(
                         description = f"{phase_num}. Analyze code churn (git history)"
                     else:
                         description = f"{phase_num}. Collect metadata"
-                elif cmd_name == "taint-analyze":
+                elif cmd_name == "taint":
                     description = f"{phase_num}. Taint analysis"
                 elif cmd_name == "fce":
                     description = f"{phase_num}. Factual correlation engine"
@@ -1408,7 +1407,7 @@ async def run_full_pipeline(
 
                 cmd_str = " ".join(str(c) for c in cmd)
                 is_findings_command = (
-                    "taint-analyze" in cmd_str
+                    "taint" in cmd_str
                     or ("deps" in cmd_str and "--vuln-scan" in cmd_str)
                     or "cdk" in cmd_str
                     or "terraform" in cmd_str

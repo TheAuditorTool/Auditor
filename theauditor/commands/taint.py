@@ -12,7 +12,7 @@ from theauditor.utils.error_handler import handle_exceptions
 IS_WINDOWS = platform.system() == "Windows"
 
 
-@click.command("taint-analyze", cls=RichCommand)
+@click.command("taint", cls=RichCommand)
 @handle_exceptions
 @click.option("--db", default=None, help="Path to the SQLite database (default: repo_index.db)")
 @click.option(
@@ -132,35 +132,35 @@ def taint_analyze(
       aud full
 
       # Use Case 2: Only show critical/high severity findings
-      aud taint-analyze --severity high
+      aud taint --severity high
 
       # Use Case 3: Verbose mode (show full taint paths)
-      aud taint-analyze --verbose --severity critical
+      aud taint --verbose --severity critical
 
       # Use Case 4: Export for SAST tool integration
-      aud taint-analyze --json --output ./sast_results.json
+      aud taint --json --output ./sast_results.json
 
       # Use Case 5: Fast scan (disable CFG for speed)
-      aud taint-analyze --no-cfg  # 3-5x faster but less accurate
+      aud taint --no-cfg  # 3-5x faster but less accurate
 
       # Use Case 6: Memory-constrained environment
-      aud taint-analyze --memory-limit 512  # Limit cache to 512MB
+      aud taint --memory-limit 512  # Limit cache to 512MB
 
       # Use Case 7: Combined with workset (analyze recent changes)
-      aud workset --diff HEAD~1 && aud taint-analyze --workset
+      aud workset --diff HEAD~1 && aud taint --workset
 
     COMMON WORKFLOWS:
       Pre-Commit Security Check:
-        aud full --index && aud taint-analyze --severity critical
+        aud full --index && aud taint --severity critical
 
       Pull Request Review:
-        aud workset --diff main..feature && aud taint-analyze --workset
+        aud workset --diff main..feature && aud taint --workset
 
       CI/CD Pipeline (fail on high severity):
-        aud taint-analyze --severity high || exit 2
+        aud taint --severity high || exit 2
 
       Full Security Audit:
-        aud full --offline && aud taint-analyze --verbose
+        aud full --offline && aud taint --verbose
 
     OUTPUT FILES:
       .pf/raw/taint_analysis.json      # Taint paths with severity
@@ -296,14 +296,14 @@ def taint_analyze(
     db_path = Path(db)
     if not db_path.exists():
         console.print(
-            f"[error]Error: Database not found at {db}[/error]", stderr=True, highlight=False
+            f"[error]Error: Database not found at {db}[/error]", highlight=False
         )
         console.print(
-            "[error]Run 'aud full' first to build the repository index[/error]", stderr=True
+            "[error]Run 'aud full' first to build the repository index[/error]"
         )
         raise click.ClickException(f"Database not found: {db}")
 
-    console.print("[error]Validating database schema...[/error]", stderr=True)
+    console.print("[error]Validating database schema...[/error]")
     try:
         import sqlite3
 
@@ -315,25 +315,24 @@ def taint_analyze(
         conn.close()
 
         if mismatches:
-            console.print("[error][/error]", stderr=True)
+            console.print("[error][/error]")
             console.rule()
-            console.print("[error] SCHEMA VALIDATION FAILED [/error]", stderr=True)
+            console.print("[error] SCHEMA VALIDATION FAILED [/error]")
             console.rule()
             console.print(
-                "[error]Database schema does not match expected definitions.[/error]", stderr=True
+                "[error]Database schema does not match expected definitions.[/error]"
             )
             console.print(
-                "[error]This will cause incorrect results or failures.\n[/error]", stderr=True
+                "[error]This will cause incorrect results or failures.\n[/error]"
             )
 
             for table_name, errors in list(mismatches.items())[:5]:
-                console.print(f"[error]Table: {table_name}[/error]", stderr=True, highlight=False)
+                console.print(f"[error]Table: {table_name}[/error]", highlight=False)
                 for error in errors[:2]:
-                    console.print(f"[error]  - {error}[/error]", stderr=True, highlight=False)
+                    console.print(f"[error]  - {error}[/error]", highlight=False)
 
             console.print(
                 "[error]\nFix: Run 'aud index' to rebuild database with correct schema.[/error]",
-                stderr=True,
             )
             console.rule()
 
@@ -342,17 +341,16 @@ def taint_analyze(
 
             console.print(
                 "[error]WARNING: Continuing with schema mismatch - results may be unreliable[/error]",
-                stderr=True,
             )
         else:
-            console.print("[error]Schema validation passed.[/error]", stderr=True)
+            console.print("[error]Schema validation passed.[/error]")
     except ImportError:
         console.print(
-            "[error]Schema validation skipped (schema module not available)[/error]", stderr=True
+            "[error]Schema validation skipped (schema module not available)[/error]"
         )
     except Exception as e:
-        console.print(f"[error]Schema validation error: {e}[/error]", stderr=True, highlight=False)
-        console.print("[error]Continuing anyway...[/error]", stderr=True)
+        console.print(f"[error]Schema validation error: {e}[/error]", highlight=False)
+        console.print("[error]Continuing anyway...[/error]")
 
     if rules:
         console.print("Initializing security analysis infrastructure...")
@@ -533,7 +531,6 @@ def taint_analyze(
         except Exception as e:
             console.print(
                 f"[error]\\[DB] Warning: Database write failed: {e}[/error]",
-                stderr=True,
                 highlight=False,
             )
             console.print("\\[DB] JSON output will still be generated for AI consumption")

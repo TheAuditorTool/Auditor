@@ -126,7 +126,7 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
             OR
         aud index           # Minimum (basic structure only)
         aud detect-patterns # Optional (for security surface)
-        aud taint-analyze   # Optional (for data flow)
+        aud taint   # Optional (for data flow)
         aud graph build     # Optional (for import graph)
 
     WHAT YOU GET (Truth Courier Facts Only):
@@ -1189,7 +1189,7 @@ def _show_security_drilldown(data: dict, cursor):
 
     console.print("\nCross-Reference Commands:")
     console.print("  -> Use 'aud query --show-api-coverage' for full endpoint security matrix")
-    console.print("  -> Use 'aud taint-analyze' for data flow security analysis")
+    console.print("  -> Use 'aud taint' for data flow security analysis")
     console.print("  -> Use 'aud deps --vuln-scan' for dependency CVEs (OSV-Scanner)")
     console.print(
         "  -> Use 'aud query --pattern \"localStorage\" --type-filter function' to find insecure storage"
@@ -1216,7 +1216,7 @@ def _show_taint_drilldown(data: dict, cursor):
 
     if df["taint_paths"] == 0:
         console.print("\n[warning]No taint analysis data available[/warning]")
-        console.print("  Run: aud taint-analyze")
+        console.print("  Run: aud taint")
         console.print("\n" + "=" * 80 + "\n", markup=False)
         return
 
@@ -1279,7 +1279,7 @@ def _show_taint_drilldown(data: dict, cursor):
 
         if df["taint_paths"] > 5:
             console.print(f"\n  ... {df['taint_paths'] - 5} more taint paths", highlight=False)
-            console.print("  -> Use 'aud taint-analyze --json' for full vulnerability details")
+            console.print("  -> Use 'aud taint --json' for full vulnerability details")
     else:
         console.print("  (No taint findings in findings_consolidated table)")
 
@@ -1330,7 +1330,7 @@ def _show_taint_drilldown(data: dict, cursor):
         "  -> Use 'aud query --symbol <func> --show-taint-flow' for specific function flows"
     )
     console.print("  -> Use 'aud query --variable req.body --show-flow --depth 3' for data tracing")
-    console.print("  -> Use 'aud taint-analyze --json' to re-run analysis with fresh data")
+    console.print("  -> Use 'aud taint --json' to re-run analysis with fresh data")
 
     console.print("\n" + "=" * 80 + "\n", markup=False)
 
