@@ -1,0 +1,585 @@
+name: go_task_queue
+description: |
+  A distributed task queue system in Go for testing TheAuditor Go extraction.
+
+  Tests comprehensive Go patterns:
+  - Package organization (cmd/, internal/, pkg/)
+  - Interface definitions and implementations
+  - Generics (Go 1.18+)
+  - Goroutines and channels
+  - Synchronization primitives (mutex, atomic, sync.WaitGroup)
+  - Context cancellation
+  - Error handling patterns
+  - Functional options pattern
+  - HTTP handlers and middleware
+  - Database operations with sql.DB
+  - Type assertions and type switches
+  - Method receivers (value and pointer)
+  - Anonymous functions and closures
+  - Select statements
+  - Defer/recover
+
+verification_rules:
+  - name: package_declarations
+    description: Verify all package declarations are extracted
+    query: |
+      SELECT DISTINCT package_name
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%'
+        AND type = 'package'
+      ORDER BY package_name
+    expected_minimum: 10
+
+  - name: interface_definitions
+    description: Verify interface extraction
+    query: |
+      SELECT name, path, line
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%'
+        AND type = 'interface'
+      ORDER BY name
+    expected_minimum: 8
+
+  - name: struct_definitions
+    description: Verify struct extraction
+    query: |
+      SELECT name, path, line
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%'
+        AND type = 'struct'
+      ORDER BY name
+    expected_minimum: 25
+
+  - name: function_definitions
+    description: Verify function extraction (including methods)
+    query: |
+      SELECT name, path, line
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%'
+        AND type = 'function'
+      ORDER BY path, line
+    expected_minimum: 80
+
+  - name: method_receivers
+    description: Verify method receiver extraction
+    query: |
+      SELECT name, receiver_type, path, line
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%'
+        AND type = 'function'
+        AND receiver_type IS NOT NULL
+      ORDER BY receiver_type, name
+    expected_minimum: 50
+
+  - name: generic_types
+    description: Verify generic type parameter extraction
+    query: |
+      SELECT name, type_params, path
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%'
+        AND type_params IS NOT NULL
+      ORDER BY name
+    expected_minimum: 3
+
+  - name: function_calls
+    description: Verify function call extraction
+    query: |
+      SELECT callee_function, COUNT(*) as call_count
+      FROM function_calls
+      WHERE file LIKE '%go-task-queue%'
+      GROUP BY callee_function
+      ORDER BY call_count DESC
+      LIMIT 20
+    expected_minimum: 15
+
+  - name: imports
+    description: Verify import extraction
+    query: |
+      SELECT DISTINCT import_path
+      FROM imports
+      WHERE file LIKE '%go-task-queue%'
+      ORDER BY import_path
+    expected_minimum: 10
+
+  - name: goroutine_spawns
+    description: Verify goroutine detection (go keyword)
+    query: |
+      SELECT file, line, callee_function
+      FROM function_calls
+      WHERE file LIKE '%go-task-queue%'
+        AND is_goroutine = 1
+      ORDER BY file, line
+    expected_minimum: 10
+
+  - name: channel_operations
+    description: Verify channel operation extraction
+    query: |
+      SELECT file, line, operation
+      FROM channel_ops
+      WHERE file LIKE '%go-task-queue%'
+      ORDER BY file, line
+    expected_minimum: 15
+
+  - name: constants
+    description: Verify constant extraction
+    query: |
+      SELECT name, value, path
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%'
+        AND type = 'constant'
+      ORDER BY name
+    expected_minimum: 10
+
+  - name: variable_declarations
+    description: Verify package-level variable extraction
+    query: |
+      SELECT name, path, line
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%'
+        AND type = 'variable'
+        AND scope = 'package'
+      ORDER BY name
+    expected_minimum: 5
+
+  - name: error_definitions
+    description: Verify error variable extraction
+    query: |
+      SELECT name, path
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%'
+        AND type = 'variable'
+        AND name LIKE 'Err%'
+      ORDER BY name
+    expected_minimum: 8
+
+  - name: http_handlers
+    description: Verify HTTP handler function extraction
+    query: |
+      SELECT s.name, s.path, s.line
+      FROM symbols s
+      WHERE s.path LIKE '%go-task-queue%api%'
+        AND s.type = 'function'
+        AND (
+          s.name LIKE '%Handler%'
+          OR s.name IN ('Enqueue', 'GetTask', 'ListTasks', 'DeleteTask')
+        )
+      ORDER BY s.name
+    expected_minimum: 8
+
+  - name: middleware_chain
+    description: Verify middleware function extraction
+    query: |
+      SELECT name, path
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%middleware%'
+        AND type = 'function'
+      ORDER BY name
+    expected_minimum: 10
+
+  - name: storage_implementations
+    description: Verify storage interface implementations
+    query: |
+      SELECT s.name, s.receiver_type, s.path
+      FROM symbols s
+      WHERE s.path LIKE '%go-task-queue%storage%'
+        AND s.type = 'function'
+        AND s.receiver_type IN ('*SQLiteStorage', '*InMemoryStorage')
+      ORDER BY s.receiver_type, s.name
+    expected_minimum: 15
+
+  - name: worker_pool_methods
+    description: Verify worker pool method extraction
+    query: |
+      SELECT name, receiver_type, path
+      FROM symbols
+      WHERE path LIKE '%go-task-queue%worker%'
+        AND type = 'function'
+        AND receiver_type = '*Pool'
+      ORDER BY name
+    expected_minimum: 8
+
+  - name: defer_statements
+    description: Verify defer statement detection
+    query: |
+      SELECT file, line, deferred_call
+      FROM defer_statements
+      WHERE file LIKE '%go-task-queue%'
+      ORDER BY file, line
+    expected_minimum: 20
+
+  - name: select_statements
+    description: Verify select statement detection for channel operations
+    query: |
+      SELECT file, line
+      FROM select_statements
+      WHERE file LIKE '%go-task-queue%'
+      ORDER BY file, line
+    expected_minimum: 8
+
+  # =========================================================================
+  # TAINT ANALYSIS VERIFICATION
+  # =========================================================================
+
+  - name: taint_sources_http
+    description: Verify HTTP taint sources are detected
+    query: |
+      SELECT file, line, source_expr
+      FROM assignments
+      WHERE file LIKE '%vulnerable%'
+        AND (
+          source_expr LIKE '%r.URL.Query%'
+          OR source_expr LIKE '%r.FormValue%'
+          OR source_expr LIKE '%r.Body%'
+          OR source_expr LIKE '%r.Header%'
+          OR source_expr LIKE '%r.PostFormValue%'
+        )
+      ORDER BY file, line
+    expected_minimum: 15
+
+  - name: taint_sinks_sql
+    description: Verify SQL injection sinks are detected
+    query: |
+      SELECT file, line, callee_function
+      FROM function_calls
+      WHERE file LIKE '%vulnerable%'
+        AND (
+          callee_function LIKE '%Query%'
+          OR callee_function LIKE '%Exec%'
+        )
+      ORDER BY file, line
+    expected_minimum: 10
+
+  - name: taint_sinks_command
+    description: Verify command injection sinks are detected
+    query: |
+      SELECT file, line, callee_function
+      FROM function_calls
+      WHERE file LIKE '%vulnerable%'
+        AND callee_function LIKE '%Command%'
+      ORDER BY file, line
+    expected_minimum: 5
+
+  - name: taint_sinks_file
+    description: Verify file operation sinks are detected
+    query: |
+      SELECT file, line, callee_function
+      FROM function_calls
+      WHERE file LIKE '%vulnerable%'
+        AND (
+          callee_function LIKE '%ReadFile%'
+          OR callee_function LIKE '%WriteFile%'
+          OR callee_function LIKE '%Create%'
+        )
+      ORDER BY file, line
+    expected_minimum: 3
+
+  - name: taint_string_concat
+    description: Verify string concatenation for taint propagation
+    query: |
+      SELECT file, line, source_expr
+      FROM assignments
+      WHERE file LIKE '%vulnerable%'
+        AND (
+          source_expr LIKE '%fmt.Sprintf%'
+          OR source_expr LIKE '%+%'
+        )
+      ORDER BY file, line
+    expected_minimum: 10
+
+  - name: taint_channel_propagation
+    description: Verify channel operations for cross-goroutine taint
+    query: |
+      SELECT file, line, operation
+      FROM channel_ops
+      WHERE file LIKE '%vulnerable%'
+      ORDER BY file, line
+    expected_minimum: 5
+
+  - name: taint_interface_dispatch
+    description: Verify interface method calls for taint through polymorphism
+    query: |
+      SELECT file, line, callee_function
+      FROM function_calls
+      WHERE file LIKE '%vulnerable%'
+        AND callee_function = 'GetData'
+      ORDER BY file, line
+    expected_minimum: 1
+
+  - name: taint_closure_capture
+    description: Verify closure variable capture for taint propagation
+    query: |
+      SELECT file, line, name
+      FROM symbols
+      WHERE path LIKE '%vulnerable%'
+        AND type = 'function'
+        AND name LIKE '%Closure%'
+      ORDER BY name
+    expected_minimum: 2
+
+  # =========================================================================
+  # EDGE CASE VERIFICATION
+  # =========================================================================
+
+  - name: edge_init_functions
+    description: Verify multiple init() functions are extracted
+    query: |
+      SELECT file, line
+      FROM symbols
+      WHERE path LIKE '%edge%'
+        AND type = 'function'
+        AND name = 'init'
+      ORDER BY line
+    expected_minimum: 3
+
+  - name: edge_iota_constants
+    description: Verify iota constant extraction
+    query: |
+      SELECT name, value
+      FROM symbols
+      WHERE path LIKE '%edge%'
+        AND type = 'constant'
+        AND (
+          name IN ('KB', 'MB', 'GB', 'TB')
+          OR name LIKE 'Flag%'
+          OR name LIKE 'State%'
+        )
+      ORDER BY name
+    expected_minimum: 8
+
+  - name: edge_embedded_types
+    description: Verify embedded type extraction
+    query: |
+      SELECT name, embedded_types
+      FROM symbols
+      WHERE path LIKE '%edge%'
+        AND type = 'struct'
+        AND embedded_types IS NOT NULL
+      ORDER BY name
+    expected_minimum: 2
+
+  - name: edge_interface_embedding
+    description: Verify embedded interface extraction
+    query: |
+      SELECT name, embedded_interfaces
+      FROM symbols
+      WHERE path LIKE '%edge%'
+        AND type = 'interface'
+        AND embedded_interfaces IS NOT NULL
+      ORDER BY name
+    expected_minimum: 2
+
+  - name: edge_named_returns
+    description: Verify functions with named return values
+    query: |
+      SELECT name, return_names
+      FROM symbols
+      WHERE path LIKE '%edge%'
+        AND type = 'function'
+        AND return_names IS NOT NULL
+      ORDER BY name
+    expected_minimum: 2
+
+  - name: edge_variadic_functions
+    description: Verify variadic function extraction
+    query: |
+      SELECT name, is_variadic
+      FROM symbols
+      WHERE path LIKE '%edge%'
+        AND type = 'function'
+        AND is_variadic = 1
+      ORDER BY name
+    expected_minimum: 2
+
+  - name: edge_type_aliases
+    description: Verify type alias vs type definition distinction
+    query: |
+      SELECT name, underlying_type, is_alias
+      FROM symbols
+      WHERE path LIKE '%edge%'
+        AND type IN ('type_alias', 'type_definition')
+      ORDER BY name
+    expected_minimum: 2
+
+  - name: edge_blank_identifiers
+    description: Verify blank identifier usage detection
+    query: |
+      SELECT file, line
+      FROM assignments
+      WHERE file LIKE '%edge%'
+        AND target = '_'
+      ORDER BY file, line
+    expected_minimum: 3
+
+  - name: edge_method_values
+    description: Verify method value vs method expression detection
+    query: |
+      SELECT file, line, callee_function, is_method_value
+      FROM function_calls
+      WHERE file LIKE '%edge%'
+        AND callee_function IN ('Increment', 'Value')
+      ORDER BY file, line
+    expected_minimum: 4
+
+  - name: edge_channel_directions
+    description: Verify channel direction extraction (send-only, receive-only)
+    query: |
+      SELECT name, channel_direction
+      FROM symbols
+      WHERE path LIKE '%edge%'
+        AND type = 'function'
+        AND name IN ('SendOnly', 'ReceiveOnly', 'Bidirectional')
+      ORDER BY name
+    expected_minimum: 3
+
+  - name: edge_defer_patterns
+    description: Verify defer statement patterns in edge cases
+    query: |
+      SELECT file, line
+      FROM defer_statements
+      WHERE file LIKE '%edge%'
+      ORDER BY file, line
+    expected_minimum: 8
+
+  - name: edge_panic_recover
+    description: Verify panic/recover pattern detection
+    query: |
+      SELECT file, line, callee_function
+      FROM function_calls
+      WHERE file LIKE '%edge%'
+        AND callee_function IN ('panic', 'recover')
+      ORDER BY file, line
+    expected_minimum: 4
+
+  - name: edge_type_switch
+    description: Verify type switch detection
+    query: |
+      SELECT file, line
+      FROM type_switches
+      WHERE file LIKE '%edge%'
+      ORDER BY file, line
+    expected_minimum: 2
+
+  - name: edge_select_patterns
+    description: Verify various select patterns (default, timeout, context)
+    query: |
+      SELECT file, line, has_default
+      FROM select_statements
+      WHERE file LIKE '%edge%'
+      ORDER BY file, line
+    expected_minimum: 5
+
+coverage_summary:
+  packages: 12+
+  interfaces: 12+
+  structs: 35+
+  functions: 120+
+  methods: 60+
+  goroutines: 15+
+  channels: 25+
+  http_handlers: 20+
+  middleware: 10+
+  taint_sources: 15+
+  taint_sinks: 20+
+  edge_cases: 40+
+
+go_patterns_tested:
+  # Core Language
+  - Package organization (cmd/internal/pkg layout)
+  - Interface definitions and polymorphism
+  - Generic types and functions (Go 1.18+)
+  - Functional options pattern
+  - Method receivers (pointer and value)
+  - Type aliases vs type definitions
+  - Embedded structs and interfaces
+  - Named return values and naked returns
+  - Variadic functions
+  - Multiple init() functions
+  - Iota constants with complex expressions
+  - Blank identifier patterns
+
+  # Concurrency
+  - Goroutines and channel operations
+  - Select statements (default, timeout, context)
+  - Channel directions (send-only, receive-only, bidirectional)
+  - Channel of channels
+  - Nil and closed channel behavior
+  - Context for cancellation and timeouts
+  - sync.Mutex and sync.RWMutex
+  - sync/atomic for lock-free operations
+  - sync.WaitGroup for coordination
+
+  # Control Flow
+  - Defer ordering (LIFO)
+  - Defer with loop variable capture
+  - Panic/recover patterns
+  - Type assertions (with and without ok)
+  - Type switches (single and multiple types)
+  - Method values vs method expressions
+
+  # HTTP/API
+  - HTTP handlers with standard library
+  - Middleware chain pattern
+  - Request parameter extraction
+  - JSON marshaling/unmarshaling
+
+  # Database
+  - Database/sql with prepared statements
+  - Parameterized queries (safe patterns)
+  - String concatenation in queries (vulnerable)
+
+  # Security/Taint
+  - SQL injection patterns (direct, interpolated, ORDER BY)
+  - Command injection patterns (direct, piped)
+  - Path traversal patterns
+  - Template injection (HTML, JS)
+  - Cross-goroutine taint propagation via channels
+  - Interface-based taint propagation
+  - Closure variable capture for taint
+  - Multi-hop taint through function calls
+  - Struct field taint propagation
+  - Safe patterns (parameterized queries, sanitization)
+
+taint_flow_patterns:
+  - pattern: direct_sql_injection
+    source: r.URL.Query().Get("id")
+    sink: db.Query(fmt.Sprintf("SELECT...%s", userID))
+    severity: CRITICAL
+
+  - pattern: command_injection_body
+    source: json.Decode(r.Body)
+    sink: exec.Command(payload.Command)
+    severity: CRITICAL
+
+  - pattern: path_traversal
+    source: r.URL.Query().Get("path")
+    sink: os.ReadFile(filepath.Join("/var", userPath))
+    severity: HIGH
+
+  - pattern: template_xss
+    source: r.FormValue("content")
+    sink: template.HTML(userContent)
+    severity: HIGH
+
+  - pattern: cross_goroutine_sql
+    source: io.ReadAll(r.Body)
+    propagation: dataChan <- taintedData
+    sink: db.Exec("INSERT...'" + received + "'")
+    severity: CRITICAL
+
+  - pattern: interface_dispatch_sql
+    source: DataSource.GetData() [HTTPSource]
+    sink: db.Query("SELECT...'" + data + "'")
+    severity: HIGH
+
+  - pattern: multi_hop_taint
+    source: r.FormValue("data")
+    hops: [processInput, formatForQuery]
+    sink: db.Query("SELECT..." + formatted)
+    severity: HIGH
+
+expected_vulnerabilities:
+  sql_injection: 12
+  command_injection: 4
+  path_traversal: 2
+  template_injection: 2
+  safe_patterns: 3
