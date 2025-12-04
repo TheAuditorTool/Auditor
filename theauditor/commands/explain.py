@@ -22,6 +22,8 @@ import click
 from theauditor.cli import RichCommand
 from theauditor.context.explain_formatter import ExplainFormatter
 from theauditor.context.query import CodeQueryEngine
+from theauditor.fce import FCEQueryEngine, VectorSignal
+from theauditor.fce.formatter import FCEFormatter
 from theauditor.pipeline.ui import console
 from theauditor.utils.code_snippets import CodeSnippetManager
 from theauditor.utils.error_handler import handle_exceptions
@@ -96,8 +98,9 @@ def detect_target_type(target: str, engine: CodeQueryEngine) -> str:
 )
 @click.option("--no-code", is_flag=True, help="Disable code snippets (faster output)")
 @click.option("--limit", default=20, type=int, help="Max items per section (default=20)")
+@click.option("--fce", is_flag=True, help="Include FCE vector signal density (convergence analysis)")
 @handle_exceptions
-def explain(target: str, depth: int, output_format: str, section: str, no_code: bool, limit: int):
+def explain(target: str, depth: int, output_format: str, section: str, no_code: bool, limit: int, fce: bool):
     """Get comprehensive context about a file, symbol, or component.
 
     Provides a complete "briefing packet" in ONE command, eliminating the need
@@ -289,6 +292,54 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
             data["target"] = target
             data["target_type"] = "component"
             output = formatter.format_component_explain(data)
+
+        # Add FCE vector signal if requested
+        fce_signal = None
+        if fce:
+            try:
+                fce_engine = FCEQueryEngine(root)
+                # Determine file path based on target type
+                if target_type == "file":
+                    fce_file = target
+                elif target_type == "symbol":
+                    # Symbol data has file in definition dict
+                    definition = data.get("definition", {})
+                    fce_file = definition.get("file") if isinstance(definition, dict) else None
+                elif target_type == "component" and "file" in data:
+                    fce_file = data["file"]
+                else:
+                    fce_file = None
+
+                if fce_file:
+                    fce_signal = fce_engine.get_vector_density(fce_file)
+                    # Add to data for JSON output
+                    fce_fmt = FCEFormatter()
+                    data["fce"] = {
+                        "file": fce_file,
+                        "density": fce_signal.density,
+                        "density_label": fce_signal.density_label,
+                        "vectors": fce_fmt.get_vector_code_string(fce_signal),
+                        "vectors_present": list(fce_signal.vectors_present),
+                    }
+                    # Append to text output
+                    output += f"\n\nFCE SIGNAL DENSITY:\n"
+                    output += f"  File: {fce_file}\n"
+                    output += f"  Vectors: [{fce_signal.density_label}] {fce_fmt.get_vector_code_string(fce_signal)}\n"
+                    if fce_signal.vectors_present:
+                        output += f"  Analysis vectors present:\n"
+                        for v in sorted(fce_signal.vectors_present):
+                            vector_names = {
+                                "static": "STATIC (linters: ruff, eslint, bandit)",
+                                "flow": "FLOW (taint analysis)",
+                                "process": "PROCESS (code churn)",
+                                "structural": "STRUCTURAL (complexity)",
+                            }
+                            output += f"    - {vector_names.get(v, v)}\n"
+                    output += f"  -> Run 'aud fce' for full convergence details\n"
+                fce_engine.close()
+            except FileNotFoundError:
+                # No FCE database - skip silently
+                pass
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         data["metadata"] = {

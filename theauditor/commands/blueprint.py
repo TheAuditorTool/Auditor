@@ -44,8 +44,9 @@ VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_e
     type=int,
     help="Line count threshold for --monoliths (default: 2150)",
 )
+@click.option("--fce", is_flag=True, help="Drill down into FCE vector convergence analysis")
 @handle_exceptions
-def blueprint(structure, graph, security, taint, boundaries, deps, all, output_format, monoliths, threshold):
+def blueprint(structure, graph, security, taint, boundaries, deps, all, output_format, monoliths, threshold, fce):
     """Architectural fact visualization with drill-down analysis modes (NO recommendations).
 
     Truth-courier mode visualization that presents pure architectural facts extracted from
@@ -91,6 +92,11 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
         - Control points (validation, auth, sanitization)
         - Distance metrics (calls between entry and control)
         - Quality levels (clear, acceptable, fuzzy, missing)
+
+      --fce: Vector convergence analysis
+        - Files with multiple analysis vectors converging
+        - Signal density distribution (4/4, 3/4, 2/4, 1/4)
+        - High-priority files with 3+ vectors
 
       --all: Export complete data as JSON
 
@@ -162,6 +168,7 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
             "taint": taint,
             "boundaries": boundaries,
             "deps": deps,
+            "fce": fce,
             "all": all,
         }
 
@@ -183,6 +190,8 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
             _show_boundaries_drilldown(data, cursor)
         elif deps:
             _show_deps_drilldown(data, cursor)
+        elif fce:
+            _show_fce_drilldown(data)
         else:
             if output_format == "json":
                 summary = {
@@ -225,6 +234,7 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: dict) -> dict:
             flags.get("taint"),
             flags.get("boundaries"),
             flags.get("deps"),
+            flags.get("fce"),
         ]
     )
 
@@ -280,6 +290,11 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: dict) -> dict:
         data["boundaries"] = _get_boundaries(cursor, graphs_db_path)
     else:
         data["boundaries"] = {"total_entries": 0, "by_quality": {}, "missing_controls": 0}
+
+    if run_all or flags.get("fce"):
+        data["fce"] = _get_fce_data()
+    else:
+        data["fce"] = {"total_points": 0, "by_density": {}, "convergence_points": []}
 
     return data
 
@@ -1731,3 +1746,122 @@ def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
         console.rule()
 
     return 0
+
+
+def _get_fce_data() -> dict:
+    """Get FCE vector convergence data.
+
+    Runs FCE analysis and returns summary for blueprint integration.
+    """
+    from theauditor.fce import FCEQueryEngine
+    from theauditor.fce.formatter import FCEFormatter
+
+    root = Path.cwd()
+    fce_data = {
+        "total_points": 0,
+        "by_density": {4: 0, 3: 0, 2: 0, 1: 0},
+        "convergence_points": [],
+    }
+
+    try:
+        engine = FCEQueryEngine(root)
+        points = engine.get_convergence_points(min_vectors=1)
+        summary = engine.get_summary()
+        engine.close()
+
+        fce_data["total_points"] = len(points)
+        fce_data["summary"] = summary
+
+        formatter = FCEFormatter()
+        for point in points:
+            density = len(point.signal.vectors_present)
+            fce_data["by_density"][density] = fce_data["by_density"].get(density, 0) + 1
+            fce_data["convergence_points"].append({
+                "file": point.file_path,
+                "density": density,
+                "vectors": formatter.get_vector_code_string(point.signal),
+                "fact_count": len(point.facts),
+            })
+
+    except FileNotFoundError:
+        fce_data["error"] = "FCE database not found (run aud full)"
+
+    return fce_data
+
+
+def _show_fce_drilldown(data: dict):
+    """Drill down: FCE vector convergence analysis.
+
+    Shows files with multiple analysis vectors converging on them.
+    """
+    fce = data.get("fce", {})
+
+    console.print("\nFCE DRILL-DOWN")
+    console.rule()
+    console.print("Vector Convergence Analysis: Where do multiple analysis vectors agree?")
+    console.rule()
+
+    if fce.get("error"):
+        console.print(f"\n(!) {fce['error']}", highlight=False)
+        console.print("  Run: aud full (populates FCE database)")
+        console.print("\n" + "=" * 80 + "\n", markup=False)
+        return
+
+    total = fce.get("total_points", 0)
+    if total == 0:
+        console.print("\n(!) No convergence points found")
+        console.print("  This may indicate a clean codebase or incomplete analysis")
+        console.print("  Run: aud full (for complete analysis)")
+        console.print("\n" + "=" * 80 + "\n", markup=False)
+        return
+
+    console.print(f"\nFiles with Vector Convergence: {total}", highlight=False)
+
+    console.print("\nSignal Density Distribution:")
+    by_density = fce.get("by_density", {})
+    console.print(f"  [red]4/4 vectors (highest):[/red] {by_density.get(4, 0):4d} files")
+    console.print(f"  [yellow]3/4 vectors:[/yellow]          {by_density.get(3, 0):4d} files")
+    console.print(f"  [cyan]2/4 vectors:[/cyan]            {by_density.get(2, 0):4d} files")
+    console.print(f"  [dim]1/4 vectors:[/dim]            {by_density.get(1, 0):4d} files")
+
+    console.print("\nVector Legend:")
+    console.print("  S = STATIC (linters: ruff, eslint, bandit)")
+    console.print("  F = FLOW (taint analysis)")
+    console.print("  P = PROCESS (code churn, change frequency)")
+    console.print("  T = STRUCTURAL (complexity, CFG analysis)")
+
+    points = fce.get("convergence_points", [])
+    high_priority = [p for p in points if p.get("density", 0) >= 3]
+
+    if high_priority:
+        console.print(f"\nHigh Priority Files (3+ vectors, showing first 10):")
+        for i, point in enumerate(high_priority[:10], 1):
+            file = point.get("file", "unknown")
+            density = point.get("density", 0)
+            vectors = point.get("vectors", "----")
+            facts = point.get("fact_count", 0)
+            console.print(f"\n  {i}. \\[{density}/4] {file}", highlight=False)
+            console.print(f"     Vectors: {vectors}", highlight=False)
+            console.print(f"     Facts: {facts} findings", highlight=False)
+
+        if len(high_priority) > 10:
+            console.print(f"\n  ... and {len(high_priority) - 10} more high-priority files")
+    else:
+        console.print("\n[success]No files with 3+ vectors (good signal)[/success]")
+
+    summary = fce.get("summary", {})
+    if summary:
+        console.print("\nSummary Statistics:")
+        console.print(f"  Total files analyzed: {summary.get('total_files', 0):,}", highlight=False)
+        console.print(f"  Files with static findings: {summary.get('static_files', 0):,}", highlight=False)
+        console.print(f"  Files with flow findings: {summary.get('flow_files', 0):,}", highlight=False)
+        console.print(f"  Files with process data: {summary.get('process_files', 0):,}", highlight=False)
+        console.print(f"  Files with structural data: {summary.get('structural_files', 0):,}", highlight=False)
+
+    console.print("\nRelated Commands:")
+    console.print("  -> aud fce                     # Full FCE convergence report")
+    console.print("  -> aud fce --format json       # JSON output for AI consumption")
+    console.print("  -> aud fce --min-vectors 3     # Filter to 3+ vectors only")
+    console.print("  -> aud explain <file> --fce    # FCE signal for specific file")
+
+    console.print("\n" + "=" * 80 + "\n", markup=False)
