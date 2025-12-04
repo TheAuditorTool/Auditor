@@ -5,6 +5,7 @@ from typing import Any
 from theauditor.utils.logging import logger
 
 from . import BaseExtractor
+from ..fidelity_utils import FidelityToken
 
 
 class BashExtractor(BaseExtractor):
@@ -39,7 +40,7 @@ class BashExtractor(BaseExtractor):
 
                     logger.exception("")
 
-        return result
+        return FidelityToken.attach_manifest(result)
 
     def _empty_result(self) -> dict[str, Any]:
         """Return an empty result structure."""

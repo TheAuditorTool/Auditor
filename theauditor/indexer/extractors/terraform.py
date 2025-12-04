@@ -8,6 +8,7 @@ from typing import Any
 from theauditor.utils.logging import logger
 
 from . import BaseExtractor
+from ..fidelity_utils import FidelityToken
 
 
 class TerraformExtractor(BaseExtractor):
@@ -70,13 +71,13 @@ class TerraformExtractor(BaseExtractor):
             }
 
             logger.debug(
-                f"Extracted Terraform: {file_path} → "
+                f"Extracted Terraform: {file_path} -> "
                 f"{len(parsed['resources'])} resources, "
                 f"{len(parsed['variables'])} variables, "
                 f"{len(parsed['outputs'])} outputs"
             )
 
-            return result
+            return FidelityToken.attach_manifest(result)
 
         except Exception as e:
             logger.error(f"Failed to extract Terraform from {file_path}: {e}")
@@ -415,7 +416,7 @@ class TerraformExtractor(BaseExtractor):
         logger.debug(
             f"Extracted {len(variable_values)} Terraform variable assignments from {file_path}"
         )
-        return {"terraform_variable_values": variable_values}
+        return FidelityToken.attach_manifest({"terraform_variable_values": variable_values})
 
     def _is_sensitive_value(self, key: str, value: Any) -> bool:
         """Heuristic detection for sensitive tfvars entries."""

@@ -24,6 +24,7 @@ from graphql.language.ast import (
 from theauditor.utils.logging import logger
 
 from . import BaseExtractor
+from ..fidelity_utils import FidelityToken
 
 
 class GraphQLExtractor(BaseExtractor):
@@ -110,7 +111,7 @@ class GraphQLExtractor(BaseExtractor):
                 logger.error(f"  First type keys: {list(graphql_types[0].keys())}")
                 logger.error(f"  First type data: {graphql_types[0]}")
 
-        return result
+        return FidelityToken.attach_manifest(result)
 
     def _is_type_definition(self, node: DefinitionNode) -> bool:
         """Check if node is a type definition."""

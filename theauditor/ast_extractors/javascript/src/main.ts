@@ -1,3 +1,37 @@
+// =============================================================================
+// DEATH RATTLE PATTERN - Global Exception Handlers
+// These MUST be at the very top, before any other code executes.
+// If Node crashes for ANY reason, Python will receive structured telemetry.
+// =============================================================================
+
+process.on('uncaughtException', (err: Error) => {
+    const crashReport = {
+        type: "FATAL_CRASH",
+        category: "uncaughtException",
+        error: err.message,
+        stack: err.stack,
+        timestamp: new Date().toISOString()
+    };
+    console.error(JSON.stringify(crashReport));
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
+    const crashReport = {
+        type: "FATAL_CRASH",
+        category: "unhandledRejection",
+        error: reason instanceof Error ? reason.message : String(reason),
+        stack: reason instanceof Error ? reason.stack : undefined,
+        timestamp: new Date().toISOString()
+    };
+    console.error(JSON.stringify(crashReport));
+    process.exit(1);
+});
+
+// =============================================================================
+// Regular Imports
+// =============================================================================
+
 import * as path from "path";
 import * as fs from "fs";
 import * as os from "os";

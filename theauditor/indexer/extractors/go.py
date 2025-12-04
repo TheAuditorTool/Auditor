@@ -6,6 +6,7 @@ from typing import Any
 from theauditor.utils.logging import logger
 
 from . import BaseExtractor
+from ..fidelity_utils import FidelityToken
 
 
 class GoExtractor(BaseExtractor):
@@ -101,7 +102,7 @@ class GoExtractor(BaseExtractor):
             f"({loop_var_captures} loop vars), {total_items} total items"
         )
 
-        return result
+        return FidelityToken.attach_manifest(result)
 
     def _detect_routes(
         self, imports: list[dict], tree: Any, content: str, file_path: str
