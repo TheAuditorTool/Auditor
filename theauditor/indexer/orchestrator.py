@@ -51,18 +51,9 @@ class IndexerOrchestrator:
         self.generic_extractor = GenericExtractor(root_path, self.ast_parser)
         self.github_workflow_extractor = GitHubWorkflowExtractor(root_path, self.ast_parser)
 
-        self.docker_extractor.db_manager = self.db_manager
-        self.generic_extractor.db_manager = self.db_manager
-        self.github_workflow_extractor.db_manager = self.db_manager
-
-        for ext in self.extractor_registry.extractors.values():
-            if hasattr(ext, "extract") and not hasattr(ext, "db_manager"):
-                import inspect
-
-                # Check entire class source, not just extract() - helpers may use db_manager
-                source = inspect.getsource(type(ext))
-                if "self.db_manager" in source:
-                    ext.db_manager = self.db_manager
+        # NOTE: db_manager injection REMOVED as part of standardize-extractor-fidelity
+        # Extractors now return data dicts; storage layer handles all DB writes.
+        # Any extractor accessing self.db_manager will raise AttributeError (good - exposes bugs)
 
         self.counts = {
             "files": 0,

@@ -1,4 +1,4 @@
-"""Unified manifest extractor for all package manifest file types.
+"""Unified manifest extractor for all package manifest file types (Fidelity Protocol Compliant).
 
 Single location for extracting:
 - package.json (Node.js)
@@ -14,6 +14,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
+from theauditor.indexer.fidelity_utils import FidelityToken
 from theauditor.utils.logging import logger
 
 from . import BaseExtractor
@@ -73,7 +74,7 @@ def _parse_python_dep_spec(spec: str) -> dict[str, Any]:
 
 
 class ManifestExtractor(BaseExtractor):
-    """Unified extractor for ALL package manifest file types.
+    """Unified extractor for ALL package manifest file types (Fidelity Protocol Compliant).
 
     Handles:
     - package.json -> package_configs + package_dependencies + package_scripts + ...
@@ -108,22 +109,41 @@ class ManifestExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract manifest data directly to database."""
+        """Extract manifest data and return with fidelity manifest."""
         file_path = str(file_info["path"])
         file_name = Path(file_path).name.lower()
 
+        # Initialize result with standard empty keys
+        result: dict[str, Any] = {
+            "imports": [],
+            "routes": [],
+            "sql_queries": [],
+            "symbols": [],
+            # Node.js package data keys
+            "package_configs": [],
+            "package_dependencies": [],
+            "package_scripts": [],
+            "package_engines": [],
+            "package_workspaces": [],
+            # Python package data keys
+            "python_package_configs": [],
+            "python_package_dependencies": [],
+            "python_build_requires": [],
+        }
+
         if file_name == "package.json":
-            self._extract_package_json(file_path, content)
+            self._extract_package_json(file_path, content, result)
         elif file_name == "pyproject.toml":
-            self._extract_pyproject(file_path, content)
+            self._extract_pyproject(file_path, content, result)
         elif file_name.startswith("requirements") and file_name.endswith(".txt"):
-            self._extract_requirements(file_path, content)
+            self._extract_requirements(file_path, content, result)
 
-        # Return empty - all data goes directly to database
-        return {"imports": [], "routes": [], "sql_queries": [], "symbols": []}
+        return FidelityToken.attach_manifest(result)
 
-    def _extract_package_json(self, file_path: str, content: str) -> None:
-        """Extract package.json to Node.js tables (normalized)."""
+    def _extract_package_json(
+        self, file_path: str, content: str, result: dict[str, Any]
+    ) -> None:
+        """Extract package.json into result data lists."""
         try:
             pkg_data = json.loads(content)
         except json.JSONDecodeError as e:
@@ -132,76 +152,78 @@ class ManifestExtractor(BaseExtractor):
             return
 
         # Main package config
-        self.db_manager.add_package_config(
-            file_path=file_path,
-            package_name=pkg_data.get("name", "unknown"),
-            version=pkg_data.get("version", "unknown"),
-            is_private=pkg_data.get("private", False),
-        )
+        result["package_configs"].append({
+            "file_path": file_path,
+            "package_name": pkg_data.get("name", "unknown"),
+            "version": pkg_data.get("version", "unknown"),
+            "is_private": pkg_data.get("private", False),
+        })
 
         # Dependencies
         deps = pkg_data.get("dependencies") or {}
         for name, version_spec in deps.items():
-            self.db_manager.add_package_dependency(
-                file_path=file_path,
-                name=name,
-                version_spec=version_spec,
-                is_dev=False,
-                is_peer=False,
-            )
+            result["package_dependencies"].append({
+                "file_path": file_path,
+                "name": name,
+                "version_spec": version_spec,
+                "is_dev": False,
+                "is_peer": False,
+            })
 
         # Dev dependencies
         dev_deps = pkg_data.get("devDependencies") or {}
         for name, version_spec in dev_deps.items():
-            self.db_manager.add_package_dependency(
-                file_path=file_path,
-                name=name,
-                version_spec=version_spec,
-                is_dev=True,
-                is_peer=False,
-            )
+            result["package_dependencies"].append({
+                "file_path": file_path,
+                "name": name,
+                "version_spec": version_spec,
+                "is_dev": True,
+                "is_peer": False,
+            })
 
         # Peer dependencies
         peer_deps = pkg_data.get("peerDependencies") or {}
         for name, version_spec in peer_deps.items():
-            self.db_manager.add_package_dependency(
-                file_path=file_path,
-                name=name,
-                version_spec=version_spec,
-                is_dev=False,
-                is_peer=True,
-            )
+            result["package_dependencies"].append({
+                "file_path": file_path,
+                "name": name,
+                "version_spec": version_spec,
+                "is_dev": False,
+                "is_peer": True,
+            })
 
         # Scripts
         scripts = pkg_data.get("scripts") or {}
         for script_name, script_command in scripts.items():
-            self.db_manager.add_package_script(
-                file_path=file_path,
-                script_name=script_name,
-                script_command=script_command,
-            )
+            result["package_scripts"].append({
+                "file_path": file_path,
+                "script_name": script_name,
+                "script_command": script_command,
+            })
 
         # Engines
         engines = pkg_data.get("engines") or {}
         for engine_name, version_spec in engines.items():
-            self.db_manager.add_package_engine(
-                file_path=file_path,
-                engine_name=engine_name,
-                version_spec=version_spec,
-            )
+            result["package_engines"].append({
+                "file_path": file_path,
+                "engine_name": engine_name,
+                "version_spec": version_spec,
+            })
 
         # Workspaces
         workspaces = pkg_data.get("workspaces") or []
         if isinstance(workspaces, dict):
             workspaces = workspaces.get("packages", [])
         for workspace_path in workspaces:
-            self.db_manager.add_package_workspace(
-                file_path=file_path,
-                workspace_path=workspace_path,
-            )
+            result["package_workspaces"].append({
+                "file_path": file_path,
+                "workspace_path": workspace_path,
+            })
 
-    def _extract_pyproject(self, file_path: str, content: str) -> None:
-        """Extract pyproject.toml to Python tables (normalized)."""
+    def _extract_pyproject(
+        self, file_path: str, content: str, result: dict[str, Any]
+    ) -> None:
+        """Extract pyproject.toml into result data lists."""
         try:
             data = tomllib.loads(content)
         except tomllib.TOMLDecodeError as e:
@@ -214,12 +236,12 @@ class ManifestExtractor(BaseExtractor):
         project_version = project.get("version")
 
         # Main package config
-        self.db_manager.add_python_package_config(
-            file_path=file_path,
-            file_type="pyproject",
-            project_name=project_name,
-            project_version=project_version,
-        )
+        result["python_package_configs"].append({
+            "file_path": file_path,
+            "file_type": "pyproject",
+            "project_name": project_name,
+            "project_version": project_version,
+        })
 
         # Regular dependencies
         deps_list = project.get("dependencies", [])
@@ -227,15 +249,15 @@ class ManifestExtractor(BaseExtractor):
             dep_info = _parse_python_dep_spec(dep_spec)
             if dep_info["name"]:
                 extras_json = json.dumps(dep_info["extras"]) if dep_info["extras"] else None
-                self.db_manager.add_python_package_dependency(
-                    file_path=file_path,
-                    name=dep_info["name"],
-                    version_spec=dep_info["version"] or None,
-                    is_dev=False,
-                    group_name=None,
-                    extras=extras_json,
-                    git_url=dep_info["git_url"] or None,
-                )
+                result["python_package_dependencies"].append({
+                    "file_path": file_path,
+                    "name": dep_info["name"],
+                    "version_spec": dep_info["version"] or None,
+                    "is_dev": False,
+                    "group_name": None,
+                    "extras": extras_json,
+                    "git_url": dep_info["git_url"] or None,
+                })
 
         # Optional dependencies (grouped)
         optional_deps = project.get("optional-dependencies", {})
@@ -245,15 +267,15 @@ class ManifestExtractor(BaseExtractor):
                 dep_info = _parse_python_dep_spec(dep_spec)
                 if dep_info["name"]:
                     extras_json = json.dumps(dep_info["extras"]) if dep_info["extras"] else None
-                    self.db_manager.add_python_package_dependency(
-                        file_path=file_path,
-                        name=dep_info["name"],
-                        version_spec=dep_info["version"] or None,
-                        is_dev=is_dev,
-                        group_name=group_name,
-                        extras=extras_json,
-                        git_url=dep_info["git_url"] or None,
-                    )
+                    result["python_package_dependencies"].append({
+                        "file_path": file_path,
+                        "name": dep_info["name"],
+                        "version_spec": dep_info["version"] or None,
+                        "is_dev": is_dev,
+                        "group_name": group_name,
+                        "extras": extras_json,
+                        "git_url": dep_info["git_url"] or None,
+                    })
 
         # Build system requirements
         build_sys = data.get("build-system", {})
@@ -261,21 +283,23 @@ class ManifestExtractor(BaseExtractor):
         for req_spec in build_requires:
             dep_info = _parse_python_dep_spec(req_spec)
             if dep_info["name"]:
-                self.db_manager.add_python_build_requirement(
-                    file_path=file_path,
-                    name=dep_info["name"],
-                    version_spec=dep_info["version"] or None,
-                )
+                result["python_build_requires"].append({
+                    "file_path": file_path,
+                    "name": dep_info["name"],
+                    "version_spec": dep_info["version"] or None,
+                })
 
-    def _extract_requirements(self, file_path: str, content: str) -> None:
-        """Extract requirements.txt to Python tables (normalized)."""
+    def _extract_requirements(
+        self, file_path: str, content: str, result: dict[str, Any]
+    ) -> None:
+        """Extract requirements.txt into result data lists."""
         # Main package config (no project name/version for requirements.txt)
-        self.db_manager.add_python_package_config(
-            file_path=file_path,
-            file_type="requirements",
-            project_name=None,
-            project_version=None,
-        )
+        result["python_package_configs"].append({
+            "file_path": file_path,
+            "file_type": "requirements",
+            "project_name": None,
+            "project_version": None,
+        })
 
         # Parse each line
         for line in content.splitlines():
@@ -299,12 +323,12 @@ class ManifestExtractor(BaseExtractor):
             dep_info = _parse_python_dep_spec(line)
             if dep_info["name"]:
                 extras_json = json.dumps(dep_info["extras"]) if dep_info["extras"] else None
-                self.db_manager.add_python_package_dependency(
-                    file_path=file_path,
-                    name=dep_info["name"],
-                    version_spec=dep_info["version"] or None,
-                    is_dev=False,
-                    group_name=None,
-                    extras=extras_json,
-                    git_url=dep_info["git_url"] or None,
-                )
+                result["python_package_dependencies"].append({
+                    "file_path": file_path,
+                    "name": dep_info["name"],
+                    "version_spec": dep_info["version"] or None,
+                    "is_dev": False,
+                    "group_name": None,
+                    "extras": extras_json,
+                    "git_url": dep_info["git_url"] or None,
+                })

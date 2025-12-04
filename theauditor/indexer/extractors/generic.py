@@ -1,9 +1,12 @@
-"""Generic configuration file extractor (Database-First Gold Standard)."""
+"""Generic configuration file extractor (Fidelity Protocol Compliant)."""
 
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+from theauditor.indexer.fidelity_utils import FidelityToken
+from theauditor.utils.logging import logger
 
 from . import BaseExtractor
 
@@ -33,7 +36,7 @@ NGINX_FILE_PATTERNS: frozenset = frozenset(
 
 
 class GenericExtractor(BaseExtractor):
-    """Extract config files directly to database (Gold Standard v1.2)."""
+    """Extract config files with Fidelity Protocol compliance."""
 
     def supported_extensions(self) -> list[str]:
         """This extractor handles files by name pattern, not extension."""
@@ -52,20 +55,39 @@ class GenericExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract config file data directly to database."""
+        """Extract config file data and return with fidelity manifest."""
         file_path_str = str(file_info["path"])
         file_name = Path(file_path_str).name.lower()
 
+        # Initialize result with standard empty keys
+        result: dict[str, Any] = {
+            "imports": [],
+            "routes": [],
+            "sql_queries": [],
+            "symbols": [],
+            # Compose data keys
+            "compose_services": [],
+            "compose_service_ports": [],
+            "compose_service_volumes": [],
+            "compose_service_envs": [],
+            "compose_service_capabilities": [],
+            "compose_service_deps": [],
+            # Nginx data keys
+            "nginx_configs": [],
+        }
+
         if file_name in COMPOSE_FILE_PATTERNS:
-            self._extract_compose_direct(file_path_str, content)
+            self._extract_compose(file_path_str, content, result)
 
         elif file_name in NGINX_FILE_PATTERNS or file_name.endswith(".conf"):
-            self._extract_nginx_direct(file_path_str, content)
+            self._extract_nginx(file_path_str, content, result)
 
-        return {"imports": [], "routes": [], "sql_queries": [], "symbols": []}
+        return FidelityToken.attach_manifest(result)
 
-    def _extract_compose_direct(self, file_path: str, content: str) -> None:
-        """Extract Docker Compose services to compose_services and junction tables."""
+    def _extract_compose(
+        self, file_path: str, content: str, result: dict[str, Any]
+    ) -> None:
+        """Extract Docker Compose services into result data lists."""
         try:
             compose_data = yaml.safe_load(content)
             if not compose_data or "services" not in compose_data:
@@ -102,89 +124,97 @@ class GenericExtractor(BaseExtractor):
                 if isinstance(user, int):
                     user = str(user)
 
-                self.db_manager.add_compose_service(
-                    file_path=file_path,
-                    service_name=service_name,
-                    image=image,
-                    is_privileged=is_privileged,
-                    network_mode=network_mode,
-                    user=user,
-                    security_opt=security_opt if security_opt else None,
-                    restart=restart,
-                    command=command,
-                    entrypoint=entrypoint,
-                    healthcheck=healthcheck,
-                )
+                # Add to compose_services list
+                result["compose_services"].append({
+                    "file_path": file_path,
+                    "service_name": service_name,
+                    "image": image,
+                    "is_privileged": is_privileged,
+                    "network_mode": network_mode,
+                    "user": user,
+                    "security_opt": security_opt if security_opt else None,
+                    "restart": restart,
+                    "command": command,
+                    "entrypoint": entrypoint,
+                    "healthcheck": healthcheck,
+                })
 
+                # Add port mappings
                 for port_mapping in ports or []:
                     parsed = self._parse_port_mapping(port_mapping)
                     if parsed:
-                        self.db_manager.add_compose_service_port(
-                            file_path=file_path,
-                            service_name=service_name,
-                            host_port=parsed.get("host_port"),
-                            container_port=parsed["container_port"],
-                            protocol=parsed.get("protocol", "tcp"),
-                        )
+                        result["compose_service_ports"].append({
+                            "file_path": file_path,
+                            "service_name": service_name,
+                            "host_port": parsed.get("host_port"),
+                            "container_port": parsed["container_port"],
+                            "protocol": parsed.get("protocol", "tcp"),
+                        })
 
+                # Add volume mappings
                 for volume_mapping in volumes or []:
                     parsed = self._parse_volume_mapping(volume_mapping)
                     if parsed:
-                        self.db_manager.add_compose_service_volume(
-                            file_path=file_path,
-                            service_name=service_name,
-                            host_path=parsed.get("host_path"),
-                            container_path=parsed["container_path"],
-                            mode=parsed.get("mode", "rw"),
-                        )
+                        result["compose_service_volumes"].append({
+                            "file_path": file_path,
+                            "service_name": service_name,
+                            "host_path": parsed.get("host_path"),
+                            "container_path": parsed["container_path"],
+                            "mode": parsed.get("mode", "rw"),
+                        })
 
+                # Add environment variables
                 for var_name, var_value in (environment or {}).items():
-                    self.db_manager.add_compose_service_env(
-                        file_path=file_path,
-                        service_name=service_name,
-                        var_name=var_name,
-                        var_value=str(var_value) if var_value is not None else None,
-                    )
+                    result["compose_service_envs"].append({
+                        "file_path": file_path,
+                        "service_name": service_name,
+                        "var_name": var_name,
+                        "var_value": str(var_value) if var_value is not None else None,
+                    })
 
+                # Add capabilities (cap_add)
                 for cap in cap_add or []:
-                    self.db_manager.add_compose_service_capability(
-                        file_path=file_path,
-                        service_name=service_name,
-                        capability=cap,
-                        is_add=True,
-                    )
+                    result["compose_service_capabilities"].append({
+                        "file_path": file_path,
+                        "service_name": service_name,
+                        "capability": cap,
+                        "is_add": True,
+                    })
 
+                # Add capabilities (cap_drop)
                 for cap in cap_drop or []:
-                    self.db_manager.add_compose_service_capability(
-                        file_path=file_path,
-                        service_name=service_name,
-                        capability=cap,
-                        is_add=False,
-                    )
+                    result["compose_service_capabilities"].append({
+                        "file_path": file_path,
+                        "service_name": service_name,
+                        "capability": cap,
+                        "is_add": False,
+                    })
 
+                # Add dependencies
                 if depends_on:
                     if isinstance(depends_on, dict):
                         for dep_service, dep_config in depends_on.items():
                             condition = "service_started"
                             if isinstance(dep_config, dict):
                                 condition = dep_config.get("condition", "service_started")
-                            self.db_manager.add_compose_service_dep(
-                                file_path=file_path,
-                                service_name=service_name,
-                                depends_on_service=dep_service,
-                                condition=condition,
-                            )
+                            result["compose_service_deps"].append({
+                                "file_path": file_path,
+                                "service_name": service_name,
+                                "depends_on_service": dep_service,
+                                "condition": condition,
+                            })
                     elif isinstance(depends_on, list):
                         for dep_service in depends_on:
-                            self.db_manager.add_compose_service_dep(
-                                file_path=file_path,
-                                service_name=service_name,
-                                depends_on_service=dep_service,
-                                condition="service_started",
-                            )
+                            result["compose_service_deps"].append({
+                                "file_path": file_path,
+                                "service_name": service_name,
+                                "depends_on_service": dep_service,
+                                "condition": "service_started",
+                            })
 
-        except (yaml.YAMLError, ValueError, TypeError):
-            pass
+        except (yaml.YAMLError, ValueError, TypeError) as e:
+            # ZERO FALLBACK FIX: Log error instead of silent swallow
+            logger.error(f"[GenericExtractor] Failed to parse {file_path}: {e}")
 
     def _parse_port_mapping(self, port_str: str) -> dict | None:
         """Parse a port mapping string into components."""
@@ -319,13 +349,14 @@ class GenericExtractor(BaseExtractor):
 
         return {}
 
-    def _extract_nginx_direct(self, file_path: str, content: str) -> None:
-        """Extract Nginx config directly to database."""
-
-        self.db_manager.add_nginx_config(
-            file_path=file_path,
-            block_type="detected",
-            block_context="minimal",
-            directives={"status": "parsed_minimally", "reason": "regex_cancer_eliminated"},
-            level=0,
-        )
+    def _extract_nginx(
+        self, file_path: str, content: str, result: dict[str, Any]
+    ) -> None:
+        """Extract Nginx config into result data lists."""
+        result["nginx_configs"].append({
+            "file_path": file_path,
+            "block_type": "detected",
+            "block_context": "minimal",
+            "directives": {"status": "parsed_minimally", "reason": "regex_cancer_eliminated"},
+            "level": 0,
+        })

@@ -58,6 +58,12 @@ class NodeStorage(BaseStorage):
             "cfg_blocks": self._store_cfg_flat,
             "cfg_edges": self._noop_cfg_edges,
             "cfg_block_statements": self._noop_cfg_block_statements,
+            # Package manifest handlers (Stream C)
+            "package_configs": self._store_package_configs,
+            "package_dependencies": self._store_package_dependencies,
+            "package_scripts": self._store_package_scripts,
+            "package_engines": self._store_package_engines,
+            "package_workspaces": self._store_package_workspaces,
         }
 
     def begin_file_processing(self) -> None:
@@ -809,3 +815,69 @@ class NodeStorage(BaseStorage):
     ):
         """No-op handler for cfg_block_statements. Actual storage is done by _store_cfg_flat."""
         pass
+
+    # ==================== Package Manifest Handlers (Stream C) ====================
+
+    def _store_package_configs(self, file_path: str, package_configs: list, jsx_pass: bool):
+        """Store package.json configuration records."""
+        for item in package_configs:
+            self.db_manager.add_package_config(
+                file_path=item["file_path"],
+                package_name=item.get("package_name", "unknown"),
+                version=item.get("version", "unknown"),
+                is_private=item.get("is_private", False),
+            )
+        if "package_configs" not in self.counts:
+            self.counts["package_configs"] = 0
+        self.counts["package_configs"] += len(package_configs)
+
+    def _store_package_dependencies(
+        self, file_path: str, package_dependencies: list, jsx_pass: bool
+    ):
+        """Store package.json dependency records."""
+        for item in package_dependencies:
+            self.db_manager.add_package_dependency(
+                file_path=item["file_path"],
+                name=item["name"],
+                version_spec=item.get("version_spec"),
+                is_dev=item.get("is_dev", False),
+                is_peer=item.get("is_peer", False),
+            )
+        if "package_dependencies" not in self.counts:
+            self.counts["package_dependencies"] = 0
+        self.counts["package_dependencies"] += len(package_dependencies)
+
+    def _store_package_scripts(self, file_path: str, package_scripts: list, jsx_pass: bool):
+        """Store package.json script records."""
+        for item in package_scripts:
+            self.db_manager.add_package_script(
+                file_path=item["file_path"],
+                script_name=item["script_name"],
+                script_command=item["script_command"],
+            )
+        if "package_scripts" not in self.counts:
+            self.counts["package_scripts"] = 0
+        self.counts["package_scripts"] += len(package_scripts)
+
+    def _store_package_engines(self, file_path: str, package_engines: list, jsx_pass: bool):
+        """Store package.json engine requirement records."""
+        for item in package_engines:
+            self.db_manager.add_package_engine(
+                file_path=item["file_path"],
+                engine_name=item["engine_name"],
+                version_spec=item.get("version_spec"),
+            )
+        if "package_engines" not in self.counts:
+            self.counts["package_engines"] = 0
+        self.counts["package_engines"] += len(package_engines)
+
+    def _store_package_workspaces(self, file_path: str, package_workspaces: list, jsx_pass: bool):
+        """Store package.json workspace records."""
+        for item in package_workspaces:
+            self.db_manager.add_package_workspace(
+                file_path=item["file_path"],
+                workspace_path=item["workspace_path"],
+            )
+        if "package_workspaces" not in self.counts:
+            self.counts["package_workspaces"] = 0
+        self.counts["package_workspaces"] += len(package_workspaces)

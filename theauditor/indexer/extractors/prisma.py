@@ -1,9 +1,12 @@
-"""Prisma schema extractor - Database-First Architecture."""
+"""Prisma schema extractor - Fidelity Protocol Compliant."""
 
 import re
 from pathlib import Path
 from typing import Any
 
+from theauditor.utils.logging import logger
+
+from ..fidelity_utils import FidelityToken
 from . import BaseExtractor
 
 
@@ -22,25 +25,34 @@ class PrismaExtractor(BaseExtractor):
     def extract(
         self, file_info: dict[str, Any], content: str, tree: Any | None = None
     ) -> dict[str, Any]:
-        """Extract Prisma models directly to database."""
+        """Extract Prisma models and return data dict with manifest."""
+        file_path_str = str(file_info["path"])
+
+        # Initialize result with empty list (meaningful empty result)
+        result: dict[str, Any] = {
+            "prisma_models": [],
+        }
+
         try:
             models = self._parse_schema(content)
 
+            # Build prisma_models data
             for model in models:
                 for field in model["fields"]:
-                    self.db_manager.add_prisma_model(
-                        model_name=model["name"],
-                        field_name=field["name"],
-                        field_type=field["type"],
-                        is_indexed=field["is_indexed"],
-                        is_unique=field["is_unique"],
-                        is_relation=field["is_relation"],
-                    )
+                    result["prisma_models"].append({
+                        "model_name": model["name"],
+                        "field_name": field["name"],
+                        "field_type": field["type"],
+                        "is_indexed": field["is_indexed"],
+                        "is_unique": field["is_unique"],
+                        "is_relation": field["is_relation"],
+                    })
 
-        except Exception:
-            pass
+        except Exception as e:
+            logger.error(f"Failed to parse Prisma schema {file_path_str}: {e}")
+            # Return empty result with manifest - exposes the failure in fidelity counts
 
-        return {}
+        return FidelityToken.attach_manifest(result)
 
     def _parse_schema(self, content: str) -> list[dict[str, Any]]:
         """Parse Prisma schema content to extract models."""

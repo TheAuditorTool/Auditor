@@ -2,6 +2,7 @@
 
 from typing import Any
 
+from ..fidelity_utils import FidelityToken
 from . import BaseExtractor
 
 
@@ -74,4 +75,4 @@ class SQLExtractor(BaseExtractor):
 
         result["sql_queries"] = []
 
-        return result
+        return FidelityToken.attach_manifest(result)

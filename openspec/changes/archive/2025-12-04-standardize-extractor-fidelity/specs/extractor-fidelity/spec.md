@@ -201,6 +201,8 @@ class SomeStorage(BaseStorage):
 
 ## Compliance Matrix
 
+**Updated**: 2025-12-04 (All extractors now compliant)
+
 | Extractor | REQ-001 | REQ-002 | REQ-003 | REQ-004 | REQ-005 |
 |-----------|---------|---------|---------|---------|---------|
 | go.py | PASS | PASS | PASS | PASS | PASS |
@@ -210,9 +212,15 @@ class SomeStorage(BaseStorage):
 | graphql.py | PASS | PASS | PASS | PASS | PASS |
 | python.py | PASS | PASS | PASS | PASS | PASS |
 | javascript.py | PASS | PASS | PASS | PASS | PASS |
-| sql.py | PASS | **FAIL** | PASS | PASS | PASS |
-| docker.py | **FAIL** | **FAIL** | **FAIL** | **FAIL** | **FAIL** |
-| github_actions.py | **FAIL** | **FAIL** | **FAIL** | **FAIL** | **FAIL** |
-| prisma.py | **FAIL** | **FAIL** | **FAIL** | **FAIL** | **FAIL** |
-| generic.py | **FAIL** | **FAIL** | **FAIL** | **FAIL** | **FAIL** |
-| manifest_extractor.py | **FAIL** | **FAIL** | **FAIL** | **FAIL** | **FAIL** |
+| sql.py | PASS | PASS | PASS | PASS | PASS |
+| docker.py | PASS | PASS | PASS | PASS | PASS |
+| github_actions.py | PASS | PASS | PASS | PASS | PASS |
+| prisma.py | PASS | PASS | PASS | PASS | PASS |
+| generic.py | PASS | PASS | PASS | PASS | PASS |
+| manifest_extractor.py | PASS | PASS | PASS | PASS | PASS |
+
+**Verification Evidence** (2025-12-04):
+- `grep "self.db_manager" theauditor/indexer/extractors/` = 0 matches
+- `grep "FidelityToken.attach_manifest"` = 18 matches (all extractors)
+- `aud full --offline` = 22/22 phases PASS, 315.7s
+- Database counts: GHA=115, package=137, nginx=1, python_pkg=42
