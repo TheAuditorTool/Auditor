@@ -6,8 +6,8 @@ from typing import Any
 from theauditor.utils.logging import logger
 
 from ...ast_extractors import rust_impl as rust_core
-from . import BaseExtractor
 from ..fidelity_utils import FidelityToken
+from . import BaseExtractor
 
 
 class RustExtractor(BaseExtractor):
@@ -50,19 +50,89 @@ class RustExtractor(BaseExtractor):
         root = ts_tree.root_node
         check_tree_sitter_parse_quality(root, file_path, logger)
 
+        # Extract Rust-specific data
+        rust_functions = rust_core.extract_rust_functions(root, file_path)
+        rust_structs = rust_core.extract_rust_structs(root, file_path)
+        rust_enums = rust_core.extract_rust_enums(root, file_path)
+        rust_traits = rust_core.extract_rust_traits(root, file_path)
+        rust_use_statements = rust_core.extract_rust_use_statements(root, file_path)
+
+        # Build unified symbols list for cross-language queries
+        symbols = []
+        for func in rust_functions:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": func.get("name", ""),
+                    "type": "function",
+                    "line": func.get("line", 0),
+                    "col": 0,
+                    "end_line": func.get("end_line"),
+                    "parameters": func.get("params_json"),
+                }
+            )
+        for struct in rust_structs:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": struct.get("name", ""),
+                    "type": "class",
+                    "line": struct.get("line", 0),
+                    "col": 0,
+                    "end_line": struct.get("end_line"),
+                }
+            )
+        for enum in rust_enums:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": enum.get("name", ""),
+                    "type": "class",
+                    "line": enum.get("line", 0),
+                    "col": 0,
+                    "end_line": enum.get("end_line"),
+                }
+            )
+        for trait in rust_traits:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": trait.get("name", ""),
+                    "type": "class",
+                    "line": trait.get("line", 0),
+                    "col": 0,
+                    "end_line": trait.get("end_line"),
+                }
+            )
+
+        # Build imports list in format expected by _store_imports
+        imports_for_refs = []
+        for use_stmt in rust_use_statements:
+            imports_for_refs.append(
+                {
+                    "kind": "import",
+                    "value": use_stmt.get("import_path", ""),
+                    "line": use_stmt.get("line"),
+                }
+            )
+
         result = {
+            # Unified tables (for cross-language queries)
+            "symbols": symbols,
+            "imports": imports_for_refs,  # For refs table population
             # Rust-specific tables
             "rust_modules": rust_core.extract_rust_modules(root, file_path),
-            "rust_use_statements": rust_core.extract_rust_use_statements(root, file_path),
-            "rust_functions": rust_core.extract_rust_functions(root, file_path),
-            "rust_structs": rust_core.extract_rust_structs(root, file_path),
-            "rust_enums": rust_core.extract_rust_enums(root, file_path),
-            "rust_traits": rust_core.extract_rust_traits(root, file_path),
+            "rust_use_statements": rust_use_statements,
+            "rust_functions": rust_functions,
+            "rust_structs": rust_structs,
+            "rust_enums": rust_enums,
+            "rust_traits": rust_traits,
             "rust_impl_blocks": rust_core.extract_rust_impl_blocks(root, file_path),
             "rust_generics": rust_core.extract_rust_generics(root, file_path),
             "rust_lifetimes": rust_core.extract_rust_lifetimes(root, file_path),
             "rust_macros": rust_core.extract_rust_macros(root, file_path),
             "rust_macro_invocations": rust_core.extract_rust_macro_invocations(root, file_path),
+            "rust_attributes": rust_core.extract_rust_attributes(root, file_path),
             "rust_async_functions": rust_core.extract_rust_async_functions(root, file_path),
             "rust_await_points": rust_core.extract_rust_await_points(root, file_path),
             "rust_unsafe_blocks": rust_core.extract_rust_unsafe_blocks(root, file_path),

@@ -35,9 +35,7 @@ VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_e
     type=click.Choice(["text", "json"]),
     help="Output format: text (visual tree), json (structured)",
 )
-@click.option(
-    "--monoliths", is_flag=True, help="Find files >threshold lines (too large for AI)"
-)
+@click.option("--monoliths", is_flag=True, help="Find files >threshold lines (too large for AI)")
 @click.option(
     "--threshold",
     default=2150,
@@ -46,7 +44,19 @@ VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_e
 )
 @click.option("--fce", is_flag=True, help="Drill down into FCE vector convergence analysis")
 @handle_exceptions
-def blueprint(structure, graph, security, taint, boundaries, deps, all, output_format, monoliths, threshold, fce):
+def blueprint(
+    structure,
+    graph,
+    security,
+    taint,
+    boundaries,
+    deps,
+    all,
+    output_format,
+    monoliths,
+    threshold,
+    fce,
+):
     """Architectural fact visualization with drill-down analysis modes (NO recommendations).
 
     Truth-courier mode visualization that presents pure architectural facts extracted from
@@ -398,7 +408,37 @@ def _get_naming_conventions(cursor) -> dict:
             SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'class' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS ts_class_snake,
             SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'class' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS ts_class_camel,
             SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'class' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS ts_class_pascal,
-            SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'class' THEN 1 ELSE 0 END) AS ts_class_total
+            SUM(CASE WHEN f.ext IN ('.ts', '.tsx') AND s.type = 'class' THEN 1 ELSE 0 END) AS ts_class_total,
+
+            -- Go functions
+            SUM(CASE WHEN f.ext = '.go' AND s.type = 'function' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS go_func_snake,
+            SUM(CASE WHEN f.ext = '.go' AND s.type = 'function' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS go_func_camel,
+            SUM(CASE WHEN f.ext = '.go' AND s.type = 'function' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS go_func_pascal,
+            SUM(CASE WHEN f.ext = '.go' AND s.type = 'function' THEN 1 ELSE 0 END) AS go_func_total,
+
+            -- Go structs/interfaces (stored as class type)
+            SUM(CASE WHEN f.ext = '.go' AND s.type = 'class' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS go_class_snake,
+            SUM(CASE WHEN f.ext = '.go' AND s.type = 'class' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS go_class_camel,
+            SUM(CASE WHEN f.ext = '.go' AND s.type = 'class' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS go_class_pascal,
+            SUM(CASE WHEN f.ext = '.go' AND s.type = 'class' THEN 1 ELSE 0 END) AS go_class_total,
+
+            -- Rust functions
+            SUM(CASE WHEN f.ext = '.rs' AND s.type = 'function' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS rs_func_snake,
+            SUM(CASE WHEN f.ext = '.rs' AND s.type = 'function' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS rs_func_camel,
+            SUM(CASE WHEN f.ext = '.rs' AND s.type = 'function' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS rs_func_pascal,
+            SUM(CASE WHEN f.ext = '.rs' AND s.type = 'function' THEN 1 ELSE 0 END) AS rs_func_total,
+
+            -- Rust structs/enums/traits (stored as class type)
+            SUM(CASE WHEN f.ext = '.rs' AND s.type = 'class' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS rs_class_snake,
+            SUM(CASE WHEN f.ext = '.rs' AND s.type = 'class' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS rs_class_camel,
+            SUM(CASE WHEN f.ext = '.rs' AND s.type = 'class' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS rs_class_pascal,
+            SUM(CASE WHEN f.ext = '.rs' AND s.type = 'class' THEN 1 ELSE 0 END) AS rs_class_total,
+
+            -- Bash functions
+            SUM(CASE WHEN f.ext IN ('.sh', '.bash') AND s.type = 'function' AND s.name REGEXP '^[a-z_][a-z0-9_]*$' THEN 1 ELSE 0 END) AS sh_func_snake,
+            SUM(CASE WHEN f.ext IN ('.sh', '.bash') AND s.type = 'function' AND s.name REGEXP '^[a-z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS sh_func_camel,
+            SUM(CASE WHEN f.ext IN ('.sh', '.bash') AND s.type = 'function' AND s.name REGEXP '^[A-Z][a-zA-Z0-9]*$' THEN 1 ELSE 0 END) AS sh_func_pascal,
+            SUM(CASE WHEN f.ext IN ('.sh', '.bash') AND s.type = 'function' THEN 1 ELSE 0 END) AS sh_func_total
         FROM symbols s
         JOIN files f ON s.path = f.path
         WHERE s.type IN ('function', 'class')
@@ -418,6 +458,17 @@ def _get_naming_conventions(cursor) -> dict:
         "typescript": {
             "functions": _build_pattern_result(row[16], row[17], row[18], row[19]),
             "classes": _build_pattern_result(row[20], row[21], row[22], row[23]),
+        },
+        "go": {
+            "functions": _build_pattern_result(row[24], row[25], row[26], row[27]),
+            "structs": _build_pattern_result(row[28], row[29], row[30], row[31]),
+        },
+        "rust": {
+            "functions": _build_pattern_result(row[32], row[33], row[34], row[35]),
+            "types": _build_pattern_result(row[36], row[37], row[38], row[39]),
+        },
+        "bash": {
+            "functions": _build_pattern_result(row[40], row[41], row[42], row[43]),
         },
     }
 
@@ -868,7 +919,7 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
     if naming:
         console.print("\nCode Style Analysis (Naming Conventions):")
 
-        for lang in ["python", "javascript", "typescript"]:
+        for lang in ["python", "javascript", "typescript", "go", "rust", "bash"]:
             lang_data = naming.get(lang, {})
             if not lang_data or not any(lang_data.values()):
                 continue
@@ -876,7 +927,16 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
             lang_name = lang.capitalize()
             console.print(f"\n  {lang_name}:", highlight=False)
 
-            for symbol_type in ["functions", "classes"]:
+            # Different languages have different symbol categories
+            symbol_types = ["functions", "classes"]
+            if lang == "go":
+                symbol_types = ["functions", "structs"]
+            elif lang == "rust":
+                symbol_types = ["functions", "types"]
+            elif lang == "bash":
+                symbol_types = ["functions"]
+
+            for symbol_type in symbol_types:
                 patterns = lang_data.get(symbol_type, {})
                 if not patterns or not patterns.get("dominant"):
                     continue
@@ -1437,6 +1497,80 @@ def _get_dependencies(cursor) -> dict:
                     }
                 )
 
+    # Cargo (Rust) dependencies
+    cursor.execute("""
+        SELECT file_path, package_name, package_version, edition
+        FROM cargo_package_configs
+    """)
+    for row in cursor.fetchall():
+        file_path = row["file_path"]
+        pkg_name = row["package_name"]
+        version = row["package_version"]
+
+        workspace = {
+            "file": file_path,
+            "name": pkg_name,
+            "version": version,
+            "manager": "cargo",
+            "prod_count": 0,
+            "dev_count": 0,
+        }
+        deps["workspaces"].append(workspace)
+
+    cursor.execute("""
+        SELECT file_path, name, version_spec, is_dev
+        FROM cargo_dependencies
+    """)
+    for row in cursor.fetchall():
+        is_dev = bool(row["is_dev"])
+        deps["packages"].append(
+            {
+                "name": row["name"],
+                "version": row["version_spec"] or "",
+                "manager": "cargo",
+                "dev": is_dev,
+            }
+        )
+        deps["by_manager"]["cargo"] = deps["by_manager"].get("cargo", 0) + 1
+        deps["total"] += 1
+
+    # Go module dependencies
+    cursor.execute("""
+        SELECT file_path, module_path, go_version
+        FROM go_module_configs
+    """)
+    for row in cursor.fetchall():
+        file_path = row["file_path"]
+        mod_path = row["module_path"]
+        go_ver = row["go_version"]
+
+        workspace = {
+            "file": file_path,
+            "name": mod_path,
+            "version": go_ver,
+            "manager": "go",
+            "prod_count": 0,
+            "dev_count": 0,
+        }
+        deps["workspaces"].append(workspace)
+
+    cursor.execute("""
+        SELECT file_path, module_path, version, is_indirect
+        FROM go_module_dependencies
+    """)
+    for row in cursor.fetchall():
+        is_indirect = bool(row["is_indirect"])
+        deps["packages"].append(
+            {
+                "name": row["module_path"],
+                "version": row["version"] or "",
+                "manager": "go",
+                "dev": is_indirect,  # indirect deps treated as "dev"
+            }
+        )
+        deps["by_manager"]["go"] = deps["by_manager"].get("go", 0) + 1
+        deps["total"] += 1
+
     return deps
 
 
@@ -1740,9 +1874,7 @@ def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
             console.print()
 
         console.rule()
-        console.print(
-            f"Total: {len(results)} monolithic files", highlight=False
-        )
+        console.print(f"Total: {len(results)} monolithic files", highlight=False)
         console.rule()
 
     return 0
@@ -1776,12 +1908,14 @@ def _get_fce_data() -> dict:
         for point in points:
             density = len(point.signal.vectors_present)
             fce_data["by_density"][density] = fce_data["by_density"].get(density, 0) + 1
-            fce_data["convergence_points"].append({
-                "file": point.file_path,
-                "density": density,
-                "vectors": formatter.get_vector_code_string(point.signal),
-                "fact_count": len(point.facts),
-            })
+            fce_data["convergence_points"].append(
+                {
+                    "file": point.file_path,
+                    "density": density,
+                    "vectors": formatter.get_vector_code_string(point.signal),
+                    "fact_count": len(point.facts),
+                }
+            )
 
     except FileNotFoundError:
         fce_data["error"] = "FCE database not found (run aud full)"
@@ -1834,7 +1968,7 @@ def _show_fce_drilldown(data: dict):
     high_priority = [p for p in points if p.get("density", 0) >= 3]
 
     if high_priority:
-        console.print(f"\nHigh Priority Files (3+ vectors, showing first 10):")
+        console.print("\nHigh Priority Files (3+ vectors, showing first 10):")
         for i, point in enumerate(high_priority[:10], 1):
             file = point.get("file", "unknown")
             density = point.get("density", 0)
@@ -1853,10 +1987,18 @@ def _show_fce_drilldown(data: dict):
     if summary:
         console.print("\nSummary Statistics:")
         console.print(f"  Total files analyzed: {summary.get('total_files', 0):,}", highlight=False)
-        console.print(f"  Files with static findings: {summary.get('static_files', 0):,}", highlight=False)
-        console.print(f"  Files with flow findings: {summary.get('flow_files', 0):,}", highlight=False)
-        console.print(f"  Files with process data: {summary.get('process_files', 0):,}", highlight=False)
-        console.print(f"  Files with structural data: {summary.get('structural_files', 0):,}", highlight=False)
+        console.print(
+            f"  Files with static findings: {summary.get('static_files', 0):,}", highlight=False
+        )
+        console.print(
+            f"  Files with flow findings: {summary.get('flow_files', 0):,}", highlight=False
+        )
+        console.print(
+            f"  Files with process data: {summary.get('process_files', 0):,}", highlight=False
+        )
+        console.print(
+            f"  Files with structural data: {summary.get('structural_files', 0):,}", highlight=False
+        )
 
     console.print("\nRelated Commands:")
     console.print("  -> aud fce                     # Full FCE convergence report")

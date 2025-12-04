@@ -141,14 +141,23 @@ class GoStorage(BaseStorage):
 
     def _store_go_methods(self, file_path: str, go_methods: list, jsx_pass: bool):
         """Store Go method declarations."""
+        seen = set()
         for method in go_methods:
+            method_file = method.get("file_path", file_path)
+            receiver_type = method.get("receiver_type", "")
+            method_name = method.get("name", "")
+            key = (method_file, receiver_type, method_name)
+            if key in seen:
+                continue
+            seen.add(key)
+
             self.db_manager.add_go_method(
-                method.get("file_path", file_path),
+                method_file,
                 method.get("line", 0),
-                method.get("receiver_type", ""),
+                receiver_type,
                 method.get("receiver_name"),
                 method.get("is_pointer_receiver", False),
-                method.get("name", ""),
+                method_name,
                 method.get("signature"),
                 method.get("is_exported", False),
             )

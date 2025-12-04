@@ -1944,6 +1944,16 @@ class RustAsyncFunctionsRow(TypedDict):
     has_await: bool | None
     await_count: int | None
 
+class RustAttributesRow(TypedDict):
+    """Row type for rust_attributes table."""
+    file_path: str
+    line: int
+    attribute_name: str
+    args: str | None
+    target_type: str | None
+    target_name: str | None
+    target_line: int | None
+
 class RustAwaitPointsRow(TypedDict):
     """Row type for rust_await_points table."""
     file_path: str

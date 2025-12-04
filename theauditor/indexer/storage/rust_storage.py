@@ -21,6 +21,7 @@ class RustStorage(BaseStorage):
             "rust_lifetimes": self._store_rust_lifetimes,
             "rust_macros": self._store_rust_macros,
             "rust_macro_invocations": self._store_rust_macro_invocations,
+            "rust_attributes": self._store_rust_attributes,
             "rust_async_functions": self._store_rust_async_functions,
             "rust_await_points": self._store_rust_await_points,
             "rust_unsafe_blocks": self._store_rust_unsafe_blocks,
@@ -222,6 +223,22 @@ class RustStorage(BaseStorage):
             if "rust_macro_invocations" not in self.counts:
                 self.counts["rust_macro_invocations"] = 0
             self.counts["rust_macro_invocations"] += 1
+
+    def _store_rust_attributes(self, file_path: str, rust_attributes: list, jsx_pass: bool) -> None:
+        """Store Rust attribute items (#[attr] decorators)."""
+        for attr in rust_attributes:
+            self.db_manager.add_rust_attribute(
+                attr.get("file_path", file_path),
+                attr.get("line", 0),
+                attr.get("attribute_name", ""),
+                attr.get("args"),
+                attr.get("target_type"),
+                attr.get("target_name"),
+                attr.get("target_line"),
+            )
+            if "rust_attributes" not in self.counts:
+                self.counts["rust_attributes"] = 0
+            self.counts["rust_attributes"] += 1
 
     def _store_rust_async_functions(
         self, file_path: str, rust_async_functions: list, jsx_pass: bool

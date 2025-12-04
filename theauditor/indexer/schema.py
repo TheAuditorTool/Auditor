@@ -146,6 +146,7 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("rust_lifetimes", "INSERT"),
     ("rust_macros", "INSERT"),
     ("rust_macro_invocations", "INSERT"),
+    ("rust_attributes", "INSERT"),
     ("rust_async_functions", "INSERT"),
     ("rust_await_points", "INSERT"),
     ("rust_unsafe_blocks", "INSERT"),
@@ -155,6 +156,9 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("rust_trait_methods", "INSERT"),
     ("rust_extern_functions", "INSERT"),
     ("rust_extern_blocks", "INSERT"),
+    # Cargo package manager tables
+    ("cargo_package_configs", "INSERT"),
+    ("cargo_dependencies", "INSERT"),
     # Go tables
     ("go_packages", "INSERT"),
     ("go_imports", "INSERT"),
@@ -178,6 +182,9 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("go_type_params", "INSERT"),
     ("go_captured_vars", "INSERT"),
     ("go_middleware", "INSERT"),
+    # Go module (go.mod) package manager tables
+    ("go_module_configs", "INSERT"),
+    ("go_module_dependencies", "INSERT"),
     # Bash tables
     ("bash_functions", "INSERT"),
     ("bash_variables", "INSERT"),

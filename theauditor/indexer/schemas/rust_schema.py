@@ -208,6 +208,24 @@ RUST_MACRO_INVOCATIONS = TableSchema(
     ],
 )
 
+RUST_ATTRIBUTES = TableSchema(
+    name="rust_attributes",
+    columns=[
+        Column("file_path", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("attribute_name", "TEXT", nullable=False),
+        Column("args", "TEXT"),
+        Column("target_type", "TEXT"),
+        Column("target_name", "TEXT"),
+        Column("target_line", "INTEGER"),
+    ],
+    primary_key=["file_path", "line"],
+    indexes=[
+        ("idx_rust_attrs_name", ["attribute_name"]),
+        ("idx_rust_attrs_target", ["target_type", "target_name"]),
+    ],
+)
+
 RUST_ASYNC_FUNCTIONS = TableSchema(
     name="rust_async_functions",
     columns=[
@@ -386,6 +404,7 @@ RUST_TABLES: dict[str, TableSchema] = {
     "rust_lifetimes": RUST_LIFETIMES,
     "rust_macros": RUST_MACROS,
     "rust_macro_invocations": RUST_MACRO_INVOCATIONS,
+    "rust_attributes": RUST_ATTRIBUTES,
     "rust_async_functions": RUST_ASYNC_FUNCTIONS,
     "rust_await_points": RUST_AWAIT_POINTS,
     "rust_unsafe_blocks": RUST_UNSAFE_BLOCKS,

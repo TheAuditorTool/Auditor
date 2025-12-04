@@ -5,8 +5,8 @@ from typing import Any
 
 from theauditor.utils.logging import logger
 
-from . import BaseExtractor
 from ..fidelity_utils import FidelityToken
+from . import BaseExtractor
 
 
 class GoExtractor(BaseExtractor):
@@ -68,7 +68,72 @@ class GoExtractor(BaseExtractor):
 
         captured_vars = go_impl.extract_go_captured_vars(ts_tree, content, file_path, goroutines)
 
+        # Build unified symbols list for cross-language queries
+        symbols = []
+        for func in functions:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": func.get("name", ""),
+                    "type": "function",
+                    "line": func.get("line", 0),
+                    "col": 0,
+                    "end_line": func.get("end_line"),
+                    "parameters": func.get("signature"),
+                }
+            )
+        for method in methods:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": method.get("name", ""),
+                    "type": "function",
+                    "line": method.get("line", 0),
+                    "col": 0,
+                    "end_line": method.get("end_line"),
+                    "parameters": method.get("signature"),
+                }
+            )
+        for struct in structs:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": struct.get("name", ""),
+                    "type": "class",
+                    "line": struct.get("line", 0),
+                    "col": 0,
+                    "end_line": struct.get("end_line"),
+                }
+            )
+        for iface in interfaces:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": iface.get("name", ""),
+                    "type": "class",
+                    "line": iface.get("line", 0),
+                    "col": 0,
+                    "end_line": iface.get("end_line"),
+                }
+            )
+
+        # Build imports list in format expected by _store_imports
+        # Format: list of dicts with {kind, value, line} or tuples (kind, value, line)
+        imports_for_refs = []
+        for imp in imports:
+            imports_for_refs.append(
+                {
+                    "kind": "import",
+                    "value": imp.get("path", ""),
+                    "line": imp.get("line"),
+                }
+            )
+
         result = {
+            # Unified tables (for cross-language queries)
+            "symbols": symbols,
+            "imports": imports_for_refs,  # For refs table population
+            # Go-specific tables
             "go_packages": [package] if package else [],
             "go_imports": imports,
             "go_structs": structs,
@@ -289,3 +354,174 @@ class GoExtractor(BaseExtractor):
 
         visit(tree.root_node)
         return middleware
+
+    def _find_all_nodes(self, root_node: Any, node_type: str) -> list[Any]:
+        """Recursively find all nodes of given type in the AST.
+
+        Args:
+            root_node: Tree-sitter root node to search from
+            node_type: Type string to match (e.g., "short_var_declaration")
+
+        Returns:
+            List of matching tree-sitter nodes
+        """
+        results = []
+
+        def visit(node: Any) -> None:
+            if node.type == node_type:
+                results.append(node)
+            for child in node.children:
+                visit(child)
+
+        visit(root_node)
+        return results
+
+    def _extract_assignments(
+        self, tree: Any, file_path: str, content: str
+    ) -> list[dict[str, Any]]:
+        """Extract variable assignments for language-agnostic DFG tables.
+
+        Handles:
+        - Short variable declaration: x := expr
+        - Regular assignment: x = expr
+        - Multiple assignment targets: a, b := getPair()
+        - Skips blank identifier (_)
+
+        Storage handler: core_storage._store_assignments()
+        Target table: assignments (with assignment_sources populated from source_vars)
+
+        Args:
+            tree: Tree-sitter tree object
+            file_path: Path to the Go file
+            content: File content string
+
+        Returns:
+            List of assignment dicts with keys matching storage handler expectations
+        """
+        assignments: list[dict[str, Any]] = []
+        current_function = [None]  # Mutable container for closure
+
+        def get_node_text(node: Any) -> str:
+            """Extract text from a tree-sitter node."""
+            if node is None:
+                return ""
+            return node.text.decode("utf-8", errors="ignore")
+
+        def get_containing_function(node: Any) -> str:
+            """Walk up tree to find containing function/method name."""
+            current = node.parent
+            while current:
+                if current.type == "function_declaration":
+                    name_node = current.child_by_field_name("name")
+                    if name_node:
+                        return get_node_text(name_node)
+                elif current.type == "method_declaration":
+                    # Method name is in field_identifier child
+                    for child in current.children:
+                        if child.type == "field_identifier":
+                            return get_node_text(child)
+                current = current.parent
+            return "<module>"
+
+        def extract_source_vars(expr_node: Any) -> list[str]:
+            """Extract variable names referenced in expression.
+
+            Filters out Go keywords/literals: nil, true, false
+            """
+            vars_list: list[str] = []
+
+            def visit_expr(n: Any) -> None:
+                if n.type == "identifier":
+                    name = get_node_text(n)
+                    # Filter out keywords and literals
+                    if name and name not in ("nil", "true", "false"):
+                        vars_list.append(name)
+                elif n.type == "selector_expression":
+                    # For x.y.z, extract full path for field access tracking
+                    text = get_node_text(n)
+                    if text:
+                        vars_list.append(text)
+                    return  # Don't recurse into selector children
+                for child in n.children:
+                    visit_expr(child)
+
+            if expr_node:
+                visit_expr(expr_node)
+            return list(dict.fromkeys(vars_list))  # Dedupe preserving order
+
+        def extract_targets(left_node: Any) -> list[Any]:
+            """Extract target identifier nodes from left side of assignment."""
+            targets = []
+            if left_node is None:
+                return targets
+
+            if left_node.type == "identifier":
+                targets.append(left_node)
+            elif left_node.type == "expression_list":
+                for child in left_node.children:
+                    if child.type == "identifier":
+                        targets.append(child)
+            return targets
+
+        # Process short variable declarations: x := expr
+        for node in self._find_all_nodes(tree.root_node, "short_var_declaration"):
+            left = node.child_by_field_name("left")
+            right = node.child_by_field_name("right")
+
+            if not (left and right):
+                continue
+
+            in_function = get_containing_function(node)
+            source_expr = get_node_text(right)
+            source_vars = extract_source_vars(right)
+
+            for target in extract_targets(left):
+                target_name = get_node_text(target)
+                if target_name == "_":
+                    continue  # Skip blank identifier
+
+                assignments.append({
+                    "file": file_path,
+                    "line": node.start_point[0] + 1,
+                    "col": node.start_point[1],
+                    "target_var": target_name,
+                    "source_expr": source_expr[:500] if source_expr else "",
+                    "in_function": in_function,
+                    "property_path": None,
+                    "source_vars": source_vars,
+                })
+
+        # Process regular assignments: x = expr
+        for node in self._find_all_nodes(tree.root_node, "assignment_statement"):
+            left = node.child_by_field_name("left")
+            right = node.child_by_field_name("right")
+
+            if not (left and right):
+                continue
+
+            in_function = get_containing_function(node)
+            source_expr = get_node_text(right)
+            source_vars = extract_source_vars(right)
+
+            for target in extract_targets(left):
+                target_name = get_node_text(target)
+                if target_name == "_":
+                    continue  # Skip blank identifier
+
+                assignments.append({
+                    "file": file_path,
+                    "line": node.start_point[0] + 1,
+                    "col": node.start_point[1],
+                    "target_var": target_name,
+                    "source_expr": source_expr[:500] if source_expr else "",
+                    "in_function": in_function,
+                    "property_path": None,
+                    "source_vars": source_vars,
+                })
+
+        if assignments:
+            logger.debug(
+                f"Go: extracted {len(assignments)} assignments from {file_path}"
+            )
+
+        return assignments
