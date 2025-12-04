@@ -1184,3 +1184,736 @@ def extract_rust_lifetimes(root_node: Any, file_path: str) -> list[dict]:
 
     visit(root_node)
     return lifetimes
+
+
+def extract_rust_assignments(root_node: Any, file_path: str) -> list[dict]:
+    """Extract variable assignments from Rust AST for data flow analysis.
+
+    Handles:
+    - Simple let bindings: let x = 42;
+    - Mutable bindings: let mut x = 0;
+    - Destructuring: let (a, b) = pair;
+    - Type annotations: let x: i32 = compute();
+
+    Args:
+        root_node: Tree-sitter root node
+        file_path: Path to the source file
+
+    Returns:
+        List of assignment dicts with keys matching assignments table
+    """
+    assignments = []
+    current_function = [None]
+
+    def extract_pattern_vars(node: Any) -> list[str]:
+        """Extract all variable names from a pattern node."""
+        vars_list = []
+        if node is None:
+            return vars_list
+
+        if node.type == "identifier":
+            vars_list.append(_get_text(node))
+        elif node.type == "tuple_pattern":
+            for child in node.children:
+                if child.type not in ["(", ")", ","]:
+                    vars_list.extend(extract_pattern_vars(child))
+        elif node.type == "struct_pattern":
+            for child in node.children:
+                if child.type == "field_pattern":
+                    name_node = _get_child_by_type(child, "identifier")
+                    if name_node:
+                        vars_list.append(_get_text(name_node))
+                elif child.type == "shorthand_field_identifier":
+                    vars_list.append(_get_text(child))
+        elif node.type == "slice_pattern":
+            for child in node.children:
+                if child.type not in ["[", "]", ","]:
+                    vars_list.extend(extract_pattern_vars(child))
+        elif node.type == "ref_pattern":
+            for child in node.children:
+                if child.type not in ["&", "ref", "mut"]:
+                    vars_list.extend(extract_pattern_vars(child))
+        elif node.type == "mut_pattern":
+            for child in node.children:
+                if child.type != "mut":
+                    vars_list.extend(extract_pattern_vars(child))
+        elif node.type == "_":
+            pass  # Wildcard pattern, no variable
+
+        return vars_list
+
+    def extract_source_vars(node: Any) -> list[str]:
+        """Extract all variable references from an expression."""
+        vars_list = []
+        if node is None:
+            return vars_list
+
+        if node.type == "identifier":
+            name = _get_text(node)
+            # Filter out type names (PascalCase) and keywords
+            if name and not name[0].isupper() and name not in (
+                "self", "Self", "true", "false", "None", "Some", "Ok", "Err"
+            ):
+                vars_list.append(name)
+        elif node.type == "field_expression":
+            # For x.y.z, extract full path
+            text = _get_text(node)
+            if text:
+                vars_list.append(text)
+            return vars_list  # Don't recurse, we have the full path
+        else:
+            for child in node.children:
+                vars_list.extend(extract_source_vars(child))
+
+        return list(dict.fromkeys(vars_list))  # Dedupe preserving order
+
+    def visit(node: Any) -> None:
+        if node.type == "function_item":
+            name_node = _get_child_by_type(node, "identifier")
+            old_func = current_function[0]
+            current_function[0] = _get_text(name_node) if name_node else None
+
+            for child in node.children:
+                visit(child)
+
+            current_function[0] = old_func
+            return
+
+        if node.type == "let_declaration":
+            # Find pattern and value nodes
+            pattern_node = None
+            value_node = None
+
+            # Pattern comes after 'let' (and possibly 'mut'), before '=' or ':'
+            # Value comes after '='
+            found_eq = False
+            for child in node.children:
+                if child.type == "=":
+                    found_eq = True
+                elif not found_eq:
+                    # Skip let keyword, mut specifier, type annotations
+                    if child.type not in ["let", "mutable_specifier", ":"]:
+                        # Skip type nodes
+                        if not child.type.endswith("_type") and child.type != "type_identifier":
+                            pattern_node = child
+                else:
+                    # Value is the expression after '='
+                    if child.type != ";":
+                        value_node = child
+                        break
+
+            if pattern_node and value_node:
+                target_vars = extract_pattern_vars(pattern_node)
+                source_expr = _get_text(value_node)
+                source_vars = extract_source_vars(value_node)
+
+                in_function = current_function[0] or "global"
+
+                for target_var in target_vars:
+                    if target_var:
+                        assignments.append({
+                            "target_var": target_var,
+                            "source_expr": source_expr,
+                            "line": node.start_point[0] + 1,
+                            "col": node.start_point[1],
+                            "in_function": in_function,
+                            "source_vars": source_vars,
+                            "property_path": None,
+                        })
+
+        for child in node.children:
+            visit(child)
+
+    visit(root_node)
+    return assignments
+
+
+def extract_rust_function_calls(root_node: Any, file_path: str) -> list[dict]:
+    """Extract function calls from Rust AST for call graph analysis.
+
+    Handles:
+    - Simple calls: foo(arg1, arg2)
+    - Method calls: obj.method(arg)
+    - Chained calls: a.b().c()
+    - Associated functions: Type::function()
+    - Macro invocations are excluded (handled separately)
+
+    Args:
+        root_node: Tree-sitter root node
+        file_path: Path to the source file
+
+    Returns:
+        List of function call dicts with keys matching function_call_args table
+    """
+    calls = []
+    current_function = [None]
+
+    def get_callee_name(func_node: Any) -> str:
+        """Extract the function/method name being called."""
+        if func_node is None:
+            return ""
+
+        if func_node.type == "identifier":
+            return _get_text(func_node)
+        elif func_node.type == "field_expression":
+            # method call: obj.method -> return "method"
+            field_node = _get_child_by_type(func_node, "field_identifier")
+            if field_node:
+                return _get_text(field_node)
+            return _get_text(func_node)
+        elif func_node.type == "scoped_identifier":
+            # Type::function -> return full path
+            return _get_text(func_node)
+        elif func_node.type == "generic_function":
+            # func::<T>() -> extract the base function name
+            base = None
+            for child in func_node.children:
+                if child.type in ["identifier", "field_expression", "scoped_identifier"]:
+                    base = child
+                    break
+            if base:
+                return get_callee_name(base)
+            return _get_text(func_node)
+        else:
+            return _get_text(func_node)
+
+    def visit(node: Any) -> None:
+        if node.type == "function_item":
+            name_node = _get_child_by_type(node, "identifier")
+            old_func = current_function[0]
+            current_function[0] = _get_text(name_node) if name_node else None
+
+            for child in node.children:
+                visit(child)
+
+            current_function[0] = old_func
+            return
+
+        if node.type == "call_expression":
+            # First child is the function being called
+            # Look for arguments node
+            func_node = None
+            args_node = None
+
+            for child in node.children:
+                if child.type == "arguments":
+                    args_node = child
+                elif func_node is None and child.type not in ["(", ")", ","]:
+                    func_node = child
+
+            callee_function = get_callee_name(func_node)
+            caller_function = current_function[0] or "global"
+            line = node.start_point[0] + 1
+
+            # Skip empty callee
+            if not callee_function:
+                for child in node.children:
+                    visit(child)
+                return
+
+            # Extract arguments
+            args = []
+            if args_node:
+                for child in args_node.children:
+                    if child.type not in ["(", ")", ","]:
+                        args.append(child)
+
+            # If no arguments, still record the call
+            if not args:
+                calls.append({
+                    "line": line,
+                    "caller_function": caller_function,
+                    "callee_function": callee_function,
+                    "argument_index": 0,
+                    "argument_expr": "",
+                    "param_name": "",
+                    "callee_file_path": None,
+                })
+            else:
+                for i, arg in enumerate(args):
+                    arg_expr = _get_text(arg)
+                    calls.append({
+                        "line": line,
+                        "caller_function": caller_function,
+                        "callee_function": callee_function,
+                        "argument_index": i,
+                        "argument_expr": arg_expr[:500] if arg_expr else "",
+                        "param_name": f"arg{i}",  # Rust doesn't have named args
+                        "callee_file_path": None,
+                    })
+
+        for child in node.children:
+            visit(child)
+
+    visit(root_node)
+    return calls
+
+
+def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
+    """Extract return statements from Rust AST for data flow analysis.
+
+    Handles:
+    - Explicit returns: return result;
+    - Implicit returns: last expression without semicolon in a function
+
+    Args:
+        root_node: Tree-sitter root node
+        file_path: Path to the source file
+
+    Returns:
+        List of return dicts with keys matching function_returns table
+    """
+    returns = []
+    current_function = [None]
+
+    def extract_return_vars(node: Any) -> list[str]:
+        """Extract all variable references from a return expression."""
+        vars_list = []
+        if node is None:
+            return vars_list
+
+        if node.type == "identifier":
+            name = _get_text(node)
+            # Filter out type names (PascalCase) and keywords
+            if name and not name[0].isupper() and name not in (
+                "self", "Self", "true", "false", "None", "Some", "Ok", "Err"
+            ):
+                vars_list.append(name)
+        elif node.type == "field_expression":
+            # For x.y.z, extract full path
+            text = _get_text(node)
+            if text:
+                vars_list.append(text)
+            return vars_list
+        else:
+            for child in node.children:
+                vars_list.extend(extract_return_vars(child))
+
+        return list(dict.fromkeys(vars_list))
+
+    def get_last_expression_in_block(block_node: Any) -> Any | None:
+        """Get the last expression in a block if it's an implicit return.
+
+        In Rust, if the last item in a block is an expression without semicolon,
+        it's the return value.
+        """
+        if block_node is None or block_node.type != "block":
+            return None
+
+        # Get all non-brace children
+        children = [c for c in block_node.children if c.type not in ["{", "}"]]
+        if not children:
+            return None
+
+        last_child = children[-1]
+
+        # If it's an expression_statement, check if it ends with semicolon
+        if last_child.type == "expression_statement":
+            # expression_statement with semicolon is NOT an implicit return
+            text = _get_text(last_child)
+            if text.rstrip().endswith(";"):
+                return None
+            # Otherwise, get the expression inside
+            for child in last_child.children:
+                if child.type != ";":
+                    return child
+            return None
+
+        # If it's a direct expression (not wrapped in statement), it's implicit return
+        if last_child.type not in [
+            "let_declaration", "macro_invocation", "empty_statement",
+            "attribute_item", "inner_attribute_item"
+        ]:
+            return last_child
+
+        return None
+
+    def visit(node: Any) -> None:
+        if node.type == "function_item":
+            name_node = _get_child_by_type(node, "identifier")
+            old_func = current_function[0]
+            current_function[0] = _get_text(name_node) if name_node else None
+
+            # Process explicit returns in this function
+            for child in node.children:
+                visit(child)
+
+            # Check for implicit return at end of function block
+            block_node = _get_child_by_type(node, "block")
+            if block_node and current_function[0]:
+                last_expr = get_last_expression_in_block(block_node)
+                if last_expr:
+                    # This is an implicit return
+                    return_expr = _get_text(last_expr)
+                    return_vars = extract_return_vars(last_expr)
+
+                    returns.append({
+                        "function_name": current_function[0],
+                        "line": last_expr.start_point[0] + 1,
+                        "col": last_expr.start_point[1],
+                        "return_expr": return_expr[:500] if return_expr else "",
+                        "return_vars": return_vars,
+                    })
+
+            current_function[0] = old_func
+            return
+
+        if node.type == "return_expression":
+            function_name = current_function[0] or "global"
+
+            # Get the return value (expression after 'return')
+            return_value = None
+            for child in node.children:
+                if child.type != "return":
+                    return_value = child
+                    break
+
+            if return_value:
+                return_expr = _get_text(return_value)
+                return_vars = extract_return_vars(return_value)
+            else:
+                return_expr = "()"  # Return unit type
+                return_vars = []
+
+            returns.append({
+                "function_name": function_name,
+                "line": node.start_point[0] + 1,
+                "col": node.start_point[1],
+                "return_expr": return_expr[:500] if return_expr else "",
+                "return_vars": return_vars,
+            })
+
+        for child in node.children:
+            visit(child)
+
+    visit(root_node)
+    return returns
+
+
+def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
+    """Extract control flow graphs from Rust AST.
+
+    Handles:
+    - if expressions (with optional else)
+    - match expressions
+    - loop expressions (infinite loop)
+    - while expressions
+    - for expressions
+    - return statements
+
+    Args:
+        root_node: Tree-sitter root node
+        file_path: Path to the source file
+
+    Returns:
+        List of function CFG dicts with blocks and edges
+    """
+    cfg_data = []
+
+    def build_function_cfg(func_node: Any) -> dict | None:
+        """Build CFG for a single Rust function."""
+        name_node = _get_child_by_type(func_node, "identifier")
+        if not name_node:
+            return None
+
+        function_name = _get_text(name_node)
+        block_node = _get_child_by_type(func_node, "block")
+
+        if not block_node:
+            return None
+
+        blocks = []
+        edges = []
+        block_id_counter = [0]
+
+        def get_next_block_id():
+            block_id_counter[0] += 1
+            return block_id_counter[0]
+
+        # Create entry block
+        entry_id = get_next_block_id()
+        blocks.append({
+            "id": entry_id,
+            "type": "entry",
+            "start_line": func_node.start_point[0] + 1,
+            "end_line": func_node.start_point[0] + 1,
+            "statements": [],
+        })
+
+        def process_block(block_node: Any, current_id: int) -> int | None:
+            """Process a block and return the exit block id."""
+            if block_node is None:
+                return current_id
+
+            children = [c for c in block_node.children if c.type not in ["{", "}"]]
+
+            for child in children:
+                result = process_statement(child, current_id, get_next_block_id)
+                if result is None:
+                    return None  # Explicit return, no continuation
+                if isinstance(result, tuple):
+                    new_blocks, new_edges, next_id = result
+                    blocks.extend(new_blocks)
+                    edges.extend(new_edges)
+                    current_id = next_id
+                    if current_id is None:
+                        return None
+
+            return current_id
+
+        def process_statement(stmt: Any, current_id: int, get_id) -> tuple | int | None:
+            """Process a statement and return (blocks, edges, next_id) or None."""
+            stmt_blocks = []
+            stmt_edges = []
+
+            # Unwrap expression_statement to get the actual expression
+            actual_stmt = stmt
+            if stmt.type == "expression_statement":
+                for child in stmt.children:
+                    if child.type != ";":
+                        actual_stmt = child
+                        break
+
+            if actual_stmt.type == "if_expression":
+                # Get condition
+                condition_node = None
+                consequence_node = None
+                alternative_node = None
+
+                for i, child in enumerate(actual_stmt.children):
+                    if child.type == "if":
+                        continue
+                    elif condition_node is None and child.type not in ["block", "else_clause"]:
+                        condition_node = child
+                    elif child.type == "block" and consequence_node is None:
+                        consequence_node = child
+                    elif child.type == "else_clause":
+                        for c in child.children:
+                            if c.type == "block":
+                                alternative_node = c
+                            elif c.type == "if_expression":
+                                alternative_node = c
+
+                # Create condition block
+                cond_id = get_id()
+                cond_text = _get_text(condition_node) if condition_node else ""
+                stmt_blocks.append({
+                    "id": cond_id,
+                    "type": "condition",
+                    "start_line": actual_stmt.start_point[0] + 1,
+                    "end_line": actual_stmt.start_point[0] + 1,
+                    "condition": cond_text[:200] if cond_text else "",
+                    "statements": [{"type": "if", "line": actual_stmt.start_point[0] + 1}],
+                })
+                stmt_edges.append({"source": current_id, "target": cond_id, "type": "normal"})
+
+                # Create then block
+                then_id = get_id()
+                stmt_blocks.append({
+                    "id": then_id,
+                    "type": "basic",
+                    "start_line": consequence_node.start_point[0] + 1 if consequence_node else actual_stmt.start_point[0] + 1,
+                    "end_line": consequence_node.end_point[0] + 1 if consequence_node else actual_stmt.start_point[0] + 1,
+                    "statements": [],
+                })
+                stmt_edges.append({"source": cond_id, "target": then_id, "type": "true"})
+
+                # Merge block
+                merge_id = get_id()
+                stmt_blocks.append({
+                    "id": merge_id,
+                    "type": "merge",
+                    "start_line": actual_stmt.end_point[0] + 1,
+                    "end_line": actual_stmt.end_point[0] + 1,
+                    "statements": [],
+                })
+                stmt_edges.append({"source": then_id, "target": merge_id, "type": "normal"})
+
+                if alternative_node:
+                    else_id = get_id()
+                    stmt_blocks.append({
+                        "id": else_id,
+                        "type": "basic",
+                        "start_line": alternative_node.start_point[0] + 1,
+                        "end_line": alternative_node.end_point[0] + 1,
+                        "statements": [],
+                    })
+                    stmt_edges.append({"source": cond_id, "target": else_id, "type": "false"})
+                    stmt_edges.append({"source": else_id, "target": merge_id, "type": "normal"})
+                else:
+                    stmt_edges.append({"source": cond_id, "target": merge_id, "type": "false"})
+
+                return stmt_blocks, stmt_edges, merge_id
+
+            elif actual_stmt.type == "match_expression":
+                # Get scrutinee
+                scrutinee_node = None
+                match_body = None
+                for child in actual_stmt.children:
+                    if child.type == "match":
+                        continue
+                    elif scrutinee_node is None and child.type != "match_block":
+                        scrutinee_node = child
+                    elif child.type == "match_block":
+                        match_body = child
+
+                scrutinee_text = _get_text(scrutinee_node) if scrutinee_node else ""
+                scrutinee_id = get_id()
+                stmt_blocks.append({
+                    "id": scrutinee_id,
+                    "type": "condition",
+                    "start_line": actual_stmt.start_point[0] + 1,
+                    "end_line": actual_stmt.start_point[0] + 1,
+                    "condition": scrutinee_text[:200] if scrutinee_text else "",
+                    "statements": [{"type": "match", "line": actual_stmt.start_point[0] + 1}],
+                })
+                stmt_edges.append({"source": current_id, "target": scrutinee_id, "type": "normal"})
+
+                merge_id = get_id()
+                stmt_blocks.append({
+                    "id": merge_id,
+                    "type": "merge",
+                    "start_line": actual_stmt.end_point[0] + 1,
+                    "end_line": actual_stmt.end_point[0] + 1,
+                    "statements": [],
+                })
+
+                # Process match arms
+                if match_body:
+                    for child in match_body.children:
+                        if child.type == "match_arm":
+                            arm_id = get_id()
+                            stmt_blocks.append({
+                                "id": arm_id,
+                                "type": "basic",
+                                "start_line": child.start_point[0] + 1,
+                                "end_line": child.end_point[0] + 1,
+                                "statements": [{"type": "match_arm", "line": child.start_point[0] + 1}],
+                            })
+                            stmt_edges.append({"source": scrutinee_id, "target": arm_id, "type": "normal"})
+                            stmt_edges.append({"source": arm_id, "target": merge_id, "type": "normal"})
+
+                return stmt_blocks, stmt_edges, merge_id
+
+            elif actual_stmt.type in ["loop_expression", "while_expression", "for_expression"]:
+                loop_type = actual_stmt.type.replace("_expression", "")
+
+                # Get condition (for while/for) or None (for loop)
+                condition_text = ""
+                body_node = None
+
+                if actual_stmt.type == "while_expression":
+                    for child in actual_stmt.children:
+                        if child.type == "while":
+                            continue
+                        elif child.type == "block":
+                            body_node = child
+                        elif child.type not in ["let"]:
+                            condition_text = _get_text(child)
+
+                elif actual_stmt.type == "for_expression":
+                    pattern = None
+                    iterator = None
+                    for child in actual_stmt.children:
+                        if child.type == "for":
+                            continue
+                        elif child.type == "in":
+                            continue
+                        elif child.type == "block":
+                            body_node = child
+                        elif pattern is None:
+                            pattern = _get_text(child)
+                        else:
+                            iterator = _get_text(child)
+                    condition_text = f"{pattern} in {iterator}" if pattern and iterator else ""
+
+                else:  # loop_expression
+                    for child in actual_stmt.children:
+                        if child.type == "block":
+                            body_node = child
+
+                # Loop header/condition block
+                loop_id = get_id()
+                stmt_blocks.append({
+                    "id": loop_id,
+                    "type": "loop_condition",
+                    "start_line": actual_stmt.start_point[0] + 1,
+                    "end_line": actual_stmt.start_point[0] + 1,
+                    "condition": condition_text[:200] if condition_text else "",
+                    "statements": [{"type": loop_type, "line": actual_stmt.start_point[0] + 1}],
+                })
+                stmt_edges.append({"source": current_id, "target": loop_id, "type": "normal"})
+
+                # Loop body block
+                body_id = get_id()
+                stmt_blocks.append({
+                    "id": body_id,
+                    "type": "loop_body",
+                    "start_line": body_node.start_point[0] + 1 if body_node else actual_stmt.start_point[0] + 1,
+                    "end_line": body_node.end_point[0] + 1 if body_node else actual_stmt.end_point[0] + 1,
+                    "statements": [],
+                })
+                stmt_edges.append({"source": loop_id, "target": body_id, "type": "true"})
+                stmt_edges.append({"source": body_id, "target": loop_id, "type": "back_edge"})
+
+                # Exit block
+                exit_id = get_id()
+                stmt_blocks.append({
+                    "id": exit_id,
+                    "type": "merge",
+                    "start_line": actual_stmt.end_point[0] + 1,
+                    "end_line": actual_stmt.end_point[0] + 1,
+                    "statements": [],
+                })
+                stmt_edges.append({"source": loop_id, "target": exit_id, "type": "false"})
+
+                return stmt_blocks, stmt_edges, exit_id
+
+            elif actual_stmt.type == "return_expression":
+                return_id = get_id()
+                stmt_blocks.append({
+                    "id": return_id,
+                    "type": "return",
+                    "start_line": actual_stmt.start_point[0] + 1,
+                    "end_line": actual_stmt.start_point[0] + 1,
+                    "statements": [{"type": "return", "line": actual_stmt.start_point[0] + 1}],
+                })
+                stmt_edges.append({"source": current_id, "target": return_id, "type": "normal"})
+                return None  # No continuation after return
+
+            # For other statements, just continue
+            return current_id
+
+        # Process the function block
+        exit_id = process_block(block_node, entry_id)
+
+        # Create exit block if we have a continuation path
+        if exit_id is not None:
+            final_exit_id = get_next_block_id()
+            blocks.append({
+                "id": final_exit_id,
+                "type": "exit",
+                "start_line": func_node.end_point[0] + 1,
+                "end_line": func_node.end_point[0] + 1,
+                "statements": [],
+            })
+            edges.append({"source": exit_id, "target": final_exit_id, "type": "normal"})
+
+        return {
+            "function_name": function_name,
+            "blocks": blocks,
+            "edges": edges,
+        }
+
+    # Find all function items and build CFG for each
+    def visit(node: Any) -> None:
+        if node.type == "function_item":
+            func_cfg = build_function_cfg(node)
+            if func_cfg:
+                cfg_data.append(func_cfg)
+
+        for child in node.children:
+            visit(child)
+
+    visit(root_node)
+    return cfg_data

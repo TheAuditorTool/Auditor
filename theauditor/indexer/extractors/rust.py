@@ -51,6 +51,7 @@ class RustExtractor(BaseExtractor):
         check_tree_sitter_parse_quality(root, file_path, logger)
 
         result = {
+            # Rust-specific tables
             "rust_modules": rust_core.extract_rust_modules(root, file_path),
             "rust_use_statements": rust_core.extract_rust_use_statements(root, file_path),
             "rust_functions": rust_core.extract_rust_functions(root, file_path),
@@ -71,6 +72,12 @@ class RustExtractor(BaseExtractor):
             "rust_trait_methods": rust_core.extract_rust_trait_methods(root, file_path),
             "rust_extern_functions": rust_core.extract_rust_extern_functions(root, file_path),
             "rust_extern_blocks": rust_core.extract_rust_extern_blocks(root, file_path),
+            # Language-agnostic tables (for graph integration)
+            # Keys MUST match storage handler dict in core_storage.py
+            "assignments": rust_core.extract_rust_assignments(root, file_path),
+            "function_calls": rust_core.extract_rust_function_calls(root, file_path),
+            "returns": rust_core.extract_rust_returns(root, file_path),
+            "cfg": rust_core.extract_rust_cfg(root, file_path),
         }
 
         logger.debug(

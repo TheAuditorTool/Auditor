@@ -157,6 +157,43 @@ cursor.execute("SELECT ... FROM rust_impl_blocks ...")
 - Connect edges based on control flow
 - Reference: See `extract_python_cfg()` for block/edge structure
 
+### Decision 6: Infrastructure Compliance (Fidelity, Logging)
+
+**What:** Ensure new extraction functions comply with recent infrastructure work.
+
+**Fidelity Integration:**
+- `rust.py:84` already calls `FidelityToken.attach_manifest(result)`
+- This function is **polymorphic** - iterates ALL keys in result dict
+- New language-agnostic keys (`assignments`, `function_call_args`, etc.) are **automatically tracked**
+- **No additional fidelity code required** - just add keys to result dict
+
+**Why this works:**
+```python
+# fidelity_utils.py:80-105 - attach_manifest() auto-processes all keys
+for key, value in extracted_data.items():
+    if key.startswith("_"):
+        continue
+    token = FidelityToken.create_manifest(value)  # Handles lists/dicts
+    if token:
+        manifest[key] = token
+```
+
+**Logging Pattern:**
+- Use `from theauditor.utils.logging import logger`
+- Pattern: `logger.debug()` for tracing, `logger.warning()` for recoverable issues
+- **No emojis** - Windows CP1252 encoding causes UnicodeEncodeError
+
+**Guards (Automatic):**
+Storage layer enforces via `reconcile_fidelity()` in `theauditor/indexer/fidelity.py`:
+- LEGACY FORMAT VIOLATION: Rejects int format
+- TRANSACTION MISMATCH: tx_id echo verification
+- SCHEMA VIOLATION: Column preservation check
+- COUNT CHECK: Row count verification
+
+**Rich CLI:**
+- Not applicable - extraction functions don't interact with CLI
+- Rich is in `pipeline/renderer.py` for display only
+
 ## Risks / Trade-offs
 
 ### Risk 1: Implicit returns in Rust
