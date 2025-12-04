@@ -105,6 +105,10 @@ def blueprint(structure, graph, security, taint, boundaries, deps, all, output_f
     RELATED COMMANDS:
       aud graph      # Dedicated graph analysis
 
+    SEE ALSO:
+      aud manual blueprint    Learn about architectural visualization
+      aud manual architecture How TheAuditor's analysis pipeline works
+
     NOTE: This command shows FACTS ONLY - no recommendations, no prescriptive
     language. For actionable insights, use 'aud fce' or 'aud full'.
 

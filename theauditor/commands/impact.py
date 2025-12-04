@@ -136,6 +136,10 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
         Meaning: Tightly coupled, risky to change
         Action: Extract interface first, then refactor
 
+    SEE ALSO:
+      aud manual impact       Learn about blast radius analysis
+      aud manual refactor     Detect incomplete refactorings
+
     Note: Requires 'aud index' to be run first."""
 
     import importlib.util
