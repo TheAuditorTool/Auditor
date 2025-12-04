@@ -842,9 +842,10 @@ class FlowResolver:
             return "rust"
         return "unknown"
 
-    def _is_sanitizer(self, function_name: str) -> bool:
+    def _is_sanitizer(self, function_name: str, file_path: str = None) -> bool:
         """Check if function is a sanitizer. Uses registry if available."""
-        if self.registry and self.registry.is_sanitizer(function_name):
+        lang = self._get_language_for_file(file_path) if file_path else None
+        if self.registry and self.registry.is_sanitizer(function_name, lang):
             return True
         if function_name in self._safe_sinks:
             return True
@@ -888,12 +889,39 @@ class FlowResolver:
                 target_parts = target.split("::")
                 if len(target_parts) >= 2:
                     called_func = target_parts[-1]
-                    if self._is_sanitizer(called_func):
+                    if self._is_sanitizer(called_func, hop_file):
                         return {"file": hop_file, "line": 0, "method": called_func}
 
             # SECONDARY CHECK: Check if function itself is a sanitizer
-            if func and self._is_sanitizer(func):
+            if func and self._is_sanitizer(func, hop_file):
                 return {"file": hop_file, "line": 0, "method": func}
+
+            # TERTIARY CHECK: Validation frameworks (Zod, Joi, Yup, express-validator)
+            # Match by file containing validators + common validation patterns in func/var
+            var_name = parts[2] if len(parts) > 2 else ""
+            validation_keywords = ["schema", "validate", "parse", "safeParse", "validator", "check"]
+
+            for san in self._validation_sanitizers:
+                # Check file match (loose match for path differences)
+                if san["file"] in hop_file or hop_file in san["file"]:
+                    schema_name = san.get("schema", "")
+                    # Match if: schema name in func/var OR validation keyword in func/var
+                    func_lower = func.lower() if func else ""
+                    var_lower = var_name.lower() if var_name else ""
+
+                    if schema_name and (schema_name in func or schema_name in var_name):
+                        return {
+                            "file": hop_file,
+                            "line": san["line"],
+                            "method": f"{san['framework']}:{schema_name}",
+                        }
+                    # Fallback: validation keyword match in same file as validator
+                    if any(kw in func_lower or kw in var_lower for kw in validation_keywords):
+                        return {
+                            "file": hop_file,
+                            "line": san["line"],
+                            "method": f"{san['framework']}:inferred",
+                        }
 
             return None
 
