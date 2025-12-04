@@ -213,9 +213,10 @@ class IFDSTaintAnalyzer:
 
         # Query 1: Reverse edges (source = current, target = predecessor)
         # FIX #9: Exclude node_modules to prevent traversal into libraries
+        # FIX #16: Include line column for sanitizer proximity detection
         self.graph_cursor.execute(
             """
-            SELECT target, type, metadata
+            SELECT target, type, metadata, line
             FROM edges
             WHERE source = ?
               AND graph_type = 'data_flow'
@@ -238,6 +239,9 @@ class IFDSTaintAnalyzer:
                 except (json.JSONDecodeError, TypeError):
                     metadata = {}
 
+            # FIX #16: Inject line from column (not from metadata JSON)
+            metadata["line"] = row["line"] if row["line"] is not None else 0
+
             source_ap = AccessPath.parse(source_id)
             if source_ap:
                 predecessors.append((source_ap, edge_type, metadata))
@@ -247,9 +251,10 @@ class IFDSTaintAnalyzer:
         # Query 2: Forward edges traversed backwards (target = current, source = predecessor)
         # This catches edges where graph builder created forward but not reverse
         # FIX #9: Exclude node_modules to prevent traversal into libraries
+        # FIX #16: Include line column for sanitizer proximity detection
         self.graph_cursor.execute(
             """
-            SELECT source, type, metadata
+            SELECT source, type, metadata, line
             FROM edges
             WHERE target = ?
               AND graph_type = 'data_flow'
@@ -272,6 +277,9 @@ class IFDSTaintAnalyzer:
                 except (json.JSONDecodeError, TypeError):
                     metadata = {}
 
+            # FIX #16: Inject line from column (not from metadata JSON)
+            metadata["line"] = row["line"] if row["line"] is not None else 0
+
             pred_ap = AccessPath.parse(pred_id)
             if pred_ap:
                 # Avoid duplicates if same predecessor found via both queries
@@ -281,9 +289,10 @@ class IFDSTaintAnalyzer:
                 logger.debug(f"WARNING: Dropped malformed node ID: '{pred_id}' (parse failed)")
 
         # FIX #9: Exclude node_modules from call graph traversal too
+        # FIX #16: Include line column for sanitizer proximity detection
         self.graph_cursor.execute(
             """
-            SELECT source, type, metadata
+            SELECT source, type, metadata, line
             FROM edges
             WHERE target = ?
               AND graph_type = 'call'
@@ -304,6 +313,9 @@ class IFDSTaintAnalyzer:
                     metadata = json.loads(row["metadata"])
                 except (json.JSONDecodeError, TypeError):
                     metadata = {}
+
+            # FIX #16: Inject line from column (not from metadata JSON)
+            metadata["line"] = row["line"] if row["line"] is not None else 0
 
             source_ap = AccessPath.parse(source_id)
             if source_ap:
@@ -560,9 +572,16 @@ class IFDSTaintAnalyzer:
                 f"{len(self._validation_sanitizers)} validators, "
                 f"{len(self._call_args_cache)} call locations")
 
-    def _is_sanitizer(self, function_name: str) -> bool:
-        """Check if function is a sanitizer. Uses registry if available."""
-        if self.registry and self.registry.is_sanitizer(function_name):
+    def _is_sanitizer(self, function_name: str, file_path: str = None) -> bool:
+        """Check if function is a sanitizer. Uses registry if available.
+
+        FIX #19: Pass language to registry.is_sanitizer() so it checks
+        language-specific sanitizers (e.g., 'javascript'), not just 'global'.
+        Without this, validators loaded from validation_framework_usage
+        (registered under 'javascript') are NEVER matched.
+        """
+        lang = self._get_language_for_file(file_path) if file_path else None
+        if self.registry and self.registry.is_sanitizer(function_name, lang):
             return True
         if function_name in self._safe_sinks:
             return True
@@ -605,7 +624,8 @@ class IFDSTaintAnalyzer:
             if hop_line > 0:
                 callees = self._call_args_cache.get((hop_file, hop_line), [])
                 for callee in callees:
-                    if self._is_sanitizer(callee):
+                    # FIX #19: Pass hop_file so registry checks language-specific sanitizers
+                    if self._is_sanitizer(callee, hop_file):
                         return {"file": hop_file, "line": hop_line, "method": callee}
 
             # SECONDARY CHECK: Query graph for call edges from this node
@@ -626,7 +646,8 @@ class IFDSTaintAnalyzer:
                     target_parts = target.split("::")
                     if len(target_parts) >= 2:
                         called_func = target_parts[-1]
-                        if self._is_sanitizer(called_func):
+                        # FIX #19: Pass hop_file so registry checks language-specific sanitizers
+                        if self._is_sanitizer(called_func, hop_file):
                             return {"file": hop_file, "line": hop_line, "method": called_func}
 
             # TERTIARY CHECK: Validation framework sanitizers by proximity
