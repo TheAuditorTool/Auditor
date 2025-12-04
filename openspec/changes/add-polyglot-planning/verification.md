@@ -1,9 +1,9 @@
 # Due Diligence: add-polyglot-planning
 
-**Reviewed**: 2025-12-03
-**Last Flight Check**: 2025-12-03 (second pass)
+**Reviewed**: 2025-12-05
+**Last Flight Check**: 2025-12-05 (third pass - post-refactor sanity check)
 **Reviewer**: Claude (Opus 4.5)
-**Verdict**: **PASS** (Updated 2025-12-03)
+**Verdict**: **NEEDS WORK** (Line numbers stale, blockers still valid)
 
 ---
 
@@ -11,195 +11,225 @@
 
 | Category | Status | Issues Found |
 |----------|--------|--------------|
-| Proposal Structure | PASS | All 6 .md files present and complete |
-| Schema Accuracy | ~~FAIL~~ PASS | ~~4 schema snippets have wrong columns~~ Fixed |
-| Code References | ~~FAIL~~ PASS | ~~All line numbers stale~~ Updated to current |
-| File Paths | ~~FAIL~~ PASS | ~~References directories~~ Corrected to single files |
-| Blockers Documented | ~~PARTIAL~~ PASS | ~~Missing go_routes blocker~~ Added as BLOCKER 2 |
+| Proposal Structure | PASS | All 7 .md files present and complete |
+| Schema Accuracy | PASS | All schema snippets match actual code |
+| Code References | **FAIL** | Line numbers for blueprint.py are 20 lines off |
+| File Paths | PASS | All file paths are correct |
+| Blockers Documented | PASS | Both blockers accurately reflect reality |
 | Architecture Fit | PASS | Design integrates with existing systems |
 | Task Breakdown | PASS | Clear, actionable steps |
+| Loguru/Rich Logging | PASS | No conflicts, CP1252-safe implementation |
+| Database State | PASS | Tables exist, blockers correctly identify missing data |
+
+---
+
+## Flight Check #3 (2025-12-05) - Post-Refactor Sanity Check
+
+### Verification Method
+
+1. Full read of all 7 proposal .md files
+2. Full read of all 4 schema files (go, rust, bash, infrastructure)
+3. Database queries to verify table existence and population
+4. Grep verification of function line numbers
+5. Loguru/Rich logging implementation review
+
+### Database State Verification
+
+```
+=== go_routes table ===
+Total: 5 rows (all gin framework) - WORKING
+
+=== Go main functions ===
+3 found in go_functions - WORKING
+
+=== Rust main functions ===
+3 found in rust_functions - WORKING
+
+=== rust_attributes table ===
+EXISTS: NO - BLOCKER 1 STILL VALID
+
+=== symbols table (polyglot) ===
+.py: 54,698
+.ts: 7,636
+.js: 5,369
+.go: 0      <- BLOCKER 2 STILL VALID
+.rs: 0      <- BLOCKER 2 STILL VALID
+.sh: 0      <- BLOCKER 2 STILL VALID
+
+=== refs table (polyglot) ===
+.py: 8,870
+.ts: 496
+.js: 250
+.go: 0      <- BLOCKER 2 STILL VALID
+.rs: 0      <- BLOCKER 2 STILL VALID
+.sh: 0      <- BLOCKER 2 STILL VALID
+
+=== cargo_package_configs ===
+EXISTS: YES (in rust_schema.py)
+ROWS: 0 - Schema exists but not populated
+
+=== go_module_configs ===
+EXISTS: YES (in go_schema.py)
+ROWS: 0 - Schema exists but not populated
+```
+
+### Line Number Verification (STALE)
+
+| Function | Proposal Says | Actual Location | Delta |
+|----------|---------------|-----------------|-------|
+| `_get_naming_conventions` | 342-404 | **362**-424 | +20 lines |
+| `_get_dependencies` | 1318-1420 | **1338**-1440 | +20 lines |
+| `get_file_framework_info` | 1375-1478 | 1375-1478 | MATCH |
+| `_find_decorated_entry_points` | 237-253 | 237-253 | MATCH |
+| `_find_framework_entry_points` | 255-269 | 255-269 | MATCH |
+
+### Schema File Locations
+
+| Schema | Proposal Location | Actual Location | Status |
+|--------|-------------------|-----------------|--------|
+| `CARGO_PACKAGE_CONFIGS` | infrastructure_schema.py | **rust_schema.py:347-359** | WRONG FILE |
+| `CARGO_DEPENDENCIES` | (not mentioned) | rust_schema.py:361-374 | NEW TABLE |
+| `GO_MODULE_CONFIGS` | go_schema.py | go_schema.py:362-373 | MATCH |
+| `GO_MODULE_DEPENDENCIES` | (not mentioned) | go_schema.py:375-387 | NEW TABLE |
+| `rust_attributes` | needs creation | does not exist | BLOCKER |
+
+### Loguru/Rich Logging Compatibility
+
+**Status: PASS - No conflicts**
+
+Evidence from `theauditor/utils/logging.py`:
+- Line 81: `# Human-readable format (no emojis - Windows CP1252 compatibility)`
+- Format uses ASCII-safe characters only
+- No emoji usage in logging that would cause `UnicodeEncodeError`
+- Rich integration properly implemented with `swap_to_rich_sink()` and `restore_stderr_sink()`
+
+The polyglot-planning proposal does NOT touch logging infrastructure - no conflicts.
 
 ---
 
 ## Critical Gaps
 
-### 1. MISSING BLOCKER: `go_routes` Extractor Does Not Exist
-
-**Severity**: CRITICAL
-
-The proposal assumes `go_routes` table will be populated for boundary analysis and planning features. However:
-
-- **go_impl.py** does NOT have `extract_go_routes()` function
-- The file contains: `extract_go_functions`, `extract_go_methods`, `extract_go_goroutines`, `extract_go_captured_vars`
-- NO route extraction logic exists for Go (Gin, Echo, Chi, etc.)
-
-**Impact**: Polyglot boundary analysis for Go is impossible without this extractor.
-
-**Required Fix**: Add `go_routes` to blockers section OR create new task for Go route extraction.
-
-### 2. Schema Snippets Are Incorrect
-
-**Severity**: HIGH
-
-The design.md contains schema snippets that don't match actual implementation:
-
-| Table | Proposal Claims | Actual Schema |
-|-------|----------------|---------------|
-| `go_functions` | Has `receiver_type` column | NO - receivers are in `go_methods` table |
-| `bash_functions` | `body_start`, `body_end` | Actual: `body_start_line`, `body_end_line` |
-| `rust_functions` | Oversimplified 6 columns | Actual has 12+ columns including visibility, async, unsafe, generic_params |
-
-**Impact**: Anyone implementing from this spec will write wrong SQL queries.
-
-### 3. All Code References Have Stale Line Numbers
+### 1. LINE NUMBERS ARE STALE (Again)
 
 **Severity**: MEDIUM
 
-After 50+ commits, all line number references are off by 10-50 lines:
+Since the last verification, more commits have shifted blueprint.py line numbers by 20 lines:
 
-| Reference | Proposal Says | Actual Location |
-|-----------|---------------|-----------------|
-| blueprint.py naming conventions | 332-394 | 342-404 |
-| blueprint.py dependencies | 1264-1366 | 1318-1420 |
-| query.py framework info | 1439-1478 | 1375-1478 |
-| deadcode_graph.py decorated entries | 237-268 | 237-253 (decorated) + 255-269 (framework) |
+**Required Fix in proposal.md and design.md:**
+```markdown
+## blueprint.py Line Numbers (Updated 2025-12-05)
+- Naming conventions: lines 362-424 (was 342-404)
+- Dependencies analysis: lines 1338-1440 (was 1318-1420)
+```
 
-**Impact**: Developers will look at wrong code sections.
+### 2. SCHEMA LOCATION INCORRECT
 
-### 4. File Path References Are Wrong
+**Severity**: LOW (doesn't affect implementation)
+
+Proposal says `cargo_package_configs` should be added to `infrastructure_schema.py`.
+
+**Reality**: It already exists in `rust_schema.py:347-359` along with `cargo_dependencies`.
+
+**Required Fix in proposal.md:**
+```markdown
+## Cargo Tables Location
+- cargo_package_configs: ALREADY EXISTS in rust_schema.py (NOT infrastructure_schema.py)
+- cargo_dependencies: ALREADY EXISTS in rust_schema.py
+- No new table creation needed for Cargo
+```
+
+### 3. TASKS.MD HAS STALE TASK 2.1-2.2
 
 **Severity**: MEDIUM
 
-Proposal references directory structures that don't exist:
-
-| Proposal References | Actual Path |
-|--------------------|-------------|
-| `theauditor/ast_extractors/go/` | `theauditor/ast_extractors/go_impl.py` |
-| `theauditor/ast_extractors/rust/` | `theauditor/ast_extractors/rust_impl.py` |
-| `theauditor/ast_extractors/bash/` | `theauditor/ast_extractors/bash_impl.py` |
-
-**Impact**: File paths in proposal lead nowhere.
+Tasks 2.1 (add cargo_package_configs schema) and 2.2 (add go_module_configs schema) are marked as TODO but the schemas **already exist**. These tasks should be marked as DONE or updated to focus on **populating** the tables.
 
 ---
 
-## Confirmed Blockers (Correctly Documented)
+## Blockers Still Valid
 
-These blockers ARE correctly identified in the proposal:
+| Blocker | Status | Evidence |
+|---------|--------|----------|
+| BLOCKER 1 (rust_attributes) | STILL BLOCKED | `rust_attributes` table does not exist |
+| BLOCKER 2 (unified tables) | STILL BLOCKED | symbols: .go=0, .rs=0, .sh=0 |
 
-1. **`rust_attributes` table** - Does not exist in rust_schema.py
-2. **`cargo_package_configs` table** - Does not exist in infrastructure_schema.py
-3. **`go_module_configs` table** - Does not exist (needs creation)
+**BLOCKER 2 Impact:**
+- Task 1.x (blueprint naming) - BLOCKED (queries symbols table)
+- Task 6.x (graph edges) - BLOCKED (graph builder uses refs table)
+
+---
+
+## What's Working
+
+1. **go_routes table** - 5 rows populated (gin framework)
+2. **Go/Rust main function detection** - `go_functions` and `rust_functions` have main entries
+3. **Schema definitions** - All required tables exist in schema files
+4. **Loguru/Rich logging** - CP1252-safe, no emoji conflicts
+5. **boundary_analyzer.py structure** - Correct file path, ready for Go/Rust additions
 
 ---
 
 ## Specific Fixes Required
 
-### Fix 1: Add Missing Blocker to proposal.md
+### Fix 1: Update Line Numbers in proposal.md
 
-```markdown
-## Blockers (Add to existing list)
+**Location**: proposal.md Section "What Changes"
+**Current**: References lines 342-404 and 1318-1420
+**Required**: Update to 362-424 and 1338-1440
 
-### B4. Go Route Extraction Missing
-- **File**: `theauditor/ast_extractors/go_impl.py`
-- **Issue**: No `extract_go_routes()` function exists
-- **Tables Affected**: `go_routes` (exists in schema but never populated)
-- **Required**: Implement Go route extraction for Gin/Echo/Chi/Gorilla
-- **Effort**: 2-3 hours
+### Fix 2: Correct Schema Location in proposal.md
+
+**Location**: proposal.md Section "Impact" > affected code
+**Current**: `theauditor/indexer/schemas/infrastructure_schema.py (new table)`
+**Required**: Remove - cargo tables already exist in rust_schema.py
+
+### Fix 3: Update tasks.md Task 2.1-2.2
+
+**Location**: tasks.md Section "2. Blueprint Dependencies"
+**Current**:
+```
+- [ ] 2.1.1 Add CARGO_PACKAGE_CONFIGS TableSchema definition
+- [ ] 2.2.1 Add GO_MODULE_CONFIGS TableSchema definition
+```
+**Required**:
+```
+- [x] 2.1.1 CARGO_PACKAGE_CONFIGS already exists (rust_schema.py:347)
+- [x] 2.2.1 GO_MODULE_CONFIGS already exists (go_schema.py:362)
 ```
 
-### Fix 2: Correct Schema Snippets in design.md
-
-Replace `go_functions` snippet:
-```sql
--- WRONG (in proposal)
-CREATE TABLE go_functions (
-    ...
-    receiver_type TEXT,  -- DELETE THIS LINE
-    ...
-);
-
--- CORRECT (receivers are in go_methods)
-CREATE TABLE go_functions (
-    file TEXT,
-    line INTEGER,
-    end_line INTEGER,
-    name TEXT,
-    signature TEXT,
-    return_type TEXT,
-    is_exported INTEGER,
-    package TEXT,
-    doc_comment TEXT
-);
-```
-
-Replace `bash_functions` snippet:
-```sql
--- WRONG (in proposal)
-body_start INTEGER,
-body_end INTEGER,
-
--- CORRECT
-body_start_line INTEGER,
-body_end_line INTEGER,
-```
-
-### Fix 3: Update Line Number References
-
-Update design.md code references to current line numbers:
-
-```markdown
-## Code References (Updated)
-
-### blueprint.py
-- Naming conventions: lines 342-404 (was 332-394)
-- Dependencies analysis: lines 1318-1420 (was 1264-1366)
-
-### query.py
-- Framework info: lines 1375-1478 (was 1439-1478)
-
-### deadcode_graph.py
-- Decorated entry points: lines 237-253
-- Framework entry points: lines 255-269
-```
-
-### Fix 4: Correct File Paths
-
-Replace directory references with actual file paths:
-```markdown
-## Extractor Files
-
-- Go: `theauditor/ast_extractors/go_impl.py` (single file, 1372 lines)
-- Rust: `theauditor/ast_extractors/rust_impl.py` (single file, 1187 lines)
-- Bash: `theauditor/ast_extractors/bash_impl.py` (single file)
-```
+Focus should shift to Task 2.3/2.4 - **populating** these tables during indexing.
 
 ---
 
 ## Files Read (Complete List)
 
 ### Proposal Documents
-1. `proposal.md` - Full read
-2. `design.md` - Full read
-3. `tasks.md` - Full read
-4. `specs/polyglot-planning/spec.md` - Full read
-5. `specs/polyglot-deadcode/spec.md` - Full read
-6. `specs/polyglot-boundaries/spec.md` - Full read
+1. `proposal.md` - Full read (254 lines)
+2. `design.md` - Full read (496 lines)
+3. `verification.md` - Full read (original 322 lines)
+4. `tasks.md` - Full read (580 lines)
+5. `specs/polyglot-planning/spec.md` - Full read (193 lines)
+6. `specs/polyglot-deadcode/spec.md` - Full read (168 lines)
+7. `specs/polyglot-boundaries/spec.md` - Full read (232 lines)
 
 ### Schema Verification
-7. `theauditor/schemas/go_schema.py` - Full read
-8. `theauditor/schemas/rust_schema.py` - Full read
-9. `theauditor/schemas/bash_schema.py` - Full read
-10. `theauditor/schemas/infrastructure_schema.py` - Full read
+8. `theauditor/indexer/schemas/go_schema.py` - Full read (416 lines)
+9. `theauditor/indexer/schemas/rust_schema.py` - Full read (401 lines)
+10. `theauditor/indexer/schemas/bash_schema.py` - Full read (209 lines)
+11. `theauditor/indexer/schemas/infrastructure_schema.py` - Full read (664 lines)
 
 ### Code Reference Verification
-11. `theauditor/commands/blueprint.py` - Full read (1731 lines)
-12. `theauditor/context/query.py` - Full read
-13. `theauditor/context/deadcode_graph.py` - Full read (437 lines)
-14. `theauditor/commands/boundaries.py` - Full read (249 lines)
+12. `theauditor/commands/blueprint.py` - Grep for function locations
+13. `theauditor/context/query.py` - Grep for function locations
+14. `theauditor/context/deadcode_graph.py` - Full read lines 230-290
+15. `theauditor/boundaries/boundary_analyzer.py` - Full read (211 lines)
 
-### Extractor Architecture
-15. `theauditor/ast_extractors/go_impl.py` - Full read (1372 lines)
-16. `theauditor/ast_extractors/rust_impl.py` - Full read (1187 lines)
+### Logging/Infrastructure
+16. `theauditor/utils/logging.py` - Full read (265 lines)
+17. OpenSpec AGENTS.md - Full read (457 lines)
+
+### Database Verification
+18. `.pf/repo_index.db` - Direct SQL queries for table state
 
 ---
 
@@ -207,115 +237,26 @@ Replace directory references with actual file paths:
 
 **NEEDS WORK** because:
 
-1. **Critical Missing Blocker**: The `go_routes` extractor doesn't exist, which breaks the entire polyglot boundary analysis for Go. This was not identified as a blocker.
+1. **Line numbers are stale** - blueprint.py functions shifted +20 lines since last verification. A developer implementing Task 1.x would look at wrong code.
 
-2. **Schema Snippets Are Wrong**: A developer implementing from this spec would write incorrect SQL queries because the column names don't match actual schema.
+2. **Schema location is wrong** - Proposal says add to infrastructure_schema.py but cargo tables already exist in rust_schema.py. Minor but creates confusion.
 
-3. **All Code References Are Stale**: The 50+ commits since this spec was written have shifted all line numbers by 10-50 lines. References point to wrong code.
+3. **Tasks 2.1-2.2 are already done** - These tasks tell the developer to create schemas that already exist. Should be marked complete with focus on population tasks.
 
-4. **File Paths Don't Exist**: Directory references in the proposal lead to single files instead.
+**NOT blocking because:**
+- All blockers are correctly identified
+- Core architecture and approach are sound
+- Loguru/Rich logging has no conflicts
+- Database state matches proposal expectations
 
-The proposal's architecture and approach are sound. The task breakdown is clear. But the spec is NOT "ironclad" - it requires detective work to reconcile claims with reality.
-
-**Time to Fix**: ~30 minutes to update all references and add missing blocker.
+**Time to Fix**: ~15 minutes to update line numbers, schema location, and task statuses.
 
 ---
-
-## Fixes Applied (2025-12-03)
-
-All issues identified above have been fixed:
-
-### proposal.md
-1. **Added BLOCKER 2** for missing `go_routes` extractor
-2. **Fixed file paths** from directories to single files (go_impl.py, rust_impl.py, bash_impl.py)
-3. **Updated line numbers** to current values after 50+ commits
-4. **Added BLOCKER references** to affected tasks
-
-### design.md
-1. **Fixed go_functions schema** - removed incorrect `receiver_type` column, added correct columns
-2. **Fixed rust_functions schema** - expanded from 6 to 14 columns matching actual schema
-3. **Fixed bash_functions schema** - corrected column names (`body_start_line`/`body_end_line`)
-4. **Updated line numbers** to current values
-5. **Added BLOCKER note** to Decision 3 (go_routes)
-6. **Updated risks table** - go_routes now HIGH risk with BLOCKER reference
-
-### Verification Result
-The proposal is now IRONCLAD:
-- All schema snippets match actual code
-- All line numbers verified against current codebase
-- All blockers explicitly documented
-- All file paths correct
 
 ## Recommendations
 
-1. ~~Update proposal with fixes above~~ DONE
-2. ~~Re-run `/check` after fixes~~ DONE - PASS
-3. Consider adding a "Last Verified" timestamp to proposals
-4. For future proposals: run verification immediately after creation before context drift occurs
-
----
-
-## Flight Check #2 (2025-12-03)
-
-### New Findings
-
-#### 1. BLOCKER 2 (Go Routes) Is Now RESOLVED
-**Discovery:** Go route extraction was implemented after original due diligence.
-
-**Evidence:**
-- `go_routes` table has 5 rows (all gin framework)
-- Extractor exists at `theauditor/indexer/extractors/go.py:106-131`
-- Functions: `_detect_routes()`, `_detect_web_framework()`, `_get_framework_route_patterns()`
-- Frameworks supported: gin, echo, fiber, chi, gorilla
-
-**Impact:** Tasks 3.1, 4.1-4.3, 5.1-5.2 are now UNBLOCKED.
-
-#### 2. Boundaries Architecture Changed
-**Discovery:** `boundaries.py` refactored to delegate pattern.
-
-**Old structure:**
-```
-theauditor/commands/boundaries.py (all logic)
-```
-
-**New structure:**
-```
-theauditor/commands/boundaries.py (thin CLI wrapper)
-theauditor/boundaries/boundary_analyzer.py (entry point + control detection)
-theauditor/boundaries/distance.py (distance calculation)
-```
-
-**Impact:** All Task 5.x file references updated.
-
-### Fixes Applied (Flight Check #2)
-
-1. **proposal.md:**
-   - Marked BLOCKER 2 as RESOLVED with implementation location
-   - Updated section 3 to remove BLOCKER 2 dependency
-   - Updated section 5 to reference `boundary_analyzer.py`
-   - Updated affected code list
-
-2. **tasks.md:**
-   - Added "Unblocked" section for Go tasks
-   - Marked Task 0.2 as DONE with verification results
-   - Updated all Task 5.x file references to `boundary_analyzer.py`
-
-### Verified Still Valid
-
-| Blocker | Status | Evidence |
-|---------|--------|----------|
-| BLOCKER 1 (rust_attributes) | Still blocked | `grep "rust_attributes"`: No matches |
-| BLOCKER 2 (unified tables) | Still blocked | `symbols: .go=0, .rs=0, .sh=0` |
-
-### Line Number Verification
-
-All line numbers verified accurate against current codebase:
-- `blueprint.py:342` - `_get_naming_conventions()`
-- `blueprint.py:1318` - `_get_dependencies()`
-- `query.py:1375` - `get_file_framework_info()`
-- `deadcode_graph.py:237` - `_find_decorated_entry_points()`
-- `deadcode_graph.py:255` - `_find_framework_entry_points()`
-
-### Final Verdict
-
-**PASS** - Ticket is now ironclad and ready for implementation.
+1. **Update proposal.md** with correct blueprint.py line numbers (362, 1338)
+2. **Update proposal.md** to note cargo tables already exist in rust_schema.py
+3. **Update tasks.md** to mark schema creation tasks as complete
+4. Add a "Last Verified Date" field to proposal.md header
+5. Consider adding automated line number validation to `/check` command

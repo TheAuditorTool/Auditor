@@ -31,7 +31,7 @@ This proposal covers polyglot support for ALL affected commands:
 
 ## What Changes
 
-### 1. Blueprint Naming Conventions (`blueprint.py:342-404`)
+### 1. Blueprint Naming Conventions (`blueprint.py:362-424`)
 - **MODIFY** `_get_naming_conventions()` to include Go, Rust, Bash
 - Add extension mappings: `.go`, `.rs`, `.sh`
 - Query `symbols` table with file extension filtering (existing pattern)
@@ -39,11 +39,10 @@ This proposal covers polyglot support for ALL affected commands:
 - Rust: snake_case functions, PascalCase types
 - Bash: snake_case functions, SCREAMING_CASE constants
 
-### 2. Blueprint Dependencies (`blueprint.py:1318-1420`)
-- **CREATE** `cargo_package_configs` table in `infrastructure_schema.py`
-- **CREATE** `go_module_configs` table in `go_schema.py`
-- **WIRE** Cargo.toml and go.mod parsing to database storage during indexing
-- **MODIFY** `_get_dependencies()` to query new tables
+### 2. Blueprint Dependencies (`blueprint.py:1338-1440`)
+- **TABLES EXIST** - `cargo_package_configs` in `rust_schema.py:347`, `go_module_configs` in `go_schema.py:362`
+- **WIRE** Cargo.toml and go.mod parsing to database storage during indexing (tables exist but unpopulated)
+- **MODIFY** `_get_dependencies()` to query existing tables
 - Add `cargo` and `go` to `by_manager` dict
 
 ### 3. Explain Framework Info (`query.py:1375-1478`)
