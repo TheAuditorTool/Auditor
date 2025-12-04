@@ -529,7 +529,11 @@ class FlowResolver:
         if sanitizer_meta:
             return ("SANITIZED", sanitizer_meta)
         else:
-            return ("VULNERABLE", None)
+            # SEMANTIC FIX: Forward analysis proves REACHABILITY, not VULNERABILITY.
+            # FlowResolver finds paths from sources to sinks. If no sanitizer is detected,
+            # the path is REACHABLE (a candidate for exploitation), not a confirmed exploit.
+            # Only IFDS (backward analysis) can confirm actual VULNERABILITY.
+            return ("REACHABLE", None)
 
     def _record_flow(
         self, source: str, sink: str, path: list[str], status: str, sanitizer_meta: dict | None
@@ -895,6 +899,25 @@ class FlowResolver:
             # SECONDARY CHECK: Check if function itself is a sanitizer
             if func and self._is_sanitizer(func, hop_file):
                 return {"file": hop_file, "line": 0, "method": func}
+
+            # HEURISTIC CHECK: Validation middleware functions by name
+            # Fixes false positives where validators are DEFINED in middleware/validate.ts
+            # but USED in routes/*.ts. Function names like validateBody, validateParams
+            # are strong indicators of sanitization regardless of file location.
+            if func:
+                heuristic_validators = {
+                    "validateBody", "validateParams", "validateQuery",
+                    "validateRequest", "validate", "safeParse", "parse",
+                    "verify", "authenticate", "sanitize", "escape",
+                }
+                # Extract clean function name (handle "middleware.validateBody" -> "validateBody")
+                clean_func = func.split(".")[-1] if "." in func else func
+                if clean_func in heuristic_validators:
+                    return {"file": hop_file, "line": 0, "method": f"Heuristic::{clean_func}"}
+                # Also check if func CONTAINS these keywords (e.g., "validateUserBody")
+                func_lower = func.lower()
+                if any(hv.lower() in func_lower for hv in heuristic_validators):
+                    return {"file": hop_file, "line": 0, "method": f"Heuristic::{func}"}
 
             # TERTIARY CHECK: Validation frameworks (Zod, Joi, Yup, express-validator)
             # Match by file containing validators + common validation patterns in func/var

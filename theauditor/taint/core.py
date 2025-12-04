@@ -615,10 +615,12 @@ def trace_taint(
 
             handshake_conn = sqlite3.connect(db_path)
             handshake_cursor = handshake_conn.cursor()
+            # FIX: Accept REACHABLE status (new semantic) in addition to VULNERABLE (legacy)
+            # FlowResolver now marks unsanitized paths as REACHABLE, not VULNERABLE
             handshake_cursor.execute("""
                 SELECT DISTINCT sink_file, sink_line
                 FROM resolved_flow_audit
-                WHERE engine = 'FlowResolver' AND status = 'VULNERABLE'
+                WHERE engine = 'FlowResolver' AND status IN ('VULNERABLE', 'REACHABLE')
             """)
 
             reachable_targets = set()
@@ -827,11 +829,20 @@ def trace_taint(
             conn_temp = sqlite3.connect(db_path)
             cursor_temp = conn_temp.cursor()
 
-            # Count TOTAL flows across ALL engines (the truth)
+            # Count flows by status across ALL engines
+            # VULNERABLE = confirmed exploits (from IFDS backward analysis)
+            # REACHABLE = candidates (from FlowResolver forward analysis, no sanitizer found)
+            # SANITIZED = safe paths (sanitizer detected by either engine)
             cursor_temp.execute(
                 "SELECT COUNT(*) FROM resolved_flow_audit WHERE status = 'VULNERABLE'"
             )
             total_vulnerable = cursor_temp.fetchone()[0]
+
+            cursor_temp.execute(
+                "SELECT COUNT(*) FROM resolved_flow_audit WHERE status = 'REACHABLE'"
+            )
+            total_reachable = cursor_temp.fetchone()[0]
+
             cursor_temp.execute(
                 "SELECT COUNT(*) FROM resolved_flow_audit WHERE status = 'SANITIZED'"
             )
@@ -845,6 +856,7 @@ def trace_taint(
             conn_temp.close()
 
             result["total_vulnerable"] = total_vulnerable
+            result["total_reachable"] = total_reachable
             result["total_sanitized"] = total_sanitized
             result["total_flows_resolved"] = total_flows
             result["mode"] = "complete"
@@ -852,9 +864,9 @@ def trace_taint(
             result["engine_breakdown"] = breakdown
 
             logger.info("COMPLETE MODE RESULTS:")
-            logger.info(f"IFDS found: {len(unique_paths)} vulnerable paths")
+            logger.info(f"IFDS found: {len(unique_paths)} confirmed vulnerable paths")
             logger.info(f"FlowResolver resolved: {total_flows} total flows")
-            logger.info(f"resolved_flow_audit table: {total_vulnerable} vulnerable, {total_sanitized} sanitized")
+            logger.info(f"Final: {total_vulnerable} Confirmed, {total_reachable} Reachable, {total_sanitized} Sanitized")
 
         return result
 
