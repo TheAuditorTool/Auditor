@@ -363,7 +363,7 @@ class PythonOrmStrategy(GraphStrategy):
             known_models = list(getattr(orm_context, "models", {}).keys())
 
         if not known_models:
-            logger.info("No ORM models found, skipping")
+            logger.warning("No ORM models found in python_orm_models table - check indexer")
             conn.close()
             return {"nodes": [], "edges": [], "metadata": {"stats": stats}}
 

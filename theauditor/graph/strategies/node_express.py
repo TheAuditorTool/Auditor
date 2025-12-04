@@ -213,6 +213,14 @@ class NodeExpressStrategy(GraphStrategy):
                 }
             )
 
+        # PERF FIX: Build suffix index for O(1) lookup instead of O(N) iteration
+        # Maps ".methodName" -> list of symbols ending with that suffix
+        symbols_by_suffix: dict[str, list[dict]] = defaultdict(list)
+        for sym_name, syms in symbols_by_name.items():
+            if "." in sym_name:
+                suffix = f".{sym_name.split('.')[-1]}"
+                symbols_by_suffix[suffix].extend(syms)
+
         cursor.execute("""
             SELECT DISTINCT file, route_path, route_method, handler_expr
             FROM express_middleware_chains
@@ -293,16 +301,13 @@ class NodeExpressStrategy(GraphStrategy):
 
             # FIX #18: Handle TypeScript class methods stored as "ClassName.methodName"
             # When handler is "controller.list", we need to find "AccountController.list"
-            # by searching for symbols ending with ".list" in the matching file path.
+            # PERF FIX: Use suffix index for O(1) lookup instead of O(N) iteration
             if not symbol_result:
                 method_suffix = f".{method_name}"
-                for sym_name, syms in symbols_by_name.items():
-                    if sym_name.endswith(method_suffix):
-                        for sym in syms:
-                            if self._path_matches(import_package, sym["path"]):
-                                symbol_result = sym
-                                break
-                    if symbol_result:
+                suffix_candidates = symbols_by_suffix.get(method_suffix, [])
+                for sym in suffix_candidates:
+                    if self._path_matches(import_package, sym["path"]):
+                        symbol_result = sym
                         break
 
             if not symbol_result:
