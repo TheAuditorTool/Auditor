@@ -41,6 +41,10 @@ class PythonStorage(BaseStorage):
             "python_expressions": self._store_python_expressions,
             "python_comprehensions": self._store_python_comprehensions,
             "python_control_statements": self._store_python_control_statements,
+            # Python package manifest handlers (Stream C)
+            "python_package_configs": self._store_python_package_configs,
+            "python_package_dependencies": self._store_python_package_dependencies,
+            "python_build_requires": self._store_python_build_requires,
         }
 
     def _store_python_orm_models(self, file_path: str, python_orm_models: list, jsx_pass: bool):
@@ -989,3 +993,52 @@ class PythonStorage(BaseStorage):
             if "python_control_statements" not in self.counts:
                 self.counts["python_control_statements"] = 0
             self.counts["python_control_statements"] += 1
+
+    # ==================== Python Package Manifest Handlers (Stream C) ====================
+
+    def _store_python_package_configs(
+        self, file_path: str, python_package_configs: list, jsx_pass: bool
+    ):
+        """Store Python package configuration records (pyproject.toml/requirements.txt)."""
+        for item in python_package_configs:
+            self.db_manager.add_python_package_config(
+                file_path=item["file_path"],
+                file_type=item.get("file_type", "unknown"),
+                project_name=item.get("project_name"),
+                project_version=item.get("project_version"),
+            )
+        if "python_package_configs" not in self.counts:
+            self.counts["python_package_configs"] = 0
+        self.counts["python_package_configs"] += len(python_package_configs)
+
+    def _store_python_package_dependencies(
+        self, file_path: str, python_package_dependencies: list, jsx_pass: bool
+    ):
+        """Store Python package dependency records."""
+        for item in python_package_dependencies:
+            self.db_manager.add_python_package_dependency(
+                file_path=item["file_path"],
+                name=item["name"],
+                version_spec=item.get("version_spec"),
+                is_dev=item.get("is_dev", False),
+                group_name=item.get("group_name"),
+                extras=item.get("extras"),
+                git_url=item.get("git_url"),
+            )
+        if "python_package_dependencies" not in self.counts:
+            self.counts["python_package_dependencies"] = 0
+        self.counts["python_package_dependencies"] += len(python_package_dependencies)
+
+    def _store_python_build_requires(
+        self, file_path: str, python_build_requires: list, jsx_pass: bool
+    ):
+        """Store Python build requirement records (build-system.requires)."""
+        for item in python_build_requires:
+            self.db_manager.add_python_build_requirement(
+                file_path=item["file_path"],
+                name=item["name"],
+                version_spec=item.get("version_spec"),
+            )
+        if "python_build_requires" not in self.counts:
+            self.counts["python_build_requires"] = 0
+        self.counts["python_build_requires"] += len(python_build_requires)
