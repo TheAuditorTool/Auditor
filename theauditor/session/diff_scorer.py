@@ -1,14 +1,11 @@
 """DiffScorer - Score code diffs using TheAuditor's SAST pipeline."""
-
-import logging
 import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from theauditor.session.parser import ToolCall
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 @dataclass

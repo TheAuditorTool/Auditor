@@ -1,10 +1,11 @@
 """Shadow Git Manager."""
 
-import warnings
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pygit2
+
+from theauditor.utils.logging import logger
 
 
 class ShadowRepoManager:
@@ -45,11 +46,11 @@ class ShadowRepoManager:
             files_added.append(rel_path)
 
         if skipped_files:
-            warnings.warn(
-                f"Skipped {len(skipped_files)} missing file(s): {', '.join(skipped_files[:5])}"
-                + (f" (+{len(skipped_files) - 5} more)" if len(skipped_files) > 5 else ""),
-                UserWarning,
-                stacklevel=2,
+            logger.warning(
+                "Skipped {} missing file(s): {}{}",
+                len(skipped_files),
+                ", ".join(skipped_files[:5]),
+                f" (+{len(skipped_files) - 5} more)" if len(skipped_files) > 5 else "",
             )
 
         tree_id = index.write_tree(self._repo)

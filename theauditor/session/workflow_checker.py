@@ -1,13 +1,10 @@
 """WorkflowChecker - Validate agent execution against planning.md workflows."""
-
-import logging
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from theauditor.session.parser import Session, ToolCall
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 @dataclass

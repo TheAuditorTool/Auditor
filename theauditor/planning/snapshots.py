@@ -1,8 +1,9 @@
 """Snapshot management for planning system."""
 
-import warnings
 from datetime import UTC, datetime
 from pathlib import Path
+
+from theauditor.utils.logging import logger
 
 from .shadow_git import ShadowRepoManager
 
@@ -15,11 +16,7 @@ def create_snapshot(
     manager=None,
 ) -> dict:
     """DEPRECATED: Create a code snapshot at the current git state."""
-    warnings.warn(
-        "create_snapshot() is deprecated. Use PlanningManager.create_snapshot() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
+    logger.warning("DEPRECATED: create_snapshot() is deprecated. Use PlanningManager.create_snapshot() instead.")
 
     if manager:
         import subprocess
@@ -69,12 +66,7 @@ def create_snapshot(
 
 def load_snapshot(snapshot_id: int, manager) -> dict | None:
     """DEPRECATED: Load a snapshot from the database."""
-    warnings.warn(
-        "load_snapshot() is deprecated. Use PlanningManager.get_snapshot() instead.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-
+    logger.warning("DEPRECATED: load_snapshot() is deprecated. Use PlanningManager.get_snapshot() instead.")
     return manager.get_snapshot(snapshot_id)
 
 

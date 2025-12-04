@@ -1,7 +1,6 @@
 """Terraform IaC Security Analyzer - database-first rule."""
 
 import json
-import logging
 import sqlite3
 from typing import Any
 
@@ -12,8 +11,7 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 from theauditor.rules.common.util import EntropyCalculator
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 METADATA = RuleMetadata(
     name="terraform_security",

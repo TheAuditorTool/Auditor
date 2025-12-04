@@ -1,10 +1,7 @@
 """Node.js storage handlers for JavaScript/TypeScript frameworks."""
 
-import logging
-
 from .base import BaseStorage
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 class NodeStorage(BaseStorage):

@@ -1,13 +1,11 @@
 """Python testing pattern extractors - pytest and unittest."""
 
 import ast
-import logging
 from typing import Any
 
 from ..base import get_node_name
 from .utils.context import FileContext
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 def extract_pytest_fixtures(context: FileContext) -> list[dict[str, Any]]:

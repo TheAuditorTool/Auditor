@@ -1,6 +1,4 @@
 """GitHub Actions Reusable Workflow Security Risks Detection."""
-
-import logging
 import sqlite3
 
 from theauditor.rules.base import (
@@ -9,8 +7,7 @@ from theauditor.rules.base import (
     StandardFinding,
     StandardRuleContext,
 )
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 METADATA = RuleMetadata(
     name="github_actions_reusable_workflow_risks",

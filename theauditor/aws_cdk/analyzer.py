@@ -1,6 +1,4 @@
 """AWS CDK security analyzer."""
-
-import logging
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -9,8 +7,7 @@ from pathlib import Path
 
 from ..rules.base import Severity, StandardRuleContext
 from ..rules.orchestrator import RulesOrchestrator
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 @dataclass

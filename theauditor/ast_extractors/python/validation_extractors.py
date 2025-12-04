@@ -1,14 +1,12 @@
 """Validation and serialization framework extractors."""
 
 import ast
-import logging
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 from ..base import get_node_name
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:

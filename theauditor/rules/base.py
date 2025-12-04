@@ -1,13 +1,10 @@
 """Base contracts for rule standardization."""
-
-import logging
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 class Severity(Enum):
