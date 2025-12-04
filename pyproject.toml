@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "theauditor"
-version = "1.7.2dev"
+version = "2.0.2rc1"
 description = "Offline, air-gapped CLI for repo indexing, evidence checking, and task running"
 readme = "README.md"
 requires-python = ">=3.14"
