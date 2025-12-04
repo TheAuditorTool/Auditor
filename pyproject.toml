@@ -23,6 +23,8 @@ dependencies = [
 # Runtime dependencies (installed ONLY in sandbox via 'aud setup-ai')
 # These are NOT installed globally to keep user's Python environment clean
 runtime = [
+    # Data validation (FCE schema)
+    "pydantic==2.12.4",
     # Config and rules
     "PyYAML==6.0.3",
     "json5==0.12.1",
