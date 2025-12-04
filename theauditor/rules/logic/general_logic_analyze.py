@@ -28,9 +28,7 @@ METADATA = RuleMetadata(
         ".pf/",
         ".auditor_venv/",
     ],
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 MONEY_TERMS = frozenset(

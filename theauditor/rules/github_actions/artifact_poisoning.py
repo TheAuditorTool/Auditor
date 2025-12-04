@@ -16,9 +16,7 @@ METADATA = RuleMetadata(
     category="supply-chain",
     target_extensions=[".yml", ".yaml"],
     exclude_patterns=[".pf/", "test/", "__tests__/", "node_modules/"],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 def find_artifact_poisoning_risk(context: StandardRuleContext) -> list[StandardFinding]:

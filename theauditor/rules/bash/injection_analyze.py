@@ -16,9 +16,7 @@ METADATA = RuleMetadata(
     category="injection",
     target_extensions=[".sh", ".bash"],
     exclude_patterns=["node_modules/", "vendor/", ".git/"],
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 @dataclass(frozen=True)

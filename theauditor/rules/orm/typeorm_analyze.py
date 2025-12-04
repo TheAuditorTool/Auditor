@@ -27,9 +27,7 @@ METADATA = RuleMetadata(
         "migration/",
         ".pf/",
         ".auditor_venv/",
-    ],
-    requires_jsx_pass=False,
-)
+    ])
 
 
 UNBOUNDED_METHODS = frozenset(

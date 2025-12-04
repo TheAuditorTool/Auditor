@@ -15,9 +15,7 @@ METADATA = RuleMetadata(
     category="vue",
     target_extensions=[".js", ".ts"],
     target_file_patterns=["frontend/", "client/", "src/store/", "src/stores/", "store/", "stores/"],
-    exclude_patterns=["backend/", "server/", "api/", "__tests__/", "*.test.*", "*.spec.*"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["backend/", "server/", "api/", "__tests__/", "*.test.*", "*.spec.*"])
 
 
 VUEX_PATTERNS = frozenset(

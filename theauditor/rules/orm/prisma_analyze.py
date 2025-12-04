@@ -29,9 +29,7 @@ METADATA = RuleMetadata(
         "prisma/migrations/",
         ".pf/",
         ".auditor_venv/",
-    ],
-    requires_jsx_pass=False,
-)
+    ])
 
 
 UNBOUNDED_METHODS = frozenset(["findMany", "findManyRaw", "aggregateRaw"])

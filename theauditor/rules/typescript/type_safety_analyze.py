@@ -24,9 +24,7 @@ METADATA = RuleMetadata(
         "spec/",
         ".next/",
         "coverage/",
-    ],
-    requires_jsx_pass=False,
-)
+    ])
 
 
 def find_type_safety_issues(context: StandardRuleContext) -> list[StandardFinding]:

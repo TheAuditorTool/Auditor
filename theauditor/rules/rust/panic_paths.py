@@ -28,9 +28,7 @@ METADATA = RuleMetadata(
         "*_test.rs",
         "test_*.rs",
     ],
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 PANIC_MACROS = frozenset(

@@ -17,9 +17,7 @@ METADATA = RuleMetadata(
     name="express_security",
     category="frameworks",
     target_extensions=[".js", ".ts", ".mjs", ".cjs"],
-    exclude_patterns=["frontend/", "client/", "test/", "spec.", "__tests__"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["frontend/", "client/", "test/", "spec.", "__tests__"])
 
 
 @dataclass(frozen=True)

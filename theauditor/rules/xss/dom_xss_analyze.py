@@ -9,9 +9,7 @@ METADATA = RuleMetadata(
     category="xss",
     target_extensions=[".js", ".ts", ".jsx", ".tsx", ".html"],
     exclude_patterns=["test/", "__tests__/", "node_modules/", "*.test.js", "*.spec.js"],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 DOM_XSS_SOURCES = frozenset(

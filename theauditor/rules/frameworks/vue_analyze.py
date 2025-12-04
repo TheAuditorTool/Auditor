@@ -15,9 +15,7 @@ METADATA = RuleMetadata(
     name="vue_security",
     category="frameworks",
     target_extensions=[".vue", ".js", ".ts"],
-    exclude_patterns=["node_modules/", "test/", "spec.", "__tests__"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["node_modules/", "test/", "spec.", "__tests__"])
 
 
 VUE_XSS_DIRECTIVES = frozenset(

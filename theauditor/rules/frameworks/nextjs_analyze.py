@@ -15,9 +15,7 @@ METADATA = RuleMetadata(
     name="nextjs_security",
     category="frameworks",
     target_extensions=[".js", ".jsx", ".ts", ".tsx"],
-    exclude_patterns=["node_modules/", "test/", "spec.", "__tests__"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["node_modules/", "test/", "spec.", "__tests__"])
 
 
 RESPONSE_FUNCTIONS = frozenset(

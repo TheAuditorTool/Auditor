@@ -29,9 +29,7 @@ METADATA = RuleMetadata(
         "__tests__/",
         "*.test.*",
         "*.spec.*",
-    ],
-    requires_jsx_pass=False,
-)
+    ])
 
 
 COMPOSITION_LIFECYCLE = frozenset(

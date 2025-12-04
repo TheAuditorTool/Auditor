@@ -25,9 +25,7 @@ METADATA = RuleMetadata(
         "demo/",
         "example/",
     ],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 COOKIE_FUNCTION_KEYWORDS = frozenset([".cookie", "cookies.set", "setcookie"])

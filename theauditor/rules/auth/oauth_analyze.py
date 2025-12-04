@@ -16,9 +16,7 @@ METADATA = RuleMetadata(
     category="auth",
     target_extensions=[".py", ".js", ".ts", ".mjs", ".cjs"],
     exclude_patterns=["test/", "spec.", ".test.", "__tests__", "demo/", "example/"],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 OAUTH_URL_KEYWORDS = frozenset(["oauth", "authorize", "callback", "redirect", "auth", "login"])

@@ -17,9 +17,7 @@ METADATA = RuleMetadata(
     target_extensions=[".vue", ".js", ".ts"],
     target_file_patterns=["frontend/", "client/", "src/components/", "src/views/"],
     exclude_patterns=["backend/", "server/", "api/", "__tests__/", "*.test.*", "*.spec.*"],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 PROP_ACCESS_PATTERNS = frozenset(["this.", "props.", "$props.", "this.$props."])

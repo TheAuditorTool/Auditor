@@ -11,9 +11,7 @@ METADATA = RuleMetadata(
     name="bundle_size",
     category="dependency",
     target_extensions=[".js", ".ts", ".jsx", ".tsx"],
-    exclude_patterns=["node_modules/", ".venv/", "backend/", "server/", "test/", "__tests__/"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["node_modules/", ".venv/", "backend/", "server/", "test/", "__tests__/"])
 
 
 LARGE_PACKAGES = frozenset(

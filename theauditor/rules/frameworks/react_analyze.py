@@ -16,9 +16,7 @@ METADATA = RuleMetadata(
     name="react_security",
     category="frameworks",
     target_extensions=[".jsx", ".tsx", ".js", ".ts"],
-    exclude_patterns=["node_modules/", "test/", "spec.", "__tests__"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["node_modules/", "test/", "spec.", "__tests__"])
 
 
 @dataclass(frozen=True)

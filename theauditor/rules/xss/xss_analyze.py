@@ -19,9 +19,7 @@ METADATA = RuleMetadata(
     category="xss",
     target_extensions=XSS_TARGET_EXTENSIONS,
     exclude_patterns=["test/", "__tests__/", "node_modules/", "*.test.js", "*.spec.js"],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 def find_xss_issues(context: StandardRuleContext) -> list[StandardFinding]:

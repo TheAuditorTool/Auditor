@@ -27,9 +27,7 @@ METADATA = RuleMetadata(
         "testdata/",
         "_test.go",
     ],
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 class GoErrorHandlingAnalyzer:

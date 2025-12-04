@@ -11,9 +11,7 @@ METADATA = RuleMetadata(
     name="update_lag",
     category="dependency",
     target_extensions=[".json", ".txt", ".toml"],
-    exclude_patterns=["node_modules/", ".venv/", "test/"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["node_modules/", ".venv/", "test/"])
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:

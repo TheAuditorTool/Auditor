@@ -11,9 +11,7 @@ METADATA = RuleMetadata(
     category="dependency",
     target_extensions=[".json", ".txt", ".toml", ".lock"],
     exclude_patterns=["node_modules/", ".venv/", "venv/", "dist/", "build/"],
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:

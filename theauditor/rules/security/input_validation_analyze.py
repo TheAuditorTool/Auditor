@@ -16,9 +16,7 @@ METADATA = RuleMetadata(
     category="security",
     execution_scope="database",
     target_extensions=[".py", ".js", ".ts"],
-    exclude_patterns=["test/", "spec.", "__tests__"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["test/", "spec.", "__tests__"])
 
 
 @dataclass(frozen=True)

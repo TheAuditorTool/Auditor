@@ -22,9 +22,7 @@ METADATA = RuleMetadata(
     category="sql",
     target_extensions=[".py", ".js", ".ts", ".mjs", ".cjs"],
     exclude_patterns=["frontend/", "client/", "migrations/", "test/", "__tests__/"],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 @dataclass(frozen=True)

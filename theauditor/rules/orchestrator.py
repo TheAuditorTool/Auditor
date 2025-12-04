@@ -10,13 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.utils.logging import logger
-
-try:
-    from theauditor.rules.base import convert_old_context, validate_rule_signature
-
-    STANDARD_CONTRACTS_AVAILABLE = True
-except ImportError:
-    STANDARD_CONTRACTS_AVAILABLE = False
+from theauditor.rules.base import convert_old_context, validate_rule_signature
+from theauditor.rules.fidelity import RuleResult, verify_fidelity
 
 
 @dataclass
@@ -64,30 +59,11 @@ class RulesOrchestrator:
         self.taint_registry = None
         self._taint_trace_func = None
         self._taint_conn = None
-
-        self.migration_stats = {
-            "standardized_rules": 0,
-            "legacy_rules": 0,
-            "categories_migrated": set(),
-            "categories_pending": set(),
-        }
-
-        for category, rules in self.rules.items():
-            for rule in rules:
-                if hasattr(rule, "is_standardized") and rule.is_standardized:
-                    self.migration_stats["standardized_rules"] += 1
-                    self.migration_stats["categories_migrated"].add(category)
-                else:
-                    self.migration_stats["legacy_rules"] += 1
-                    self.migration_stats["categories_pending"].add(category)
+        self._fidelity_failures: list[tuple[str, list[str]]] = []
 
         if self._debug:
             total_rules = sum(len(r) for r in self.rules.values())
             logger.info(f"Discovered {total_rules} rules across {len(self.rules)} categories")
-            if STANDARD_CONTRACTS_AVAILABLE:
-                logger.info(
-                    f"Migration Status: {self.migration_stats['standardized_rules']} standardized, {self.migration_stats['legacy_rules']} legacy"
-                )
 
     def _discover_all_rules(self) -> dict[str, list[RuleInfo]]:
         """Dynamically discover ALL rules in /rules directory."""
@@ -118,44 +94,12 @@ class RulesOrchestrator:
                             rule_info = self._analyze_rule(name, obj, module, module_name, category)
                             rules_by_category[category].append(rule_info)
 
-                            if self._debug:
-                                logger.info(
-                                    f"Found rule: {category}/{name} with {rule_info.param_count} params"
-                                )
-
                 except ImportError as e:
                     if self._debug:
-                        logger.info(f"Warning: Failed to import {module_name}: {e}")
+                        logger.info(f"Failed to import {module_name}: {e}")
                 except Exception as e:
                     if self._debug:
-                        logger.info(f"Warning: Error processing {module_name}: {e}")
-
-        for py_file in rules_dir.glob("*.py"):
-            if py_file.name.startswith("__") or py_file.is_dir():
-                continue
-
-            if py_file.name.endswith("_analyzer.py") or py_file.name.endswith("_detector.py"):
-                continue
-
-            module_name = f"theauditor.rules.{py_file.stem}"
-            category = "general"
-
-            if category not in rules_by_category:
-                rules_by_category[category] = []
-
-            try:
-                module = importlib.import_module(module_name)
-
-                for name, obj in inspect.getmembers(module, inspect.isfunction):
-                    if name.startswith("find_") and obj.__module__ == module_name:
-                        rule_info = self._analyze_rule(name, obj, module, module_name, category)
-                        rules_by_category[category].append(rule_info)
-
-            except ImportError:
-                pass
-            except Exception as e:
-                if self._debug:
-                    logger.info(f"Warning: Error processing {module_name}: {e}")
+                        logger.info(f"Error processing {module_name}: {e}")
 
         return rules_by_category
 
@@ -167,29 +111,16 @@ class RulesOrchestrator:
         params = list(sig.parameters.keys())
         metadata = getattr(module_obj, "METADATA", None)
 
-        is_standardized = False
-        if STANDARD_CONTRACTS_AVAILABLE:
-            is_standardized = validate_rule_signature(func)
+        is_standardized = validate_rule_signature(func)
 
-        execution_scope_default = "database" if is_standardized else "file"
-        execution_scope = execution_scope_default
+        execution_scope = "database" if is_standardized else "file"
         if metadata is not None:
-            execution_scope = (
-                getattr(metadata, "execution_scope", execution_scope_default)
-                or execution_scope_default
-            )
+            execution_scope = getattr(metadata, "execution_scope", execution_scope) or execution_scope
 
         if execution_scope not in {"database", "file"}:
-            execution_scope = execution_scope_default
+            execution_scope = "database" if is_standardized else "file"
 
         if is_standardized:
-            if self._debug:
-                logger.info(f"Found STANDARDIZED rule: {category}/{name}")
-
-            requires_db = execution_scope == "database"
-            requires_file = execution_scope == "file"
-            requires_content = execution_scope == "file"
-
             return RuleInfo(
                 name=name,
                 module=module_name,
@@ -198,23 +129,18 @@ class RulesOrchestrator:
                 category=category,
                 is_standardized=True,
                 requires_ast=False,
-                requires_db=requires_db,
-                requires_file=requires_file,
-                requires_content=requires_content,
+                requires_db=execution_scope == "database",
+                requires_file=execution_scope == "file",
+                requires_content=execution_scope == "file",
                 param_count=1,
                 param_names=["context"],
                 rule_type="standard",
                 execution_scope=execution_scope,
             )
 
-        if self._debug and STANDARD_CONTRACTS_AVAILABLE:
-            logger.info(f"Found LEGACY rule: {category}/{name} with params: {params}")
-
         requires_ast = any(p in ["ast", "tree", "ast_tree", "python_ast"] for p in params)
         requires_db_param = any(p in ["db_path", "database", "conn"] for p in params)
-        requires_file_param = any(
-            p in ["file_path", "filepath", "path", "filename"] for p in params
-        )
+        requires_file_param = any(p in ["file_path", "filepath", "path", "filename"] for p in params)
         requires_content_param = any(p in ["content", "source", "code", "text"] for p in params)
 
         if execution_scope == "database":
@@ -254,44 +180,54 @@ class RulesOrchestrator:
             context = RuleContext(db_path=str(self.db_path), project_path=self.project_path)
 
         all_findings = []
-        total_executed = 0
 
         for category, rules in self.rules.items():
             if not rules:
                 continue
-
-            if self._debug:
-                logger.info(f"Running {len(rules)} rules in category: {category}")
 
             for rule in rules:
                 if rule.execution_scope == "database" and context.file_path:
                     continue
 
                 try:
-                    logger.debug(f"Starting rule: {category}/{rule.name}...")
-
                     findings = self._execute_rule(rule, context)
-
-                    logger.debug(
-                        f"Rule {category}/{rule.name} done. ({len(findings or [])} findings)"
-                    )
-
                     if findings:
                         all_findings.extend(findings)
-                        total_executed += 1
-
-                        if self._debug:
-                            logger.info(f"{rule.name}: {len(findings)} findings")
-
                 except Exception as e:
-                    logger.error(f" FAILED: {e}")
-                    if self._debug:
-                        logger.info(f"Warning: Rule {rule.name} failed: {e}")
-
-        if self._debug:
-            logger.info(f"Executed {total_executed} rules, found {len(all_findings)} issues")
+                    logger.error(f"Rule {rule.name} failed: {e}")
 
         return all_findings
+
+    def run_rules_for_file(self, context: RuleContext) -> list[dict[str, Any]]:
+        """Run rules applicable to a specific file, WITH METADATA FILTERING."""
+        findings = []
+        file_to_check = context.file_path
+
+        for _category, rules in self.rules.items():
+            for rule in rules:
+                if rule.execution_scope == "database":
+                    continue
+
+                if rule.requires_db and not (rule.requires_file or rule.requires_ast or rule.requires_content):
+                    continue
+
+                if rule.requires_ast and not context.ast_tree:
+                    continue
+
+                try:
+                    rule_module = importlib.import_module(rule.module)
+
+                    if not self._should_run_rule_on_file(rule_module, file_to_check):
+                        continue
+
+                    rule_findings = self._execute_rule(rule, context)
+                    if rule_findings:
+                        findings.extend(rule_findings)
+                except Exception as e:
+                    if self._debug:
+                        logger.info(f"Rule {rule.name} failed for file: {e}")
+
+        return findings
 
     def _should_run_rule_on_file(self, rule_module: Any, file_path: Path) -> bool:
         """Check if a rule should run on a specific file based on its METADATA."""
@@ -306,55 +242,14 @@ class RulesOrchestrator:
                 if pattern in file_path_str:
                     return False
 
-        if (
-            metadata.target_extensions
-            and file_path.suffix.lower() not in metadata.target_extensions
-        ):
+        if metadata.target_extensions and file_path.suffix.lower() not in metadata.target_extensions:
             return False
 
-        return not (
-            metadata.target_file_patterns
-            and not any(pattern in file_path_str for pattern in metadata.target_file_patterns)
-        )
+        if metadata.target_file_patterns:
+            if not any(pattern in file_path_str for pattern in metadata.target_file_patterns):
+                return False
 
-    def run_rules_for_file(self, context: RuleContext) -> list[dict[str, Any]]:
-        """Run rules applicable to a specific file, WITH METADATA FILTERING."""
-        findings = []
-
-        file_to_check = context.file_path
-
-        for _category, rules in self.rules.items():
-            for rule in rules:
-                if rule.execution_scope == "database":
-                    continue
-
-                if rule.requires_db and not (
-                    rule.requires_file or rule.requires_ast or rule.requires_content
-                ):
-                    continue
-
-                if rule.requires_ast and not context.ast_tree:
-                    continue
-
-                try:
-                    rule_module = importlib.import_module(rule.module)
-
-                    if not self._should_run_rule_on_file(rule_module, file_to_check):
-                        if self._debug:
-                            logger.info(
-                                f"Skipping rule '{rule.name}' on file '{file_to_check.name}' due to metadata mismatch."
-                            )
-                        continue
-
-                    rule_findings = self._execute_rule(rule, context)
-                    if rule_findings:
-                        findings.extend(rule_findings)
-
-                except Exception as e:
-                    if self._debug:
-                        logger.info(f"Rule {rule.name} failed for file: {e}")
-
-        return findings
+        return True
 
     def get_rules_by_type(self, rule_type: str) -> list[RuleInfo]:
         """Get all rules of a specific type."""
@@ -380,15 +275,8 @@ class RulesOrchestrator:
                 rule_findings = rule.function(**kwargs)
                 if rule_findings:
                     findings.extend(rule_findings)
-
-                if self._debug:
-                    logger.info(
-                        f"Discovery rule {rule.name}: {len(rule_findings) if rule_findings else 0} findings"
-                    )
-
             except Exception as e:
-                if self._debug:
-                    logger.info(f"Discovery rule {rule.name} failed: {e}")
+                logger.error(f"Discovery rule {rule.name} failed: {e}")
 
         return findings
 
@@ -405,10 +293,8 @@ class RulesOrchestrator:
                 rule_findings = rule.function(**kwargs)
                 if rule_findings:
                     findings.extend(rule_findings)
-
             except Exception as e:
-                if self._debug:
-                    logger.info(f"Standalone rule {rule.name} failed: {e}")
+                logger.error(f"Standalone rule {rule.name} failed: {e}")
 
         return findings
 
@@ -428,10 +314,8 @@ class RulesOrchestrator:
                 rule_findings = rule.function(**kwargs)
                 if rule_findings:
                     findings.extend(rule_findings)
-
             except Exception as e:
-                if self._debug:
-                    logger.info(f"Taint-dependent rule {rule.name} failed: {e}")
+                logger.error(f"Taint-dependent rule {rule.name} failed: {e}")
 
         return findings
 
@@ -473,38 +357,40 @@ class RulesOrchestrator:
                     rule_findings = self._execute_rule(rule, context)
                     if rule_findings:
                         findings.extend(rule_findings)
-
                 except Exception as e:
-                    if self._debug:
-                        logger.info(f"Database rule {rule.name} failed: {e}")
+                    logger.error(f"Database rule {rule.name} failed: {e}")
 
         return findings
 
     def _execute_rule(self, rule: RuleInfo, context: RuleContext) -> list[dict[str, Any]]:
         """Execute a single rule with appropriate parameters."""
 
-        if rule.is_standardized and STANDARD_CONTRACTS_AVAILABLE:
-            try:
-                std_context = convert_old_context(context, self.project_path)
+        if rule.is_standardized:
+            std_context = convert_old_context(context, self.project_path)
+            result = rule.function(std_context)
 
-                findings = rule.function(std_context)
+            # Handle RuleResult (new) or list (legacy)
+            if isinstance(result, RuleResult):
+                findings = result.findings
+                manifest = result.manifest
+                expected = self._compute_expected(rule, std_context)
+                passed, errors = verify_fidelity(manifest, expected)
+                if not passed:
+                    self._fidelity_failures.append((rule.name, errors))
+            else:
+                findings = result  # Legacy: bare list
 
-                if findings and hasattr(findings[0], "to_dict"):
-                    return [f.to_dict() for f in findings]
-                return findings if findings else []
+            if findings and hasattr(findings[0], "to_dict"):
+                return [f.to_dict() for f in findings]
+            return findings if findings else []
 
-            except Exception as e:
-                if self._debug:
-                    logger.info(f"Standardized rule {rule.name} failed: {e}")
-                return []
-
+        # Legacy rule execution
         kwargs = {}
 
         for param_name in rule.param_names:
             if param_name == "taint_registry":
                 if self.taint_registry is None:
                     from theauditor.taint import TaintRegistry
-
                     self.taint_registry = TaintRegistry()
                 kwargs["taint_registry"] = self.taint_registry
 
@@ -543,68 +429,29 @@ class RulesOrchestrator:
 
             else:
                 param = rule.signature.parameters[param_name]
-                if param.default != inspect.Parameter.empty:
-                    continue
-                else:
+                if param.default == inspect.Parameter.empty:
                     if self._debug:
-                        logger.info(
-                            f"Warning: Don't know how to fill parameter '{param_name}' for rule {rule.name}"
-                        )
+                        logger.info(f"Cannot fill parameter '{param_name}' for rule {rule.name}")
                     return []
 
-        try:
-            result = rule.function(**kwargs)
+        result = rule.function(**kwargs)
 
-            if result is None:
-                return []
-            elif isinstance(result, list):
-                return result
-            elif isinstance(result, dict):
-                return [result]
-            else:
-                if self._debug:
-                    logger.info(
-                        f"Warning: Rule {rule.name} returned unexpected type: {type(result)}"
-                    )
-                return []
-
-        except Exception as e:
-            if self._debug:
-                logger.info(f"Error executing rule {rule.name}: {e}")
+        if result is None:
             return []
-
-    def get_rule_stats(self) -> dict[str, Any]:
-        """Get statistics about discovered rules."""
-        stats = {
-            "total_rules": sum(len(rules) for rules in self.rules.values()),
-            "categories": list(self.rules.keys()),
-            "by_category": {cat: len(rules) for cat, rules in self.rules.items()},
-            "by_requirements": {
-                "ast_rules": sum(
-                    1 for rules in self.rules.values() for r in rules if r.requires_ast
-                ),
-                "db_rules": sum(1 for rules in self.rules.values() for r in rules if r.requires_db),
-                "file_rules": sum(
-                    1 for rules in self.rules.values() for r in rules if r.requires_file
-                ),
-                "content_rules": sum(
-                    1 for rules in self.rules.values() for r in rules if r.requires_content
-                ),
-            },
-        }
-        return stats
+        elif isinstance(result, list):
+            return result
+        elif isinstance(result, dict):
+            return [result]
+        else:
+            return []
 
     def _create_taint_checker(self, context: RuleContext):
         """Check taint using REAL taint analysis results."""
-
         if not hasattr(self, "_taint_results"):
             from theauditor.taint import TaintRegistry, trace_taint
 
             registry = TaintRegistry()
             self._taint_results = trace_taint(str(self.db_path), max_depth=5, registry=registry)
-            if self._debug:
-                total = len(self._taint_results.get("taint_paths", []))
-                logger.info(f"Cached {total} taint paths for rules")
 
         def is_tainted(var_name: str, line: int) -> bool:
             """Check if variable is in any taint path."""
@@ -623,40 +470,9 @@ class RulesOrchestrator:
 
     def collect_rule_patterns(self, registry):
         """Collect and register all taint patterns from rules that define them."""
-
-        detected_languages = set()
-        if self.db_path.exists():
-            try:
-                conn = sqlite3.connect(str(self.db_path))
-                cursor = conn.cursor()
-
-                cursor.execute("SELECT DISTINCT language FROM frameworks")
-
-                for (language,) in cursor.fetchall():
-                    if language:
-                        detected_languages.add(language.lower())
-
-                conn.close()
-
-                if self._debug:
-                    logger.info(f"Detected languages: {detected_languages}")
-            except Exception as e:
-                if self._debug:
-                    logger.info(f"Warning: Failed to query frameworks: {e}")
-
         processed_modules = set()
-        skipped_categories = set()
 
-        for category, rules in self.rules.items():
-            if (
-                category in {"python", "javascript", "rust", "typescript"}
-                and category not in detected_languages
-            ):
-                skipped_categories.add(category)
-                if self._debug:
-                    logger.info(f"Skipping {category} rules (no {category} frameworks detected)")
-                continue
-
+        for _category, rules in self.rules.items():
             for rule in rules:
                 module_name = rule.module
 
@@ -668,26 +484,13 @@ class RulesOrchestrator:
                     module = importlib.import_module(module_name)
 
                     if hasattr(module, "register_taint_patterns"):
-                        register_func = module.register_taint_patterns
-
-                        register_func(registry)
-
-                        if self._debug:
-                            logger.info(f"Registered patterns from {module_name}")
-
+                        module.register_taint_patterns(registry)
                 except ImportError as e:
                     if self._debug:
-                        logger.info(f"Warning: Failed to import {module_name}: {e}")
+                        logger.info(f"Failed to import {module_name}: {e}")
                 except Exception as e:
                     if self._debug:
-                        logger.info(f"Warning: Error registering patterns from {module_name}: {e}")
-
-        if self._debug:
-            stats = registry.get_stats()
-            processed_count = len(processed_modules)
-            logger.info(f"Dynamically processed {processed_count} modules")
-            logger.info(f"Skipped {len(skipped_categories)} categories: {skipped_categories}")
-            logger.info(f"Pattern statistics: {stats}")
+                        logger.info(f"Error registering patterns from {module_name}: {e}")
 
         return registry
 
@@ -699,9 +502,6 @@ class RulesOrchestrator:
             if not hasattr(self, "_taint_results"):
                 registry = TaintRegistry()
                 self._taint_results = trace_taint(str(self.db_path), max_depth=5, registry=registry)
-                if self._debug:
-                    total = len(self._taint_results.get("taint_paths", []))
-                    logger.info(f"Cached {total} taint paths for rules")
 
             def get_taint_for_location(
                 source_var: str,
@@ -727,6 +527,34 @@ class RulesOrchestrator:
             self._taint_trace_func = get_taint_for_location
 
         return self._taint_trace_func
+
+    def _compute_expected(self, rule: RuleInfo, context) -> dict:
+        """Compute expected fidelity values for a rule."""
+        expected = {"table_row_count": 0, "expected_tables": []}
+
+        try:
+            rule_module = importlib.import_module(rule.module)
+            metadata = getattr(rule_module, "METADATA", None)
+
+            if metadata and hasattr(metadata, "primary_table"):
+                table_name = metadata.primary_table
+                conn = sqlite3.connect(context.db_path)
+                cursor = conn.cursor()
+                cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
+                expected["table_row_count"] = cursor.fetchone()[0]
+                expected["expected_tables"] = [table_name]
+                conn.close()
+        except Exception:
+            pass  # If we can't compute expected, use defaults
+
+        return expected
+
+    def get_aggregated_manifests(self) -> dict:
+        """Get aggregated fidelity results."""
+        return {
+            "fidelity_failures": self._fidelity_failures,
+            "failure_count": len(self._fidelity_failures),
+        }
 
 
 def run_all_rules(project_path: str, db_path: str = None) -> list[dict[str, Any]]:

@@ -16,9 +16,7 @@ METADATA = RuleMetadata(
     category="security",
     target_extensions=[".py", ".js", ".ts", ".php"],
     exclude_patterns=["test/", "spec.", "__tests__", "demo/"],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 WEAK_RANDOM_FUNCTIONS = frozenset(
