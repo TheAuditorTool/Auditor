@@ -11,7 +11,7 @@ class AccessPath:
     function: str
     base: str
     fields: tuple[str, ...]
-    max_length: int = 10  # Increased from 5 to handle deep paths (config.a.b.c.d.e.f...)
+    max_length: int = 20  # Deep paths for HCL/Redux: module.vpc.module.subnet.resource.id...
 
     def __post_init__(self):
         """Normalize file path to Unix-style (forward slashes).
@@ -40,7 +40,7 @@ class AccessPath:
         return f"{self.file}::{self.function}::{path_str}"
 
     @staticmethod
-    def parse(node_id: str, max_length: int = 10) -> AccessPath | None:
+    def parse(node_id: str, max_length: int = 20) -> AccessPath | None:
         """Parse graphs.db node ID into AccessPath."""
         if not node_id or "::" not in node_id:
             return None

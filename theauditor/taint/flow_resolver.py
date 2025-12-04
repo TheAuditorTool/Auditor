@@ -9,11 +9,11 @@ from functools import lru_cache
 
 from theauditor.utils.logging import logger
 
-# UNCAGED PROTOCOL: Replaced arbitrary effort limits with time budgets.
-# Old limits (25k nodes, 20 depth) were training wheels for dirty data.
-# With sanitized graph (Phase 3), we can traverse deep chains efficiently.
-INFRASTRUCTURE_MAX_VISITS = 5    # Was 2 - allow more revisits for infra
-USERCODE_MAX_VISITS = 50         # Was 10 - handle recursion/loops better
+# DEEP PROVENANCE TUNING: Balanced for oracle-grade analysis without explosion.
+# Visit limits handle DEPTH (recursion), super node threshold handles BREADTH (fan-out).
+INFRASTRUCTURE_MAX_VISITS = 5    # Config/env vars rarely loop meaningfully
+USERCODE_MAX_VISITS = 20         # Was 50 - 20 handles complex patterns without CPU burn
+SUPERNODE_EDGE_THRESHOLD = 500   # Real route handlers have 200-250 edges, allow headroom
 
 
 class FlowResolver:
@@ -32,11 +32,12 @@ class FlowResolver:
         self.repo_cursor = self.repo_conn.cursor()
         self.graph_conn = sqlite3.connect(graph_db)
         self.flows_resolved = 0
-        # UNCAGED: Increased limits now that graph data is clean
-        self.max_depth = 100              # Was 20 - capture full framework lifecycles
-        self.max_flows = 10_000_000       # Was 100,000 - no arbitrary cap
-        self.max_flows_per_entry = 50_000 # Was 1,000 - allow deep exploration
-        self.time_budget_seconds = 45     # NEW: Wall clock limit replaces effort counting
+        # DEEP PROVENANCE TUNING: ENV overrides for CI vs Oracle modes
+        self.max_depth = int(os.environ.get("AUD_MAX_DEPTH", 100))
+        self.max_flows = 10_000_000       # Safety valve for memory
+        self.max_flows_per_entry = int(os.environ.get("AUD_MAX_FLOWS_ENTRY", 10_000))
+        self.time_budget_seconds = int(os.environ.get("AUD_TIME_BUDGET", 600))
+        self.start_time = 0  # Tracks global start for inner loop time checks
         self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
 
         # Sanitizer data for path checking
@@ -68,13 +69,14 @@ class FlowResolver:
         exit_nodes = self._get_exit_nodes()
 
         logger.info(f"Found {len(entry_nodes)} entry points and {len(exit_nodes)} exit points")
+        logger.info(f"FlowResolver config: Depth={self.max_depth}, TimeBudget={self.time_budget_seconds}s, MaxFlowsPerEntry={self.max_flows_per_entry}")
 
-        # UNCAGED: Time-based exit instead of arbitrary flow count
-        start_time = time.time()
+        # Store start time as instance var so inner loop can check it
+        self.start_time = time.time()
 
         for _i, entry_id in enumerate(entry_nodes):
-            # Time budget check - stop if we've been running too long
-            elapsed = time.time() - start_time
+            # Time budget check between entries
+            elapsed = time.time() - self.start_time
             if elapsed > self.time_budget_seconds:
                 logger.warning(f"Time budget ({self.time_budget_seconds}s) exceeded after {elapsed:.1f}s")
                 break
@@ -83,7 +85,7 @@ class FlowResolver:
 
         self.repo_conn.commit()
 
-        elapsed = time.time() - start_time
+        elapsed = time.time() - self.start_time
         logger.info(f"Flow resolution complete: {self.flows_resolved} flows resolved in {elapsed:.1f}s")
         return self.flows_resolved
 
@@ -464,6 +466,11 @@ class FlowResolver:
             and self.flows_resolved < self.max_flows
             and flows_from_this_entry < self.max_flows_per_entry
         ):
+            # CRITICAL: Inner time check prevents single entry from ignoring budget
+            if time.time() - self.start_time > self.time_budget_seconds:
+                logger.debug(f"Time budget hit mid-trace for {entry_id}")
+                return
+
             current_id, path = worklist.pop()
 
             if len(path) > self.max_depth:
@@ -492,11 +499,47 @@ class FlowResolver:
                 worklist.append((successor_id, new_path))
 
     def _get_successors(self, node_id: str) -> list[str]:
-        """Get successor nodes via lazy DB query with LRU cache.
+        """Get successor nodes with super node protection.
 
-        Phase 0.3: Replaced in-memory adjacency_list with on-demand query.
+        Phase 0.3: Lazy DB query with LRU cache.
+        Phase 0.4: Smart super node filtering to prevent breadth explosion.
         """
-        return list(self._get_successors_cached(node_id))
+        raw_successors = self._get_successors_cached(node_id)
+
+        # Fast path: under threshold, return immediately
+        if len(raw_successors) <= SUPERNODE_EDGE_THRESHOLD:
+            return list(raw_successors)
+
+        # SUPER NODE LOGIC: Prioritize application code over noise
+        high_value = []
+        low_value = []
+
+        for target in raw_successors:
+            target_lower = target.lower()
+            # Noise patterns: logging, testing, third-party
+            is_noise = (
+                "console." in target_lower or
+                "logger." in target_lower or
+                "log(" in target_lower or
+                ".test." in target_lower or
+                ".spec." in target_lower or
+                "__tests__" in target_lower or
+                "node_modules" in target_lower or
+                "__mocks__" in target_lower
+            )
+            (low_value if is_noise else high_value).append(target)
+
+        # Fill budget: all high-value first, then low-value
+        final_list = high_value[:SUPERNODE_EDGE_THRESHOLD]
+        remaining = SUPERNODE_EDGE_THRESHOLD - len(final_list)
+        if remaining > 0:
+            final_list.extend(low_value[:remaining])
+
+        logger.warning(
+            f"Super node capped: {node_id} ({len(raw_successors)} edges -> {len(final_list)}, "
+            f"{len(high_value)} high-value, {len(low_value)} noise)"
+        )
+        return final_list
 
     @lru_cache(maxsize=10_000)
     def _get_successors_cached(self, node_id: str) -> tuple[str, ...]:
