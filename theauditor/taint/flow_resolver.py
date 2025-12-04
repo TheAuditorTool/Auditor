@@ -14,6 +14,7 @@ from theauditor.utils.logging import logger
 INFRASTRUCTURE_MAX_VISITS = 5    # Config/env vars rarely loop meaningfully
 USERCODE_MAX_VISITS = 20         # Was 50 - 20 handles complex patterns without CPU burn
 SUPERNODE_EDGE_THRESHOLD = 500   # Real route handlers have 200-250 edges, allow headroom
+PER_ENTRY_TIME_BUDGET = 120      # Prevent single greedy entry from hogging all budget
 
 
 class FlowResolver:
@@ -37,6 +38,7 @@ class FlowResolver:
         self.max_flows = 10_000_000       # Safety valve for memory
         self.max_flows_per_entry = int(os.environ.get("AUD_MAX_FLOWS_ENTRY", 10_000))
         self.time_budget_seconds = int(os.environ.get("AUD_TIME_BUDGET", 600))
+        self.per_entry_budget = int(os.environ.get("AUD_ENTRY_BUDGET", PER_ENTRY_TIME_BUDGET))
         self.start_time = 0  # Tracks global start for inner loop time checks
         self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
 
@@ -69,7 +71,7 @@ class FlowResolver:
         exit_nodes = self._get_exit_nodes()
 
         logger.info(f"Found {len(entry_nodes)} entry points and {len(exit_nodes)} exit points")
-        logger.info(f"FlowResolver config: Depth={self.max_depth}, TimeBudget={self.time_budget_seconds}s, MaxFlowsPerEntry={self.max_flows_per_entry}")
+        logger.info(f"FlowResolver config: Depth={self.max_depth}, GlobalBudget={self.time_budget_seconds}s, EntryBudget={self.per_entry_budget}s, MaxFlowsPerEntry={self.max_flows_per_entry}")
 
         # Store start time as instance var so inner loop can check it
         self.start_time = time.time()
@@ -459,16 +461,21 @@ class FlowResolver:
         node_visit_counts: dict[str, int] = defaultdict(int)
 
         flows_from_this_entry = 0
-        # UNCAGED: Removed effort_counter - time budget handles this at higher level
+        entry_start = time.time()  # Per-entry budget tracking
 
         while (
             worklist
             and self.flows_resolved < self.max_flows
             and flows_from_this_entry < self.max_flows_per_entry
         ):
-            # CRITICAL: Inner time check prevents single entry from ignoring budget
-            if time.time() - self.start_time > self.time_budget_seconds:
-                logger.debug(f"Time budget hit mid-trace for {entry_id}")
+            now = time.time()
+            # CRITICAL: Global budget check - stop everything
+            if now - self.start_time > self.time_budget_seconds:
+                logger.debug(f"Global budget hit mid-trace for {entry_id}")
+                return
+            # Per-entry budget check - move to next entry, don't hog
+            if now - entry_start > self.per_entry_budget:
+                logger.debug(f"Entry budget ({self.per_entry_budget}s) hit for {entry_id}, resolved {flows_from_this_entry} flows")
                 return
 
             current_id, path = worklist.pop()
