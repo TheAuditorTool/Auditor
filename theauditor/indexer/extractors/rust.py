@@ -7,6 +7,7 @@ from theauditor.utils.logging import logger
 
 from ...ast_extractors import rust_impl as rust_core
 from . import BaseExtractor
+from ..fidelity_utils import FidelityToken
 
 
 class RustExtractor(BaseExtractor):
@@ -80,4 +81,4 @@ class RustExtractor(BaseExtractor):
             f"{len(result['rust_impl_blocks'])} impl blocks"
         )
 
-        return result
+        return FidelityToken.attach_manifest(result)
