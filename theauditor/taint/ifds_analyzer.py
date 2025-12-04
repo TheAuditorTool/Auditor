@@ -36,12 +36,12 @@ class IFDSTaintAnalyzer:
 
         self.visited: set[tuple[str, str]] = set()
 
-        # UNCAGED: Increased limits now that graph data is clean
-        self.max_depth = 100              # Was 10 - capture full call chains
-        self.max_paths_per_sink = 1000    # Was 100 - find more real paths
-        self.time_budget_seconds = 10     # NEW: Per-sink time budget
-
         import os
+
+        # DEEP PROVENANCE TUNING: ENV overrides for CI vs Oracle modes
+        self.max_depth = int(os.environ.get("AUD_IFDS_DEPTH", 100))
+        self.max_paths_per_sink = int(os.environ.get("AUD_IFDS_MAX_PATHS", 1000))
+        self.time_budget_seconds = int(os.environ.get("AUD_IFDS_BUDGET", 60))  # Was 10 - per-sink
 
         self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
 
