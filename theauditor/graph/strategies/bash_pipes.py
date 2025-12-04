@@ -4,6 +4,8 @@ import sqlite3
 from dataclasses import asdict
 from typing import Any
 
+from theauditor.indexer.fidelity_utils import FidelityToken
+
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
 
@@ -246,7 +248,7 @@ class BashPipeStrategy(GraphStrategy):
 
         conn.close()
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {
@@ -254,3 +256,4 @@ class BashPipeStrategy(GraphStrategy):
                 "stats": stats,
             },
         }
+        return FidelityToken.attach_manifest(result)

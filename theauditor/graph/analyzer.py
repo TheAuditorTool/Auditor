@@ -4,6 +4,8 @@ from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 
 class XGraphAnalyzer:
     """Analyze cross-project dependency and call graphs using pure algorithms."""

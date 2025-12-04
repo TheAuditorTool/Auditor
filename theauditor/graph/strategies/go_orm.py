@@ -9,6 +9,7 @@ from typing import Any
 
 import click
 
+from theauditor.indexer.fidelity_utils import FidelityToken
 from theauditor.utils.logging import logger
 
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
@@ -46,7 +47,7 @@ class GoOrmStrategy(GraphStrategy):
         }
 
         cursor.execute("""
-            SELECT file_path, struct_name, field_name, field_type, tag
+            SELECT file AS file_path, struct_name, field_name, field_type, tag
             FROM go_struct_fields
             WHERE tag IS NOT NULL AND tag != ''
         """)
@@ -153,7 +154,7 @@ class GoOrmStrategy(GraphStrategy):
         conn.close()
         stats["unique_nodes"] = len(nodes)
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {
@@ -162,6 +163,7 @@ class GoOrmStrategy(GraphStrategy):
                 "stats": stats,
             },
         }
+        return FidelityToken.attach_manifest(result)
 
     def _is_orm_tag(self, tag: str) -> bool:
         """Check if a struct tag contains ORM-related tags."""

@@ -8,6 +8,8 @@ from typing import Any
 
 import click
 
+from theauditor.indexer.fidelity_utils import FidelityToken
+
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
 
@@ -42,11 +44,12 @@ class GoHttpStrategy(GraphStrategy):
             "total_edges": len(merged_edges),
         }
 
-        return {
+        result = {
             "nodes": list(merged_nodes.values()),
             "edges": merged_edges,
             "metadata": {"graph_type": "go_http", "stats": merged_stats},
         }
+        return FidelityToken.attach_manifest(result)
 
     def _build_middleware_edges(self, db_path: str, project_root: str) -> dict[str, Any]:
         """Build edges connecting Go middleware chains."""
@@ -64,9 +67,9 @@ class GoHttpStrategy(GraphStrategy):
         }
 
         cursor.execute("""
-            SELECT file_path, line, framework, router_var, middleware_func, is_global
+            SELECT file AS file_path, line, framework, router_var, middleware_func, is_global
             FROM go_middleware
-            ORDER BY file_path, line
+            ORDER BY file, line
         """)
 
         router_middleware: dict[str, list] = defaultdict(list)
@@ -165,10 +168,10 @@ class GoHttpStrategy(GraphStrategy):
         }
 
         cursor.execute("""
-            SELECT file_path, line, framework, method, path, handler_func
+            SELECT file AS file_path, line, framework, method, path, handler_func
             FROM go_routes
             WHERE handler_func IS NOT NULL
-            ORDER BY file_path, line
+            ORDER BY file, line
         """)
 
         routes = cursor.fetchall()
@@ -183,7 +186,7 @@ class GoHttpStrategy(GraphStrategy):
             }
 
         cursor.execute("""
-            SELECT file_path, line, name, signature
+            SELECT file AS file_path, line, name, signature
             FROM go_functions
         """)
 

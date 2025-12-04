@@ -5,6 +5,8 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
+from theauditor.indexer.fidelity_utils import FidelityToken
+
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
 
@@ -45,7 +47,7 @@ class RustTraitStrategy(GraphStrategy):
 
         stats["unique_nodes"] = len(nodes)
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {
@@ -54,6 +56,7 @@ class RustTraitStrategy(GraphStrategy):
                 "stats": stats,
             },
         }
+        return FidelityToken.attach_manifest(result)
 
     def _build_implements_trait_edges(
         self,

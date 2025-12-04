@@ -8,6 +8,7 @@ from typing import Any
 
 import click
 
+from theauditor.indexer.fidelity_utils import FidelityToken
 from theauditor.utils.logging import logger
 
 from .strategies.bash_pipes import BashPipeStrategy
@@ -145,7 +146,7 @@ class DFGBuilder:
 
         stats["unique_variables"] = len(nodes)
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {
@@ -154,6 +155,8 @@ class DFGBuilder:
                 "stats": stats,
             },
         }
+
+        return FidelityToken.attach_manifest(result)
 
     def build_return_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build data flow graph from function returns."""
@@ -248,7 +251,7 @@ class DFGBuilder:
 
         stats["unique_variables"] = len(nodes)
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {
@@ -257,6 +260,8 @@ class DFGBuilder:
                 "stats": stats,
             },
         }
+
+        return FidelityToken.attach_manifest(result)
 
     def build_parameter_binding_edges(self, root: str = ".") -> dict[str, Any]:
         """Build parameter binding edges connecting caller arguments to callee parameters."""
@@ -382,7 +387,7 @@ class DFGBuilder:
 
         stats["unique_nodes"] = len(nodes)
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {
@@ -391,6 +396,8 @@ class DFGBuilder:
                 "stats": stats,
             },
         }
+
+        return FidelityToken.attach_manifest(result)
 
     def build_cross_boundary_edges(self, root: str = ".") -> dict[str, Any]:
         """Build edges connecting frontend API calls to backend controllers."""
@@ -601,7 +608,7 @@ class DFGBuilder:
 
         stats["unique_nodes"] = len(nodes)
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {
@@ -610,6 +617,8 @@ class DFGBuilder:
                 "stats": stats,
             },
         }
+
+        return FidelityToken.attach_manifest(result)
 
     def build_unified_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build unified data flow graph combining all edge types."""
@@ -660,7 +669,7 @@ class DFGBuilder:
 
         logger.info(f"\nUnified graph complete: {len(nodes)} nodes, {len(edges)} edges")
 
-        return {
+        result = {
             "nodes": list(nodes.values()),
             "edges": edges,
             "metadata": {
@@ -669,6 +678,8 @@ class DFGBuilder:
                 "stats": stats,
             },
         }
+
+        return FidelityToken.attach_manifest(result)
 
     def get_data_dependencies(
         self, file: str, variable: str, function: str = None

@@ -6,6 +6,8 @@ from typing import Any
 
 import click
 
+from theauditor.indexer.fidelity_utils import FidelityToken
+
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
 
@@ -168,11 +170,12 @@ class NodeOrmStrategy(GraphStrategy):
 
         conn.close()
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {"graph_type": "node_orm", "stats": stats},
         }
+        return FidelityToken.attach_manifest(result)
 
     def _infer_alias(self, assoc_type: str, target_model: str) -> str:
         """Infer field name from association type.
