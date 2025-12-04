@@ -3,16 +3,18 @@
 ### Requirement: Bash Assignment Extraction for DFG
 The Bash extractor SHALL populate the language-agnostic `assignments` table for all variable assignments in Bash scripts.
 
-**Schema reference** (`theauditor/indexer/schema.py:193`):
+**Schema reference** (`theauditor/indexer/schemas/core_schema.py:92-113`):
 ```sql
 assignments (
-    file TEXT,           -- File path
-    line INTEGER,        -- 1-indexed line number
-    col INTEGER,         -- 0-indexed column
-    target_var TEXT,     -- Variable being assigned
-    source_expr TEXT,    -- Right-hand side expression
-    in_function TEXT     -- Containing function or "global"
+    file TEXT,           -- File path (NOT NULL)
+    line INTEGER,        -- 1-indexed line number (NOT NULL)
+    col INTEGER,         -- 0-indexed column (NOT NULL, default 0)
+    target_var TEXT,     -- Variable being assigned (NOT NULL)
+    source_expr TEXT,    -- Right-hand side expression (NOT NULL)
+    in_function TEXT,    -- Containing function or "global" (NOT NULL)
+    property_path TEXT   -- Property path for nested assignments (NULL for Bash)
 )
+-- PRIMARY KEY: (file, line, col, target_var)
 ```
 
 #### Scenario: Simple assignment
@@ -60,16 +62,19 @@ assignments (
 ### Requirement: Bash Command Extraction as Function Calls
 The Bash extractor SHALL populate the language-agnostic `function_call_args` table for all command invocations in Bash scripts.
 
-**Schema reference** (`theauditor/indexer/schema.py:195`):
+**Schema reference** (`theauditor/indexer/schemas/core_schema.py:138-162`):
 ```sql
 function_call_args (
-    file TEXT,            -- File path
-    line INTEGER,         -- 1-indexed line number
-    caller_function TEXT, -- Function containing the call, or "global"
-    callee_function TEXT, -- Command being invoked
-    argument_index INTEGER, -- 0-indexed argument position
-    argument_expr TEXT    -- Argument value/expression
+    file TEXT,            -- File path (NOT NULL)
+    line INTEGER,         -- 1-indexed line number (NOT NULL)
+    caller_function TEXT, -- Function containing the call, or "global" (NOT NULL)
+    callee_function TEXT, -- Command being invoked (NOT NULL, CHECK != '')
+    argument_index INTEGER, -- 0-indexed argument position (nullable)
+    argument_expr TEXT,   -- Argument value/expression (nullable)
+    param_name TEXT,      -- Named parameter if known (NULL for Bash positional args)
+    callee_file_path TEXT -- Path to callee definition (NULL for Bash external commands)
 )
+-- No composite primary key (allows multiple args per call)
 ```
 
 #### Scenario: Simple command with arguments
@@ -103,36 +108,47 @@ function_call_args (
 ### Requirement: Bash Positional Parameter Extraction
 The Bash extractor SHALL populate the `func_params` table for positional parameters in Bash functions.
 
-**Schema reference** (language-agnostic table):
+**Schema reference** (`theauditor/indexer/schemas/node_schema.py:847-862`):
 ```sql
 func_params (
-    file TEXT,            -- File path
-    function_name TEXT,   -- Function name or "global"
-    param_name TEXT,      -- "$1", "$2", "$@", etc.
-    param_index INTEGER,  -- 0, 1, 2, ... or -1 for variadic
-    line INTEGER          -- First usage line
+    file TEXT,            -- File path (NOT NULL)
+    function_line INTEGER,-- Line where function is defined (NOT NULL)
+    function_name TEXT,   -- Function name or "global" (NOT NULL)
+    param_index INTEGER,  -- 0, 1, 2, ... or -1 for variadic (NOT NULL)
+    param_name TEXT,      -- "$1", "$2", "$@", etc. (NOT NULL)
+    param_type TEXT       -- Type annotation (NULL for Bash - no types)
 )
+-- Indexed on: (file, function_line, function_name), (param_name)
 ```
 
+**Note for Bash**: Since Bash functions don't have formal parameter declarations, we track:
+- `function_line`: Line where the function is defined (or 0 for script-level/global)
+- `param_name`: The positional parameter syntax (`$1`, `$2`, `$@`, `$*`)
+- `param_type`: Always NULL for Bash (untyped language)
+
 #### Scenario: Function using positional params
-- **WHEN** a Bash file contains `function process() { echo $1 $2; }`
+- **WHEN** a Bash file contains `function process() { echo $1 $2; }` at line 5
 - **THEN** the `func_params` table SHALL contain rows:
-  - `function_name`="process", `param_name`="$1", `param_index`=0
-  - `function_name`="process", `param_name`="$2", `param_index`=1
+  - `function_line`=5, `function_name`="process", `param_name`="$1", `param_index`=0, `param_type`=NULL
+  - `function_line`=5, `function_name`="process", `param_name`="$2", `param_index`=1, `param_type`=NULL
 
 #### Scenario: Script-level positional params
 - **WHEN** a Bash file uses `$1` at the script level (not in a function)
 - **THEN** the `func_params` table SHALL contain a row:
+  - `function_line`=0 (indicating script-level)
   - `function_name`="global"
   - `param_name`="$1"
   - `param_index`=0
+  - `param_type`=NULL
 
 #### Scenario: All arguments parameter
-- **WHEN** a Bash file contains `function foo() { for arg in "$@"; do echo $arg; done; }`
+- **WHEN** a Bash file contains `function foo() { for arg in "$@"; do echo $arg; done; }` at line 10
 - **THEN** the `func_params` table SHALL contain a row:
+  - `function_line`=10
   - `function_name`="foo"
   - `param_name`="$@"
   - `param_index`=-1 (indicating variadic)
+  - `param_type`=NULL
 
 ---
 

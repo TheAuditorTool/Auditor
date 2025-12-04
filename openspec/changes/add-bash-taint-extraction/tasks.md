@@ -1,10 +1,17 @@
 ## 0. Verification (Pre-Implementation)
 
-- [ ] 0.1 Read `theauditor/indexer/extractors/bash.py` - thin wrapper that delegates to bash_impl.py
-- [ ] 0.2 Read `theauditor/ast_extractors/bash_impl.py` - the ACTUAL extraction logic (823 lines)
-- [ ] 0.3 Read `theauditor/graph/strategies/bash_pipes.py` - understand existing pipe flow edges
-- [ ] 0.4 Read `theauditor/rules/bash/injection_analyze.py` - confirm no `register_taint_patterns()` exists
-- [ ] 0.5 Query database to confirm 0 Bash rows in language-agnostic tables
+**Status**: COMPLETE - See `verification.md` for full details.
+
+- [x] 0.1 Read `theauditor/indexer/extractors/bash.py` - thin wrapper that delegates to bash_impl.py
+- [x] 0.2 Read `theauditor/ast_extractors/bash_impl.py` - the ACTUAL extraction logic (823 lines)
+- [x] 0.3 Read `theauditor/graph/strategies/bash_pipes.py` - understand existing pipe flow edges
+- [x] 0.4 Read `theauditor/rules/bash/injection_analyze.py` - confirmed no `register_taint_patterns()` exists
+- [x] 0.5 Query database to confirm 0 Bash rows in language-agnostic tables
+
+**Key findings from verification:**
+- Schema locations corrected (were pointing to wrong file/lines)
+- `func_params` uses `function_line` NOT `line` column
+- All schemas have additional nullable columns that must be included
 
 ## 1. Assignment Mapping (bash_variables -> assignments)
 
@@ -24,7 +31,11 @@
 ```python
 # In bash_impl.py BashExtractor class
 def _map_variables_to_assignments(self) -> list[dict]:
-    """Map bash_variables to language-agnostic assignments format."""
+    """Map bash_variables to language-agnostic assignments format.
+
+    Schema: theauditor/indexer/schemas/core_schema.py:92-113
+    Columns: file, line, col, target_var, source_expr, in_function, property_path
+    """
     assignments = []
     for var in self.variables:
         assignments.append({
@@ -32,8 +43,9 @@ def _map_variables_to_assignments(self) -> list[dict]:
             "line": var["line"],
             "col": 0,
             "target_var": var["name"],
-            "source_expr": var.get("value_expr", ""),
+            "source_expr": var.get("value_expr") or "",
             "in_function": var.get("containing_function") or "global",
+            "property_path": None,  # Bash has no property access syntax
         })
     return assignments
 
@@ -63,10 +75,17 @@ def extract(self) -> dict[str, Any]:
 ```python
 # In bash_impl.py BashExtractor class
 def _map_commands_to_function_call_args(self) -> list[dict]:
-    """Map bash_commands to language-agnostic function_call_args format."""
+    """Map bash_commands to language-agnostic function_call_args format.
+
+    Schema: theauditor/indexer/schemas/core_schema.py:138-162
+    Columns: file, line, caller_function, callee_function, argument_index,
+             argument_expr, param_name, callee_file_path
+    """
     call_args = []
     for cmd in self.commands:
         cmd_name = cmd.get("command_name", "")
+        if not cmd_name:  # Skip empty command names (schema CHECK constraint)
+            continue
         caller = cmd.get("containing_function") or "global"
         line = cmd.get("line", 0)
 
@@ -78,6 +97,8 @@ def _map_commands_to_function_call_args(self) -> list[dict]:
                 "callee_function": cmd_name,
                 "argument_index": idx,
                 "argument_expr": arg.get("value", ""),
+                "param_name": None,       # Bash commands don't have named params
+                "callee_file_path": None, # External commands - no file path
             })
     return call_args
 
@@ -96,11 +117,13 @@ def extract(self) -> dict[str, Any]:
 
 - [ ] 3.1 Add `_extract_positional_params()` method in `theauditor/ast_extractors/bash_impl.py`
 - [ ] 3.2 Scan function bodies for `$1`, `$2`, `$@`, `$*` usage via tree-sitter `simple_expansion` nodes
-- [ ] 3.3 Map to `func_params` schema:
-  - `param_name`: "$1", "$2", "$@", etc.
+- [ ] 3.3 Map to `func_params` schema (node_schema.py:847-862):
+  - `function_line`: Line where function is defined (0 for script-level)
+  - `function_name`: containing function name or "global"
   - `param_index`: 0, 1, 2, etc. (or -1 for variadic)
-  - `function_name`: containing function name
-- [ ] 3.4 For script-level params, use function_name="main" or "global"
+  - `param_name`: "$1", "$2", "$@", etc.
+  - `param_type`: NULL (Bash is untyped)
+- [ ] 3.4 For script-level params, use function_name="global" and function_line=0
 - [ ] 3.5 Add `func_params` key to `extract()` return dict
 - [ ] 3.6 Add logging: `logger.debug(f"Bash: extracted {count} func_params from {file}")`
 
@@ -108,9 +131,16 @@ def extract(self) -> dict[str, Any]:
 ```python
 # In bash_impl.py BashExtractor class
 def _extract_positional_params(self) -> list[dict]:
-    """Extract positional parameter usage from function bodies."""
+    """Extract positional parameter usage from function bodies.
+
+    Schema: theauditor/indexer/schemas/node_schema.py:847-862
+    Columns: file, function_line, function_name, param_index, param_name, param_type
+    """
     params = []
     seen = set()  # (function_name, param_name) to dedupe
+
+    # Build function line lookup from self.functions
+    func_lines = {f["name"]: f["line"] for f in self.functions}
 
     # Scan all simple_expansion nodes for $1, $2, $@, $*
     def walk_for_params(node, current_func):
@@ -119,7 +149,8 @@ def _extract_positional_params(self) -> list[dict]:
             if var_name.startswith("$") and (
                 var_name[1:].isdigit() or var_name in ("$@", "$*")
             ):
-                key = (current_func or "global", var_name)
+                func_name = current_func or "global"
+                key = (func_name, var_name)
                 if key not in seen:
                     seen.add(key)
                     # Determine index
@@ -128,12 +159,16 @@ def _extract_positional_params(self) -> list[dict]:
                     else:
                         idx = int(var_name[1:]) - 1  # $1 -> 0, $2 -> 1
 
+                    # Get function definition line (0 for script-level)
+                    func_line = func_lines.get(func_name, 0)
+
                     params.append({
                         "file": self.file_path,
-                        "function_name": current_func or "global",
-                        "param_name": var_name,
+                        "function_line": func_line,
+                        "function_name": func_name,
                         "param_index": idx,
-                        "line": node.start_point[0] + 1,
+                        "param_name": var_name,
+                        "param_type": None,  # Bash is untyped
                     })
         for child in node.children:
             walk_for_params(child, current_func)

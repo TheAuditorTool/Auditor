@@ -38,6 +38,11 @@ Patterns MUST use categories from `TaintRegistry.CATEGORY_TO_VULN_TYPE` at `tain
 - **THEN** it SHALL contain source patterns for `rocket::request` with category `http_request`
 - **AND** it SHALL contain source patterns for `rocket::form` with category `http_request`
 
+#### Scenario: Warp sources
+- **WHEN** TaintRegistry is initialized with Rust patterns
+- **THEN** it SHALL contain source patterns for `warp::body::json` with category `http_request`
+- **AND** it SHALL contain source patterns for `warp::path::param` with category `http_request`
+
 ---
 
 ### Requirement: Rust Taint Sink Pattern Registration
@@ -67,16 +72,28 @@ Patterns MUST use categories from `TaintRegistry.CATEGORY_TO_VULN_TYPE` at `tain
 - **THEN** it SHALL contain sink patterns for `std::ptr::write` with category `code_injection`
 - **AND** it SHALL contain sink patterns for `std::mem::transmute` with category `code_injection`
 
+#### Scenario: Network sinks (SSRF)
+- **WHEN** TaintRegistry is initialized with Rust patterns
+- **THEN** it SHALL contain sink patterns for `TcpStream::connect` with category `ssrf`
+
 ---
 
 ### Requirement: Rust Pattern Registration Integration
-The Rust pattern registration function SHALL be auto-discovered by the orchestrator.
+The Rust pattern registration module SHALL be auto-discovered by the orchestrator.
+Discovery requires BOTH a `find_*` function (for module discovery) AND `register_taint_patterns()` function (for pattern registration).
 
-#### Scenario: Function naming for auto-discovery
-- **WHEN** `rust_injection_analyze.py` is loaded by orchestrator
+#### Scenario: Module discovery via find_* function
+- **WHEN** orchestrator runs `_discover_all_rules()` at `orchestrator.py:68-100`
+- **THEN** `rust_injection_analyze.py` SHALL define a function named `find_rust_injection_issues`
+- **AND** the function SHALL accept a `StandardRuleContext` parameter
+- **AND** the function SHALL return `list[StandardFinding]`
+- **AND** the orchestrator at `orchestrator.py:93` SHALL discover the module via this function
+
+#### Scenario: Pattern registration function
+- **WHEN** `rust_injection_analyze.py` is discovered by orchestrator
 - **THEN** it SHALL define a function named exactly `register_taint_patterns`
 - **AND** the function SHALL accept a single `taint_registry` parameter
-- **AND** the orchestrator at `orchestrator.py:471-495` SHALL discover and invoke it
+- **AND** the orchestrator at `orchestrator.py:471-495` SHALL invoke it via `collect_rule_patterns()`
 
 #### Scenario: Patterns available at runtime
 - **WHEN** taint analysis is run on a Rust project
@@ -97,7 +114,7 @@ Rust pattern registration SHALL use the centralized loguru-based logging system.
 #### Scenario: Logging import
 - **WHEN** examining rust_injection_analyze.py source code
 - **THEN** it SHALL contain `from theauditor.utils.logging import logger`
-- **AND** this import uses loguru underneath (verified at `utils/logging.py:25`)
+- **AND** the logging module uses loguru underneath (configured at `utils/logging.py:25-28`)
 
 #### Scenario: No print statements
 - **WHEN** examining rust_injection_analyze.py source code
