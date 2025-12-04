@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import click
 
+from theauditor.indexer.fidelity_utils import FidelityToken
 from theauditor.indexer.schema import build_query
 from theauditor.utils.logging import logger
 
@@ -303,6 +304,15 @@ class PythonOrmContext:
 
         if candidate in self.model_names:
             return candidate
+
+        # GRAPH FIX G15: Handle custom managers (Django)
+        # Scenario: User.active_users.all() -> candidate = "User.active_users.all"
+        # The first token before "." should be the model name
+        # This catches: User.custom_manager.filter(), Order.pending.count(), etc.
+        first_token = expr.split(".")[0].split("(")[0].strip()
+        if first_token and first_token in self.model_names:
+            return first_token
+
         return None
 
     def _get_assignments(self, file_path: str, func_name: str) -> list[dict[str, str]]:
@@ -438,8 +448,9 @@ class PythonOrmStrategy(GraphStrategy):
                     stats["edges_created"] += len(new_edges)
 
         conn.close()
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {"graph_type": "python_orm", "stats": stats},
         }
+        return FidelityToken.attach_manifest(result)

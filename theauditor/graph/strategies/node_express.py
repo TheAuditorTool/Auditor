@@ -8,6 +8,7 @@ from typing import Any
 
 import click
 
+from theauditor.indexer.fidelity_utils import FidelityToken
 from theauditor.utils.logging import logger
 
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
@@ -56,11 +57,12 @@ class NodeExpressStrategy(GraphStrategy):
             "total_edges": len(merged_edges),
         }
 
-        return {
+        result = {
             "nodes": list(merged_nodes.values()),
             "edges": merged_edges,
             "metadata": {"graph_type": "node_express", "stats": merged_stats},
         }
+        return FidelityToken.attach_manifest(result)
 
     def _build_middleware_edges(self, db_path: str, project_root: str) -> dict[str, Any]:
         """Build edges connecting Express middleware chains."""
@@ -288,6 +290,20 @@ class NodeExpressStrategy(GraphStrategy):
                     candidates = symbols_by_name[full_name]
                     if candidates:
                         symbol_result = candidates[0]
+
+            # FIX #18: Handle TypeScript class methods stored as "ClassName.methodName"
+            # When handler is "controller.list", we need to find "AccountController.list"
+            # by searching for symbols ending with ".list" in the matching file path.
+            if not symbol_result:
+                method_suffix = f".{method_name}"
+                for sym_name, syms in symbols_by_name.items():
+                    if sym_name.endswith(method_suffix):
+                        for sym in syms:
+                            if self._path_matches(import_package, sym["path"]):
+                                symbol_result = sym
+                                break
+                    if symbol_result:
+                        break
 
             if not symbol_result:
                 stats["failed_resolutions"] += 1

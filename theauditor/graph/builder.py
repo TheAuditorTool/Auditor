@@ -12,6 +12,7 @@ import click
 
 from theauditor.ast_extractors.ast_parser import ASTParser
 from theauditor.indexer.config import SKIP_DIRS
+from theauditor.indexer.fidelity_utils import FidelityToken
 from theauditor.module_resolver import ModuleResolver
 from theauditor.utils.logging import logger
 
@@ -633,7 +634,7 @@ class XGraphBuilder:
                 "import_count", module_node.metadata.get("import_count", 0)
             )
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {
@@ -643,6 +644,8 @@ class XGraphBuilder:
                 "total_imports": len(edges),
             },
         }
+
+        return FidelityToken.attach_manifest(result)
 
     def build_call_graph(
         self,
@@ -1078,7 +1081,7 @@ class XGraphBuilder:
         sql_count = sum(1 for node in nodes.values() if node.type == "sql_query")
         orm_count = sum(1 for node in nodes.values() if node.type == "orm_query")
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {
@@ -1091,6 +1094,8 @@ class XGraphBuilder:
             },
         }
 
+        return FidelityToken.attach_manifest(result)
+
     def merge_graphs(self, import_graph: dict, call_graph: dict) -> dict[str, Any]:
         """Merge import and call graphs into a unified graph."""
 
@@ -1102,7 +1107,7 @@ class XGraphBuilder:
 
         edges = import_graph["edges"] + call_graph["edges"]
 
-        return {
+        result = {
             "nodes": list(nodes.values()),
             "edges": edges,
             "metadata": {
@@ -1117,3 +1122,6 @@ class XGraphBuilder:
                 "total_edges": len(edges),
             },
         }
+
+        # STAMP IT - merged graph is a NEW dataset, needs NEW signature
+        return FidelityToken.attach_manifest(result)

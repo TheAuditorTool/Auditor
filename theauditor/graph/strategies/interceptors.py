@@ -6,6 +6,7 @@ from dataclasses import asdict
 from typing import Any
 
 from theauditor.graph.types import DFGEdge, DFGNode, create_bidirectional_edges
+from theauditor.indexer.fidelity_utils import FidelityToken
 
 from .resolution import path_matches
 
@@ -41,7 +42,7 @@ class InterceptorStrategy:
 
         conn.close()
 
-        return {
+        result = {
             "nodes": [asdict(node) for node in nodes.values()],
             "edges": [asdict(edge) for edge in edges],
             "metadata": {
@@ -49,6 +50,7 @@ class InterceptorStrategy:
                 "stats": stats,
             },
         }
+        return FidelityToken.attach_manifest(result)
 
     def _build_express_middleware_edges(
         self,
@@ -482,5 +484,15 @@ class InterceptorStrategy:
                     return (sym["name"], sym["path"])
             # GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback
             # If "controller" in path didn't match, don't guess
+
+        # FIX #18: Handle TypeScript class methods stored as "ClassName.methodName"
+        # When handler is "controller.list", we need to find "AccountController.list"
+        # by searching for symbols ending with ".list" in the matching file path.
+        method_suffix = f".{method_name}"
+        for sym_name, syms in symbols_by_name.items():
+            if sym_name.endswith(method_suffix):
+                for sym in syms:
+                    if self._path_matches(import_package, sym["path"]):
+                        return (sym["name"], sym["path"])
 
         return (method_name, None)

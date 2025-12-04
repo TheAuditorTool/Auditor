@@ -5,7 +5,12 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
+from theauditor.indexer.fidelity_utils import FidelityToken
 from theauditor.indexer.schemas.graphs_schema import GRAPH_TABLES
+from theauditor.utils.logging import logger
+
+from .exceptions import GraphFidelityError
+from .fidelity import reconcile_graph_fidelity
 
 
 class XGraphStore:
@@ -42,6 +47,7 @@ class XGraphStore:
 
         Phase 0.4: Added file_path parameter for incremental updates.
         Phase 0.5: Added explicit transaction with rollback on failure.
+        Phase 0.6: Added fidelity enforcement with manifest-receipt-reconcile.
 
         Args:
             graph: Dict with 'nodes' and 'edges' lists
@@ -51,6 +57,14 @@ class XGraphStore:
             file_path: If provided, only delete/update nodes/edges for this file.
                       If None, full rebuild (deletes all nodes/edges of graph_type).
         """
+        # Extract manifest (if present from builder)
+        manifest = graph.get("_extraction_manifest", {})
+
+        # STORE METADATA - Nothing gets dropped silently
+        graph_metadata = graph.get("metadata")
+        if graph_metadata:
+            self._store_graph_metadata(graph_type, graph_metadata, file_path)
+
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
 
@@ -106,6 +120,8 @@ class XGraphStore:
                         node.get("lang"),
                         node.get("loc", 0),
                         node.get("churn"),
+                        node.get("variable_name"),  # For data flow nodes
+                        node.get("scope"),          # For data flow nodes
                         node.get("type", default_node_type),
                         graph_type,
                         metadata_json,
@@ -124,17 +140,78 @@ class XGraphStore:
                         edge.get("type", default_edge_type),
                         edge.get("file"),
                         edge.get("line"),
+                        edge.get("expression"),  # Data flow expression
+                        edge.get("function"),    # Containing function scope
                         graph_type,
                         metadata_json,
                     )
                 )
 
+            # GATEKEEPER: Validate edges reference valid nodes
+            valid_node_ids = {n[0] for n in nodes_data}  # id is first element
+            orphaned = [
+                (e[0], e[1]) for e in edges_data
+                if e[0] not in valid_node_ids or e[1] not in valid_node_ids
+            ]
+
+            if orphaned:
+                logger.warning(
+                    f"GATEKEEPER: {len(orphaned)} orphaned edges in {graph_type}"
+                )
+                for src, tgt in orphaned[:10]:
+                    logger.warning(f"  Edge {src} -> {tgt} references missing node")
+                raise GraphFidelityError(
+                    f"Orphaned edges in {graph_type}",
+                    details={"count": len(orphaned), "sample": orphaned[:5]}
+                )
+
+            # Generate receipt for fidelity check
+            node_columns = ["id", "file", "lang", "loc", "churn", "variable_name", "scope", "type", "graph_type", "metadata"]
+            edge_columns = ["source", "target", "type", "file", "line", "expression", "function", "graph_type", "metadata"]
+
+            receipt = {
+                "nodes": FidelityToken.create_receipt(
+                    count=len(nodes_data),
+                    columns=node_columns,
+                    tx_id=manifest.get("nodes", {}).get("tx_id"),
+                    data_bytes=sum(len(str(n)) for n in nodes_data)
+                ),
+                "edges": FidelityToken.create_receipt(
+                    count=len(edges_data),
+                    columns=edge_columns,
+                    tx_id=manifest.get("edges", {}).get("tx_id"),
+                    data_bytes=sum(len(str(e)) for e in edges_data)
+                )
+            }
+
+            # METADATA RECEIPT - count matches manifest (number of keys in dict)
+            if graph_metadata and "metadata" in manifest:
+                receipt["metadata"] = FidelityToken.create_receipt(
+                    count=len(graph_metadata),  # Number of keys, matches manifest counting
+                    columns=[],  # K/V pairs don't have columns
+                    tx_id=manifest.get("metadata", {}).get("tx_id"),
+                    data_bytes=sum(len(str(k)) + len(str(v)) for k, v in graph_metadata.items())
+                )
+
+            # RECONCILE - strict mode (hard fail on mismatch)
+            # ZERO FALLBACK: No manifest = CRASH. No silent legacy path.
+            if not manifest:
+                raise GraphFidelityError(
+                    f"NO MANIFEST: Builder for {graph_type} sent data without fidelity manifest. "
+                    "All producers MUST call FidelityToken.attach_manifest().",
+                    details={"graph_type": graph_type, "nodes": len(nodes_data), "edges": len(edges_data)}
+                )
+
+            reconcile_graph_fidelity(
+                manifest, receipt, f"GraphStore:{graph_type}", strict=True
+            )
+
             if nodes_data:
                 cursor.executemany(
                     """
                     INSERT OR REPLACE INTO nodes
-                    (id, file, lang, loc, churn, type, graph_type, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, file, lang, loc, churn, variable_name, scope, type, graph_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     nodes_data,
                 )
@@ -143,13 +220,20 @@ class XGraphStore:
                 cursor.executemany(
                     """
                     INSERT OR IGNORE INTO edges
-                    (source, target, type, file, line, graph_type, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (source, target, type, file, line, expression, function, graph_type, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     edges_data,
                 )
 
             conn.commit()
+            logger.info(
+                f"[GraphStore] Saved {graph_type}: {len(nodes_data)} nodes, {len(edges_data)} edges"
+            )
+
+        except GraphFidelityError:
+            conn.rollback()
+            raise
 
         except Exception as e:
             conn.rollback()
@@ -157,6 +241,21 @@ class XGraphStore:
 
         finally:
             conn.close()
+
+    def _store_graph_metadata(
+        self, graph_type: str, metadata: dict[str, Any], file_path: str | None
+    ) -> None:
+        """Store graph metadata in analysis_results table.
+
+        Nothing gets dropped silently. Every piece of data is stored.
+        """
+        analysis_type = f"graph_metadata:{graph_type}"
+        if file_path:
+            analysis_type = f"graph_metadata:{graph_type}:{file_path}"
+
+        # Store via existing method - JSON blob in analysis_results
+        self.save_analysis_result(analysis_type, metadata)
+        logger.debug(f"[GraphStore] Stored metadata for {graph_type}: {len(metadata)} keys")
 
     def save_import_graph(self, graph: dict[str, Any]) -> None:
         """Save import graph to database."""
@@ -194,6 +293,8 @@ class XGraphStore:
                         "lang": row["lang"],
                         "loc": row["loc"],
                         "churn": row["churn"],
+                        "variable_name": row["variable_name"],
+                        "scope": row["scope"],
                         "type": row["type"],
                         "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
                     }
@@ -208,6 +309,8 @@ class XGraphStore:
                         "type": row["type"],
                         "file": row["file"],
                         "line": row["line"],
+                        "expression": row["expression"],
+                        "function": row["function"],
                         "metadata": json.loads(row["metadata"]) if row["metadata"] else {},
                     }
                 )

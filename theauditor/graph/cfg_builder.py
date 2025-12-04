@@ -4,6 +4,8 @@ import sqlite3
 from collections import defaultdict
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 
 class CFGBuilder:
     """Build and analyze control flow graphs from database."""
@@ -63,6 +65,12 @@ class CFGBuilder:
             blocks = blocks_by_func[func_name]
             edges = edges_by_func.get(func_name, [])
 
+            # CFG SANITY CHECK: Log if we have edges but no blocks
+            if edges and not blocks:
+                logger.warning(
+                    f"[CFG SANITY] {file_path}::{func_name} has {len(edges)} edges but 0 blocks"
+                )
+
             results[func_name] = {
                 "function_name": func_name,
                 "file": file_path,
@@ -70,6 +78,14 @@ class CFGBuilder:
                 "edges": edges,
                 "metrics": self._calculate_metrics(blocks, edges),
             }
+
+        # CFG SANITY CHECK: Log aggregate stats
+        total_blocks = sum(len(blocks_by_func[f]) for f in blocks_by_func)
+        total_edges = sum(len(edges_by_func.get(f, [])) for f in blocks_by_func)
+        logger.debug(
+            f"[CFG] Loaded {file_path}: {len(results)} functions, "
+            f"{total_blocks} blocks, {total_edges} edges"
+        )
 
         return results
 
@@ -136,6 +152,16 @@ class CFGBuilder:
                     "type": row["edge_type"],
                 }
             )
+
+        # CFG SANITY CHECK: Log if we have edges but no blocks
+        if edges and not blocks:
+            logger.warning(
+                f"[CFG SANITY] {file_path}::{function_name} has {len(edges)} edges but 0 blocks"
+            )
+
+        logger.debug(
+            f"[CFG] Loaded {file_path}::{function_name}: {len(blocks)} blocks, {len(edges)} edges"
+        )
 
         return {
             "function_name": function_name,
