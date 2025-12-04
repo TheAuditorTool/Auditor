@@ -19,6 +19,7 @@ Usage:
     print(signal.density_label)  # "3/4 vectors"
 """
 
+from theauditor.fce.formatter import FCEFormatter
 from theauditor.fce.schema import (
     AIContextBundle,
     ConvergencePoint,
@@ -34,6 +35,7 @@ __all__ = [
     "ConvergencePoint",
     "AIContextBundle",
     "FCEQueryEngine",
+    "FCEFormatter",
     "run_fce",
 ]
 
