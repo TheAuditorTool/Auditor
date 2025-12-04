@@ -364,12 +364,12 @@ async def fetch_latest_async(
 
 **File:** `theauditor/deps.py`
 
-**Import addition (line ~20):**
+**Import addition (line ~18):**
 ```python
 from theauditor.package_managers import get_manager
 ```
 
-**Docker parsing replacement (lines 81-103):**
+**Docker parsing replacement (lines 81-93):**
 ```python
 # BEFORE (current):
 docker_compose_files = list(root.glob("**/docker-compose*.yml"))
@@ -402,7 +402,7 @@ for dockerfile in dockerfiles:
             deps.extend(docker_mgr.parse_manifest(dockerfile))
 ```
 
-**Go parsing addition (after Cargo block, ~line 110):**
+**Go parsing addition (after Cargo block, ~line 100):**
 ```python
 # ADD NEW:
 go_mgr = get_manager("go")
@@ -413,7 +413,7 @@ if go_mgr:
             deps.extend(go_mgr.parse_manifest(go_mod))
 ```
 
-**Version fetch dispatch (lines 575-590):**
+**Version fetch dispatch (lines 572-580):**
 ```python
 # BEFORE:
 if manager == "docker":
@@ -426,7 +426,7 @@ if manager in ("docker", "cargo", "go"):
         result = await mgr.fetch_latest_async(client, dep)
 ```
 
-**Upgrade dispatch (lines 1099-1143):**
+**Upgrade dispatch (lines 1096-1139):**
 ```python
 # BEFORE:
 if "docker" in ecosystems or not ecosystems:
@@ -540,7 +540,7 @@ def upgrade_file(
 
 **Problem:** Where to get README for Rust crates?
 
-**Solution:** Use crates.io API response directly (NOT docs.rs scraping)
+**Solution:** Use crates.io API response directly (NOT docs.rs scraping, NO FALLBACKS)
 
 The crates.io API at `https://crates.io/api/v1/crates/{name}` already returns:
 ```json
@@ -554,6 +554,8 @@ The crates.io API at `https://crates.io/api/v1/crates/{name}` already returns:
 }
 ```
 
+**ZERO FALLBACK Compliance:** If crates.io doesn't return a README, we return "skipped" (no GitHub fallback).
+
 **Implementation:**
 ```python
 # theauditor/package_managers/cargo.py
@@ -565,7 +567,7 @@ async def fetch_docs_async(
     output_path: Path,
     allowlist: list[str],
 ) -> str:
-    """Fetch crate README from crates.io API."""
+    """Fetch crate README from crates.io API. NO FALLBACKS."""
     name = dep["name"]
 
     # Check allowlist
@@ -593,18 +595,14 @@ async def fetch_docs_async(
         data = response.json()
         readme = data.get("crate", {}).get("readme")
 
+        # ZERO FALLBACK: If no readme from crates.io, skip (don't try GitHub)
         if not readme:
-            # Fallback: try GitHub README via repository URL
-            repo_url = data.get("crate", {}).get("repository")
-            if repo_url and "github.com" in repo_url:
-                readme = await self._fetch_github_readme(client, repo_url)
+            logger.info(f"No README available from crates.io for {name}")
+            return "skipped"
 
-        if readme:
-            output_path.mkdir(parents=True, exist_ok=True)
-            doc_file.write_text(readme, encoding="utf-8")
-            return "fetched"
-
-        return "error"
+        output_path.mkdir(parents=True, exist_ok=True)
+        doc_file.write_text(readme, encoding="utf-8")
+        return "fetched"
 
     except Exception as e:
         logger.warning(f"Failed to fetch docs for {name}: {e}")
@@ -615,7 +613,9 @@ async def fetch_docs_async(
 
 **Problem:** pkg.go.dev returns HTML, need markdown.
 
-**Solution:** Use same HTML-to-markdown approach as docs_fetch.py
+**Solution:** Use regex-based HTML extraction (NO FALLBACKS, single code path)
+
+**ZERO FALLBACK Compliance:** We use regex extraction only. No BeautifulSoup with fallback to regex - just regex. Simple, no extra dependencies, one code path.
 
 ```python
 # theauditor/package_managers/go.py
@@ -627,7 +627,7 @@ async def fetch_docs_async(
     output_path: Path,
     allowlist: list[str],
 ) -> str:
-    """Fetch Go module docs from pkg.go.dev."""
+    """Fetch Go module docs from pkg.go.dev. NO FALLBACKS."""
     module = dep["name"]
     version = dep.get("version", "latest")
 
@@ -656,45 +656,23 @@ async def fetch_docs_async(
 
         html = response.text
 
-        # Extract documentation section
-        # pkg.go.dev has <section class="Documentation">...</section>
-        markdown = self._html_to_markdown(html)
+        # Extract documentation section using regex (single code path)
+        markdown = self._extract_go_docs(html)
 
         if markdown:
             output_path.mkdir(parents=True, exist_ok=True)
             doc_file.write_text(markdown, encoding="utf-8")
             return "fetched"
 
-        return "error"
+        logger.info(f"No documentation section found for {module}")
+        return "skipped"
 
     except Exception as e:
         logger.warning(f"Failed to fetch docs for {module}: {e}")
         return "error"
 
-def _html_to_markdown(self, html: str) -> str | None:
-    """Convert pkg.go.dev HTML to markdown."""
-    try:
-        from bs4 import BeautifulSoup
-        import markdownify
-
-        soup = BeautifulSoup(html, "html.parser")
-
-        # Find documentation section
-        doc_section = soup.find("section", class_="Documentation")
-        if not doc_section:
-            doc_section = soup.find("div", class_="Documentation-content")
-
-        if doc_section:
-            return markdownify.markdownify(str(doc_section), heading_style="ATX")
-
-        return None
-
-    except ImportError:
-        # Fallback: regex extraction
-        return self._html_to_markdown_regex(html)
-
-def _html_to_markdown_regex(self, html: str) -> str | None:
-    """Fallback HTML to markdown using regex."""
+def _extract_go_docs(self, html: str) -> str | None:
+    """Extract Go documentation from pkg.go.dev HTML using regex. Single code path."""
     import re
 
     # Extract text between Documentation tags
@@ -705,17 +683,42 @@ def _html_to_markdown_regex(self, html: str) -> str | None:
     )
 
     if not match:
+        # Try alternative div structure
+        match = re.search(
+            r'<div[^>]*class="[^"]*Documentation-content[^"]*"[^>]*>(.*?)</div>',
+            html,
+            re.DOTALL | re.IGNORECASE
+        )
+
+    if not match:
         return None
 
     content = match.group(1)
 
-    # Basic HTML tag stripping
+    # Strip scripts and styles
     content = re.sub(r'<script[^>]*>.*?</script>', '', content, flags=re.DOTALL)
     content = re.sub(r'<style[^>]*>.*?</style>', '', content, flags=re.DOTALL)
-    content = re.sub(r'<[^>]+>', '', content)
-    content = re.sub(r'\s+', ' ', content)
 
-    return content.strip() if content.strip() else None
+    # Convert headers to markdown
+    content = re.sub(r'<h1[^>]*>(.*?)</h1>', r'# \1\n', content, flags=re.DOTALL)
+    content = re.sub(r'<h2[^>]*>(.*?)</h2>', r'## \1\n', content, flags=re.DOTALL)
+    content = re.sub(r'<h3[^>]*>(.*?)</h3>', r'### \1\n', content, flags=re.DOTALL)
+
+    # Convert code blocks
+    content = re.sub(r'<pre[^>]*>(.*?)</pre>', r'```\n\1\n```\n', content, flags=re.DOTALL)
+    content = re.sub(r'<code[^>]*>(.*?)</code>', r'`\1`', content, flags=re.DOTALL)
+
+    # Convert paragraphs
+    content = re.sub(r'<p[^>]*>(.*?)</p>', r'\1\n\n', content, flags=re.DOTALL)
+
+    # Strip remaining HTML tags
+    content = re.sub(r'<[^>]+>', '', content)
+
+    # Normalize whitespace
+    content = re.sub(r'\n{3,}', '\n\n', content)
+    content = content.strip()
+
+    return content if content else None
 ```
 
 ## Risks / Trade-offs

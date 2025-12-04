@@ -177,6 +177,8 @@ Current row indices end at 23. New indices:
 
 ## 2. Blueprint Dependencies
 
+> **Note:** Tasks 2.1-2.4 overlap with `add-polyglot-package-managers` proposal. Coordinate or defer.
+
 ### 2.1 Add cargo_package_configs schema
 **File:** `theauditor/indexer/schemas/infrastructure_schema.py`
 

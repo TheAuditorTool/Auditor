@@ -6,7 +6,7 @@
 
 ## Why
 
-`deps.py` is 1623 lines and `docs_fetch.py` is 646 lines. Both are monoliths handling multiple package ecosystems inline. Adding Go and Rust (full crates.io support) would push deps.py to 2300+ lines - unmaintainable.
+`deps.py` is 1620 lines and `docs_fetch.py` is 646 lines. Both are monoliths handling multiple package ecosystems inline. Adding Go and Rust (full crates.io support) would push deps.py to 2300+ lines - unmaintainable.
 
 Current state:
 - npm: Full support (DB storage, version check, docs fetch, upgrade)
@@ -16,8 +16,7 @@ Current state:
 - Go: Zero support
 
 Additional issues found during Prime Directive investigation:
-1. `deps.py:407-411` creates local `logger = logging.getLogger(__name__)` shadowing the module-level loguru logger
-2. `docs_fetch.py` has ZERO imports from `theauditor.utils.logging` or `theauditor.pipeline.ui` - completely unwired from infrastructure
+1. `docs_fetch.py` has ZERO imports from `theauditor.utils.logging` or `theauditor.pipeline.ui` - completely unwired from infrastructure
 
 ## What Changes
 
@@ -35,22 +34,21 @@ theauditor/package_managers/
 ### Extraction: Docker from deps.py
 
 Extract these functions from `deps.py` into `package_managers/docker.py`:
-- `_parse_docker_compose()` (lines 279-323)
-- `_parse_dockerfile()` (lines 325-376)
-- `_fetch_docker_async()` (lines 486-538)
-- `_parse_docker_tag()` (lines 866-915)
-- `_extract_base_preference()` (lines 918-943)
-- `_upgrade_docker_compose()` (lines 1303-1384)
-- `_upgrade_dockerfile()` (lines 1386-1480)
+- `_parse_docker_compose()` (lines 279-322)
+- `_parse_dockerfile()` (lines 325-375)
+- `_fetch_docker_async()` (lines 483-535)
+- `_parse_docker_tag()` (lines 863-912)
+- `_extract_base_preference()` (lines 915-939)
+- `_upgrade_docker_compose()` (lines 1300-1380)
+- `_upgrade_dockerfile()` (lines 1383-1477)
 
-Total: ~403 lines extracted, deps.py drops to ~1220 lines.
+Total: ~399 lines extracted, deps.py drops to ~1220 lines.
 
 ### Minimal Wiring Changes
 
 **deps.py** (~20 lines changed):
 - Import orchestrator
 - Delegate cargo/go/docker calls to package_managers module
-- Fix logger shadow bug at line 407-411
 
 **docs_fetch.py** (~15 lines changed):
 - Import orchestrator
@@ -108,7 +106,7 @@ Total: ~403 lines extracted, deps.py drops to ~1220 lines.
 1. `aud deps --check-latest` works for Cargo packages (crates.io)
 2. `aud deps --check-latest` works for Go modules (proxy.golang.org)
 3. Docker logic extracted to `package_managers/docker.py`
-4. deps.py reduced from 1623 to ~1420 lines
+4. deps.py reduced from 1620 to ~1220 lines
 5. docs_fetch.py properly wired to logger/console
 6. `aud full --index` extracts Cargo.toml and go.mod to database
 7. All existing npm/Python functionality unchanged

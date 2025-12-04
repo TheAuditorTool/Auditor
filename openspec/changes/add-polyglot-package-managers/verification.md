@@ -7,9 +7,9 @@ Per teamsop.md Section 1.3: All beliefs about the codebase treated as hypotheses
 ## Hypotheses & Verification
 
 ### H1: deps.py uses loguru correctly
-- **Status:** PARTIAL
-- **Evidence:** Line 17 imports `from theauditor.utils.logging import logger` (CORRECT)
-- **Discrepancy:** Lines 407-411 in `_parse_cargo_toml()` create local `logger = logging.getLogger(__name__)` (SHADOW BUG)
+- **Status:** CONFIRMED
+- **Evidence:** Line 16 imports `from theauditor.utils.logging import logger` (CORRECT)
+- **Verification:** `_parse_cargo_toml()` at lines 407-430 uses module-level loguru logger correctly. No shadow bug exists.
 
 ### H2: deps.py uses Rich console correctly
 - **Status:** CONFIRMED
@@ -38,21 +38,21 @@ Per teamsop.md Section 1.3: All beliefs about the codebase treated as hypotheses
 ### H7: Docker has version checking
 - **Status:** CONFIRMED
 - **Evidence:**
-  - `deps.py:486-538` has `_fetch_docker_async()`
-  - `deps.py:866-915` has `_parse_docker_tag()`
-  - `deps.py:1303-1480` has upgrade functions
+  - `deps.py:483-535` has `_fetch_docker_async()`
+  - `deps.py:863-912` has `_parse_docker_tag()`
+  - `deps.py:1300-1477` has upgrade functions
 
-### H8: Docker extraction is ~200 lines
+### H8: Docker extraction is ~400 lines
 - **Status:** CONFIRMED
 - **Evidence:**
-  - `_parse_docker_compose()`: 279-323 (45 lines)
-  - `_parse_dockerfile()`: 325-376 (52 lines)
-  - `_fetch_docker_async()`: 486-538 (53 lines)
-  - `_parse_docker_tag()`: 866-915 (50 lines)
-  - `_extract_base_preference()`: 918-943 (26 lines)
-  - `_upgrade_docker_compose()`: 1303-1384 (82 lines)
-  - `_upgrade_dockerfile()`: 1386-1480 (95 lines)
-- **Total:** ~403 lines (more than estimated, but acceptable extraction)
+  - `_parse_docker_compose()`: 279-322 (44 lines)
+  - `_parse_dockerfile()`: 325-375 (51 lines)
+  - `_fetch_docker_async()`: 483-535 (53 lines)
+  - `_parse_docker_tag()`: 863-912 (50 lines)
+  - `_extract_base_preference()`: 915-939 (25 lines)
+  - `_upgrade_docker_compose()`: 1300-1380 (81 lines)
+  - `_upgrade_dockerfile()`: 1383-1477 (95 lines)
+- **Total:** ~399 lines (acceptable extraction)
 
 ### H9: crates.io API exists
 - **Status:** CONFIRMED
@@ -64,10 +64,9 @@ Per teamsop.md Section 1.3: All beliefs about the codebase treated as hypotheses
 
 ## Discrepancies Found
 
-1. **Logger shadow in deps.py:407-411** - Creates local stdlib logger instead of using module-level loguru
-2. **docs_fetch.py completely unwired** - No logging or console infrastructure
-3. **Cargo parsing duplicated** - `manifest_parser.py` and `deps.py` both parse Cargo.toml differently
-4. **Docker extraction larger than estimated** - ~403 lines vs ~200 lines initially estimated (CORRECTED in proposal.md)
+1. **docs_fetch.py completely unwired** - No logging or console infrastructure
+2. **Cargo parsing duplicated** - `manifest_parser.py` and `deps.py` both parse Cargo.toml differently
+3. **Docker extraction larger than estimated** - ~403 lines vs ~200 lines initially estimated (CORRECTED in proposal.md)
 
 ## Database Files Located (Due Diligence)
 

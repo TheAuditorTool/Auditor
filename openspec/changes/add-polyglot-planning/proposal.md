@@ -121,6 +121,7 @@ This proposal covers polyglot support for ALL affected commands:
   - `theauditor/ast_extractors/bash_impl.py` (unified table population)
 - **Risk:** LOW - additive changes only, no breaking changes
 - **Dependencies:** Relies on Go/Rust/Bash extractors populating language-specific tables (already done)
+- **Soft dependency:** Tasks 2.1-2.4 overlap with `add-polyglot-package-managers` proposal (Cargo/Go parsing)
 
 ---
 
