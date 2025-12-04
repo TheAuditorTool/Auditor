@@ -26,9 +26,7 @@ METADATA = RuleMetadata(
         "tests/",
         "benches/",
     ],
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 DANGEROUS_IMPORTS = {

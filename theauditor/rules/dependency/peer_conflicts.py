@@ -10,9 +10,7 @@ METADATA = RuleMetadata(
     name="peer_conflicts",
     category="dependency",
     target_extensions=[".json"],
-    exclude_patterns=["node_modules/", ".venv/", "test/"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["node_modules/", ".venv/", "test/"])
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:

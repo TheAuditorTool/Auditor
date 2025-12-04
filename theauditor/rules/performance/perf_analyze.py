@@ -28,9 +28,7 @@ METADATA = RuleMetadata(
         "venv/",
         ".pf/",
         ".auditor_venv/",
-    ],
-    requires_jsx_pass=False,
-)
+    ])
 
 
 DB_OPERATIONS = frozenset(

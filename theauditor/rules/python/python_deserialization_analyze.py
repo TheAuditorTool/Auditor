@@ -22,9 +22,7 @@ METADATA = RuleMetadata(
         "test/",
         "__tests__/",
         "migrations/",
-    ],
-    requires_jsx_pass=False,
-)
+    ])
 
 
 @dataclass(frozen=True)

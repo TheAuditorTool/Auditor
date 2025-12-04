@@ -9,9 +9,7 @@ METADATA = RuleMetadata(
     category="xss",
     target_extensions=[".jsx", ".tsx", ".js", ".ts"],
     exclude_patterns=["test/", "__tests__/", "node_modules/", "*.test.jsx", "*.spec.tsx"],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 REACT_DANGEROUS_PROPS = frozenset(

@@ -26,9 +26,7 @@ METADATA = RuleMetadata(
         "benches/",
         "examples/",
     ],
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 class UnsafeAnalyzer:

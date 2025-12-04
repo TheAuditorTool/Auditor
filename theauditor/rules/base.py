@@ -1,10 +1,24 @@
 """Base contracts for rule standardization."""
+
+__all__ = [
+    "Severity",
+    "Confidence",
+    "StandardRuleContext",
+    "StandardFinding",
+    "RuleFunction",
+    "RuleMetadata",
+    "validate_rule_signature",
+    "convert_old_context",
+    "RuleResult",
+]
+
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
 from typing import Any, Literal
-from theauditor.utils.logging import logger
+
+from theauditor.rules.fidelity import RuleResult
 
 
 class Severity(Enum):
@@ -27,7 +41,7 @@ class Confidence(Enum):
 
 @dataclass
 class StandardRuleContext:
-    """Universal immutable context for all standardized rules."""
+    """Universal context for all standardized rules."""
 
     file_path: Path
     content: str
@@ -35,26 +49,18 @@ class StandardRuleContext:
     project_path: Path
 
     ast_wrapper: dict[str, Any] | None = None
-
     db_path: str | None = None
     taint_checker: Callable | None = None
-    module_resolver: Any | None = None
-
-    file_hash: str | None = None
-    file_size: int | None = None
-    line_count: int | None = None
 
     extra: dict[str, Any] = field(default_factory=dict)
 
     def get_ast(self, expected_type: str = None) -> Any | None:
-        """Safely extract AST with optional type checking."""
+        """Extract AST with optional type checking."""
         if not self.ast_wrapper:
             return None
 
         ast_type = self.ast_wrapper.get("type")
-
         if expected_type and ast_type != expected_type:
-            logger.debug(f"AST type mismatch: wanted {expected_type}, got {ast_type}")
             return None
 
         return self.ast_wrapper.get("tree")
@@ -62,22 +68,6 @@ class StandardRuleContext:
     def get_lines(self) -> list[str]:
         """Get file content as list of lines."""
         return self.content.splitlines() if self.content else []
-
-    def get_snippet(self, line_num: int, context_lines: int = 2) -> str:
-        """Extract code snippet around a line number."""
-        lines = self.get_lines()
-        if not lines or line_num < 1 or line_num > len(lines):
-            return ""
-
-        start = max(1, line_num - context_lines)
-        end = min(len(lines), line_num + context_lines)
-
-        snippet_lines = []
-        for i in range(start, end + 1):
-            prefix = ">> " if i == line_num else "   "
-            snippet_lines.append(f"{i:4d}{prefix}{lines[i - 1]}")
-
-        return "\n".join(snippet_lines)
 
 
 @dataclass
@@ -107,13 +97,9 @@ class StandardFinding:
             "file": self.file_path,
             "line": self.line,
             "column": self.column,
-            "severity": self.severity.value
-            if isinstance(self.severity, Severity)
-            else self.severity,
+            "severity": self.severity.value if isinstance(self.severity, Severity) else self.severity,
             "category": self.category,
-            "confidence": self.confidence.value
-            if isinstance(self.confidence, Confidence)
-            else self.confidence,
+            "confidence": self.confidence.value if isinstance(self.confidence, Confidence) else self.confidence,
             "code_snippet": self.snippet,
         }
 
@@ -123,13 +109,12 @@ class StandardFinding:
             result["cwe"] = self.cwe_id
         if self.additional_info:
             import json
-
             result["details_json"] = json.dumps(self.additional_info)
 
         return result
 
 
-RuleFunction = Callable[[StandardRuleContext], list[StandardFinding]]
+RuleFunction = Callable[[StandardRuleContext], list[StandardFinding] | RuleResult]
 
 
 def validate_rule_signature(func: Callable) -> bool:
@@ -138,13 +123,12 @@ def validate_rule_signature(func: Callable) -> bool:
 
     sig = inspect.signature(func)
     params = list(sig.parameters.keys())
-
     return len(params) == 1 and params[0] == "context"
 
 
 @dataclass
 class RuleMetadata:
-    """Metadata describing rule requirements for smart orchestrator filtering."""
+    """Metadata for orchestrator filtering."""
 
     name: str
     category: str
@@ -155,14 +139,9 @@ class RuleMetadata:
 
     execution_scope: Literal["database", "file"] | None = None
 
-    requires_jsx_pass: bool = False
-    jsx_pass_mode: str = "preserved"
-
 
 def convert_old_context(old_context, project_path: Path = None) -> StandardRuleContext:
     """Convert old RuleContext to StandardRuleContext."""
-    from pathlib import Path
-
     return StandardRuleContext(
         file_path=Path(old_context.file_path) if old_context.file_path else Path("unknown"),
         content=old_context.content or "",

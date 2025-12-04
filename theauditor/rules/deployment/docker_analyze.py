@@ -12,9 +12,7 @@ METADATA = RuleMetadata(
     name="dockerfile_security",
     category="deployment",
     target_extensions=[],
-    exclude_patterns=["test/", "__tests__/", "node_modules/", ".pf/", ".auditor_venv/"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["test/", "__tests__/", "node_modules/", ".pf/", ".auditor_venv/"])
 
 
 @dataclass(frozen=True)

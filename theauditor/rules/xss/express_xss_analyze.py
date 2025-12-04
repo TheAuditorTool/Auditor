@@ -17,9 +17,7 @@ METADATA = RuleMetadata(
         "frontend/",
         "client/",
     ],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 EXPRESS_SAFE_METHODS = frozenset(

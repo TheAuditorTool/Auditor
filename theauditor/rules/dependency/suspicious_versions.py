@@ -12,9 +12,7 @@ METADATA = RuleMetadata(
     name="suspicious_versions",
     category="dependency",
     target_extensions=[".json", ".txt", ".toml"],
-    exclude_patterns=["node_modules/", ".venv/", "test/", "__tests__/"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["node_modules/", ".venv/", "test/", "__tests__/"])
 
 
 def analyze(context: StandardRuleContext) -> list[StandardFinding]:

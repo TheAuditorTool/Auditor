@@ -8,9 +8,7 @@ METADATA = RuleMetadata(
     category="quality",
     target_extensions=[".py", ".js", ".ts", ".tsx", ".jsx"],
     exclude_patterns=["node_modules/", ".venv/", "__pycache__/", "dist/", "build/"],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 def find_dead_code(context: StandardRuleContext) -> list[StandardFinding]:

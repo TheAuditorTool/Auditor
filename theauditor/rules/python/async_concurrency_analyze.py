@@ -23,9 +23,7 @@ METADATA = RuleMetadata(
         "test/",
         "__tests__/",
         "migrations/",
-    ],
-    requires_jsx_pass=False,
-)
+    ])
 
 
 COUNTER_OPS = frozenset(["+= 1", "-= 1", "+= ", "-= "])

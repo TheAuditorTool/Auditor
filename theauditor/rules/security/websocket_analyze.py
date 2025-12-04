@@ -14,9 +14,7 @@ METADATA = RuleMetadata(
     name="websocket_security",
     category="security",
     target_extensions=[".py", ".js", ".ts", ".jsx", ".tsx"],
-    exclude_patterns=["test/", "spec.", "__tests__/", "node_modules/"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["test/", "spec.", "__tests__/", "node_modules/"])
 
 
 CONNECTION_PATTERNS = frozenset(

@@ -13,9 +13,7 @@ from theauditor.rules.base import (
 METADATA = RuleMetadata(
     name="graphql_query_depth",
     category="security",
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 def check_query_depth(context: StandardRuleContext) -> list[StandardFinding]:

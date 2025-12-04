@@ -64,9 +64,7 @@ METADATA = RuleMetadata(
         "dist/",
         "build/",
         ".git/",
-    ],
-    requires_jsx_pass=False,
-)
+    ])
 
 
 SECRET_KEYWORDS = frozenset(

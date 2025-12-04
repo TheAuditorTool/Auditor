@@ -19,9 +19,7 @@ METADATA = RuleMetadata(
         ".pf/",
         ".auditor_venv/",
     ],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 def find_cdk_encryption_issues(context: StandardRuleContext) -> list[StandardFinding]:

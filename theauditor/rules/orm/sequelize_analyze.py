@@ -28,9 +28,7 @@ METADATA = RuleMetadata(
         "seeders/",
         ".pf/",
         ".auditor_venv/",
-    ],
-    requires_jsx_pass=False,
-)
+    ])
 
 
 @dataclass(frozen=True)

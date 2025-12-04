@@ -15,9 +15,7 @@ METADATA = RuleMetadata(
     category="xss",
     target_extensions=TEMPLATE_TARGET_EXTENSIONS,
     exclude_patterns=["test/", "__tests__/", "node_modules/", "*.test.js"],
-    requires_jsx_pass=False,
-    execution_scope="database",
-)
+    execution_scope="database")
 
 
 def find_template_injection(context: StandardRuleContext) -> list[StandardFinding]:

@@ -15,9 +15,7 @@ METADATA = RuleMetadata(
     name="graphql_mutation_auth",
     category="security",
     target_extensions=[".graphql", ".gql", ".graphqls", ".py", ".js", ".ts"],
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 @dataclass(frozen=True)

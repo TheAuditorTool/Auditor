@@ -17,9 +17,7 @@ METADATA = RuleMetadata(
     category="react",
     target_extensions=[".jsx", ".tsx", ".js", ".ts"],
     target_file_patterns=["frontend/", "client/", "src/"],
-    exclude_patterns=["node_modules/", "__tests__/", "*.test.jsx", "*.test.tsx", "migrations/"],
-    requires_jsx_pass=False,
-)
+    exclude_patterns=["node_modules/", "__tests__/", "*.test.jsx", "*.test.tsx", "migrations/"])
 
 
 @dataclass(frozen=True)

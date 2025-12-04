@@ -23,9 +23,7 @@ METADATA = RuleMetadata(
         "__tests__/",
         "migrations/",
     ],
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 @dataclass(frozen=True)

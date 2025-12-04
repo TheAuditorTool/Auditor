@@ -1,10 +1,10 @@
 """Detect ghost dependencies - packages imported but not declared."""
 
 import json
-import sqlite3
 
-from theauditor.indexer.schema import build_query
-from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+from theauditor.rules.base import RuleMetadata, RuleResult, Severity, StandardFinding, StandardRuleContext
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="ghost_dependencies",
@@ -18,9 +18,7 @@ METADATA = RuleMetadata(
         "dist/",
         "build/",
         ".git/",
-    ],
-    requires_jsx_pass=False,
-)
+    ])
 
 
 PYTHON_STDLIB = frozenset(
@@ -135,63 +133,65 @@ NODEJS_STDLIB = frozenset(
 ALL_STDLIB = PYTHON_STDLIB | NODEJS_STDLIB
 
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect packages imported in code but not declared in package files."""
     findings = []
 
     if not context.db_path:
-        return findings
+        return RuleResult(findings=findings, manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, "ghost_dependencies") as db:
+        declared_deps = _get_declared_dependencies(db)
+        imported_packages = _get_imported_packages(db)
+        findings = _find_ghost_dependencies(imported_packages, declared_deps)
 
-    try:
-        declared_deps = _get_declared_dependencies(cursor)
-
-        imported_packages = _get_imported_packages(cursor)
-
-        findings = _find_ghost_dependencies(cursor, imported_packages, declared_deps)
-
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _get_declared_dependencies(cursor) -> set[str]:
-    """Extract all declared package names from package_configs table."""
+def _get_declared_dependencies(db: RuleDB) -> set[str]:
+    """Extract all declared package names from package_dependencies table."""
     declared = set()
 
-    query = build_query(
-        "package_configs", ["dependencies", "dev_dependencies", "peer_dependencies"]
-    )
-    cursor.execute(query)
+    # Get Node.js package dependencies
+    rows = db.query(Q("package_dependencies").select("name"))
+    for (name,) in rows:
+        if name:
+            declared.add(name.lower())
 
-    for deps_json, dev_deps_json, peer_deps_json in cursor.fetchall():
-        for deps_str in [deps_json, dev_deps_json, peer_deps_json]:
-            if not deps_str:
-                continue
+    # Get Python package dependencies
+    rows = db.query(Q("python_package_dependencies").select("name"))
+    for (name,) in rows:
+        if name:
+            declared.add(name.lower())
 
-            try:
-                deps_dict = json.loads(deps_str)
-                if isinstance(deps_dict, dict):
-                    declared.update(pkg.lower() for pkg in deps_dict)
-            except (json.JSONDecodeError, AttributeError):
-                continue
+    # Get Cargo dependencies
+    rows = db.query(Q("cargo_dependencies").select("name"))
+    for (name,) in rows:
+        if name:
+            declared.add(name.lower())
+
+    # Get Go module dependencies
+    rows = db.query(Q("go_module_dependencies").select("module_path"))
+    for (module_path,) in rows:
+        if module_path:
+            # Extract package name from module path
+            parts = module_path.split("/")
+            declared.add(parts[-1].lower() if parts else module_path.lower())
 
     return declared
 
 
-def _get_imported_packages(cursor) -> dict:
+def _get_imported_packages(db: RuleDB) -> dict:
     """Extract all imported package names from import_styles table."""
     imports = {}
 
-    query = build_query(
-        "import_styles", ["file", "line", "package", "import_style"], order_by="package, file, line"
+    rows = db.query(
+        Q("import_styles")
+        .select("file", "line", "package", "import_style")
+        .order_by("package, file, line")
     )
-    cursor.execute(query)
 
-    for file, line, package, import_style in cursor.fetchall():
+    for file, line, package, import_style in rows:
         if not package:
             continue
 
@@ -223,7 +223,7 @@ def _normalize_package_name(package: str) -> str:
 
 
 def _find_ghost_dependencies(
-    cursor, imported_packages: dict, declared_deps: set[str]
+    imported_packages: dict, declared_deps: set[str]
 ) -> list[StandardFinding]:
     """Find packages that are imported but not declared."""
     findings = []

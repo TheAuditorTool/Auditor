@@ -14,9 +14,7 @@ METADATA = RuleMetadata(
     name="graphql_injection",
     category="security",
     target_extensions=[".graphql", ".gql", ".graphqls", ".py", ".js", ".ts"],
-    execution_scope="database",
-    requires_jsx_pass=False,
-)
+    execution_scope="database")
 
 
 def check_graphql_injection(context: StandardRuleContext) -> list[StandardFinding]:
