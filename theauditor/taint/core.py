@@ -944,6 +944,33 @@ def save_taint_analysis(
         json.dump(analysis_result, f, indent=2, sort_keys=True)
 
 
+# Vulnerability type to severity mapping - derived from TaintRegistry._estimate_risk()
+VULN_TYPE_TO_SEVERITY: dict[str, str] = {
+    # Critical: RCE, code execution, SQL injection
+    "SQL Injection": "critical",
+    "Command Injection": "critical",
+    "Code Injection": "critical",
+    "Insecure Deserialization": "critical",
+    # High: XSS, path traversal, SSRF, XXE, template injection
+    "Cross-Site Scripting (XSS)": "high",
+    "Path Traversal": "high",
+    "Server-Side Request Forgery (SSRF)": "high",
+    "XML External Entity (XXE)": "high",
+    "Template Injection": "high",
+    # Medium: NoSQL, LDAP, ORM, redirect
+    "NoSQL Injection": "medium",
+    "LDAP Injection": "medium",
+    "ORM Injection": "medium",
+    "Open Redirect": "medium",
+    "Prototype Pollution": "medium",
+    "Unvalidated Input": "medium",
+    # Low: logging, crypto, generic exposure
+    "Log Injection": "low",
+    "Weak Cryptography": "low",
+    "Data Exposure": "low",
+}
+
+
 def normalize_taint_path(path: dict[str, Any]) -> dict[str, Any]:
     """Normalize a taint path dictionary to ensure all required keys exist."""
 
@@ -952,6 +979,10 @@ def normalize_taint_path(path: dict[str, Any]) -> dict[str, Any]:
 
     path.setdefault("path_length", 0)
     path.setdefault("path", [])
+
+    # Add severity based on vulnerability_type (required for --severity filter)
+    vuln_type = path.get("vulnerability_type", "Data Exposure")
+    path.setdefault("severity", VULN_TYPE_TO_SEVERITY.get(vuln_type, "medium"))
 
     if "source" not in path:
         path["source"] = {}

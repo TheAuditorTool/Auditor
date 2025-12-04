@@ -58,6 +58,15 @@ def path_matches(import_package: str, symbol_path: str) -> bool:
     clean_import = clean_path(import_package)
     clean_symbol = clean_path(symbol_path)
 
+    # FIX #17: Handle TypeScript path aliases like "@controllers/auth" -> "controllers/auth"
+    # TypeScript projects use tsconfig.json paths to alias directories:
+    #   "@controllers/*" -> "src/controllers/*"
+    # By stripping the leading "@", we align the alias with the physical path.
+    # Example: "@controllers/account" -> "controllers/account"
+    #          "backend/src/controllers/account" ends with "controllers/account" -> MATCH
+    if clean_import.startswith("@"):
+        clean_import = clean_import[1:]
+
     # 4. Extract Segments (Fingerprint)
     parts = [p for p in clean_import.split("/") if p not in (".", "..", "")]
     if not parts:
@@ -73,5 +82,16 @@ def path_matches(import_package: str, symbol_path: str) -> bool:
         # Ensure boundary is a slash or start of string (prevents "unauth" matching "auth")
         if match_index == 0 or clean_symbol[match_index - 1] == "/":
             return True
+
+    # GRAPH FIX G14: Handle implicit index resolution (Node/TypeScript convention)
+    # Import: './models' -> cleans to 'models'
+    # Symbol: 'src/models/index.ts' -> cleans to 'src/models/index'
+    # Without this fix, the suffix check fails because 'src/models/index' doesn't end with 'models'
+    if clean_symbol.endswith("/index"):
+        clean_symbol_no_index = clean_symbol[:-6]  # Strip "/index"
+        if clean_symbol_no_index.endswith(import_fingerprint):
+            match_index = clean_symbol_no_index.rfind(import_fingerprint)
+            if match_index == 0 or clean_symbol_no_index[match_index - 1] == "/":
+                return True
 
     return False

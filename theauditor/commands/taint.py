@@ -473,10 +473,6 @@ def taint_analyze(
             vuln_counts[path.get("vulnerability_type", "Unknown")] += 1
         result["vulnerabilities_by_type"] = dict(vuln_counts)
 
-        from theauditor.taint.insights import generate_summary
-
-        result["summary"] = generate_summary(filtered_paths)
-
     if db_path.exists():
         try:
             from theauditor.indexer.database import DatabaseManager
