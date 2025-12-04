@@ -133,6 +133,11 @@ class GoExtractor(BaseExtractor):
             # Unified tables (for cross-language queries)
             "symbols": symbols,
             "imports": imports_for_refs,  # For refs table population
+            # Language-agnostic DFG tables (for taint analysis)
+            # Keys MUST match core_storage.py handler names, NOT table names!
+            "assignments": self._extract_assignments(ts_tree, file_path, content),
+            "function_calls": self._extract_function_calls(ts_tree, file_path, content),
+            "returns": self._extract_returns(ts_tree, file_path, content),
             # Go-specific tables
             "go_packages": [package] if package else [],
             "go_imports": imports,
@@ -160,11 +165,16 @@ class GoExtractor(BaseExtractor):
 
         total_items = sum(len(v) for v in result.values() if isinstance(v, list))
         loop_var_captures = sum(1 for cv in captured_vars if cv.get("is_loop_var"))
+        dfg_assignments = len(result.get("assignments", []))
+        dfg_calls = len(result.get("function_calls", []))
+        dfg_returns = len(result.get("returns", []))
         logger.debug(
             f"Extracted Go: {file_path} -> "
             f"{len(functions)} funcs, {len(structs)} structs, "
             f"{len(goroutines)} goroutines, {len(captured_vars)} captured vars "
-            f"({loop_var_captures} loop vars), {total_items} total items"
+            f"({loop_var_captures} loop vars), "
+            f"DFG: {dfg_assignments} assigns, {dfg_calls} calls, {dfg_returns} returns, "
+            f"{total_items} total items"
         )
 
         return FidelityToken.attach_manifest(result)
@@ -525,3 +535,233 @@ class GoExtractor(BaseExtractor):
             )
 
         return assignments
+
+    def _extract_function_calls(
+        self, tree: Any, file_path: str, content: str
+    ) -> list[dict[str, Any]]:
+        """Extract function calls for language-agnostic call graph tables.
+
+        Handles:
+        - Simple function calls: foo(a, b)
+        - Method calls: obj.Method(x)
+        - Chained calls: a.B().C()
+
+        Storage handler: core_storage._store_function_calls()
+        Target table: function_call_args
+
+        IMPORTANT: Return dict key must be "function_calls" (handler name),
+        NOT "function_call_args" (table name). See core_storage.py:39.
+
+        Args:
+            tree: Tree-sitter tree object
+            file_path: Path to the Go file
+            content: File content string
+
+        Returns:
+            List of function call dicts with keys matching storage handler expectations
+        """
+        calls: list[dict[str, Any]] = []
+
+        def get_node_text(node: Any) -> str:
+            """Extract text from a tree-sitter node."""
+            if node is None:
+                return ""
+            return node.text.decode("utf-8", errors="ignore")
+
+        def get_containing_function(node: Any) -> str:
+            """Walk up tree to find containing function/method name."""
+            current = node.parent
+            while current:
+                if current.type == "function_declaration":
+                    name_node = current.child_by_field_name("name")
+                    if name_node:
+                        return get_node_text(name_node)
+                elif current.type == "method_declaration":
+                    for child in current.children:
+                        if child.type == "field_identifier":
+                            return get_node_text(child)
+                current = current.parent
+            return "<module>"
+
+        def get_callee_name(func_node: Any) -> str:
+            """Extract the function/method name being called."""
+            if func_node is None:
+                return ""
+
+            if func_node.type == "identifier":
+                return get_node_text(func_node)
+            elif func_node.type == "selector_expression":
+                # Method call: obj.Method -> return full "obj.Method"
+                return get_node_text(func_node)
+            elif func_node.type == "call_expression":
+                # Chained call: a.B().C() - get innermost function
+                inner_func = func_node.child_by_field_name("function")
+                return get_callee_name(inner_func)
+            else:
+                return get_node_text(func_node)
+
+        for node in self._find_all_nodes(tree.root_node, "call_expression"):
+            func_node = node.child_by_field_name("function")
+            args_node = node.child_by_field_name("arguments")
+
+            callee_function = get_callee_name(func_node)
+            caller_function = get_containing_function(node)
+            line = node.start_point[0] + 1
+
+            # Skip empty callee
+            if not callee_function:
+                continue
+
+            # Extract arguments
+            args = []
+            if args_node:
+                for child in args_node.children:
+                    # Skip parentheses and commas
+                    if child.type not in ("(", ")", ","):
+                        args.append(child)
+
+            # If no arguments, still record the call with empty arg
+            if not args:
+                calls.append({
+                    "file": file_path,
+                    "line": line,
+                    "caller_function": caller_function,
+                    "callee_function": callee_function,
+                    "argument_index": 0,
+                    "argument_expr": "",
+                    "param_name": "",
+                    "callee_file_path": None,
+                })
+            else:
+                for i, arg in enumerate(args):
+                    arg_expr = get_node_text(arg)
+                    calls.append({
+                        "file": file_path,
+                        "line": line,
+                        "caller_function": caller_function,
+                        "callee_function": callee_function,
+                        "argument_index": i,
+                        "argument_expr": arg_expr[:500] if arg_expr else "",
+                        "param_name": "",  # Go doesn't have named args at call site
+                        "callee_file_path": None,
+                    })
+
+        if calls:
+            logger.debug(
+                f"Go: extracted {len(calls)} function calls from {file_path}"
+            )
+
+        return calls
+
+    def _extract_returns(
+        self, tree: Any, file_path: str, content: str
+    ) -> list[dict[str, Any]]:
+        """Extract return statements for language-agnostic DFG tables.
+
+        Handles:
+        - Single return value: return x
+        - Multiple return values: return a, b, nil
+        - Naked returns (empty return in functions with named returns)
+
+        Storage handler: core_storage._store_returns()
+        Target table: function_returns (with function_return_sources populated from return_vars)
+
+        IMPORTANT: Return dict key must be "returns" (handler name),
+        NOT "function_returns" (table name). See core_storage.py:40.
+
+        Args:
+            tree: Tree-sitter tree object
+            file_path: Path to the Go file
+            content: File content string
+
+        Returns:
+            List of return dicts with keys matching storage handler expectations
+        """
+        returns: list[dict[str, Any]] = []
+
+        def get_node_text(node: Any) -> str:
+            """Extract text from a tree-sitter node."""
+            if node is None:
+                return ""
+            return node.text.decode("utf-8", errors="ignore")
+
+        def get_containing_function(node: Any) -> str:
+            """Walk up tree to find containing function/method name."""
+            current = node.parent
+            while current:
+                if current.type == "function_declaration":
+                    name_node = current.child_by_field_name("name")
+                    if name_node:
+                        return get_node_text(name_node)
+                elif current.type == "method_declaration":
+                    for child in current.children:
+                        if child.type == "field_identifier":
+                            return get_node_text(child)
+                current = current.parent
+            return "<module>"
+
+        def extract_return_vars(expr_node: Any) -> list[str]:
+            """Extract variable names referenced in return expression.
+
+            Filters out Go keywords/literals: nil, true, false
+            """
+            vars_list: list[str] = []
+
+            def visit_expr(n: Any) -> None:
+                if n.type == "identifier":
+                    name = get_node_text(n)
+                    # Filter out keywords and literals
+                    if name and name not in ("nil", "true", "false"):
+                        vars_list.append(name)
+                elif n.type == "selector_expression":
+                    # For x.y.z, extract full path
+                    text = get_node_text(n)
+                    if text:
+                        vars_list.append(text)
+                    return  # Don't recurse into selector children
+                for child in n.children:
+                    visit_expr(child)
+
+            if expr_node:
+                visit_expr(expr_node)
+            return list(dict.fromkeys(vars_list))  # Dedupe preserving order
+
+        for node in self._find_all_nodes(tree.root_node, "return_statement"):
+            function_name = get_containing_function(node)
+            line = node.start_point[0] + 1
+            col = node.start_point[1]
+
+            # Find expression list (may be empty for naked return)
+            expr_list = None
+            for child in node.children:
+                if child.type == "expression_list":
+                    expr_list = child
+                    break
+                elif child.type not in ("return",):
+                    # Single expression without expression_list wrapper
+                    expr_list = child
+                    break
+
+            if expr_list:
+                return_expr = get_node_text(expr_list)
+                return_vars = extract_return_vars(expr_list)
+            else:
+                # Naked return - expression is empty
+                return_expr = ""
+                return_vars = []
+
+            returns.append({
+                "file": file_path,
+                "line": line,
+                "col": col,
+                "function_name": function_name,
+                "return_expr": return_expr[:500] if return_expr else "",
+                "return_vars": return_vars,
+            })
+
+        if returns:
+            logger.debug(
+                f"Go: extracted {len(returns)} returns from {file_path}"
+            )
+
+        return returns
