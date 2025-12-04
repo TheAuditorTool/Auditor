@@ -16,16 +16,20 @@ Shell injection is one of the most critical vulnerability classes (CWE-78), and 
 
 ## What Changes
 
-1. **Extractor Enhancement** - `theauditor/indexer/extractors/bash.py`
-   - Add tree-sitter traversal for variable assignments (`VAR=value`)
-   - Extract command invocations as function calls
-   - Map positional parameters (`$1`, `$2`, `$@`) to function params
+**NOTE**: `theauditor/ast_extractors/bash_impl.py` (823 lines) ALREADY extracts `bash_variables`, `bash_commands`, `bash_pipes`, etc. The issue is that these bash-specific extractions are NOT mapped to the language-agnostic tables (`assignments`, `function_call_args`, `func_params`) that DFGBuilder requires.
 
-2. **Bash Impl Module** - `theauditor/indexer/extractors/bash_impl.py`
-   - Add AST node processing for language-agnostic tables
-   - Handle shell-specific semantics (word expansion, pipes)
+1. **AST Extractor Enhancement** - `theauditor/ast_extractors/bash_impl.py`
+   - Modify `extract()` to ALSO return language-agnostic table data
+   - Map `bash_variables` -> `assignments` format
+   - Map `bash_commands` -> `function_call_args` format
+   - Extract positional parameters (`$1`, `$2`, `$@`) -> `func_params` format
 
-3. **Source/Sink Patterns** - Add to existing `rules/bash/injection_analyze.py`
+2. **Thin Wrapper Update** - `theauditor/indexer/extractors/bash.py`
+   - Update to pass through the new language-agnostic keys from bash_impl.py
+   - No major changes needed (already delegates to bash_impl.py)
+
+3. **Source/Sink Patterns** - Add `register_taint_patterns()` to `rules/bash/injection_analyze.py`
+   - Follow pattern from `rules/go/injection_analyze.py:306-323`
    - Register Bash sources (positional params, read, stdin)
    - Register Bash sinks (eval, exec, rm, curl)
 
@@ -37,10 +41,10 @@ Shell injection is one of the most critical vulnerability classes (CWE-78), and 
 
 - **Affected specs**: NEW `bash-extraction` capability
 - **Affected code**:
-  - `theauditor/indexer/extractors/bash.py` (~250 lines added)
-  - `theauditor/indexer/extractors/bash_impl.py` (~150 lines added)
-  - `theauditor/rules/bash/injection_analyze.py` (~100 lines added)
-- **Risk**: Medium - shell semantics are complex (word splitting, quoting, subshells)
+  - `theauditor/ast_extractors/bash_impl.py` (~80 lines added - mapping methods)
+  - `theauditor/indexer/extractors/bash.py` (~10 lines modified - pass through new keys)
+  - `theauditor/rules/bash/injection_analyze.py` (~50 lines added - register_taint_patterns function)
+- **Risk**: Low - leveraging existing extraction, just adding mapping layer
 - **Dependencies**: tree-sitter-bash already installed and working
 
 ## Success Criteria

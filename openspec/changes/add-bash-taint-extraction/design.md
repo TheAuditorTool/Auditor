@@ -1,6 +1,16 @@
 ## Context
 
-Bash extractor exists and works for language-specific tables (`bash_commands`, `bash_variables`, `bash_pipes`) but does not populate the language-agnostic tables required for DFG construction and taint analysis. Additionally, no source/sink patterns are registered for Bash.
+**Current State**: `theauditor/ast_extractors/bash_impl.py` (823 lines) ALREADY extracts comprehensive Bash data:
+- `bash_functions`, `bash_variables`, `bash_sources`, `bash_commands`
+- `bash_pipes`, `bash_subshells`, `bash_redirections`, `bash_control_flows`
+
+**The Problem**: This extracted data is NOT mapped to language-agnostic tables (`assignments`, `function_call_args`, `func_params`) that DFGBuilder and taint analysis require. Additionally, no source/sink patterns are registered in TaintRegistry for Bash.
+
+**Architecture**:
+```
+theauditor/indexer/extractors/bash.py      # Thin wrapper (85 lines)
+    └── imports from theauditor/ast_extractors/bash_impl.py  # Actual extraction (823 lines)
+```
 
 **Stakeholders:**
 - Taint analysis pipeline (needs DFG edges and patterns)
@@ -10,8 +20,8 @@ Bash extractor exists and works for language-specific tables (`bash_commands`, `
 
 **Constraints:**
 - Must use tree-sitter-bash (already installed)
-- Must follow existing extractor pattern (see python.py, rust.py)
-- Must use centralized logging
+- Must ADD to existing `bash_impl.py`, NOT create new files
+- Must use centralized logging: `from theauditor.utils.logging import logger`
 - ZERO FALLBACK policy applies
 - Shell semantics are complex - must handle correctly
 
@@ -69,9 +79,44 @@ Results in:
 **Why:** Data flows both through the command execution AND through the assignment.
 
 ### Decision 5: Pattern registration with injection_analyze.py
-**What:** Add `register_bash_patterns()` to existing `rules/bash/injection_analyze.py`.
+**What:** Add `register_taint_patterns(taint_registry)` function to existing `rules/bash/injection_analyze.py`.
 
-**Why:** Follow existing pattern from Go. Keep all language injection patterns in consistent location.
+**Why:** Follow existing pattern from `rules/go/injection_analyze.py:306-323`. The orchestrator calls `collect_rule_patterns()` which imports each rule module and calls `register_taint_patterns()` if it exists.
+
+**Reference implementation:**
+```python
+# From rules/go/injection_analyze.py:306-323
+def register_taint_patterns(taint_registry):
+    """Register Go injection-specific taint patterns."""
+    patterns = GoInjectionPatterns()
+    for pattern in patterns.USER_INPUTS:
+        taint_registry.register_source(pattern, "user_input", "go")
+    for pattern in patterns.SQL_METHODS:
+        taint_registry.register_sink(pattern, "sql", "go")
+```
+
+### Decision 6: Storage layer integration via extractor return dict
+**What:** The extractor returns `assignments`, `function_call_args`, and `func_params` keys in its result dict. The storage layer automatically handles these.
+
+**Why:** The indexer pipeline uses a generic pattern:
+1. Extractor returns dict with table names as keys
+2. Storage handler iterates over keys and inserts into corresponding tables
+3. No explicit storage layer modification needed
+
+**How it works:**
+```python
+# bash_impl.py extract() returns:
+{
+    "bash_variables": [...],  # Bash-specific (existing)
+    "bash_commands": [...],   # Bash-specific (existing)
+    "assignments": [...],     # Language-agnostic (NEW)
+    "function_call_args": [...],  # Language-agnostic (NEW)
+    "func_params": [...],     # Language-agnostic (NEW)
+}
+
+# bash.py does: result.update(extracted)
+# Storage layer automatically processes all keys
+```
 
 ## Risks / Trade-offs
 

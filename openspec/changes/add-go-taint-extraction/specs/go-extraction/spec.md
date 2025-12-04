@@ -118,6 +118,35 @@ The Go extractor SHALL use the centralized logging system for all debug and info
 
 ---
 
+### Requirement: Go Extractor Return Dict Format
+The Go extractor SHALL return data using dict keys that match core_storage.py handler names (NOT table names).
+
+#### Scenario: Extractor return dict keys match storage handlers
+- **WHEN** Go extraction completes
+- **THEN** the return dict SHALL use key `"assignments"` (handler name)
+- **AND** the return dict SHALL use key `"function_calls"` (NOT `"function_call_args"`)
+- **AND** the return dict SHALL use key `"returns"` (NOT `"function_returns"`)
+
+#### Scenario: Source variables embedded in assignments
+- **WHEN** an assignment dict is created
+- **THEN** it SHALL contain a `"source_vars"` array property (list of variable names)
+- **AND** the storage layer SHALL write these to `assignment_sources` table automatically
+
+#### Scenario: Return variables embedded in returns
+- **WHEN** a return dict is created
+- **THEN** it SHALL contain a `"return_vars"` array property (list of variable names)
+- **AND** the storage layer SHALL write these to `function_return_sources` table automatically
+
+#### Scenario: All required columns present in dicts
+- **WHEN** an assignment dict is created
+- **THEN** it SHALL contain: file, line, col, target_var, source_expr, in_function, property_path, source_vars
+- **WHEN** a function_call dict is created
+- **THEN** it SHALL contain: file, line, caller_function, callee_function, argument_index, argument_expr, param_name, callee_file_path
+- **WHEN** a return dict is created
+- **THEN** it SHALL contain: file, line, col, function_name, return_expr, return_vars
+
+---
+
 ### Requirement: ZERO FALLBACK Compliance for Go Extraction
 The Go extractor SHALL NOT use fallback logic when extracting data. Missing or malformed AST nodes SHALL be skipped with debug logging, NOT silently ignored or substituted.
 

@@ -53,22 +53,61 @@ Go extractor exists and works for language-specific tables (`go_functions`, `go_
 **Why:** Blank identifier is explicitly "discard this value" - no data flows through it. Creating rows would pollute the graph with dead-end nodes.
 
 ### Decision 4: Use existing storage layer pattern
-**What:** Return extraction data as dict keys that match existing storage layer expectations.
+**What:** Return extraction data as dict keys that match existing storage layer HANDLER names (not table names).
 
-**Why:** Storage layer in `theauditor/indexer/storage/` handles all database writes. Following the pattern ensures data flows correctly.
+**Why:** Storage layer in `theauditor/indexer/storage/core_storage.py` routes by handler name. Following the Rust extractor pattern ensures data flows correctly.
 
-**Required dict keys:**
+**Required dict keys (from core_storage.py:38-41):**
 ```python
 {
-    "assignments": [...],
-    "assignment_sources": [...],
-    "function_call_args": [...],
-    "function_returns": [...],
-    "function_return_sources": [...],
-    "func_params": [...],
-    # Plus existing Go-specific keys
+    # Language-agnostic keys (handled by CoreStorage)
+    "assignments": [
+        {
+            "file": file_path,
+            "line": int,
+            "col": int,  # default 0
+            "target_var": str,
+            "source_expr": str,
+            "in_function": str,
+            "property_path": str | None,
+            "source_vars": [str, ...],  # EMBEDDED, not separate table
+        },
+        ...
+    ],
+    "function_calls": [  # NOT function_call_args - handler name!
+        {
+            "file": file_path,
+            "line": int,
+            "caller_function": str,
+            "callee_function": str,
+            "argument_index": int,
+            "argument_expr": str,
+            "param_name": str | None,
+            "callee_file_path": str | None,
+        },
+        ...
+    ],
+    "returns": [  # NOT function_returns - handler name!
+        {
+            "file": file_path,
+            "line": int,
+            "col": int,  # default 0
+            "function_name": str,
+            "return_expr": str,
+            "return_vars": [str, ...],  # EMBEDDED, not separate table
+        },
+        ...
+    ],
+    # Plus existing Go-specific keys (handled by GoStorage)
 }
 ```
+
+**CRITICAL:** The `source_vars` and `return_vars` arrays are EMBEDDED in the assignment/return dicts. The storage layer extracts them and writes to `assignment_sources`/`function_return_sources` tables automatically via `db_manager.add_assignment()` and `db_manager.add_function_return()`.
+
+### Decision 5: Go-specific func_params sufficient for DFG
+**What:** Continue using `go_func_params` table (already populated by `go_impl.extract_go_func_params()`). Do NOT duplicate to language-agnostic `func_params` table.
+
+**Why:** The `func_params` table in core schema is primarily for JS/TS. Go has richer parameter semantics (receivers, variadic) that are captured in `go_func_params`. The DFGBuilder can query both tables as needed.
 
 ## Risks / Trade-offs
 
