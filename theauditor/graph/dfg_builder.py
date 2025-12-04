@@ -11,10 +11,14 @@ import click
 from theauditor.utils.logging import logger
 
 from .strategies.bash_pipes import BashPipeStrategy
+from .strategies.go_http import GoHttpStrategy
+from .strategies.go_orm import GoOrmStrategy
 from .strategies.interceptors import InterceptorStrategy
 from .strategies.node_express import NodeExpressStrategy
 from .strategies.node_orm import NodeOrmStrategy
 from .strategies.python_orm import PythonOrmStrategy
+from .strategies.rust_async import RustAsyncStrategy
+from .strategies.rust_traits import RustTraitStrategy
 from .types import DFGEdge, DFGNode, create_bidirectional_edges
 
 
@@ -33,6 +37,10 @@ class DFGBuilder:
             NodeExpressStrategy(),
             InterceptorStrategy(),
             BashPipeStrategy(),
+            GoHttpStrategy(),
+            GoOrmStrategy(),
+            RustTraitStrategy(),
+            RustAsyncStrategy(),
         ]
 
     def build_assignment_flow_graph(self, root: str = ".") -> dict[str, Any]:
@@ -307,17 +315,25 @@ class DFGBuilder:
 
                 stats["calls_with_metadata"] += 1
 
-                if callee_file.endswith(".py") and "." in callee_function:
-                    parts = callee_function.split(".")
+                # GRAPH FIX G3: Resolve call-site name to definition name
+                # Instead of guessing with string splits, ask the database.
+                # This bridges 'accountService.createAccount' -> 'AccountService.createAccount'
+                resolved_func_name = self._resolve_definition_name(
+                    cursor, callee_file, callee_function
+                )
 
-                    callee_func_name = parts[-1] if len(parts) > 2 else callee_function
-                else:
-                    callee_func_name = callee_function
+                # GRAPH FIX G4: Resolve positional arg name to actual parameter name
+                # Convert 'arg0' to 'data' so the graph connects inside the function.
+                resolved_param_name = self._resolve_parameter_name(
+                    cursor, callee_file, resolved_func_name, param_name
+                )
 
+                # Construct nodes with RESOLVED names
                 caller_scope = caller_function if caller_function else "global"
                 source_id = f"{caller_file}::{caller_scope}::{arg_var}"
 
-                target_id = f"{callee_file}::{callee_func_name}::{param_name}"
+                # Use resolved names for the target - this stitches the universes together
+                target_id = f"{callee_file}::{resolved_func_name}::{resolved_param_name}"
 
                 if source_id not in nodes:
                     nodes[source_id] = DFGNode(
@@ -333,10 +349,14 @@ class DFGBuilder:
                     nodes[target_id] = DFGNode(
                         id=target_id,
                         file=callee_file,
-                        variable_name=param_name,
-                        scope=callee_func_name,
+                        variable_name=resolved_param_name,
+                        scope=resolved_func_name,
                         type="parameter",
-                        metadata={"is_parameter": True},
+                        metadata={
+                            "is_parameter": True,
+                            "original_call_site_name": callee_function,
+                            "original_param_name": param_name,
+                        },
                     )
 
                 new_edges = create_bidirectional_edges(
@@ -349,7 +369,9 @@ class DFGBuilder:
                     function=caller_function,
                     metadata={
                         "callee": callee_function,
+                        "resolved_callee": resolved_func_name,
                         "param_name": param_name,
+                        "resolved_param": resolved_param_name,
                         "arg_expr": argument_expr,
                     },
                 )
@@ -706,6 +728,96 @@ class DFGBuilder:
             "dependencies": list(dependencies),
             "dependency_count": len(dependencies),
         }
+
+    def _resolve_definition_name(
+        self, cursor: sqlite3.Cursor, file_path: str, call_site_name: str
+    ) -> str:
+        """Resolve call-site function name to definition name.
+
+        GRAPH FIX G3: The call site might say 'service.doThing' (instance), but
+        the definition is 'Service.doThing' (class). We strip the instance name
+        and look for ANY function in the target file that ends with '.doThing'.
+
+        This bridges the "Two Universes" problem where call-site and definition-site
+        use different namespaces (camelCase instance vs PascalCase class).
+        """
+        # If it's just 'doThing', nothing to split.
+        if "." not in call_site_name:
+            return call_site_name
+
+        # Get 'doThing' from 'service.doThing'
+        short_name = call_site_name.split(".")[-1]
+
+        # QUERY LOGIC:
+        # Look in the file where the function lives (file_path).
+        # Find a symbol of type function/method.
+        # Match EITHER exact name OR a name ending in .short_name (handling Class.method)
+        cursor.execute(
+            """
+            SELECT name FROM symbols
+            WHERE path = ?
+              AND type IN ('function', 'method')
+              AND (name = ? OR name LIKE ?)
+            LIMIT 1
+        """,
+            (file_path, short_name, f"%.{short_name}"),
+        )
+
+        result = cursor.fetchone()
+        if result:
+            return result["name"]  # Return "AccountService.createAccount"
+
+        return call_site_name  # Fallback: keep original if not found
+
+    def _resolve_parameter_name(
+        self, cursor: sqlite3.Cursor, file_path: str, func_name: str, param_name: str
+    ) -> str:
+        """Resolve positional argument name (arg0) to actual parameter name.
+
+        GRAPH FIX G4: Taint flows into 'arg0', but the function body uses 'userData'.
+        We need to map position (0) to name ('userData') using the func_params table.
+
+        This ensures the target node of call edges matches the source node of
+        internal assignment edges, stitching the graph together.
+        """
+        # If it's not a generated argument name like 'arg0', 'arg1', we trust it.
+        if not param_name.startswith("arg") or not param_name[3:].isdigit():
+            return param_name
+
+        try:
+            arg_index = int(param_name[3:])  # Extract 0 from arg0
+        except ValueError:
+            return param_name
+
+        # QUERY LOGIC:
+        # 1. Try exact match (Function Name + Index)
+        cursor.execute(
+            """
+            SELECT param_name FROM func_params
+            WHERE file = ? AND function_name = ? AND param_index = ?
+        """,
+            (file_path, func_name, arg_index),
+        )
+        result = cursor.fetchone()
+
+        if result:
+            return result["param_name"]
+
+        # 2. Try suffix match (Handle the Class.method vs instance.method mismatch)
+        if "." in func_name:
+            short_name = func_name.split(".")[-1]
+            cursor.execute(
+                """
+                SELECT param_name FROM func_params
+                WHERE file = ? AND function_name LIKE ? AND param_index = ?
+            """,
+                (file_path, f"%{short_name}", arg_index),
+            )
+            result = cursor.fetchone()
+            if result:
+                return result["param_name"]
+
+        return param_name  # Fallback: stuck with arg0
 
     def _parse_argument_variable(self, arg_expr: str) -> str | None:
         """Parse an argument expression to extract the variable name.
