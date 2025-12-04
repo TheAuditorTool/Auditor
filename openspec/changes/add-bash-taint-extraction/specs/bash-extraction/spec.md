@@ -1,81 +1,138 @@
 ## ADDED Requirements
 
 ### Requirement: Bash Assignment Extraction for DFG
-The Bash extractor SHALL populate the language-agnostic `assignments` and `assignment_sources` tables for all variable assignments in Bash scripts.
+The Bash extractor SHALL populate the language-agnostic `assignments` table for all variable assignments in Bash scripts.
+
+**Schema reference** (`theauditor/indexer/schema.py:193`):
+```sql
+assignments (
+    file TEXT,           -- File path
+    line INTEGER,        -- 1-indexed line number
+    col INTEGER,         -- 0-indexed column
+    target_var TEXT,     -- Variable being assigned
+    source_expr TEXT,    -- Right-hand side expression
+    in_function TEXT     -- Containing function or "global"
+)
+```
 
 #### Scenario: Simple assignment
 - **WHEN** a Bash file contains `VAR=value`
-- **THEN** the `assignments` table SHALL contain a row with target_var="VAR", source_expr="value"
-- **AND** the row SHALL include file path, line number, and containing function
+- **THEN** the `assignments` table SHALL contain a row:
+  - `file`: the file path
+  - `line`: the line number (1-indexed)
+  - `col`: 0
+  - `target_var`: "VAR"
+  - `source_expr`: "value"
+  - `in_function`: containing function name or "global"
 
 #### Scenario: Command substitution assignment
 - **WHEN** a Bash file contains `VAR=$(command arg)`
-- **THEN** the `assignments` table SHALL contain a row with target_var="VAR", source_expr="$(command arg)"
-- **AND** `assignment_sources` SHALL link VAR to the command substitution
+- **THEN** the `assignments` table SHALL contain a row:
+  - `target_var`: "VAR"
+  - `source_expr`: "$(command arg)"
 
 #### Scenario: Arithmetic expansion assignment
 - **WHEN** a Bash file contains `VAR=$((x + 1))`
-- **THEN** the `assignments` table SHALL contain a row with target_var="VAR"
-- **AND** `assignment_sources` SHALL link VAR to source variable "x"
+- **THEN** the `assignments` table SHALL contain a row:
+  - `target_var`: "VAR"
+  - `source_expr`: "$((x + 1))"
 
 #### Scenario: Read command as assignment
 - **WHEN** a Bash file contains `read USER_INPUT`
-- **THEN** the `assignments` table SHALL contain a row with target_var="USER_INPUT"
-- **AND** the source_expr SHALL indicate stdin source
+- **THEN** the `assignments` table SHALL contain a row:
+  - `target_var`: "USER_INPUT"
+  - `source_expr`: "stdin" or empty string
 
 #### Scenario: Local declaration
-- **WHEN** a Bash file contains `local VAR=value` inside a function
-- **THEN** the `assignments` table SHALL contain a row with in_function set to the function name
+- **WHEN** a Bash file contains `local VAR=value` inside function `myfunc`
+- **THEN** the `assignments` table SHALL contain a row:
+  - `target_var`: "VAR"
+  - `in_function`: "myfunc"
 
 #### Scenario: Export with assignment
 - **WHEN** a Bash file contains `export VAR=value`
-- **THEN** the `assignments` table SHALL contain a row with target_var="VAR"
+- **THEN** the `assignments` table SHALL contain a row:
+  - `target_var`: "VAR"
+  - `source_expr`: "value"
 
 ---
 
 ### Requirement: Bash Command Extraction as Function Calls
 The Bash extractor SHALL populate the language-agnostic `function_call_args` table for all command invocations in Bash scripts.
 
+**Schema reference** (`theauditor/indexer/schema.py:195`):
+```sql
+function_call_args (
+    file TEXT,            -- File path
+    line INTEGER,         -- 1-indexed line number
+    caller_function TEXT, -- Function containing the call, or "global"
+    callee_function TEXT, -- Command being invoked
+    argument_index INTEGER, -- 0-indexed argument position
+    argument_expr TEXT    -- Argument value/expression
+)
+```
+
 #### Scenario: Simple command with arguments
 - **WHEN** a Bash file contains `grep pattern file.txt`
-- **THEN** the `function_call_args` table SHALL contain rows with callee_function="grep"
-- **AND** argument_index 0 SHALL have argument_expr="pattern"
-- **AND** argument_index 1 SHALL have argument_expr="file.txt"
+- **THEN** the `function_call_args` table SHALL contain rows:
+  - Row 1: `callee_function`="grep", `argument_index`=0, `argument_expr`="pattern"
+  - Row 2: `callee_function`="grep", `argument_index`=1, `argument_expr`="file.txt"
 
 #### Scenario: Command with variable argument
 - **WHEN** a Bash file contains `rm -rf $DIR`
-- **THEN** the `function_call_args` table SHALL contain a row with callee_function="rm"
-- **AND** one argument row SHALL have argument_expr="$DIR"
+- **THEN** the `function_call_args` table SHALL contain rows:
+  - `callee_function`="rm"
+  - One row with `argument_expr`="-rf"
+  - One row with `argument_expr`="$DIR"
 
 #### Scenario: Built-in command
 - **WHEN** a Bash file contains `echo $MESSAGE`
-- **THEN** the `function_call_args` table SHALL contain a row with callee_function="echo"
-- **AND** argument_expr SHALL be "$MESSAGE"
+- **THEN** the `function_call_args` table SHALL contain a row:
+  - `callee_function`="echo"
+  - `argument_expr`="$MESSAGE"
 
 #### Scenario: Command in function
-- **WHEN** a Bash file contains a command inside `function foo() { curl $URL; }`
-- **THEN** the `function_call_args` row SHALL have caller_function="foo"
+- **WHEN** a Bash file contains `function foo() { curl $URL; }`
+- **THEN** the `function_call_args` row SHALL have:
+  - `caller_function`="foo"
+  - `callee_function`="curl"
+  - `argument_expr`="$URL"
 
 ---
 
 ### Requirement: Bash Positional Parameter Extraction
 The Bash extractor SHALL populate the `func_params` table for positional parameters in Bash functions.
 
+**Schema reference** (language-agnostic table):
+```sql
+func_params (
+    file TEXT,            -- File path
+    function_name TEXT,   -- Function name or "global"
+    param_name TEXT,      -- "$1", "$2", "$@", etc.
+    param_index INTEGER,  -- 0, 1, 2, ... or -1 for variadic
+    line INTEGER          -- First usage line
+)
+```
+
 #### Scenario: Function using positional params
 - **WHEN** a Bash file contains `function process() { echo $1 $2; }`
-- **THEN** the `func_params` table SHALL contain rows for function_name="process"
-- **AND** param_name="$1" with param_index=0
-- **AND** param_name="$2" with param_index=1
+- **THEN** the `func_params` table SHALL contain rows:
+  - `function_name`="process", `param_name`="$1", `param_index`=0
+  - `function_name`="process", `param_name`="$2", `param_index`=1
 
 #### Scenario: Script-level positional params
 - **WHEN** a Bash file uses `$1` at the script level (not in a function)
-- **THEN** the `func_params` table SHALL contain a row with function_name="main" or "global"
-- **AND** param_name="$1" with param_index=0
+- **THEN** the `func_params` table SHALL contain a row:
+  - `function_name`="global"
+  - `param_name`="$1"
+  - `param_index`=0
 
 #### Scenario: All arguments parameter
 - **WHEN** a Bash file contains `function foo() { for arg in "$@"; do echo $arg; done; }`
-- **THEN** the `func_params` table SHALL contain a row with param_name="$@"
-- **AND** it SHALL be marked as variadic
+- **THEN** the `func_params` table SHALL contain a row:
+  - `function_name`="foo"
+  - `param_name`="$@"
+  - `param_index`=-1 (indicating variadic)
 
 ---
 
@@ -130,19 +187,31 @@ The system SHALL register Bash-specific sink patterns in TaintRegistry.
 ---
 
 ### Requirement: Bash Logging Integration
-The Bash extractor SHALL use the centralized logging system.
+The Bash extractor SHALL use the centralized logging system (loguru wrapper).
+
+**Logging module reference** (`theauditor/utils/logging.py`):
+```python
+# This wraps loguru and provides Pino-compatible output
+from theauditor.utils.logging import logger
+
+# Usage:
+logger.debug(f"Bash: mapped {count} assignments from {file}")
+logger.info("Starting bash extraction")
+logger.error(f"Failed to parse: {error}")
+```
 
 #### Scenario: Logging import
-- **WHEN** examining bash.py and bash_impl.py source code
-- **THEN** they SHALL contain `from theauditor.utils.logging import logger`
+- **WHEN** examining `theauditor/ast_extractors/bash_impl.py` source code
+- **THEN** it SHALL contain `from theauditor.utils.logging import logger`
+- **NOTE**: This imports the loguru-based logger from the centralized module
 
 #### Scenario: Debug logging for extraction counts
 - **WHEN** Bash extraction completes for a file
 - **THEN** logger.debug SHALL be called with extraction statistics
-- **AND** the message SHALL include file path and counts per table
+- **AND** the message SHALL include file path and counts per table type
 
 #### Scenario: No print statements
-- **WHEN** examining bash.py, bash_impl.py, and injection_analyze.py source code
+- **WHEN** examining bash_impl.py and injection_analyze.py source code
 - **THEN** there SHALL be no bare `print()` calls
 - **AND** all output SHALL use the logger
 

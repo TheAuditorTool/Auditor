@@ -1,138 +1,229 @@
 ## 0. Verification (Pre-Implementation)
 
-- [ ] 0.1 Read `theauditor/indexer/extractors/bash.py` - confirm current state (no assignments/calls tables)
-- [ ] 0.2 Read `theauditor/indexer/extractors/bash_impl.py` - understand existing AST processing
+- [ ] 0.1 Read `theauditor/indexer/extractors/bash.py` - thin wrapper that delegates to bash_impl.py
+- [ ] 0.2 Read `theauditor/ast_extractors/bash_impl.py` - the ACTUAL extraction logic (823 lines)
 - [ ] 0.3 Read `theauditor/graph/strategies/bash_pipes.py` - understand existing pipe flow edges
-- [ ] 0.4 Read `rules/bash/injection_analyze.py` - check if any patterns exist
+- [ ] 0.4 Read `theauditor/rules/bash/injection_analyze.py` - confirm no `register_taint_patterns()` exists
 - [ ] 0.5 Query database to confirm 0 Bash rows in language-agnostic tables
 
-## 1. Assignment Extraction
+## 1. Assignment Mapping (bash_variables -> assignments)
 
-- [ ] 1.1 Add tree-sitter queries for `variable_assignment` nodes
-- [ ] 1.2 Handle simple assignments: `VAR=value`
-- [ ] 1.3 Handle command substitution: `VAR=$(command)`
-- [ ] 1.4 Handle arithmetic expansion: `VAR=$((expr))`
-- [ ] 1.5 Handle `read` command as assignment: `read VAR`
-- [ ] 1.6 Handle `local` declarations in functions: `local VAR=value`
-- [ ] 1.7 Handle `export` with assignment: `export VAR=value`
-- [ ] 1.8 Extract source variables from value for `assignment_sources` table
-- [ ] 1.9 Add logging: `logger.debug(f"Bash: extracted {count} assignments from {file}")`
-- [ ] 1.10 Write unit tests
+**Context**: `bash_impl.py` ALREADY extracts variables to `bash_variables`. We need to MAP this to `assignments` format.
+
+- [ ] 1.1 Add `_map_variables_to_assignments()` method in `theauditor/ast_extractors/bash_impl.py`
+- [ ] 1.2 Map existing `bash_variables` dict keys to `assignments` schema:
+  - `name` -> `target_var`
+  - `value_expr` -> `source_expr`
+  - `line` -> `line`
+  - `containing_function` -> `in_function`
+- [ ] 1.3 Handle `read` command: detect in bash_commands, create assignment with source="stdin"
+- [ ] 1.4 Add `assignments` key to `extract()` return dict
+- [ ] 1.5 Add logging: `logger.debug(f"Bash: mapped {count} assignments from {file}")`
 
 **Implementation Details:**
 ```python
-# In bash.py extract() method
-def _extract_assignments(self, tree, file_path: str, in_function: str) -> list[dict]:
-    """Extract variable assignments for language-agnostic tables."""
+# In bash_impl.py BashExtractor class
+def _map_variables_to_assignments(self) -> list[dict]:
+    """Map bash_variables to language-agnostic assignments format."""
     assignments = []
-
-    for node in tree.root_node.descendants:
-        if node.type == "variable_assignment":
-            # name=value
-            name_node = node.child_by_field_name("name")
-            value_node = node.child_by_field_name("value")
-
-            if name_node:
-                target_var = name_node.text.decode("utf-8")
-                source_expr = value_node.text.decode("utf-8") if value_node else ""
-
-                assignments.append({
-                    "file": file_path,
-                    "line": node.start_point[0] + 1,
-                    "col": node.start_point[1],
-                    "target_var": target_var,
-                    "source_expr": source_expr,
-                    "in_function": in_function or "global",
-                })
-
+    for var in self.variables:
+        assignments.append({
+            "file": self.file_path,
+            "line": var["line"],
+            "col": 0,
+            "target_var": var["name"],
+            "source_expr": var.get("value_expr", ""),
+            "in_function": var.get("containing_function") or "global",
+        })
     return assignments
+
+# In extract() method, add to return dict:
+def extract(self) -> dict[str, Any]:
+    self._walk(self.tree.root_node)
+    return {
+        # ... existing bash_* keys ...
+        "assignments": self._map_variables_to_assignments(),
+    }
 ```
 
-## 2. Command Invocation as Function Calls
+## 2. Command Mapping (bash_commands -> function_call_args)
 
-- [ ] 2.1 Add tree-sitter queries for `command` and `simple_command` nodes
-- [ ] 2.2 Extract command name as callee_function
-- [ ] 2.3 Extract arguments with correct indices
-- [ ] 2.4 Handle command with redirections
-- [ ] 2.5 Handle built-in commands vs external commands
-- [ ] 2.6 Add logging: `logger.debug(f"Bash: extracted {count} commands from {file}")`
-- [ ] 2.7 Write unit tests
+**Context**: `bash_impl.py` ALREADY extracts commands to `bash_commands` with `args` list. We need to MAP this to `function_call_args` format.
+
+- [ ] 2.1 Add `_map_commands_to_function_call_args()` method in `theauditor/ast_extractors/bash_impl.py`
+- [ ] 2.2 Map existing `bash_commands` dict keys to `function_call_args` schema:
+  - `command_name` -> `callee_function`
+  - `args[i].value` -> `argument_expr`
+  - `args` index -> `argument_index`
+  - `containing_function` -> `caller_function`
+- [ ] 2.3 Add `function_call_args` key to `extract()` return dict
+- [ ] 2.4 Add logging: `logger.debug(f"Bash: mapped {count} function_call_args from {file}")`
 
 **Implementation Details:**
 ```python
-def _extract_commands(self, tree, file_path: str, in_function: str) -> list[dict]:
-    """Extract command invocations as function calls."""
-    calls = []
+# In bash_impl.py BashExtractor class
+def _map_commands_to_function_call_args(self) -> list[dict]:
+    """Map bash_commands to language-agnostic function_call_args format."""
+    call_args = []
+    for cmd in self.commands:
+        cmd_name = cmd.get("command_name", "")
+        caller = cmd.get("containing_function") or "global"
+        line = cmd.get("line", 0)
 
-    for node in tree.root_node.descendants:
-        if node.type == "command":
-            name_node = node.child_by_field_name("name")
-            if name_node:
-                cmd_name = name_node.text.decode("utf-8")
+        for idx, arg in enumerate(cmd.get("args", [])):
+            call_args.append({
+                "file": self.file_path,
+                "line": line,
+                "caller_function": caller,
+                "callee_function": cmd_name,
+                "argument_index": idx,
+                "argument_expr": arg.get("value", ""),
+            })
+    return call_args
 
-                # Extract arguments
-                arg_idx = 0
-                for child in node.children:
-                    if child.type == "word" and child != name_node:
-                        calls.append({
-                            "file": file_path,
-                            "line": node.start_point[0] + 1,
-                            "caller_function": in_function or "global",
-                            "callee_function": cmd_name,
-                            "argument_index": arg_idx,
-                            "argument_expr": child.text.decode("utf-8"),
-                        })
-                        arg_idx += 1
-
-    return calls
+# In extract() method, add to return dict:
+def extract(self) -> dict[str, Any]:
+    self._walk(self.tree.root_node)
+    return {
+        # ... existing bash_* keys ...
+        "function_call_args": self._map_commands_to_function_call_args(),
+    }
 ```
 
-## 3. Positional Parameter Extraction
+## 3. Positional Parameter Extraction (NEW - func_params)
 
-- [ ] 3.1 Parse function definitions for positional parameter usage
-- [ ] 3.2 Map `$1`, `$2`, etc. to `func_params` with indices 0, 1, etc.
-- [ ] 3.3 Handle `$@` and `$*` as variadic parameters
-- [ ] 3.4 Detect parameter usage within function body
-- [ ] 3.5 Add logging: `logger.debug(f"Bash: extracted {count} params from {file}")`
-- [ ] 3.6 Write unit tests
+**Context**: `bash_impl.py` extracts functions but does NOT track which positional params (`$1`, `$2`, etc.) are used. We need to ADD this capability.
 
-## 4. Source Pattern Registration
+- [ ] 3.1 Add `_extract_positional_params()` method in `theauditor/ast_extractors/bash_impl.py`
+- [ ] 3.2 Scan function bodies for `$1`, `$2`, `$@`, `$*` usage via tree-sitter `simple_expansion` nodes
+- [ ] 3.3 Map to `func_params` schema:
+  - `param_name`: "$1", "$2", "$@", etc.
+  - `param_index`: 0, 1, 2, etc. (or -1 for variadic)
+  - `function_name`: containing function name
+- [ ] 3.4 For script-level params, use function_name="main" or "global"
+- [ ] 3.5 Add `func_params` key to `extract()` return dict
+- [ ] 3.6 Add logging: `logger.debug(f"Bash: extracted {count} func_params from {file}")`
 
-- [ ] 4.1 Add/update `rules/bash/injection_analyze.py`
-- [ ] 4.2 Register positional parameter sources: `$1` through `$9`
-- [ ] 4.3 Register `$@` and `$*` sources
-- [ ] 4.4 Register `read` command as source
-- [ ] 4.5 Register CGI variables: `$QUERY_STRING`, `$REQUEST_URI`
-- [ ] 4.6 Register common input variables: `$INPUT`, `$DATA`
-- [ ] 4.7 Add logging for pattern registration
+**Implementation Details:**
+```python
+# In bash_impl.py BashExtractor class
+def _extract_positional_params(self) -> list[dict]:
+    """Extract positional parameter usage from function bodies."""
+    params = []
+    seen = set()  # (function_name, param_name) to dedupe
 
-## 5. Sink Pattern Registration
+    # Scan all simple_expansion nodes for $1, $2, $@, $*
+    def walk_for_params(node, current_func):
+        if node.type == "simple_expansion":
+            var_name = self._node_text(node)  # e.g., "$1"
+            if var_name.startswith("$") and (
+                var_name[1:].isdigit() or var_name in ("$@", "$*")
+            ):
+                key = (current_func or "global", var_name)
+                if key not in seen:
+                    seen.add(key)
+                    # Determine index
+                    if var_name in ("$@", "$*"):
+                        idx = -1  # variadic
+                    else:
+                        idx = int(var_name[1:]) - 1  # $1 -> 0, $2 -> 1
 
-- [ ] 5.1 Register `eval` as command injection sink
-- [ ] 5.2 Register `exec` as command injection sink
-- [ ] 5.3 Register `sh -c` and `bash -c` as sinks
-- [ ] 5.4 Register `source` and `.` as sinks
-- [ ] 5.5 Register `rm` as file deletion sink (especially `rm -rf`)
-- [ ] 5.6 Register `curl | sh` and `wget | sh` patterns
-- [ ] 5.7 Register database clients: `mysql`, `psql` when with user input
-- [ ] 5.8 Add logging for pattern registration
+                    params.append({
+                        "file": self.file_path,
+                        "function_name": current_func or "global",
+                        "param_name": var_name,
+                        "param_index": idx,
+                        "line": node.start_point[0] + 1,
+                    })
+        for child in node.children:
+            walk_for_params(child, current_func)
 
-## 6. Integration
+    walk_for_params(self.tree.root_node, None)
+    return params
+```
 
-- [ ] 6.1 Wire new extraction methods into main `extract()` return dict
-- [ ] 6.2 Ensure storage layer handles new data
-- [ ] 6.3 Run `aud full --offline` on TheAuditor (has .sh files)
-- [ ] 6.4 Query database to verify Bash rows appear in language-agnostic tables
-- [ ] 6.5 Run taint analysis, verify flows detected
+## 4. Source/Sink Pattern Registration
 
-## 7. Pipe Flow Integration
+**Context**: Add `register_taint_patterns()` function to `theauditor/rules/bash/injection_analyze.py` following the Go pattern from `rules/go/injection_analyze.py:306-323`.
 
-- [ ] 7.1 Verify BashPipeStrategy edges connect to new assignment nodes
-- [ ] 7.2 Test pipe flow: `cat file | grep pattern` should show data flow
-- [ ] 7.3 Test subshell capture: `VAR=$(cmd)` should link command output to VAR
+- [ ] 4.1 Add `register_taint_patterns(taint_registry)` function to `rules/bash/injection_analyze.py`
+- [ ] 4.2 Define `BASH_SOURCES` frozenset with:
+  - Positional params: `$1` through `$9`, `$@`, `$*`
+  - Input commands: `read`
+  - CGI variables: `$QUERY_STRING`, `$REQUEST_URI`, `$HTTP_USER_AGENT`
+  - Common input vars: `$INPUT`, `$DATA`, `$PAYLOAD`
+- [ ] 4.3 Define `BASH_COMMAND_SINKS` frozenset with:
+  - Code execution: `eval`, `exec`, `sh`, `bash`, `source`, `.`
+  - Dangerous ops: `rm`, `curl`, `wget`, `xargs`
+  - Database clients: `mysql`, `psql`, `sqlite3`
+- [ ] 4.4 Register sources with category `"user_input"` and language `"bash"`
+- [ ] 4.5 Register sinks with category `"command"` and language `"bash"`
 
-## 8. Documentation
+**Implementation Details:**
+```python
+# Add at end of rules/bash/injection_analyze.py
 
-- [ ] 8.1 Update extractor docstrings
-- [ ] 8.2 Document shell-specific semantics handled
-- [ ] 8.3 Add logging following: `from theauditor.utils.logging import logger`
+BASH_SOURCES = frozenset([
+    "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9",
+    "$@", "$*",
+    "read",
+    "$QUERY_STRING", "$REQUEST_URI",
+    "$HTTP_USER_AGENT", "$HTTP_COOKIE",
+    "$INPUT", "$DATA", "$PAYLOAD",
+])
+
+BASH_COMMAND_SINKS = frozenset([
+    "eval", "exec", "sh", "bash", "source", ".",
+    "rm", "curl", "wget", "xargs",
+    "mysql", "psql", "sqlite3",
+])
+
+
+def register_taint_patterns(taint_registry):
+    """Register Bash injection-specific taint patterns.
+
+    Called by orchestrator.collect_rule_patterns() during taint analysis setup.
+    Pattern: rules/go/injection_analyze.py:306-323
+    """
+    for pattern in BASH_SOURCES:
+        taint_registry.register_source(pattern, "user_input", "bash")
+
+    for pattern in BASH_COMMAND_SINKS:
+        taint_registry.register_sink(pattern, "command", "bash")
+```
+
+## 5. Wrapper Integration (bash.py)
+
+**Context**: `theauditor/indexer/extractors/bash.py` is a thin wrapper. It needs to pass through the new keys.
+
+- [ ] 5.1 Verify `result.update(extracted)` in bash.py passes through new keys
+- [ ] 5.2 No changes needed if bash_impl.py returns the new keys - bash.py already does `result.update(extracted)`
+
+## 6. End-to-End Verification
+
+- [ ] 6.1 Run `aud full --offline` on TheAuditor (has .sh files in scripts/)
+- [ ] 6.2 Query database to verify Bash rows in `assignments`:
+  ```sql
+  SELECT COUNT(*) FROM assignments WHERE file LIKE '%.sh';
+  ```
+- [ ] 6.3 Query database to verify Bash rows in `function_call_args`:
+  ```sql
+  SELECT COUNT(*) FROM function_call_args WHERE file LIKE '%.sh';
+  ```
+- [ ] 6.4 Run `aud taint` and verify Bash flows appear in results
+- [ ] 6.5 Verify TaintRegistry contains Bash patterns:
+  ```python
+  registry.get_sources_for_language("bash")
+  registry.get_sinks_for_language("bash")
+  ```
+
+## 7. Logging Verification
+
+**Logging import**: `from theauditor.utils.logging import logger` (wraps loguru)
+
+- [ ] 7.1 Verify bash_impl.py uses `from theauditor.utils.logging import logger`
+- [ ] 7.2 Add debug logs for mapping counts:
+  ```python
+  logger.debug(f"Bash: mapped {len(assignments)} assignments, {len(call_args)} call_args, {len(params)} params")
+  ```
+- [ ] 7.3 Verify NO bare `print()` statements in modified files
