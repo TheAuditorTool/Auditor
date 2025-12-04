@@ -406,9 +406,6 @@ def _parse_cargo_deps(deps_dict: dict[str, Any], kind: str) -> list[dict[str, An
 
 def _parse_cargo_toml(path: Path) -> list[dict[str, Any]]:
     """Parse dependencies from Cargo.toml."""
-    import logging
-
-    logger = logging.getLogger(__name__)
 
     deps = []
     try:

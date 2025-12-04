@@ -1,14 +1,12 @@
 """ORM framework extractors - SQLAlchemy and Django ORM."""
 
 import ast
-import logging
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 from ..base import get_node_name
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 SQLALCHEMY_BASE_IDENTIFIERS = {

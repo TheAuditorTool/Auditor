@@ -7,11 +7,11 @@ import sys
 
 import click
 from rich import box
-from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
 from theauditor import __version__
+from theauditor.pipeline.ui import console
 
 if platform.system() == "Windows":
     try:
@@ -86,8 +86,6 @@ class RichGroup(click.Group):
 
     def format_help(self, ctx, formatter):
         """Render help output using Rich components."""
-        console = Console(force_terminal=sys.stdout.isatty())
-
         console.print()
         console.rule(f"[bold]TheAuditor Security Platform v{__version__}[/bold]", characters="-")
         console.print(
@@ -163,8 +161,6 @@ class RichCommand(click.Command):
 
     def format_help(self, ctx, formatter):
         """Render help with Rich components."""
-        console = Console(force_terminal=sys.stdout.isatty())
-
         # Header with command name
         console.print()
         console.rule(f"[bold]aud {ctx.info_name}[/bold]", characters="-")

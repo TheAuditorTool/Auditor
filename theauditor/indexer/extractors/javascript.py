@@ -1,6 +1,4 @@
 """JavaScript/TypeScript extractor."""
-
-import logging
 import os
 from datetime import datetime
 from typing import Any
@@ -9,8 +7,7 @@ from . import BaseExtractor
 from .javascript_resolvers import JavaScriptResolversMixin
 from .sql import parse_sql_query
 from theauditor.indexer.fidelity_utils import FidelityToken
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):

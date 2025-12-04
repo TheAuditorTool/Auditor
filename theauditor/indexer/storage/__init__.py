@@ -1,6 +1,4 @@
 """Storage layer: Domain-specific handler modules."""
-
-import logging
 from typing import Any
 
 from .bash_storage import BashStorage
@@ -12,8 +10,7 @@ from .python_storage import PythonStorage
 from .rust_storage import RustStorage
 
 from ..fidelity_utils import FidelityToken
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 # Priority order for parent-child relationships.
 # Parents MUST be processed before their children to populate gatekeeper sets.

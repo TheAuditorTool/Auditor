@@ -1,13 +1,11 @@
 """SessionExecutionStore - Persist session execution data following dual-write principle."""
 
 import json
-import logging
 import sqlite3
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 @dataclass

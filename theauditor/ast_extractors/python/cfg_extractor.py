@@ -1,12 +1,10 @@
 """Python Control Flow Graph (CFG) extractor."""
 
 import ast
-import logging
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 def extract_python_cfg(context: FileContext) -> list[dict[str, Any]]:

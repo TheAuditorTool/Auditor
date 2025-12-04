@@ -1,6 +1,4 @@
 """SessionAnalysis - Orchestrate complete session analysis pipeline."""
-
-import logging
 from pathlib import Path
 
 from theauditor.session.activity_metrics import ActivityClassifier, ActivityMetrics
@@ -8,8 +6,7 @@ from theauditor.session.diff_scorer import DiffScorer
 from theauditor.session.parser import Session
 from theauditor.session.store import SessionExecution, SessionExecutionStore
 from theauditor.session.workflow_checker import WorkflowChecker
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 class SessionAnalysis:

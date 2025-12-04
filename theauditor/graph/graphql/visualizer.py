@@ -1,10 +1,7 @@
 """GraphQL Visualizer - Generate visual representations of GraphQL schemas."""
-
-import logging
 import sqlite3
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
+from theauditor.utils.logging import logger
 
 
 class GraphQLVisualizer:
