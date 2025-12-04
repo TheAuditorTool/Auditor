@@ -326,7 +326,7 @@ aud full
 aud workset --diff main..feature
 
 # Analyze only changed code
-aud taint-analyze --workset
+aud taint --workset
 aud lint --workset
 ```
 
@@ -370,7 +370,7 @@ aud suggest --topk 10
 | Code | Meaning | Commands |
 |------|---------|----------|
 | 0 | Success, no critical issues | All commands |
-| 1 | High severity findings | `aud full`, `aud taint-analyze` |
+| 1 | High severity findings | `aud full`, `aud taint` |
 | 2 | Critical vulnerabilities | `aud full`, `aud deps --vuln-scan` |
 | 3 | Analysis incomplete/failed | `aud full`, `aud impact` |
 

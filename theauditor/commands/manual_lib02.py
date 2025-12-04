@@ -1354,7 +1354,7 @@ TYPICAL WORKFLOW:
     aud graphql query --type Query --show-resolvers
 
     # 4. Use in taint analysis
-    aud taint-analyze  # Uses GraphQL edges for data flow
+    aud taint  # Uses GraphQL edges for data flow
 
 FRAMEWORK SUPPORT:
   Python:     Graphene, Ariadne, Strawberry
@@ -1375,7 +1375,7 @@ USE THE COMMANDS:
     aud graphql viz --output schema.svg  # Generate visualization
 
 RELATED COMMANDS:
-    aud taint-analyze  # Uses GraphQL edges for taint
+    aud taint  # Uses GraphQL edges for taint
     aud graph          # Generic call graph (GraphQL adds field layer)
 """,
     },

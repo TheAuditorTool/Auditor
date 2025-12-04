@@ -51,12 +51,12 @@ PREREQUISITES:
 - Run 'aud full' first to build repo_index.db with call graph data
 
 EXAMPLES:
-    aud taint-analyze                      # Full analysis with defaults
-    aud taint-analyze --severity critical  # Only critical findings
-    aud taint-analyze --verbose            # Show full taint paths
-    aud taint-analyze --json               # Raw JSON output
-    aud taint-analyze --mode forward       # Forward flow analysis
-    aud taint-analyze --memory-limit 512   # Limit cache to 512MB
+    aud taint                      # Full analysis with defaults
+    aud taint --severity critical  # Only critical findings
+    aud taint --verbose            # Show full taint paths
+    aud taint --json               # Raw JSON output
+    aud taint --mode forward       # Forward flow analysis
+    aud taint --memory-limit 512   # Limit cache to 512MB
 
 EXIT CODES:
 - 0: Success, no vulnerabilities found
@@ -397,7 +397,7 @@ The FCE can escalate severity when patterns combine:
 Example: "Debug mode" (low) + "Exposes secrets" (medium) = Critical
 
 FILTERING BY SEVERITY:
-    aud taint-analyze --severity critical   # Only critical issues
+    aud taint --severity critical   # Only critical issues
     aud full --quiet                       # Exit code indicates severity
 """,
     },
@@ -603,7 +603,7 @@ FIRST TIME SETUP:
 AFTER CODE CHANGES:
     aud workset --diff HEAD~1         # Identify changed files
     aud lint --workset                # Quality check changes (has --workset)
-    aud taint-analyze                 # Run taint on full codebase
+    aud taint                 # Run taint on full codebase
 
 PULL REQUEST REVIEW:
     aud workset --diff main..feature  # What changed in PR
@@ -612,7 +612,7 @@ PULL REQUEST REVIEW:
 
 SECURITY AUDIT:
     aud full --offline                # Complete offline audit
-    aud taint-analyze --severity high # High severity taint issues
+    aud taint --severity high # High severity taint issues
     aud manual severity               # Understand findings
 
 PERFORMANCE OPTIMIZATION:

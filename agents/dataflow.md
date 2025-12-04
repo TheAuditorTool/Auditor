@@ -14,13 +14,13 @@
 
 **For AI Assistants:**
 1. **Define source/sink explicitly:** Ask user if ambiguous, DON'T assume
-2. **Run taint analysis:** `aud taint-analyze --source X --sink Y` for actual paths
+2. **Run taint analysis:** `aud taint --source X --sink Y` for actual paths
 3. **Query call graph:** Build complete source → intermediate → sink chain
 4. **Match frameworks:** Use detected validation library (zod if zod)
-5. **NO file reading:** Use `aud taint-analyze`, `aud query`, `aud blueprint`
+5. **NO file reading:** Use `aud taint`, `aud query`, `aud blueprint`
 
 **Correct Behavior:**
-- ✅ Agent: *asks "trace from where to where?"* → *runs `aud taint-analyze`* → *queries call graph* → *identifies gaps* → *recommends using detected zod*
+- ✅ Agent: *asks "trace from where to where?"* → *runs `aud taint`* → *queries call graph* → *identifies gaps* → *recommends using detected zod*
 - ✅ Agent cites taint analysis paths
 - ✅ Agent uses framework-specific source/sink patterns
 
@@ -33,7 +33,7 @@
 **Success Criteria:** Source/sink explicit. NO generic "trace everything" requests.
 
 ### T1.1: Read Command Help
-- `aud --help`, `aud taint-analyze --help`, `aud query --help`, `aud blueprint --help`
+- `aud --help`, `aud taint --help`, `aud query --help`, `aud blueprint --help`
 - **Audit:** Syntax understood
 
 ### T1.2: Check User Request
@@ -113,9 +113,9 @@
 
 ### T3.1: Construct Command
 Based on Phase 1 scope + Phase 2 framework:
-- User input → database: `aud taint-analyze --source "request.*" --sink ".*query.*"`
-- User input → HTML: `aud taint-analyze --source "request.*" --sink ".*innerHTML.*"`
-- Sensitive data → all: `aud taint-analyze --source "password" --sink "*"`
+- User input → database: `aud taint --source "request.*" --sink ".*query.*"`
+- User input → HTML: `aud taint --source "request.*" --sink ".*innerHTML.*"`
+- Sensitive data → all: `aud taint --source "password" --sink "*"`
 - **Audit:** Command constructed
 
 ### T3.2: Execute Taint Analysis
@@ -283,7 +283,7 @@ For sanitization gaps: Framework-appropriate
 **Audit:** Recommendations match framework
 
 ### T6.7: Evidence Citations
-- List all queries: `aud taint-analyze`, `aud query`, `aud blueprint`
+- List all queries: `aud taint`, `aud query`, `aud blueprint`
 - Example: "Taint: 7 paths request.body → innerHTML"
 - Example: "Framework: zod 3.22.0 (15 files)"
 - Example: "Query: 5 routes without .*schema.* call"
@@ -306,7 +306,7 @@ For sanitization gaps: Framework-appropriate
 ## KEY PRINCIPLES
 
 1. **Zero Hallucination:** Read `--help` FIRST
-2. **Database-First:** Use `aud taint-analyze`, `aud query` - NO file reading
+2. **Database-First:** Use `aud taint`, `aud query` - NO file reading
 3. **Run Taint Analysis First:** Get actual dataflow, don't guess
 4. **Query Call Graph:** Build complete source → sink picture
 5. **Check Sanitization:** Identify validation/escaping gaps
@@ -329,7 +329,7 @@ Phase 2: Framework Context
   blueprint → Express.js, Sequelize ORM
 
 Phase 3: Taint Analysis
-  aud taint-analyze --source "request.*" --sink ".*query.*"
+  aud taint --source "request.*" --sink ".*query.*"
   → 12 paths found
   Categorized: 3 HIGH (string interpolation), 9 LOW (Sequelize parameterization)
 

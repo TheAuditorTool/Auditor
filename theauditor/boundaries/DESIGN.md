@@ -207,7 +207,7 @@ Shows:
 - Data flow to sinks
 ```
 
-### 3. `aud taint-analyze` - Boundary-aware taint analysis
+### 3. `aud taint` - Boundary-aware taint analysis
 ```
 Taint flow detected:
   Source: req.body (line 34)
@@ -271,4 +271,4 @@ For your multi-tenant SaaS use case:
 2. **Add CLI command** - `aud boundaries` entry point
 3. **Database persistence** - Store results for trend tracking
 4. **Additional analyzers** - Authorization, sanitization, output encoding
-5. **Integration** - Connect with `aud blueprint`, `aud context`, `aud taint-analyze`
+5. **Integration** - Connect with `aud blueprint`, `aud context`, `aud taint`

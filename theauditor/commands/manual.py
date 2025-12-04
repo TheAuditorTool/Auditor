@@ -228,7 +228,7 @@ def manual(concept, list_concepts):
         aud init && aud full
 
       Understanding Command Output:
-        aud taint-analyze
+        aud taint
         aud manual taint         # Learn what taint findings mean
 
       Troubleshooting Performance:
@@ -245,8 +245,8 @@ def manual(concept, list_concepts):
       [Detailed multi-paragraph explanation with examples]
 
       USE THE COMMAND:
-        aud taint-analyze
-        aud taint-analyze --severity high
+        aud taint
+        aud taint --severity high
 
     PERFORMANCE EXPECTATIONS:
       Instant: <1ms (pure string formatting, no I/O)

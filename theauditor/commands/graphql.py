@@ -49,7 +49,7 @@ def graphql():
       aud index                    # Extract SDL + resolvers
       aud graphql build            # Correlate and build execution graph
       aud graphql query --type User  # Inspect User type fields
-      aud taint-analyze            # Use GraphQL edges for taint
+      aud taint            # Use GraphQL edges for taint
 
     EXAMPLES:
       aud graphql build
@@ -63,7 +63,7 @@ def graphql():
 
     RELATED COMMANDS:
       aud index        # Extracts GraphQL schemas and resolvers
-      aud taint-analyze  # Uses GraphQL execution edges
+      aud taint  # Uses GraphQL execution edges
       aud graph        # Generic call graph (GraphQL adds field layer)
 
     NOTE: GraphQL data stored in repo_index.db (graphql_* tables).

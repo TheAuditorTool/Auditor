@@ -58,7 +58,7 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
     MIGRATION GUIDE:
       OLD Workflow:
         aud index                    # Phase 1 only
-        aud taint-analyze            # Incomplete context
+        aud taint            # Incomplete context
         aud deadcode                 # Incomplete context
 
       NEW Workflow:
@@ -71,7 +71,7 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
       run the full audit pipeline instead of just indexing. Update your workflows:
 
       CI/CD Pipelines:
-        OLD: aud index && aud taint-analyze && aud deadcode
+        OLD: aud index && aud taint && aud deadcode
         NEW: aud full --quiet
 
       Development Workflow:
@@ -97,7 +97,7 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
       This is INTENTIONAL - you should be running the full audit for data fidelity.
       For incremental analysis, use workset filtering after initial audit:
         aud full                     # Initial complete audit
-        aud taint-analyze --workset  # Incremental on changed files
+        aud taint --workset  # Incremental on changed files
 
     TIMELINE:
       This deprecation warning will be removed in v2.0 when 'aud index' is fully
@@ -130,7 +130,7 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
         console.print("")
         console.print("  ACTION REQUIRED:")
         console.print("    • Update CI/CD pipelines to use 'aud full' explicitly")
-        console.print("    • Replace 'aud index && aud taint-analyze' with just 'aud full'")
+        console.print("    • Replace 'aud index && aud taint' with just 'aud full'")
         console.print("    • Use 'aud full --offline' for air-gapped environments")
         console.print("    • Use 'aud full --quiet' for minimal output in automation")
         console.print("")

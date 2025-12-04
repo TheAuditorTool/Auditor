@@ -134,7 +134,7 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
       Example (WRONG): "Fix: Move validation to entry point"
 
     INTEGRATION WITH OTHER COMMANDS:
-      aud taint-analyze: Detects data flow violations (untrusted->sink)
+      aud taint: Detects data flow violations (untrusted->sink)
       aud boundaries: Detects control placement violations (distance from entry)
       aud blueprint --boundaries: Shows boundary architecture in codebase structure
       aud context query --boundary "/api/users": Shows boundary details for specific route
@@ -197,7 +197,7 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
       1 = Critical boundary violations found (missing controls at entry points)
 
     RELATED COMMANDS:
-      aud taint-analyze      # Track data flow from sources to sinks
+      aud taint      # Track data flow from sources to sinks
       aud blueprint --boundaries  # Show boundary architecture overview
       aud full               # Complete analysis including boundaries
 

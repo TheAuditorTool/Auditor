@@ -850,7 +850,7 @@ graph TB
 
     subgraph "Security (3)"
         B1[detect-patterns<br/>200+ patterns]
-        B2[taint-analyze<br/>Data flow]
+        B2[taint<br/>Data flow]
         B3[docker-analyze<br/>Container security]
     end
 

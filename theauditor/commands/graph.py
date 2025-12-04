@@ -285,7 +285,7 @@ def graph_build_dfg(root, db, repo_db):
 
     RELATED COMMANDS:
       aud full            Build the repo_index.db first
-      aud taint-analyze   Uses DFG for taint propagation
+      aud taint   Uses DFG for taint propagation
       aud graph build     Build import/call graphs (separate from DFG)
 
     See: aud manual graph, aud manual taint"""

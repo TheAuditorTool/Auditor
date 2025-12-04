@@ -36,7 +36,7 @@ def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_
       Input: Git diff / file patterns + .pf/repo_index.db (import graph)
       Output: .pf/workset.json (seed files + expanded dependencies)
       Prerequisites: aud index (for dependency expansion), git repository (for --diff)
-      Integration: Used with --workset flag on taint-analyze, lint, impact, etc.
+      Integration: Used with --workset flag on taint, lint, impact, etc.
       Performance: ~1-3 seconds (git diff + graph query), analysis 10-100x faster
 
     WHAT IT COMPUTES:
@@ -82,7 +82,7 @@ def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_
 
     EXAMPLES:
       # Use Case 1: Analyze files changed in last commit
-      aud workset --diff HEAD~1 && aud taint-analyze --workset
+      aud workset --diff HEAD~1 && aud taint --workset
 
       # Use Case 2: PR review workflow (feature branch vs main)
       aud workset --diff main..feature && aud full --workset
@@ -98,7 +98,7 @@ def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_
 
     COMMON WORKFLOWS:
       Pre-Commit Hook (Fast Validation):
-        aud workset --diff HEAD && aud taint-analyze --workset --fail-fast
+        aud workset --diff HEAD && aud taint --workset --fail-fast
 
       CI/CD PR Checks (Changed Files Only):
         aud index && aud workset --diff origin/main..HEAD && aud full --workset
@@ -169,7 +169,7 @@ def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_
 
     RELATED COMMANDS:
       aud index              # Must run first to populate import graph
-      aud taint-analyze --workset   # Use workset for targeted taint analysis
+      aud taint --workset   # Use workset for targeted taint analysis
       aud impact --workset   # Use workset for change impact analysis
       aud full --workset     # Run all checks on workset files only
 

@@ -13,14 +13,14 @@
 **CRITICAL:** Run security tools autonomously. Match detected frameworks in recommendations.
 
 **For AI Assistants:**
-1. **Run taint analysis first:** `aud taint-analyze` for actual dataflow, DON'T guess paths
+1. **Run taint analysis first:** `aud taint` for actual dataflow, DON'T guess paths
 2. **Framework matching mandatory:** zod detected → recommend zod (NOT joi)
 3. **Query attack surface:** Find innerHTML/query from database, NOT file grep
-4. **NO file reading:** Use `aud query`, `aud taint-analyze`, `aud blueprint`
+4. **NO file reading:** Use `aud query`, `aud taint`, `aud blueprint`
 5. **Cite existing findings:** Use `aud context` for current vulnerabilities
 
 **Correct Behavior:**
-- ✅ Agent: *runs `aud blueprint`* → *runs `aud taint-analyze`* → *queries attack surface* → *synthesizes recommendations matching detected zod*
+- ✅ Agent: *runs `aud blueprint`* → *runs `aud taint`* → *queries attack surface* → *synthesizes recommendations matching detected zod*
 - ✅ Agent cites taint analysis paths in recommendations
 - ✅ Agent uses DETECTED validation library, not assumed one
 
@@ -33,7 +33,7 @@
 **Success Criteria:** Frameworks identified. Recommendations will match detected patterns (zod if zod, marshmallow if marshmallow).
 
 ### T1.1: Read Command Help
-- `aud --help`, `aud blueprint --help`, `aud query --help`, `aud taint-analyze --help`
+- `aud --help`, `aud blueprint --help`, `aud query --help`, `aud taint --help`
 - **Audit:** Syntax understood
 
 ### T1.2: Run Blueprint
@@ -240,9 +240,9 @@ For XSS: Framework-appropriate sanitization
 **Audit:** Recommendations match framework
 
 ### T5.6: Evidence Citations
-- List all queries: `aud query`, `aud taint-analyze`, `aud blueprint`
+- List all queries: `aud query`, `aud taint`, `aud blueprint`
 - Example: "aud query: 23 POST routes, 15 with validation, 8 without"
-- Example: "aud taint-analyze: 7 paths request.body → innerHTML"
+- Example: "aud taint: 7 paths request.body → innerHTML"
 - **Audit:** Evidence complete
 
 ### T5.7: Present Plan
@@ -262,7 +262,7 @@ For XSS: Framework-appropriate sanitization
 ## KEY PRINCIPLES
 
 1. **Zero Hallucination:** Read `--help` FIRST
-2. **Database-First:** Use `aud query`, `aud taint-analyze`, `aud blueprint` - NO file reading
+2. **Database-First:** Use `aud query`, `aud taint`, `aud blueprint` - NO file reading
 3. **Match Detected Frameworks:** zod detected → recommend zod (not joi)
 4. **Run Taint Analysis:** Get actual dataflow, don't guess
 5. **Query Attack Surface:** Find innerHTML/query from database
@@ -281,7 +281,7 @@ Phase 1: Framework Context
 
 Phase 2: Existing Analysis
   aud context → 12 XSS findings
-  aud taint-analyze → 7 paths request.body → innerHTML
+  aud taint → 7 paths request.body → innerHTML
 
 Phase 3: Attack Surface
   query innerHTML → 7 locations
