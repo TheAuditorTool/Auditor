@@ -726,7 +726,8 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
             )
 
             result = subprocess.run(
-                cmd, env=env, capture_output=True, text=True, timeout=600, cwd=str(target_dir)
+                cmd, env=env, capture_output=True, text=True, timeout=600, cwd=str(target_dir),
+                encoding='utf-8', errors='replace'
             )
 
             if result.returncode > 1:
