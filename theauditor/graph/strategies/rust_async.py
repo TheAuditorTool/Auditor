@@ -38,17 +38,9 @@ class RustAsyncStrategy(GraphStrategy):
             "unique_nodes": 0,
         }
 
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='rust_async_functions'
-        """)
-        if not cursor.fetchone():
-            conn.close()
-            return {
-                "nodes": [],
-                "edges": [],
-                "metadata": {"graph_type": "rust_async", "stats": stats},
-            }
+        # NO TABLE CHECK - ZERO FALLBACK POLICY
+        # If rust_async_functions doesn't exist, the query will fail loud
+        # This exposes missing data at index time, not silently at query time
 
         self._build_async_function_nodes(cursor, nodes, stats)
 
@@ -130,12 +122,8 @@ class RustAsyncStrategy(GraphStrategy):
     ) -> None:
         """Build edges from async functions to their await points."""
 
-        cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='rust_await_points'
-        """)
-        if not cursor.fetchone():
-            return
+        # NO TABLE CHECK - ZERO FALLBACK POLICY
+        # If rust_await_points doesn't exist, the query will fail loud
 
         cursor.execute("""
             SELECT
