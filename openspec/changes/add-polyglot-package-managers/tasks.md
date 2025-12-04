@@ -20,19 +20,19 @@
 ## 2. Docker Extraction
 
 - [ ] 2.1 Create `theauditor/package_managers/docker.py` extending BasePackageManager
-- [ ] 2.2 Extract `_parse_docker_compose()` from deps.py:279-323 -> `parse_manifest()` for compose files
-- [ ] 2.3 Extract `_parse_dockerfile()` from deps.py:325-376 -> `parse_manifest()` for Dockerfiles
-- [ ] 2.4 Extract `_fetch_docker_async()` from deps.py:486-538 -> `fetch_latest_async()`
-- [ ] 2.5 Extract `_parse_docker_tag()` from deps.py:866-915 -> private `_parse_docker_tag()`
-- [ ] 2.6 Extract `_extract_base_preference()` from deps.py:918-943 -> private `_extract_base_preference()`
-- [ ] 2.7 Extract `_upgrade_docker_compose()` from deps.py:1303-1384 -> `upgrade_file()` for compose
-- [ ] 2.8 Extract `_upgrade_dockerfile()` from deps.py:1386-1480 -> `upgrade_file()` for Dockerfiles
+- [ ] 2.2 Extract `_parse_docker_compose()` from deps.py:279-322 -> `parse_manifest()` for compose files
+- [ ] 2.3 Extract `_parse_dockerfile()` from deps.py:325-375 -> `parse_manifest()` for Dockerfiles
+- [ ] 2.4 Extract `_fetch_docker_async()` from deps.py:483-535 -> `fetch_latest_async()`
+- [ ] 2.5 Extract `_parse_docker_tag()` from deps.py:863-912 -> private `_parse_docker_tag()`
+- [ ] 2.6 Extract `_extract_base_preference()` from deps.py:915-939 -> private `_extract_base_preference()`
+- [ ] 2.7 Extract `_upgrade_docker_compose()` from deps.py:1300-1380 -> `upgrade_file()` for compose
+- [ ] 2.8 Extract `_upgrade_dockerfile()` from deps.py:1383-1477 -> `upgrade_file()` for Dockerfiles
 - [ ] 2.9 Update deps.py imports and wiring:
-  - Add `from theauditor.package_managers import get_manager` at line ~20
-  - Replace Docker parsing at lines 81-103 (see design.md Decision 9)
-  - Replace Docker version fetch at lines 575-590 (see design.md Decision 9)
-  - Replace Docker upgrade at lines 1099-1143 (see design.md Decision 9)
-- [ ] 2.10 Delete extracted functions from deps.py (279-323, 325-376, 486-538, 866-943, 1303-1480)
+  - Add `from theauditor.package_managers import get_manager` at line ~18
+  - Replace Docker parsing at lines 81-93 (see design.md Decision 9)
+  - Replace Docker version fetch at lines 572-580 (see design.md Decision 9)
+  - Replace Docker upgrade at lines 1096-1139 (see design.md Decision 9)
+- [ ] 2.10 Delete extracted functions from deps.py (279-322, 325-375, 483-535, 863-939, 1300-1477)
 - [ ] 2.11 Verify: `aud deps` with docker-compose.yml still works
 - [ ] 2.12 Verify: `aud deps --check-latest` still works for Docker images
 - [ ] 2.13 Verify: `aud deps --upgrade-docker` still works
@@ -54,8 +54,8 @@
   - Pattern 2: `name = { version = "..." }` table format
 - [ ] 3.6 Add rate limiter constant `RATE_LIMIT_CARGO = 1.0` to `theauditor/utils/rate_limiter.py`
 - [ ] 3.7 Add "cargo" to `delays` dict in `get_rate_limiter()` at rate_limiter.py:59-65
-- [ ] 3.8 Wire cargo version check at deps.py:575-590 (see design.md Decision 9)
-- [ ] 3.9 Wire cargo docs at docs_fetch.py:170-180 (see design.md Decision 10)
+- [ ] 3.8 Wire cargo version check at deps.py:572-580 (see design.md Decision 9)
+- [ ] 3.9 Wire cargo docs at docs_fetch.py:170-175 (see design.md Decision 10)
 
 ## 4. Go Support
 
@@ -79,9 +79,9 @@
   - Update single-line `require` statements
 - [ ] 4.7 Add rate limiter constant `RATE_LIMIT_GO = 0.5` to `theauditor/utils/rate_limiter.py`
 - [ ] 4.8 Add "go" to `delays` dict in `get_rate_limiter()` at rate_limiter.py:59-65
-- [ ] 4.9 Wire go parsing at deps.py:~110 (see design.md Decision 9) - add go.mod discovery loop
-- [ ] 4.10 Wire go version check at deps.py:575-590 (see design.md Decision 9)
-- [ ] 4.11 Wire go docs at docs_fetch.py:170-180 (see design.md Decision 10)
+- [ ] 4.9 Wire go parsing at deps.py:~100 (see design.md Decision 9) - add go.mod discovery loop
+- [ ] 4.10 Wire go version check at deps.py:572-580 (see design.md Decision 9)
+- [ ] 4.11 Wire go docs at docs_fetch.py:170-175 (see design.md Decision 10)
 
 ## 5. Manifest Extractor (DB Storage)
 
@@ -98,10 +98,9 @@
 
 ## 6. Logging/UI Fixes
 
-- [ ] 6.1 Fix deps.py:407-411 - remove local logger shadow in `_parse_cargo_toml()`
-- [ ] 6.2 Add `from theauditor.utils.logging import logger` to docs_fetch.py
-- [ ] 6.3 Add `from theauditor.pipeline.ui import console` to docs_fetch.py
-- [ ] 6.4 Replace silent error returns with proper logging in docs_fetch.py
+- [ ] 6.1 Add `from theauditor.utils.logging import logger` to docs_fetch.py
+- [ ] 6.2 Add `from theauditor.pipeline.ui import console` to docs_fetch.py
+- [ ] 6.3 Replace silent error returns with proper logging in docs_fetch.py
 
 ## 7. Testing & Validation
 

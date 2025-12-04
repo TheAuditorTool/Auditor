@@ -91,7 +91,7 @@ The system SHALL provide a Cargo package manager implementation that handles Rus
 #### Scenario: Fetch crate documentation
 - **WHEN** `fetch_docs_async()` is called with a Cargo dependency
 - **THEN** fetch README from crates.io API `data["crate"]["readme"]` field (same endpoint as version check)
-- **AND** if readme is null, fallback to GitHub README via `data["crate"]["repository"]`
+- **AND** if readme is null, return "skipped" (NO FALLBACK to GitHub)
 - **AND** save to output directory as markdown
 - **AND** return "fetched", "cached", "skipped", or "error"
 
@@ -125,7 +125,8 @@ The system SHALL provide a Go package manager implementation that handles go.mod
 #### Scenario: Fetch Go module documentation
 - **WHEN** `fetch_docs_async()` is called with a Go dependency
 - **THEN** fetch documentation from pkg.go.dev at `https://pkg.go.dev/{module}@{version}`
-- **AND** convert HTML to markdown
+- **AND** extract Documentation section using regex (single code path, NO FALLBACKS)
+- **AND** convert HTML to markdown format
 - **AND** save to output directory
 - **AND** return "fetched", "cached", "skipped", or "error"
 
