@@ -95,6 +95,8 @@ class SessionExecutionStore:
         except sqlite3.Error as e:
             logger.error(f"Failed to create session_executions table: {e}")
             conn.rollback()
+            conn.close()
+            raise  # Zero Fallback: Fail fast on DB initialization
         finally:
             conn.close()
 
