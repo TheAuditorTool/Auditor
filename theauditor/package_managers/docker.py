@@ -453,38 +453,12 @@ class DockerPackageManager(BasePackageManager):
         patch = int(match.group(3) or 0)
 
         variant = clean_tag[match.end():].lstrip("-")
-        variant_lower = variant.lower()
-
-        stability = "stable"
-
-        if re.search(r"\d{8,}", variant):
-            stability = "dev"
-        elif variant_lower.startswith("a") or any(
-            marker in variant_lower for marker in ["alpha", "a1", "a2", "a3"]
-        ):
-            if not variant_lower.startswith("alpine"):
-                stability = "alpha"
-        elif variant_lower.startswith("b") or any(
-            marker in variant_lower for marker in ["beta", "b1", "b2"]
-        ):
-            if not (
-                variant_lower.startswith("bookworm")
-                or variant_lower.startswith("bullseye")
-                or variant_lower.startswith("buster")
-            ):
-                stability = "beta"
-        elif "rc" in variant_lower or any(
-            marker in variant_lower for marker in ["rc1", "rc2", "rc3"]
-        ):
-            stability = "rc"
-        elif any(marker in variant_lower for marker in ["nightly", "dev", "snapshot", "edge"]):
-            stability = "dev"
 
         return {
             "tag": tag,
             "version": (major, minor, patch),
             "variant": variant,
-            "stability": stability,
+            "stability": self._detect_stability(variant),
             "is_clean": len(variant) == 0,
         }
 
@@ -513,3 +487,37 @@ class DockerPackageManager(BasePackageManager):
                 return base
 
         return ""
+
+    def _detect_stability(self, variant: str) -> str:
+        """Detect stability level from Docker tag variant.
+
+        Args:
+            variant: The variant suffix after version (e.g., 'alpine', 'rc1', 'beta')
+
+        Returns:
+            Stability level: 'stable', 'rc', 'beta', 'alpha', or 'dev'
+        """
+        v = variant.lower()
+
+        # Date-based builds = dev
+        if re.search(r"\d{8,}", v):
+            return "dev"
+
+        # Explicit dev markers
+        if any(m in v for m in ("nightly", "dev", "snapshot", "edge")):
+            return "dev"
+
+        # Release candidate
+        if "rc" in v:
+            return "rc"
+
+        # Beta (excluding Debian codenames starting with 'b')
+        debian_b = ("bookworm", "bullseye", "buster")
+        if ("beta" in v or re.match(r"b\d", v)) and not any(v.startswith(d) for d in debian_b):
+            return "beta"
+
+        # Alpha (excluding alpine)
+        if ("alpha" in v or re.match(r"a\d", v)) and not v.startswith("alpine"):
+            return "alpha"
+
+        return "stable"
