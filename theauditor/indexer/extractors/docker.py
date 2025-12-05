@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Any
 
+from dockerfile_parse import DockerfileParser as DFParser
+
 from theauditor.utils.logging import logger
 
 from ..fidelity_utils import FidelityToken
@@ -40,12 +42,6 @@ class DockerExtractor(BaseExtractor):
             "dockerfile_ports": [],
             "dockerfile_env_vars": [],
         }
-
-        try:
-            from dockerfile_parse import DockerfileParser as DFParser
-        except ImportError:
-            logger.warning(f"dockerfile_parse not installed, skipping {file_path_str}")
-            return FidelityToken.attach_manifest(result)
 
         try:
             parser = DFParser()

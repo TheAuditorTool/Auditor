@@ -6,7 +6,6 @@ import platform
 import re
 import sqlite3
 import subprocess
-import tempfile
 from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
@@ -65,151 +64,124 @@ def load_files_from_db(db_path: str) -> dict[str, str]:
 
 def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
     """Get list of changed files from git diff."""
+    diff_parts = validate_diff_spec(diff_spec)
+
     try:
-        with (
-            tempfile.NamedTemporaryFile(
-                mode="w+", delete=False, suffix="_stdout.txt", encoding="utf-8"
-            ) as stdout_fp,
-            tempfile.NamedTemporaryFile(
-                mode="w+", delete=False, suffix="_stderr.txt", encoding="utf-8"
-            ) as stderr_fp,
-        ):
-            stdout_path = stdout_fp.name
-            stderr_path = stderr_fp.name
-
-            diff_parts = validate_diff_spec(diff_spec)
-
-            result = subprocess.run(
-                ["git", "diff", "--name-only"] + diff_parts,
-                cwd=root_path,
-                stdout=stdout_fp,
-                stderr=stderr_fp,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                check=True,
-                shell=False,
-            )
-
-        with open(stdout_path, encoding="utf-8") as f:
-            stdout_content = f.read()
-        with open(stderr_path, encoding="utf-8") as f:
-            stderr_content = f.read()
-
-        os.unlink(stdout_path)
-        os.unlink(stderr_path)
-
-        files = stdout_content.strip().split("\n") if stdout_content.strip() else []
+        result = subprocess.run(
+            ["git", "diff", "--name-only"] + diff_parts,
+            cwd=root_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+            shell=False,
+        )
+        files = result.stdout.strip().split("\n") if result.stdout.strip() else []
         return [normalize_path(f) for f in files]
     except subprocess.CalledProcessError as e:
-        try:
-            with open(stderr_path, encoding="utf-8") as f:
-                error_msg = f.read()
-        except Exception:
-            error_msg = "git not available"
-        finally:
-            if "stdout_path" in locals() and os.path.exists(stdout_path):
-                os.unlink(stdout_path)
-            if "stderr_path" in locals() and os.path.exists(stderr_path):
-                os.unlink(stderr_path)
+        error_msg = e.stderr if e.stderr else "git command failed"
         raise RuntimeError(f"Git diff failed: {error_msg}") from e
     except FileNotFoundError:
-        if "stdout_path" in locals() and os.path.exists(stdout_path):
-            os.unlink(stdout_path)
-        if "stderr_path" in locals() and os.path.exists(stderr_path):
-            os.unlink(stderr_path)
         raise RuntimeError("Git is not available. Use --files instead.") from None
 
 
-def get_forward_deps(
-    conn: sqlite3.Connection, file_path: str, manifest_paths: set[str]
-) -> set[str]:
-    """Get files that this file imports/uses."""
+# Supported extensions for import resolution (JS/TS + Python)
+IMPORT_EXTENSIONS = (".ts", ".js", ".tsx", ".jsx", ".py")
+
+
+def _resolve_import_to_file(
+    src_file: str, import_value: str, manifest_paths: set[str]
+) -> str | None:
+    """Resolve an import statement to an actual file path.
+
+    Args:
+        src_file: The file containing the import
+        import_value: The raw import string (e.g., './utils', '../lib/foo')
+        manifest_paths: Set of known file paths in the repo
+
+    Returns:
+        Resolved file path if found, None otherwise
+    """
+    value = import_value.strip("'\"")
+
+    # Skip invalid/special imports
+    if value in ["{", "}", "(", ")", "*"] or value.startswith("@"):
+        return None
+
+    candidates = []
+
+    if value.startswith("./") or value.startswith("../"):
+        # Relative import - resolve from source file's directory
+        src_dir = Path(src_file).parent
+        resolved = normalize_path(os.path.normpath(str(src_dir / value)))
+
+        if resolved.startswith(".."):
+            return None
+
+        candidates.append(resolved)
+        for ext in IMPORT_EXTENSIONS:
+            candidates.append(resolved + ext)
+            candidates.append(resolved + "/index" + ext)
+
+    elif "/" in value and not value.startswith("/"):
+        # Path-like import without ./ prefix
+        normalized = normalize_path(value)
+        candidates.append(normalized)
+        for ext in IMPORT_EXTENSIONS:
+            candidates.append(normalized + ext)
+
+    # Return first candidate that exists in manifest
+    for candidate in candidates:
+        if candidate in manifest_paths:
+            return candidate
+
+    return None
+
+
+def _build_dependency_maps(
+    conn: sqlite3.Connection, manifest_paths: set[str]
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Build forward and reverse dependency maps from refs table.
+
+    PERFORMANCE: Loads entire refs table ONCE instead of N queries per file.
+    This is O(1) DB queries instead of O(N * depth) where N = number of files.
+
+    Args:
+        conn: Database connection
+        manifest_paths: Set of known file paths
+
+    Returns:
+        Tuple of (forward_deps, reverse_deps) where:
+        - forward_deps[file] = set of files that `file` imports
+        - reverse_deps[file] = set of files that import `file`
+    """
     cursor = conn.cursor()
-    cursor.execute("SELECT value FROM refs WHERE src = ? AND kind = 'from'", (file_path,))
-
-    deps = set()
-    for (value,) in cursor.fetchall():
-        if value in ["{", "}", "(", ")", "*"] or value.startswith("'") and value.endswith("'"):
-            continue
-
-        if value.startswith("@"):
-            continue
-
-        value = value.strip("'\"")
-
-        candidates = []
-
-        if value.startswith("./") or value.startswith("../"):
-            file_dir = Path(file_path).parent
-
-            resolved = os.path.normpath(str(file_dir / value))
-            resolved = normalize_path(resolved)
-
-            if resolved.startswith(".."):
-                continue
-
-            candidates.append(resolved)
-
-            for ext in [".ts", ".js", ".tsx", ".jsx", ".py"]:
-                candidates.append(resolved + ext)
-                candidates.append(resolved + "/index" + ext)
-        elif "/" in value and not value.startswith("/"):
-            candidates.append(normalize_path(value))
-            for ext in [".ts", ".js", ".tsx", ".jsx", ".py"]:
-                candidates.append(normalize_path(value) + ext)
-
-        for candidate in candidates:
-            if candidate in manifest_paths:
-                deps.add(candidate)
-                break
-
-    return deps
-
-
-def get_reverse_deps(
-    conn: sqlite3.Connection, file_path: str, manifest_paths: set[str]
-) -> set[str]:
-    """Get files that import/use this file."""
-    cursor = conn.cursor()
-
-    deps = set()
-    logged_paths = set()
-
     cursor.execute("SELECT src, value FROM refs WHERE kind = 'from'")
+    all_refs = cursor.fetchall()
 
-    file_path_no_ext = str(Path(file_path).with_suffix(""))
+    forward_deps: dict[str, set[str]] = {}
+    reverse_deps: dict[str, set[str]] = {}
 
-    for src, value in cursor.fetchall():
-        if src == file_path:
+    for src, import_value in all_refs:
+        if src not in manifest_paths:
             continue
 
-        value = value.strip("'\"")
-
-        if value in ["{", "}", "(", ")", "*"] or value.startswith("@"):
+        resolved = _resolve_import_to_file(src, import_value, manifest_paths)
+        if resolved is None:
             continue
 
-        if value.startswith("./") or value.startswith("../"):
-            src_dir = Path(src).parent
-            try:
-                resolved = os.path.normpath(str(src_dir / value))
-                resolved = normalize_path(resolved)
+        # Forward: src imports resolved
+        if src not in forward_deps:
+            forward_deps[src] = set()
+        forward_deps[src].add(resolved)
 
-                if resolved in (file_path_no_ext, file_path):
-                    deps.add(src)
-                    continue
+        # Reverse: resolved is imported by src
+        if resolved not in reverse_deps:
+            reverse_deps[resolved] = set()
+        reverse_deps[resolved].add(src)
 
-                for ext in [".ts", ".js", ".tsx", ".jsx", ".py"]:
-                    if resolved + ext == file_path:
-                        deps.add(src)
-                        break
-            except (FileNotFoundError, OSError, ValueError) as e:
-                if src not in logged_paths:
-                    logged_paths.add(src)
-                    logger.info(f"Debug: Could not resolve import from {src}: {type(e).__name__}")
-                continue
-
-    return deps
+    return forward_deps, reverse_deps
 
 
 def expand_dependencies(
@@ -218,9 +190,16 @@ def expand_dependencies(
     manifest_paths: set[str],
     max_depth: int,
 ) -> set[str]:
-    """Expand file set by following dependencies up to max_depth."""
+    """Expand file set by following dependencies up to max_depth.
+
+    PERFORMANCE: Uses cached dependency maps (single DB query) instead of
+    per-file queries. Reduces O(N * depth) queries to O(1).
+    """
     if max_depth == 0:
         return seed_files
+
+    # Load ALL refs once and build lookup maps
+    forward_deps, reverse_deps = _build_dependency_maps(conn, manifest_paths)
 
     expanded = seed_files.copy()
     current_level = seed_files
@@ -229,12 +208,12 @@ def expand_dependencies(
         next_level = set()
 
         for file_path in current_level:
-            forward = get_forward_deps(conn, file_path, manifest_paths)
+            # Forward deps: files this file imports
+            forward = forward_deps.get(file_path, set())
             next_level.update(forward - expanded)
 
-            reverse = get_reverse_deps(conn, file_path, manifest_paths)
-
-            reverse = {f for f in reverse if f in manifest_paths}
+            # Reverse deps: files that import this file
+            reverse = reverse_deps.get(file_path, set())
             next_level.update(reverse - expanded)
 
         if not next_level:
