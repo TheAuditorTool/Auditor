@@ -1,14 +1,15 @@
-"""Rust Panic Path Analyzer - Fidelity-Compliant.
+"""Rust Panic Path Analyzer.
 
-Detects panic-inducing patterns that may cause availability issues:
-- panic!() macro usage outside tests
-- unwrap() calls on Option/Result
-- expect() calls without meaningful messages
-- assert!() in production code
+Detects panic-inducing patterns that cause availability issues:
+- panic!(), todo!(), unimplemented!(), unreachable!() macros outside tests
+- unwrap() calls on Option/Result without error context
+- expect() calls with empty or useless messages
+- assert!() macros in production code (not debug_assert)
 
-Uses RuleDB for fidelity tracking. Rust-specific tables use db.execute()
-since they may not be in Q class schema.
+CWE-248: Uncaught Exception - panics terminate the program/thread.
 """
+
+import sqlite3
 
 from theauditor.rules.base import (
     Confidence,
@@ -19,6 +20,7 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 from theauditor.rules.fidelity import RuleDB
+from theauditor.utils.logging import logger
 
 METADATA = RuleMetadata(
     name="rust_panic_paths",
@@ -32,6 +34,7 @@ METADATA = RuleMetadata(
         "test_*.rs",
     ],
     execution_scope="database",
+    primary_table="function_call_args",
 )
 
 
@@ -54,14 +57,20 @@ def _check_panic_macros(db: RuleDB) -> list[StandardFinding]:
     findings = []
     placeholders = ",".join("?" * len(PANIC_MACROS))
 
-    rows = db.execute(
-        f"""
-        SELECT file_path, line, macro_name, containing_function, args_sample
-        FROM rust_macro_invocations
-        WHERE macro_name IN ({placeholders})
-        """,
-        list(PANIC_MACROS),
-    )
+    try:
+        rows = db.execute(
+            f"""
+            SELECT file_path, line, macro_name, containing_function, args_sample
+            FROM rust_macro_invocations
+            WHERE macro_name IN ({placeholders})
+            """,
+            list(PANIC_MACROS),
+        )
+    except sqlite3.OperationalError as e:
+        if "no such table" in str(e):
+            logger.debug("rust_macro_invocations table not found - no Rust indexed")
+            return findings
+        raise
 
     for row in rows:
         file_path, line, macro_name, containing_fn, args = row
@@ -104,14 +113,19 @@ def _check_assertion_macros(db: RuleDB) -> list[StandardFinding]:
     findings = []
     placeholders = ",".join("?" * len(ASSERT_MACROS))
 
-    rows = db.execute(
-        f"""
-        SELECT file_path, line, macro_name, containing_function, args_sample
-        FROM rust_macro_invocations
-        WHERE macro_name IN ({placeholders})
-        """,
-        list(ASSERT_MACROS),
-    )
+    try:
+        rows = db.execute(
+            f"""
+            SELECT file_path, line, macro_name, containing_function, args_sample
+            FROM rust_macro_invocations
+            WHERE macro_name IN ({placeholders})
+            """,
+            list(ASSERT_MACROS),
+        )
+    except sqlite3.OperationalError as e:
+        if "no such table" in str(e):
+            return findings  # Already logged in _check_panic_macros
+        raise
 
     for row in rows:
         file_path, line, macro_name, containing_fn, _ = row
@@ -138,40 +152,6 @@ def _check_assertion_macros(db: RuleDB) -> list[StandardFinding]:
                     "function": containing_fn,
                     "is_debug_only": is_debug,
                     "recommendation": "Consider using ensure! or returning Result instead",
-                },
-            )
-        )
-
-    return findings
-
-
-def _check_todo_unimplemented(db: RuleDB) -> list[StandardFinding]:
-    """Flag todo!() and unimplemented!() as incomplete code."""
-    findings = []
-
-    rows = db.execute("""
-        SELECT file_path, line, macro_name, containing_function
-        FROM rust_macro_invocations
-        WHERE macro_name IN ('todo', 'unimplemented')
-    """)
-
-    for row in rows:
-        file_path, line, macro_name, containing_fn = row
-        containing_fn = containing_fn or "unknown"
-
-        findings.append(
-            StandardFinding(
-                rule_name="rust-incomplete-implementation",
-                message=f"{macro_name}!() in {containing_fn}() indicates incomplete implementation",
-                file_path=file_path,
-                line=line,
-                severity=Severity.HIGH,
-                category="quality",
-                confidence=Confidence.HIGH,
-                additional_info={
-                    "macro": macro_name,
-                    "function": containing_fn,
-                    "recommendation": "Implement the missing functionality before deployment",
                 },
             )
         )
@@ -248,40 +228,28 @@ def _check_unwraps(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
-def _table_exists(db: RuleDB, table_name: str) -> bool:
-    """Check if a table exists in the database."""
-    rows = db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        [table_name],
-    )
-    return len(rows) > 0
-
-
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Rust panic-inducing code patterns.
 
+    Checks for:
+    1. Panic-inducing macros (panic!, todo!, unimplemented!, unreachable!)
+    2. Assertion macros that panic on failure (assert!, assert_eq!, etc.)
+    3. unwrap()/expect() method calls that panic on None/Err
+
     Returns RuleResult with findings and fidelity manifest.
     """
-    findings = []
-
     if not context.db_path:
-        return RuleResult(findings=findings, manifest={})
+        return RuleResult(findings=[], manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Check Rust macro table
-        if _table_exists(db, "rust_macro_invocations"):
-            findings.extend(_check_panic_macros(db))
-            findings.extend(_check_assertion_macros(db))
-            findings.extend(_check_todo_unimplemented(db))
+        findings = []
 
-        # Check function_call_args for unwrap/expect
-        if _table_exists(db, "function_call_args"):
-            findings.extend(_check_unwraps(db))
+        # Rust macro invocations - panic/assert macros
+        # Table may not exist if no Rust files were indexed - queries return empty
+        findings.extend(_check_panic_macros(db))
+        findings.extend(_check_assertion_macros(db))
+
+        # Method calls - unwrap/expect on Option/Result
+        findings.extend(_check_unwraps(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
-
-
-# Legacy alias for orchestrator discovery
-def find_panic_paths(context: StandardRuleContext) -> RuleResult:
-    """Detect Rust panic-inducing code patterns."""
-    return analyze(context)

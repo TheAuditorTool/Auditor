@@ -1,20 +1,35 @@
-"""Rate Limit Analyzer - Production-Ready Database-Driven Detection."""
+"""Rate Limit Analyzer.
 
-import sqlite3
+Detects rate limiting misconfigurations and missing protections:
+- Middleware ordering issues (auth before rate limit)
+- Critical endpoints without rate limiting
+- Bypassable rate limit keys (spoofable headers)
+- Memory-based storage in distributed environments
+- Expensive operations before rate limiting
+
+CWE-770: Allocation of Resources Without Limits or Throttling
+CWE-307: Improper Restriction of Excessive Authentication Attempts
+CWE-290: Authentication Bypass by Spoofing
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
 
 METADATA = RuleMetadata(
     name="rate_limiting",
     category="security",
     target_extensions=[".py", ".js", ".ts"],
-    exclude_patterns=["test/", "spec.", "__tests__"])
+    exclude_patterns=["test/", "spec.", "__tests__"],
+    execution_scope="database",
+    primary_table="function_call_args",
+)
 
 
 AUTH_PATTERNS = frozenset(
@@ -247,41 +262,37 @@ FRAMEWORK_PATTERNS = frozenset(
 )
 
 
-def find_rate_limit_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect rate limiting misconfigurations using database queries."""
-    findings = []
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect rate limiting misconfigurations.
 
+    Checks for:
+    1. Middleware ordering (auth before rate limit = DoS)
+    2. Critical endpoints without rate limiting
+    3. Bypassable keys using spoofable headers
+    4. Memory storage in distributed environments
+    5. Expensive operations before rate limiting
+    6. Weak rate limit values on auth endpoints
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = []
 
-    try:
-        findings.extend(_detect_middleware_ordering(cursor))
+        findings.extend(_detect_middleware_ordering(db))
+        findings.extend(_detect_unprotected_endpoints(db))
+        findings.extend(_detect_bypassable_keys(db))
+        findings.extend(_detect_memory_storage(db))
+        findings.extend(_detect_expensive_operations(db))
+        findings.extend(_detect_api_rate_limits(db))
+        findings.extend(_detect_decorator_ordering(db))
+        findings.extend(_detect_bypass_configs(db))
+        findings.extend(_detect_missing_user_limits(db))
+        findings.extend(_detect_weak_rate_limits(db))
 
-        findings.extend(_detect_unprotected_endpoints(cursor))
-
-        findings.extend(_detect_bypassable_keys(cursor))
-
-        findings.extend(_detect_memory_storage(cursor))
-
-        findings.extend(_detect_expensive_operations(cursor))
-
-        findings.extend(_detect_api_rate_limits(cursor))
-
-        findings.extend(_detect_decorator_ordering(cursor))
-
-        findings.extend(_detect_bypass_configs(cursor))
-
-        findings.extend(_detect_missing_user_limits(cursor))
-
-        findings.extend(_detect_weak_rate_limits(cursor))
-
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def _determine_confidence(
@@ -340,11 +351,11 @@ def _get_attack_scenario(rule_name: str) -> str:
     return scenarios.get(rule_name, "Attacker can abuse unprotected functionality")
 
 
-def _detect_middleware_ordering(cursor) -> list[StandardFinding]:
+def _detect_middleware_ordering(db: RuleDB) -> list[StandardFinding]:
     """Detect incorrect middleware ordering (auth before rate limit)."""
     findings = []
 
-    cursor.execute("""
+    rows = db.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
@@ -352,7 +363,7 @@ def _detect_middleware_ordering(cursor) -> list[StandardFinding]:
     """)
 
     file_middleware = {}
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
         if not ("use" in func_lower or "middleware" in func_lower):
             continue
@@ -444,11 +455,11 @@ def _detect_middleware_ordering(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _detect_unprotected_endpoints(cursor) -> list[StandardFinding]:
+def _detect_unprotected_endpoints(db: RuleDB) -> list[StandardFinding]:
     """Detect critical endpoints without rate limiting."""
     findings = []
 
-    cursor.execute("""
+    rows = db.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
@@ -456,7 +467,7 @@ def _detect_unprotected_endpoints(cursor) -> list[StandardFinding]:
         ORDER BY file, line
     """)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
         if not ("post" in func_lower or "get" in func_lower or "route" in func_lower):
             continue
@@ -469,18 +480,18 @@ def _detect_unprotected_endpoints(cursor) -> list[StandardFinding]:
                 break
 
         if endpoint_found:
-            cursor.execute(
+            nearby_rows = db.execute(
                 """
                 SELECT callee_function, line, argument_expr
                 FROM function_call_args
                 WHERE file = ?
                   AND callee_function IS NOT NULL
             """,
-                (file,),
+                [file],
             )
 
             nearby_rate_limits = []
-            for nearby_func, nearby_line, nearby_args in cursor.fetchall():
+            for nearby_func, nearby_line, nearby_args in nearby_rows:
                 if abs(nearby_line - line) > 30:
                     continue
                 func_lower = nearby_func.lower()
@@ -496,7 +507,7 @@ def _detect_unprotected_endpoints(cursor) -> list[StandardFinding]:
             has_rate_limit = len(nearby_rate_limits) > 0
 
             if not has_rate_limit:
-                cursor.execute(
+                dec_rows = db.execute(
                     """
                     SELECT name, line
                     FROM symbols
@@ -504,10 +515,10 @@ def _detect_unprotected_endpoints(cursor) -> list[StandardFinding]:
                       AND type = 'decorator'
                       AND name IS NOT NULL
                 """,
-                    (file,),
+                    [file],
                 )
 
-                for dec_name, dec_line in cursor.fetchall():
+                for dec_name, dec_line in dec_rows:
                     if abs(dec_line - line) > 10:
                         continue
                     dec_name_lower = dec_name.lower()
@@ -542,11 +553,11 @@ def _detect_unprotected_endpoints(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _detect_bypassable_keys(cursor) -> list[StandardFinding]:
+def _detect_bypassable_keys(db: RuleDB) -> list[StandardFinding]:
     """Detect rate limiters using spoofable headers for keys."""
     findings = []
 
-    cursor.execute("""
+    rows = db.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
@@ -554,7 +565,7 @@ def _detect_bypassable_keys(cursor) -> list[StandardFinding]:
         ORDER BY file, line
     """)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
         if not ("ratelimit" in func_lower or "limiter" in func_lower):
             continue
@@ -600,7 +611,7 @@ def _detect_bypassable_keys(cursor) -> list[StandardFinding]:
                     )
                 )
 
-    cursor.execute("""
+    assign_rows = db.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
         WHERE source_expr IS NOT NULL
@@ -608,7 +619,7 @@ def _detect_bypassable_keys(cursor) -> list[StandardFinding]:
         ORDER BY file, line
     """)
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in assign_rows:
         expr_lower = expr.lower()
         if "headers" not in expr_lower:
             continue
@@ -621,7 +632,7 @@ def _detect_bypassable_keys(cursor) -> list[StandardFinding]:
         if not ("ip" in var_lower or "key" in var_lower or "client" in var_lower):
             continue
 
-        cursor.execute(
+        nearby_calls = db.execute(
             """
             SELECT callee_function, argument_expr
             FROM function_call_args
@@ -632,19 +643,17 @@ def _detect_bypassable_keys(cursor) -> list[StandardFinding]:
               AND callee_function IS NOT NULL
             LIMIT 1
         """,
-            (file, line, line),
+            [file, line, line],
         )
 
         var_used_in_rate_limit = False
-        for nearby_func, nearby_args in cursor.fetchall():
+        for nearby_func, nearby_args in nearby_calls:
             if var not in nearby_args:
                 continue
             func_lower = nearby_func.lower()
             if "limit" in func_lower or "throttle" in func_lower:
                 var_used_in_rate_limit = True
                 break
-
-        cursor.execute("SELECT 1")
 
         if var_used_in_rate_limit:
             findings.append(
@@ -668,11 +677,11 @@ def _detect_bypassable_keys(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _detect_memory_storage(cursor) -> list[StandardFinding]:
+def _detect_memory_storage(db: RuleDB) -> list[StandardFinding]:
     """Detect rate limiters using non-persistent storage."""
     findings = []
 
-    cursor.execute("""
+    rows = db.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
@@ -680,7 +689,7 @@ def _detect_memory_storage(cursor) -> list[StandardFinding]:
         ORDER BY file, line
     """)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
         if not ("ratelimit" in func_lower or "limiter" in func_lower):
             continue
@@ -715,13 +724,13 @@ def _detect_memory_storage(cursor) -> list[StandardFinding]:
                 )
             )
 
-    cursor.execute("""
+    flask_rows = db.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function = 'Limiter'
     """)
 
-    for file, line, _func, args in cursor.fetchall():
+    for file, line, _func, args in flask_rows:
         if args and "storage_uri" in args.lower():
             continue
 
@@ -745,19 +754,19 @@ def _detect_memory_storage(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _detect_expensive_operations(cursor) -> list[StandardFinding]:
+def _detect_expensive_operations(db: RuleDB) -> list[StandardFinding]:
     """Detect expensive operations that run before rate limiting."""
     findings = []
 
-    cursor.execute("""
+    file_rows = db.execute("""
         SELECT DISTINCT file
         FROM function_call_args
         WHERE callee_function IS NOT NULL
     """)
 
     rate_limited_files = set()
-    for (file,) in cursor.fetchall():
-        cursor.execute(
+    for (file,) in file_rows:
+        check_rows = db.execute(
             """
             SELECT callee_function
             FROM function_call_args
@@ -765,17 +774,17 @@ def _detect_expensive_operations(cursor) -> list[StandardFinding]:
               AND callee_function IS NOT NULL
             LIMIT 1
         """,
-            (file,),
+            [file],
         )
 
-        for (func,) in cursor.fetchall():
+        for (func,) in check_rows:
             func_lower = func.lower()
             if "limit" in func_lower or "throttle" in func_lower or "ratelimit" in func_lower:
                 rate_limited_files.add(file)
                 break
 
     for file in rate_limited_files:
-        cursor.execute(
+        func_rows = db.execute(
             """
             SELECT line, callee_function
             FROM function_call_args
@@ -783,11 +792,11 @@ def _detect_expensive_operations(cursor) -> list[StandardFinding]:
               AND callee_function IS NOT NULL
             ORDER BY line
         """,
-            (file,),
+            [file],
         )
 
         rate_limit_line = None
-        for line_num, func in cursor.fetchall():
+        for line_num, func in func_rows:
             func_lower = func.lower()
             if "limit" in func_lower or "throttle" in func_lower or "ratelimit" in func_lower:
                 rate_limit_line = line_num
@@ -796,9 +805,7 @@ def _detect_expensive_operations(cursor) -> list[StandardFinding]:
         if rate_limit_line is None:
             continue
 
-        cursor.execute("SELECT ?", (rate_limit_line,))
-
-        cursor.execute(
+        exp_rows = db.execute(
             """
             SELECT line, callee_function, argument_expr
             FROM function_call_args
@@ -806,10 +813,10 @@ def _detect_expensive_operations(cursor) -> list[StandardFinding]:
               AND line < ?
               AND callee_function IS NOT NULL
         """,
-            (file, rate_limit_line),
+            [file, rate_limit_line],
         )
 
-        for exp_line, exp_func, _exp_args in cursor.fetchall():
+        for exp_line, exp_func, _exp_args in exp_rows:
             exp_func_lower = exp_func.lower()
             if not any(op in exp_func_lower for op in EXPENSIVE_OPERATIONS):
                 continue
@@ -848,33 +855,33 @@ def _detect_expensive_operations(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _detect_api_rate_limits(cursor) -> list[StandardFinding]:
+def _detect_api_rate_limits(db: RuleDB) -> list[StandardFinding]:
     """Detect API endpoints without rate limiting."""
     findings = []
 
-    cursor.execute("""
+    rows = db.execute("""
         SELECT file, line, method, path
         FROM api_endpoints
         WHERE path IS NOT NULL
         ORDER BY file, line
     """)
 
-    for file, line, method, path in cursor.fetchall():
+    for file, line, method, path in rows:
         is_critical = any(endpoint in path.lower() for endpoint in CRITICAL_ENDPOINTS)
 
         if is_critical:
-            cursor.execute(
+            nearby_rows = db.execute(
                 """
                 SELECT callee_function, line, argument_expr
                 FROM function_call_args
                 WHERE file = ?
                   AND callee_function IS NOT NULL
             """,
-                (file,),
+                [file],
             )
 
             has_rate_limit = False
-            for nearby_func, nearby_line, nearby_args in cursor.fetchall():
+            for nearby_func, nearby_line, nearby_args in nearby_rows:
                 if abs(nearby_line - line) > 50:
                     continue
                 func_lower = nearby_func.lower()
@@ -906,11 +913,11 @@ def _detect_api_rate_limits(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _detect_decorator_ordering(cursor) -> list[StandardFinding]:
+def _detect_decorator_ordering(db: RuleDB) -> list[StandardFinding]:
     """Detect incorrect decorator ordering in Python."""
     findings = []
 
-    cursor.execute("""
+    rows = db.execute("""
         SELECT path, line, name
         FROM symbols
         WHERE type = 'decorator'
@@ -919,7 +926,7 @@ def _detect_decorator_ordering(cursor) -> list[StandardFinding]:
     """)
 
     file_decorators = {}
-    for file, line, name in cursor.fetchall():
+    for file, line, name in rows:
         name_lower = name.lower()
 
         if not (
@@ -983,11 +990,11 @@ def _detect_decorator_ordering(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _detect_bypass_configs(cursor) -> list[StandardFinding]:
+def _detect_bypass_configs(db: RuleDB) -> list[StandardFinding]:
     """Detect configurations that allow rate limit bypass."""
     findings = []
 
-    cursor.execute("""
+    rows = db.execute("""
         SELECT file, line, target_var, source_expr
         FROM assignments
         WHERE target_var IS NOT NULL
@@ -995,25 +1002,25 @@ def _detect_bypass_configs(cursor) -> list[StandardFinding]:
         ORDER BY file, line
     """)
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in rows:
         var_lower = var.lower()
         expr_lower = expr.lower()
         has_bypass = any(tech in var_lower or tech in expr_lower for tech in BYPASS_TECHNIQUES)
         if not has_bypass:
             continue
 
-        cursor.execute(
+        nearby_rows = db.execute(
             """
             SELECT callee_function, line, argument_expr
             FROM function_call_args
             WHERE file = ?
               AND callee_function IS NOT NULL
         """,
-            (file,),
+            [file],
         )
 
         has_rate_limit_nearby = False
-        for nearby_func, nearby_line, nearby_args in cursor.fetchall():
+        for nearby_func, nearby_line, nearby_args in nearby_rows:
             if abs(nearby_line - line) > 30:
                 continue
             func_lower = nearby_func.lower()
@@ -1044,11 +1051,11 @@ def _detect_bypass_configs(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _detect_missing_user_limits(cursor) -> list[StandardFinding]:
+def _detect_missing_user_limits(db: RuleDB) -> list[StandardFinding]:
     """Detect rate limiters that don't consider authenticated users."""
     findings = []
 
-    cursor.execute("""
+    rows = db.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
@@ -1056,7 +1063,7 @@ def _detect_missing_user_limits(cursor) -> list[StandardFinding]:
         ORDER BY file, line
     """)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
         if not ("ratelimit" in func_lower or "limiter" in func_lower):
             continue
@@ -1099,11 +1106,11 @@ def _detect_missing_user_limits(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _detect_weak_rate_limits(cursor) -> list[StandardFinding]:
+def _detect_weak_rate_limits(db: RuleDB) -> list[StandardFinding]:
     """Detect rate limits with weak values (too high)."""
     findings = []
 
-    cursor.execute("""
+    rows = db.execute("""
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
@@ -1111,7 +1118,7 @@ def _detect_weak_rate_limits(cursor) -> list[StandardFinding]:
         ORDER BY file, line
     """)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
         if not ("ratelimit" in func_lower or "limit" in func_lower):
             continue
@@ -1136,18 +1143,18 @@ def _detect_weak_rate_limits(cursor) -> list[StandardFinding]:
             num = int(num_str)
 
             if num > 10:
-                cursor.execute(
+                auth_rows = db.execute(
                     """
                     SELECT argument_expr, line
                     FROM function_call_args
                     WHERE file = ?
                       AND argument_expr IS NOT NULL
                 """,
-                    (file,),
+                    [file],
                 )
 
                 is_auth_endpoint = False
-                for nearby_args, nearby_line in cursor.fetchall():
+                for nearby_args, nearby_line in auth_rows:
                     if abs(nearby_line - line) > 20:
                         continue
                     args_lower = nearby_args.lower()
@@ -1205,6 +1212,3 @@ def generate_rate_limit_summary(findings: list[StandardFinding]) -> dict:
     ]
 
     return summary
-
-
-__all__ = ["find_rate_limit_issues", "generate_rate_limit_summary"]

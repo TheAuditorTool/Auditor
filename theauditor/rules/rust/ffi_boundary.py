@@ -5,9 +5,6 @@ Detects FFI-related security issues:
 - Variadic C functions (format string risks)
 - FFI boundaries without proper validation
 - Rust functions exposed to C without panic handling (catch_unwind)
-
-Uses RuleDB for fidelity tracking. Rust-specific tables use db.execute()
-since they may not be in Q class schema.
 """
 
 import json
@@ -21,6 +18,7 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="rust_ffi_boundary",
@@ -28,27 +26,42 @@ METADATA = RuleMetadata(
     target_extensions=[".rs"],
     exclude_patterns=["test/", "tests/", "benches/"],
     execution_scope="database",
+    primary_table="rust_extern_functions",
 )
 
 
-def _table_exists(db: RuleDB, table_name: str) -> bool:
-    """Check if a table exists in the database."""
-    rows = db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        [table_name],
-    )
-    return len(rows) > 0
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Rust FFI boundary security issues.
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
+    findings: list[StandardFinding] = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_check_variadic_functions(db))
+        findings.extend(_check_raw_pointer_params(db))
+        findings.extend(_check_extern_blocks(db))
+        findings.extend(_check_panic_across_ffi(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def _check_variadic_functions(db: RuleDB) -> list[StandardFinding]:
     """Flag variadic C functions (format string vulnerability risk)."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    rows = db.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file_path, line, name, abi, params_json
         FROM rust_extern_functions
         WHERE is_variadic = 1
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     format_functions = {"printf", "sprintf", "fprintf", "snprintf", "vprintf", "vsprintf"}
 
@@ -83,25 +96,29 @@ def _check_variadic_functions(db: RuleDB) -> list[StandardFinding]:
 
 def _check_raw_pointer_params(db: RuleDB) -> list[StandardFinding]:
     """Flag FFI functions with raw pointer parameters."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    rows = db.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file_path, line, name, abi, params_json, return_type
         FROM rust_extern_functions
         WHERE params_json IS NOT NULL
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, fn_name, _, params_json, return_type = row
         return_type = return_type or ""
 
         has_raw_ptr = False
-        ptr_params = []
+        ptr_params: list[str] = []
 
         if params_json:
             try:
-                params = json.loads(params_json)
-                for param in params:
+                params_data = json.loads(params_json)
+                for param in params_data:
                     param_type = param.get("type", "") if isinstance(param, dict) else str(param)
                     if "*const" in param_type or "*mut" in param_type:
                         has_raw_ptr = True
@@ -156,21 +173,22 @@ def _check_raw_pointer_params(db: RuleDB) -> list[StandardFinding]:
 
 def _check_extern_blocks(db: RuleDB) -> list[StandardFinding]:
     """Flag extern blocks for security review."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    if not _table_exists(db, "rust_extern_blocks"):
-        return findings
-
-    rows = db.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file_path, line, end_line, abi
         FROM rust_extern_blocks
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, end_line, abi = row
         abi = abi or "C"
 
-        fn_count_rows = db.execute(
+        fn_count_sql, fn_count_params = Q.raw(
             """
             SELECT COUNT(*) as fn_count
             FROM rust_extern_functions
@@ -180,6 +198,7 @@ def _check_extern_blocks(db: RuleDB) -> list[StandardFinding]:
             """,
             [file_path, line, end_line, end_line],
         )
+        fn_count_rows = db.execute(fn_count_sql, fn_count_params)
         fn_count = fn_count_rows[0][0] if fn_count_rows else 0
 
         if fn_count > 0:
@@ -211,23 +230,23 @@ def _check_panic_across_ffi(db: RuleDB) -> list[StandardFinding]:
 
     Checks for: #[no_mangle] pub extern "C" fn without catch_unwind
     """
-    findings = []
+    findings: list[StandardFinding] = []
 
-    if not _table_exists(db, "rust_functions"):
-        return findings
-
-    rows = db.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file_path, line, name, visibility, is_unsafe, return_type
         FROM rust_functions
         WHERE visibility = 'pub'
           AND (abi = 'C' OR abi = 'system' OR abi = 'cdecl')
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, fn_name, _, _, _ = row
 
-        # Check if function body contains catch_unwind
-        catch_unwind_rows = db.execute(
+        catch_unwind_sql, catch_unwind_params = Q.raw(
             """
             SELECT COUNT(*) as count FROM function_call_args
             WHERE file = ?
@@ -241,7 +260,7 @@ def _check_panic_across_ffi(db: RuleDB) -> list[StandardFinding]:
             """,
             [file_path, line, line],
         )
-
+        catch_unwind_rows = db.execute(catch_unwind_sql, catch_unwind_params)
         has_catch_unwind = catch_unwind_rows[0][0] > 0 if catch_unwind_rows else False
 
         if not has_catch_unwind:
@@ -261,43 +280,8 @@ def _check_panic_across_ffi(db: RuleDB) -> list[StandardFinding]:
                             "Wrap function body with std::panic::catch_unwind() "
                             "to prevent undefined behavior when panic crosses FFI"
                         ),
-                        "example": (
-                            '#[no_mangle]\n'
-                            'pub extern "C" fn my_func() -> i32 {\n'
-                            '    std::panic::catch_unwind(|| {\n'
-                            '        // function body\n'
-                            '    }).unwrap_or(-1)\n'
-                            '}'
-                        ),
                     },
                 )
             )
 
     return findings
-
-
-def analyze(context: StandardRuleContext) -> RuleResult:
-    """Detect Rust FFI boundary security issues.
-
-    Returns RuleResult with findings and fidelity manifest.
-    """
-    findings = []
-
-    if not context.db_path:
-        return RuleResult(findings=findings, manifest={})
-
-    with RuleDB(context.db_path, METADATA.name) as db:
-        if _table_exists(db, "rust_extern_functions"):
-            findings.extend(_check_variadic_functions(db))
-            findings.extend(_check_raw_pointer_params(db))
-            findings.extend(_check_extern_blocks(db))
-
-        findings.extend(_check_panic_across_ffi(db))
-
-        return RuleResult(findings=findings, manifest=db.get_manifest())
-
-
-# Legacy alias for orchestrator discovery
-def find_ffi_boundary_issues(context: StandardRuleContext) -> RuleResult:
-    """Detect Rust FFI boundary security issues."""
-    return analyze(context)

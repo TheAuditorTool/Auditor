@@ -4,40 +4,41 @@ Registers Rust-specific patterns for taint analysis:
 - Sources: stdin, env, file read, web framework inputs (Actix, Axum, Rocket, Warp)
 - Sinks: Command execution, SQL queries, file writes, unsafe pointer operations, network
 
-IMPORTANT: The find_rust_injection_issues() function is required for orchestrator
-discovery. See sql_injection_analyze.py:48 - "Named find_* for orchestrator
-discovery - enables register_taint_patterns loading."
-
-Auto-discovered by orchestrator._discover_all_rules() at orchestrator.py:68-100.
-Pattern registration via collect_rule_patterns() at orchestrator.py:471-495.
-
-Pattern Format Notes (verified 2025-12-05):
+Pattern Format Notes:
 - TaintRegistry uses EXACT string matching against function_call_args.callee_function
 - Patterns include BOTH qualified (std::env::var) and unqualified (env::var) forms
 - Database stores: Type::method (Command::new), module::function (std::env::var)
 
-Fidelity Note:
-- This is a PATTERN-ONLY module - it does NOT query the database
-- find_rust_injection_issues() is a discovery stub returning []
-- register_taint_patterns() adds patterns to TaintRegistry (no DB access)
-- Therefore, RuleDB/Q/RuleResult fidelity tracking does NOT apply here
-- See RULES_HANDOFF.md for fidelity system documentation
+This is a PATTERN-ONLY module - analyze() returns empty results.
+Actual taint analysis happens via TaintRegistry using these registered patterns.
 """
 
-from theauditor.rules.base import StandardFinding, StandardRuleContext
+from theauditor.rules.base import (
+    RuleMetadata,
+    RuleResult,
+    StandardRuleContext,
+)
 from theauditor.utils.logging import logger
 
+METADATA = RuleMetadata(
+    name="rust_injection",
+    category="security",
+    target_extensions=[".rs"],
+    exclude_patterns=["test/", "tests/", "benches/"],
+    execution_scope="database",
+)
 
-def find_rust_injection_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Stub for orchestrator discovery.
 
-    Named find_* for orchestrator discovery - enables register_taint_patterns loading.
-    Actual taint analysis happens via TaintRegistry, not this rule.
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Pattern-only module for taint analysis.
 
-    The orchestrator at orchestrator.py:93 only discovers modules with find_* functions.
-    Without this function, register_taint_patterns() would never be called.
+    This rule does not perform direct analysis. Instead, it registers
+    source/sink patterns via register_taint_patterns() which are used
+    by the taint analysis engine.
+
+    Returns empty RuleResult - actual findings come from taint analysis.
     """
-    return []  # Pattern-only module - taint analysis uses TaintRegistry
+    return RuleResult(findings=[], manifest={"pattern_module": True})
 
 
 def register_taint_patterns(taint_registry):

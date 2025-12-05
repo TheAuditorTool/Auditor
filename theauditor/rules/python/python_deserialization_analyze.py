@@ -1,606 +1,592 @@
-"""Python Deserialization Vulnerability Analyzer - Database-First Approach."""
-
-import sqlite3
-from dataclasses import dataclass
+"""Python Deserialization Vulnerability Analyzer - Detects pickle, YAML, marshal, and XXE issues."""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="python_deserialization",
     category="deserialization",
     target_extensions=[".py"],
     exclude_patterns=[
-        "frontend/",
-        "client/",
         "node_modules/",
-        "test/",
-        "__tests__/",
-        "migrations/",
-    ])
+        "vendor/",
+        ".venv/",
+        "__pycache__/",
+    ],
+    execution_scope="database",
+    primary_table="function_call_args",
+)
+
+# Pickle/unpickle methods - ALL are dangerous (RCE)
+PICKLE_METHODS = frozenset([
+    "pickle.load",
+    "pickle.loads",
+    "pickle.Unpickler",
+    "cPickle.load",
+    "cPickle.loads",
+    "cPickle.Unpickler",
+    "dill.load",
+    "dill.loads",
+    "cloudpickle.load",
+    "cloudpickle.loads",
+])
+
+# Unsafe YAML loaders - allow arbitrary Python object construction
+YAML_UNSAFE = frozenset([
+    "yaml.load",
+    "yaml.full_load",
+    "yaml.unsafe_load",
+    "yaml.UnsafeLoader",
+    "yaml.FullLoader",
+    "yaml.Loader",
+])
+
+# Marshal methods - can execute arbitrary bytecode
+MARSHAL_METHODS = frozenset([
+    "marshal.load",
+    "marshal.loads",
+    "marshal.dump",
+    "marshal.dumps",
+])
+
+# Shelve methods - uses pickle internally
+SHELVE_METHODS = frozenset([
+    "shelve.open",
+    "shelve.DbfilenameShelf",
+    "shelve.Shelf",
+])
+
+# JSON dangerous patterns (custom deserializers)
+JSON_DANGEROUS = frozenset([
+    "object_hook",
+    "object_pairs_hook",
+    "cls=",
+])
+
+# Django session serialization patterns
+DJANGO_SESSION = frozenset([
+    "django.contrib.sessions.serializers.PickleSerializer",
+    "PickleSerializer",
+    "session.get_decoded",
+    "signing.loads",
+])
+
+# Flask session patterns
+FLASK_SESSION = frozenset([
+    "flask.session",
+    "SecureCookie.unserialize",
+    "session.loads",
+])
+
+# XML parsing methods vulnerable to XXE
+XML_UNSAFE = frozenset([
+    "etree.parse",
+    "etree.fromstring",
+    "etree.XMLParser",
+    "xml.dom.minidom.parse",
+    "xml.dom.minidom.parseString",
+    "xml.sax.parse",
+    "ElementTree.parse",
+    "ElementTree.fromstring",
+])
+
+# Network data sources (untrusted input)
+NETWORK_SOURCES = frozenset([
+    "request.data",
+    "request.get_data",
+    "request.files",
+    "request.form",
+    "request.json",
+    "request.values",
+    "socket.recv",
+    "socket.recvfrom",
+    "urlopen",
+    "requests.get",
+    "requests.post",
+    "response.content",
+    "redis.get",
+    "cache.get",
+    "memcache.get",
+])
+
+# File data sources
+FILE_SOURCES = frozenset([
+    "open",
+    "file.read",
+    "Path.read_bytes",
+    "Path.read_text",
+    "io.BytesIO",
+    "io.StringIO",
+    "tempfile",
+])
+
+# Base64 decode patterns (often used to obfuscate pickle payloads)
+BASE64_PATTERNS = frozenset([
+    "b64decode",
+    "base64.b64decode",
+    "base64.decode",
+    "base64.standard_b64decode",
+    "base64.urlsafe_b64decode",
+    "decodebytes",
+    "decodestring",
+])
 
 
-@dataclass(frozen=True)
-class DeserializationPatterns:
-    """Immutable pattern definitions for deserialization detection."""
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Python deserialization vulnerabilities.
 
-    PICKLE_METHODS = frozenset(
-        [
-            "pickle.load",
-            "pickle.loads",
-            "pickle.Unpickler",
-            "cPickle.load",
-            "cPickle.loads",
-            "cPickle.Unpickler",
-            "dill.load",
-            "dill.loads",
-            "cloudpickle.load",
-            "cloudpickle.loads",
-            "load",
-            "loads",
-        ]
-    )
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
 
-    YAML_UNSAFE = frozenset(
-        [
-            "yaml.load",
-            "yaml.full_load",
-            "yaml.unsafe_load",
-            "yaml.UnsafeLoader",
-            "yaml.FullLoader",
-            "yaml.Loader",
-            "load",
-        ]
-    )
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
 
-    YAML_SAFE = frozenset(["yaml.safe_load", "yaml.SafeLoader", "safe_load"])
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
+        seen: set[str] = set()
 
-    MARSHAL_METHODS = frozenset(["marshal.load", "marshal.loads", "marshal.dump", "marshal.dumps"])
+        def add_finding(
+            file: str,
+            line: int,
+            rule_name: str,
+            message: str,
+            severity: Severity,
+            confidence: Confidence = Confidence.HIGH,
+            cwe_id: str | None = None,
+        ) -> None:
+            """Add a finding if not already seen."""
+            key = f"{file}:{line}:{rule_name}"
+            if key in seen:
+                return
+            seen.add(key)
 
-    SHELVE_METHODS = frozenset(["shelve.open", "shelve.DbfilenameShelf", "shelve.Shelf"])
-
-    JSON_DANGEROUS = frozenset(["object_hook", "object_pairs_hook", "cls="])
-
-    DJANGO_SESSION = frozenset(
-        [
-            "django.contrib.sessions.serializers.PickleSerializer",
-            "PickleSerializer",
-            "session.get_decoded",
-            "signing.loads",
-        ]
-    )
-
-    FLASK_SESSION = frozenset(["flask.session", "SecureCookie.unserialize", "session.loads"])
-
-    XML_UNSAFE = frozenset(
-        [
-            "etree.parse",
-            "etree.fromstring",
-            "etree.XMLParse",
-            "xml.dom.minidom.parse",
-            "xml.dom.minidom.parseString",
-            "xml.sax.parse",
-            "ElementTree.parse",
-            "ElementTree.fromstring",
-        ]
-    )
-
-    EVAL_PATTERNS = frozenset(
-        ["eval", "exec", "__import__", "compile", "execfile", "ast.literal_eval"]
-    )
-
-    NETWORK_SOURCES = frozenset(
-        [
-            "request.data",
-            "request.get_data",
-            "request.files",
-            "request.form",
-            "request.json",
-            "request.values",
-            "socket.recv",
-            "socket.recvfrom",
-            "urlopen",
-            "requests.get",
-            "requests.post",
-            "response.content",
-            "redis.get",
-            "cache.get",
-            "memcache.get",
-        ]
-    )
-
-    FILE_SOURCES = frozenset(
-        [
-            "open",
-            "file.read",
-            "Path.read_bytes",
-            "Path.read_text",
-            "io.BytesIO",
-            "io.StringIO",
-            "tempfile",
-        ]
-    )
-
-    BASE64_PATTERNS = frozenset(
-        [
-            "b64decode",
-            "base64.b64decode",
-            "base64.decode",
-            "base64.standard_b64decode",
-            "base64.urlsafe_b64decode",
-            "decodebytes",
-            "decodestring",
-        ]
-    )
-
-    COMPRESSION_PATTERNS = frozenset(
-        [
-            "zlib.decompress",
-            "gzip.decompress",
-            "bz2.decompress",
-            "lzma.decompress",
-            "lz4.decompress",
-        ]
-    )
-
-
-class DeserializationAnalyzer:
-    """Analyzer for Python deserialization vulnerabilities."""
-
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context."""
-        self.context = context
-        self.patterns = DeserializationPatterns()
-        self.findings = []
-
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
-
-        conn = sqlite3.connect(self.context.db_path)
-        self.cursor = conn.cursor()
-
-        try:
-            self._check_pickle_usage()
-            self._check_yaml_unsafe()
-            self._check_marshal_shelve()
-            self._check_json_exploitation()
-            self._check_django_flask_sessions()
-            self._check_xml_xxe()
-            self._check_base64_pickle_combo()
-            self._check_imports_context()
-
-        finally:
-            conn.close()
-
-        return self.findings
-
-    def _check_pickle_usage(self):
-        """Detect pickle usage - CRITICAL vulnerability."""
-        pickle_placeholders = ",".join("?" * len(self.patterns.PICKLE_METHODS))
-
-        self.cursor.execute(
-            f"""
-            SELECT file, line, callee_function, argument_expr, caller_function
-            FROM function_call_args
-            WHERE callee_function IN ({pickle_placeholders})
-            ORDER BY file, line
-        """,
-            list(self.patterns.PICKLE_METHODS),
-        )
-
-        pickle_usages = self.cursor.fetchall()
-
-        for file, line, method, args, _caller in pickle_usages:
-            severity = Severity.CRITICAL
-            confidence = Confidence.HIGH
-
-            data_source = self._check_data_source(file, line, args)
-
-            if data_source == "network":
-                message = f"CRITICAL: Pickle {method} with network data - remote code execution!"
-            elif data_source == "file":
-                message = f"Pickle {method} with file data - code execution risk"
-            else:
-                message = f"Unsafe deserialization with {method}"
-                severity = Severity.HIGH
-                confidence = Confidence.MEDIUM
-
-            self.findings.append(
+            findings.append(
                 StandardFinding(
-                    rule_name="python-pickle-deserialization",
+                    rule_name=rule_name,
                     message=message,
                     file_path=file,
                     line=line,
                     severity=severity,
-                    category="deserialization",
+                    category=METADATA.category,
                     confidence=confidence,
-                    cwe_id="CWE-502",
+                    cwe_id=cwe_id,
                 )
             )
 
-    def _check_yaml_unsafe(self):
-        """Detect unsafe YAML loading."""
-        yaml_unsafe_placeholders = ",".join("?" * len(self.patterns.YAML_UNSAFE))
+        # Run all deserialization checks
+        _check_pickle_usage(db, add_finding)
+        _check_yaml_unsafe(db, add_finding)
+        _check_marshal_shelve(db, add_finding)
+        _check_json_exploitation(db, add_finding)
+        _check_django_flask_sessions(db, add_finding)
+        _check_xml_xxe(db, add_finding)
+        _check_base64_pickle_combo(db, add_finding)
+        _check_pickle_imports(db, add_finding)
 
-        self.cursor.execute(
-            f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({yaml_unsafe_placeholders})
-            ORDER BY file, line
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+def _check_pickle_usage(db: RuleDB, add_finding) -> None:
+    """Detect pickle usage - CRITICAL remote code execution vulnerability."""
+    placeholders = ", ".join("?" for _ in PICKLE_METHODS)
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, callee_function, argument_expr, caller_function
+        FROM function_call_args
+        WHERE callee_function IN ({placeholders})
+        ORDER BY file, line
         """,
-            list(self.patterns.YAML_UNSAFE),
-        )
+        list(PICKLE_METHODS),
+    )
 
-        yaml_unsafe_usages = self.cursor.fetchall()
+    for row in db.execute(sql, params):
+        file, line, method, args, caller = row[0], row[1], row[2], row[3], row[4]
 
-        for file, line, method, args in yaml_unsafe_usages:
-            if args and "SafeLoader" in args:
-                continue
+        data_source = _check_data_source(db, file, line, args)
 
-            data_source = self._check_data_source(file, line, args)
-
-            severity = Severity.CRITICAL if data_source == "network" else Severity.HIGH
-
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-yaml-unsafe-load",
-                    message=f"Unsafe YAML loading with {method} - code execution risk",
-                    file_path=file,
-                    line=line,
-                    severity=severity,
-                    category="deserialization",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-502",
-                )
+        if data_source == "network":
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-pickle-deserialization",
+                message=f"CRITICAL: Pickle {method} with network data - remote code execution",
+                severity=Severity.CRITICAL,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-502",
+            )
+        elif data_source == "file":
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-pickle-deserialization",
+                message=f"Pickle {method} with file data - code execution risk",
+                severity=Severity.CRITICAL,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-502",
+            )
+        else:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-pickle-deserialization",
+                message=f"Unsafe deserialization with {method}",
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-502",
             )
 
-    def _check_marshal_shelve(self):
-        """Detect marshal and shelve usage."""
 
-        marshal_placeholders = ",".join("?" * len(self.patterns.MARSHAL_METHODS))
-
-        self.cursor.execute(
-            f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({marshal_placeholders})
-            ORDER BY file, line
+def _check_yaml_unsafe(db: RuleDB, add_finding) -> None:
+    """Detect unsafe YAML loading - arbitrary object instantiation."""
+    placeholders = ", ".join("?" for _ in YAML_UNSAFE)
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IN ({placeholders})
+        ORDER BY file, line
         """,
-            list(self.patterns.MARSHAL_METHODS),
+        list(YAML_UNSAFE),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, method, args = row[0], row[1], row[2], row[3]
+
+        # Skip if SafeLoader is explicitly used
+        if args and "SafeLoader" in str(args):
+            continue
+
+        data_source = _check_data_source(db, file, line, args)
+        severity = Severity.CRITICAL if data_source == "network" else Severity.HIGH
+
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-yaml-unsafe-load",
+            message=f"Unsafe YAML loading with {method} - code execution risk",
+            severity=severity,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-502",
         )
 
-        for file, line, method, _args in self.cursor.fetchall():
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-marshal-usage",
-                    message=f"Marshal {method} can execute arbitrary bytecode",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="deserialization",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-502",
-                )
-            )
 
-        shelve_placeholders = ",".join("?" * len(self.patterns.SHELVE_METHODS))
-
-        self.cursor.execute(
-            f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({shelve_placeholders})
-            ORDER BY file, line
+def _check_marshal_shelve(db: RuleDB, add_finding) -> None:
+    """Detect marshal and shelve usage - bytecode execution risk."""
+    # Check marshal
+    marshal_placeholders = ", ".join("?" for _ in MARSHAL_METHODS)
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, callee_function
+        FROM function_call_args
+        WHERE callee_function IN ({marshal_placeholders})
+        ORDER BY file, line
         """,
-            list(self.patterns.SHELVE_METHODS),
+        list(MARSHAL_METHODS),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, method = row[0], row[1], row[2]
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-marshal-usage",
+            message=f"Marshal {method} can execute arbitrary bytecode",
+            severity=Severity.HIGH,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-502",
         )
 
-        for file, line, method, _args in self.cursor.fetchall():
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-shelve-usage",
-                    message=f"Shelve {method} uses pickle internally - code execution risk",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="deserialization",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-502",
-                )
-            )
-
-    def _check_json_exploitation(self):
-        """Detect potentially exploitable JSON parsing."""
-        self.cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ('json.loads', 'json.load', 'loads', 'load')
-              AND argument_expr IS NOT NULL
-            ORDER BY file, line
-        """)
-
-        for file, line, method, args in self.cursor.fetchall():
-            has_object_hook = any(hook in args for hook in self.patterns.JSON_DANGEROUS)
-
-            if has_object_hook:
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="python-json-object-hook",
-                        message=f"JSON {method} with object_hook can be exploited",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.MEDIUM,
-                        category="deserialization",
-                        confidence=Confidence.MEDIUM,
-                        cwe_id="CWE-502",
-                    )
-                )
-
-    def _check_django_flask_sessions(self):
-        """Detect unsafe session deserialization in web frameworks."""
-        from theauditor.indexer.schema import build_query
-
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "callee_function", "argument_expr"],
-            order_by="file, line",
-        )
-        self.cursor.execute(query)
-
-        for file, line, method, args in self.cursor.fetchall():
-            if method not in self.patterns.DJANGO_SESSION and not (
-                args and "PickleSerializer" in args
-            ):
-                continue
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-django-pickle-session",
-                    message="Django PickleSerializer for sessions is unsafe",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category="deserialization",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-502",
-                )
-            )
-
-        flask_placeholders = ",".join("?" * len(self.patterns.FLASK_SESSION))
-
-        self.cursor.execute(
-            f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({flask_placeholders})
-            ORDER BY file, line
+    # Check shelve
+    shelve_placeholders = ", ".join("?" for _ in SHELVE_METHODS)
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, callee_function
+        FROM function_call_args
+        WHERE callee_function IN ({shelve_placeholders})
+        ORDER BY file, line
         """,
-            list(self.patterns.FLASK_SESSION),
+        list(SHELVE_METHODS),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, method = row[0], row[1], row[2]
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-shelve-usage",
+            message=f"Shelve {method} uses pickle internally - code execution risk",
+            severity=Severity.HIGH,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-502",
         )
 
-        for file, line, method, args in self.cursor.fetchall():
-            if "pickle" in method.lower() or (args and "pickle" in args.lower()):
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="python-flask-unsafe-session",
-                        message="Flask session using unsafe deserialization",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category="deserialization",
-                        confidence=Confidence.MEDIUM,
-                        cwe_id="CWE-502",
-                    )
-                )
 
-    def _check_xml_xxe(self):
-        """Detect XML external entity (XXE) vulnerabilities."""
-        xml_placeholders = ",".join("?" * len(self.patterns.XML_UNSAFE))
-
-        self.cursor.execute(
-            f"""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({xml_placeholders})
-            ORDER BY file, line
+def _check_json_exploitation(db: RuleDB, add_finding) -> None:
+    """Detect potentially exploitable JSON parsing with custom object hooks."""
+    sql, params = Q.raw(
+        """
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IN ('json.loads', 'json.load', 'loads', 'load')
+          AND argument_expr IS NOT NULL
+        ORDER BY file, line
         """,
-            list(self.patterns.XML_UNSAFE),
-        )
+        [],
+    )
 
-        for file, line, method, args in self.cursor.fetchall():
-            if args and "resolve_entities=False" in args:
-                continue
+    for row in db.execute(sql, params):
+        file, line, method, args = row[0], row[1], row[2], row[3]
 
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-xml-xxe",
-                    message=f"XML parsing with {method} vulnerable to XXE attacks",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="deserialization",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-611",
-                )
-            )
-
-    def _check_base64_pickle_combo(self):
-        """Detect base64-encoded pickle (common attack pattern)."""
-        from theauditor.indexer.schema import build_query
-
-        base64_list = list(self.patterns.BASE64_PATTERNS)
-        base64_placeholders = ",".join("?" * len(base64_list))
-
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "callee_function"],
-            where=f"callee_function IN ({base64_placeholders})",
-            order_by="file, line",
-        )
-        self.cursor.execute(query, base64_list)
-        base64_calls = self.cursor.fetchall()
-
-        query = build_query("function_call_args", ["file", "line", "callee_function"])
-        self.cursor.execute(query)
-        all_calls = self.cursor.fetchall()
-
-        findings_set = set()
-        for b64_file, b64_line, b64_method in base64_calls:
-            for call_file, call_line, call_method in all_calls:
-                if call_file == b64_file and b64_line <= call_line <= b64_line + 5:
-                    call_lower = call_method.lower()
-                    if "pickle.load" in call_lower or call_method.endswith("loads"):
-                        findings_set.add((b64_file, b64_line, b64_method))
-
-        for file, line, _method in findings_set:
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-base64-pickle",
-                    message="Base64-encoded pickle detected - common attack vector",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category="deserialization",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-502",
-                )
-            )
-
-    def _check_data_source(self, file: str, line: int, args: str) -> str:
-        """Determine if data comes from network, file, or unknown source."""
         if not args:
-            return "unknown"
+            continue
 
-        for source in self.patterns.NETWORK_SOURCES:
-            if source in args:
-                return "network"
+        args_str = str(args)
+        has_object_hook = any(hook in args_str for hook in JSON_DANGEROUS)
 
-        for source in self.patterns.FILE_SOURCES:
-            if source in args:
-                return "file"
+        if has_object_hook:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-json-object-hook",
+                message=f"JSON {method} with object_hook can be exploited",
+                severity=Severity.MEDIUM,
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-502",
+            )
 
-        self.cursor.execute(
-            """
-            SELECT callee_function FROM function_call_args
-            WHERE file = ?
-              AND line >= ? - 10
-              AND line <= ?
-            ORDER BY line DESC
-            LIMIT 5
-        """,
-            [file, line, line],
+
+def _check_django_flask_sessions(db: RuleDB, add_finding) -> None:
+    """Detect unsafe session deserialization in Django/Flask."""
+    # Check Django PickleSerializer
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for row in rows:
+        file, line, method, args = row[0], row[1], row[2], row[3]
+
+        is_django_pickle = (
+            method in DJANGO_SESSION
+            or (args and "PickleSerializer" in str(args))
         )
 
-        recent_calls = [row[0] for row in self.cursor.fetchall()]
+        if is_django_pickle:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-django-pickle-session",
+                message="Django PickleSerializer for sessions is unsafe",
+                severity=Severity.CRITICAL,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-502",
+            )
 
-        for call in recent_calls:
-            if any(net in call for net in self.patterns.NETWORK_SOURCES):
-                return "network"
-            if any(f in call for f in self.patterns.FILE_SOURCES):
-                return "file"
+    # Check Flask session patterns
+    flask_placeholders = ", ".join("?" for _ in FLASK_SESSION)
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IN ({flask_placeholders})
+        ORDER BY file, line
+        """,
+        list(FLASK_SESSION),
+    )
 
+    for row in db.execute(sql, params):
+        file, line, method, args = row[0], row[1], row[2], row[3]
+
+        method_lower = method.lower() if method else ""
+        args_lower = str(args).lower() if args else ""
+
+        if "pickle" in method_lower or "pickle" in args_lower:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-flask-unsafe-session",
+                message="Flask session using unsafe deserialization",
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-502",
+            )
+
+
+def _check_xml_xxe(db: RuleDB, add_finding) -> None:
+    """Detect XML external entity (XXE) vulnerabilities."""
+    placeholders = ", ".join("?" for _ in XML_UNSAFE)
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IN ({placeholders})
+        ORDER BY file, line
+        """,
+        list(XML_UNSAFE),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, method, args = row[0], row[1], row[2], row[3]
+
+        # Skip if external entities are disabled
+        if args and "resolve_entities=False" in str(args):
+            continue
+
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-xml-xxe",
+            message=f"XML parsing with {method} vulnerable to XXE attacks",
+            severity=Severity.HIGH,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-611",
+        )
+
+
+def _check_base64_pickle_combo(db: RuleDB, add_finding) -> None:
+    """Detect base64-encoded pickle - common attack pattern to bypass filters."""
+    # Find base64 decode calls
+    base64_placeholders = ", ".join("?" for _ in BASE64_PATTERNS)
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, callee_function
+        FROM function_call_args
+        WHERE callee_function IN ({base64_placeholders})
+        ORDER BY file, line
+        """,
+        list(BASE64_PATTERNS),
+    )
+
+    base64_calls = list(db.execute(sql, params))
+
+    if not base64_calls:
+        return
+
+    # Get all function calls to check for nearby pickle
+    all_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+    )
+
+    findings_set: set[tuple[str, int]] = set()
+
+    for b64_row in base64_calls:
+        b64_file, b64_line = b64_row[0], b64_row[1]
+
+        for call_row in all_rows:
+            call_file, call_line, call_method = call_row[0], call_row[1], call_row[2]
+
+            if call_file != b64_file:
+                continue
+            if not (b64_line <= call_line <= b64_line + 5):
+                continue
+            if not call_method:
+                continue
+
+            call_lower = call_method.lower()
+            if "pickle.load" in call_lower or call_method.endswith("loads"):
+                findings_set.add((b64_file, b64_line))
+
+    for file, line in findings_set:
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-base64-pickle",
+            message="Base64-encoded pickle detected - common attack vector",
+            severity=Severity.CRITICAL,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-502",
+        )
+
+
+def _check_pickle_imports(db: RuleDB, add_finding) -> None:
+    """Flag pickle module imports as a code smell."""
+    rows = db.query(
+        Q("refs")
+        .select("src", "line", "value")
+    )
+
+    pickle_files: set[tuple[str, int]] = set()
+    for row in rows:
+        src, line, value = row[0], row[1], row[2]
+        if not value:
+            continue
+
+        if value in ("pickle", "cPickle", "dill", "cloudpickle"):
+            pickle_files.add((src, line))
+
+    # For each import, check if there's actual pickle usage
+    for file, import_line in pickle_files:
+        usage_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("file = ?", file)
+        )
+
+        has_pickle_usage = any(
+            "pickle" in str(row[0]).lower()
+            for row in usage_rows
+            if row[0]
+        )
+
+        # Only flag imports without corresponding usage (code smell)
+        if not has_pickle_usage:
+            add_finding(
+                file=file,
+                line=import_line,
+                rule_name="python-pickle-import",
+                message="Pickle module imported - consider safer alternatives",
+                severity=Severity.MEDIUM,
+                confidence=Confidence.LOW,
+                cwe_id="CWE-502",
+            )
+
+
+def _check_data_source(db: RuleDB, file: str, line: int, args: str | None) -> str:
+    """Determine if data comes from network, file, or unknown source."""
+    if not args:
         return "unknown"
 
-    def _check_imports_context(self):
-        """Check if dangerous modules are imported."""
-        from theauditor.indexer.schema import build_query
+    args_str = str(args)
 
-        query = build_query("refs", ["src", "line", "value"])
-        self.cursor.execute(query)
+    # Check direct network sources
+    for source in NETWORK_SOURCES:
+        if source in args_str:
+            return "network"
 
-        pickle_imports = []
-        for src, line, value in self.cursor.fetchall():
-            if not value:
-                continue
-            if (
-                value in ("pickle", "cPickle", "dill", "cloudpickle")
-                or value.startswith("from pickle import")
-                or value.startswith("import pickle")
-            ):
-                pickle_imports.append((src, line))
+    # Check direct file sources
+    for source in FILE_SOURCES:
+        if source in args_str:
+            return "file"
 
-        if pickle_imports:
-            for file, line in pickle_imports:
-                query = build_query("function_call_args", ["callee_function"], where="file = ?")
-                self.cursor.execute(query, (file,))
+    # Check recent function calls for data sources
+    rows = db.query(
+        Q("function_call_args")
+        .select("callee_function")
+        .where("file = ? AND line >= ? AND line <= ?", file, line - 10, line)
+        .order_by("line DESC")
+    )
 
-                has_pickle_usage = False
-                for (callee,) in self.cursor.fetchall():
-                    if "pickle" in callee.lower():
-                        has_pickle_usage = True
-                        break
+    for row in rows:
+        callee = row[0]
+        if not callee:
+            continue
 
-                if not has_pickle_usage:
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name="python-pickle-import",
-                            message="Pickle module imported - consider safer alternatives",
-                            file_path=file,
-                            line=line,
-                            severity=Severity.MEDIUM,
-                            category="deserialization",
-                            confidence=Confidence.LOW,
-                            cwe_id="CWE-502",
-                        )
-                    )
+        if any(net in callee for net in NETWORK_SOURCES):
+            return "network"
+        if any(f in callee for f in FILE_SOURCES):
+            return "file"
 
-
-"""
-FLAGGED: Missing database features for better deserialization detection:
-
-1. Data flow analysis:
-   - Can't track: request.data -> variable -> pickle.loads(variable)
-   - Need taint propagation through variables
-
-2. Import aliasing:
-   - Can't detect: import pickle as pkl; pkl.loads()
-   - Need import alias tracking
-
-3. Decorators and middleware:
-   - Can't detect unsafe session middleware configuration
-   - Need decorator extraction
-
-4. Configuration files:
-   - Can't check Django settings.py for SESSION_SERIALIZER
-   - Need config file parsing
-
-5. Method chaining:
-   - Can't track: base64.b64decode(request.data).loads()
-   - Need expression tree analysis
-"""
-
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Python deserialization vulnerabilities."""
-    analyzer = DeserializationAnalyzer(context)
-    return analyzer.analyze()
-
-
-def register_taint_patterns(taint_registry):
-    """Register deserialization-specific taint patterns."""
-    patterns = DeserializationPatterns()
-
-    for pattern in patterns.NETWORK_SOURCES:
-        taint_registry.register_source(pattern, "network_data", "python")
-
-    for pattern in patterns.FILE_SOURCES:
-        taint_registry.register_source(pattern, "file_data", "python")
-
-    for pattern in patterns.PICKLE_METHODS:
-        taint_registry.register_sink(pattern, "pickle_deserialize", "python")
-
-    for pattern in patterns.YAML_UNSAFE:
-        taint_registry.register_sink(pattern, "yaml_deserialize", "python")
-
-    for pattern in patterns.MARSHAL_METHODS:
-        taint_registry.register_sink(pattern, "marshal_deserialize", "python")
-
-    for pattern in patterns.SHELVE_METHODS:
-        taint_registry.register_sink(pattern, "shelve_deserialize", "python")
+    return "unknown"

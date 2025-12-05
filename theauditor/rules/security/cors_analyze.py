@@ -1,23 +1,27 @@
 """CORS Security Analyzer - Golden Standard Implementation."""
 
 import re
-import sqlite3
 from dataclasses import dataclass
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="cors_security",
     category="security",
     target_extensions=[".py", ".js", ".ts"],
     exclude_patterns=["test/", "spec.", "__tests__"],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="function_call_args",
+)
 
 
 @dataclass(frozen=True)
@@ -155,56 +159,47 @@ class CORSPatterns:
 class CORSAnalyzer:
     """Comprehensive CORS vulnerability detection following golden standard."""
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with context and patterns."""
-        self.context = context
+    def __init__(self, db: RuleDB):
+        """Initialize analyzer with database context."""
+        self.db = db
         self.patterns = CORSPatterns()
-        self.findings = []
+        self.findings: list[StandardFinding] = []
 
     def analyze(self) -> list[StandardFinding]:
         """Main entry point - runs all CORS vulnerability checks."""
-        if not self.context.db_path:
-            return []
-
-        conn = sqlite3.connect(self.context.db_path)
-        self.cursor = conn.cursor()
-
-        try:
-            self._check_wildcard_with_credentials()
-            self._check_subdomain_wildcards()
-            self._check_null_origin_handling()
-            self._check_origin_reflection()
-            self._check_regex_vulnerabilities()
-            self._check_protocol_downgrade()
-            self._check_port_confusion()
-            self._check_case_sensitivity()
-            self._check_missing_vary_header()
-            self._check_excessive_preflight_cache()
-            self._check_websocket_bypass()
-            self._check_dynamic_origin_flaws()
-            self._check_fallback_wildcards()
-            self._check_development_configs()
-            self._check_framework_specific()
-
-        finally:
-            conn.close()
+        self._check_wildcard_with_credentials()
+        self._check_subdomain_wildcards()
+        self._check_null_origin_handling()
+        self._check_origin_reflection()
+        self._check_regex_vulnerabilities()
+        self._check_protocol_downgrade()
+        self._check_port_confusion()
+        self._check_case_sensitivity()
+        self._check_missing_vary_header()
+        self._check_excessive_preflight_cache()
+        self._check_websocket_bypass()
+        self._check_dynamic_origin_flaws()
+        self._check_fallback_wildcards()
+        self._check_development_configs()
+        self._check_framework_specific()
 
         return self.findings
 
     def _check_wildcard_with_credentials(self):
         """Detect wildcard origin with credentials enabled."""
-
         placeholders = ",".join(["?"] * len(self.patterns.CORS_FUNCTIONS))
-        query = f"""
+        rows = self.db.execute(
+            f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ({placeholders})
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """
-        self.cursor.execute(query, list(self.patterns.CORS_FUNCTIONS))
+            """,
+            list(self.patterns.CORS_FUNCTIONS),
+        )
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             if not args:
                 continue
 
@@ -228,16 +223,17 @@ class CORSAnalyzer:
 
     def _check_subdomain_wildcards(self):
         """Detect subdomain wildcard patterns that enable takeover attacks."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
               AND source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             var_lower = var.lower()
             if not ("origin" in var_lower or "cors" in var_lower):
                 continue
@@ -270,15 +266,16 @@ class CORSAnalyzer:
 
     def _check_null_origin_handling(self):
         """Detect allowing 'null' origin which enables sandbox attacks."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for row in self.cursor.fetchall():
+        for row in rows:
             file, line, callee, args = row[0], row[1], row[2], row[3]
 
             if "null" not in str(args).lower():
@@ -301,15 +298,17 @@ class CORSAnalyzer:
                 )
             )
 
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
               AND source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for row in self.cursor.fetchall():
+        for row in rows:
             file, line, var, expr = row[0], row[1], row[2], row[3]
 
             var_lower = var.lower()
@@ -336,13 +335,14 @@ class CORSAnalyzer:
 
     def _check_origin_reflection(self):
         """Detect reflecting origin header without validation."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
         origin_patterns = [
             "req.headers.origin",
@@ -351,28 +351,28 @@ class CORSAnalyzer:
             "request.headers[",
         ]
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             if not any(pattern in expr for pattern in origin_patterns):
                 continue
 
             if "origin" not in expr.lower():
                 continue
 
-            self.cursor.execute(
+            nearby_rows = self.db.execute(
                 """
                 SELECT callee_function, line, argument_expr
                 FROM function_call_args
                 WHERE file = ?
                   AND callee_function IS NOT NULL
-            """,
-                (file,),
+                """,
+                [file],
             )
 
             validation_funcs = ["includes", "indexOf", "test", "match"]
             validation_keywords = ["whitelist", "allowed"]
 
             nearby_validation = []
-            for callee, func_line, args in self.cursor.fetchall():
+            for callee, func_line, args in nearby_rows:
                 if abs(func_line - line) > 10:
                     continue
 
@@ -402,16 +402,17 @@ class CORSAnalyzer:
 
     def _check_regex_vulnerabilities(self):
         """Detect vulnerable regex patterns in CORS origin validation."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
               AND source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             var_lower = var.lower()
             if not ("origin" in var_lower or "cors" in var_lower):
                 continue
@@ -447,16 +448,17 @@ class CORSAnalyzer:
 
     def _check_protocol_downgrade(self):
         """Detect allowing HTTP origins when HTTPS should be required."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
               AND source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for row in self.cursor.fetchall():
+        for row in rows:
             file, line, var, expr = row[0], row[1], row[2], row[3]
 
             var_lower = var.lower()
@@ -480,19 +482,20 @@ class CORSAnalyzer:
                 )
             )
 
-        self.cursor.execute("""
+        placeholders = ",".join(["?"] * len(self.patterns.CORS_FUNCTIONS))
+        rows = self.db.execute(
+            f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
-            WHERE callee_function IS NOT NULL
+            WHERE callee_function IN ({placeholders})
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            list(self.patterns.CORS_FUNCTIONS),
+        )
 
-        for row in self.cursor.fetchall():
+        for row in rows:
             file, line, callee, args = row[0], row[1], row[2], row[3]
-
-            if callee not in self.patterns.CORS_FUNCTIONS:
-                continue
 
             if "http://" not in args:
                 continue
@@ -516,16 +519,17 @@ class CORSAnalyzer:
 
     def _check_port_confusion(self):
         """Detect port handling issues in CORS origin validation."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
               AND source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             var_lower = var.lower()
             if not ("origin" in var_lower or "cors" in var_lower):
                 continue
@@ -554,36 +558,37 @@ class CORSAnalyzer:
 
     def _check_case_sensitivity(self):
         """Detect case-sensitive origin comparisons that can be bypassed."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
         comparison_funcs = ["===", "==", "equals", "strcmp"]
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             if not (func in comparison_funcs or "indexOf" in func or "includes" in func):
                 continue
 
             if "origin" not in args.lower():
                 continue
 
-            self.cursor.execute(
+            nearby_rows = self.db.execute(
                 """
                 SELECT callee_function, line
                 FROM function_call_args
                 WHERE file = ?
                   AND callee_function IS NOT NULL
-            """,
-                (file,),
+                """,
+                [file],
             )
 
             nearby_case = []
-            for callee, func_line in self.cursor.fetchall():
+            for callee, func_line in nearby_rows:
                 if abs(func_line - line) > 3:
                     continue
 
@@ -607,32 +612,32 @@ class CORSAnalyzer:
 
     def _check_missing_vary_header(self):
         """Detect missing Vary: Origin header causing cache poisoning."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT DISTINCT file, argument_expr, line
             FROM function_call_args
             WHERE argument_expr IS NOT NULL
-        """)
+            """
+        )
 
         cors_files = {}
-        for file, args, line in self.cursor.fetchall():
+        for file, args, line in rows:
             if "Access-Control-Allow-Origin" in args and file not in cors_files:
                 cors_files[file] = line
 
         for file, first_line in cors_files.items():
-            self.cursor.execute(
+            file_rows = self.db.execute(
                 """
                 SELECT argument_expr
                 FROM function_call_args
                 WHERE file = ?
                   AND argument_expr IS NOT NULL
-        -- REMOVED LIMIT: was hiding bugs
-        """,
-                (file,),
+                """,
+                [file],
             )
 
             has_vary = False
-            for (args,) in self.cursor.fetchall():
+            for (args,) in file_rows:
                 if "Vary" in args and "Origin" in args:
                     has_vary = True
                     break
@@ -656,15 +661,16 @@ class CORSAnalyzer:
 
     def _check_excessive_preflight_cache(self):
         """Detect excessive Access-Control-Max-Age values."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, argument_expr
             FROM function_call_args
             WHERE argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for file, line, args in self.cursor.fetchall():
+        for file, line, args in rows:
             if "Access-Control-Max-Age" not in args:
                 continue
 
@@ -690,15 +696,16 @@ class CORSAnalyzer:
 
     def _check_websocket_bypass(self):
         """Detect WebSocket handlers without origin validation."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             is_websocket = func in self.patterns.WEBSOCKET_HANDLERS or (
                 args and ("connection" in args or "upgrade" in args)
             )
@@ -706,18 +713,18 @@ class CORSAnalyzer:
             if not is_websocket:
                 continue
 
-            self.cursor.execute(
+            nearby_rows = self.db.execute(
                 """
                 SELECT callee_function, line, argument_expr
                 FROM function_call_args
                 WHERE file = ?
                   AND callee_function IS NOT NULL
-            """,
-                (file,),
+                """,
+                [file],
             )
 
             validation_count = 0
-            for callee, func_line, func_args in self.cursor.fetchall():
+            for callee, func_line, func_args in nearby_rows:
                 if abs(func_line - line) > 20:
                     continue
 
@@ -746,16 +753,17 @@ class CORSAnalyzer:
 
     def _check_dynamic_origin_flaws(self):
         """Detect flawed dynamic origin validation logic."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
               AND source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             var_lower = var.lower()
             if not ("origin" in var_lower or "cors" in var_lower):
                 continue
@@ -791,16 +799,17 @@ class CORSAnalyzer:
 
     def _check_fallback_wildcards(self):
         """Detect configurations that fall back to wildcard on error."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
               AND source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             var_lower = var.lower()
             if not ("origin" in var_lower or "cors" in var_lower):
                 continue
@@ -830,16 +839,17 @@ class CORSAnalyzer:
 
     def _check_development_configs(self):
         """Detect development CORS configs that might leak to production."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
               AND source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             var_lower = var.lower()
             if not ("origin" in var_lower or "cors" in var_lower):
                 continue
@@ -866,32 +876,33 @@ class CORSAnalyzer:
 
     def _check_framework_specific(self):
         """Detect framework-specific CORS misconfigurations."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ('app.use', 'router.use')
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """
+        )
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             if "cors" not in args.lower():
                 continue
 
-            self.cursor.execute(
+            before_rows = self.db.execute(
                 """
                 SELECT callee_function, line
                 FROM function_call_args
                 WHERE file = ?
                   AND line < ?
                   AND callee_function IS NOT NULL
-            """,
-                (file, line),
+                """,
+                [file, line],
             )
 
             routes_before = 0
-            for callee, _callee_line in self.cursor.fetchall():
+            for callee, _callee_line in before_rows:
                 if ".get" in callee or ".post" in callee or ".route" in callee:
                     routes_before += 1
 
@@ -911,15 +922,17 @@ class CORSAnalyzer:
                 )
 
         if "CORS" in str(self.patterns.CORS_FUNCTIONS):
-            self.cursor.execute("""
+            flask_rows = self.db.execute(
+                """
                 SELECT file, line, callee_function, argument_expr
                 FROM function_call_args
                 WHERE callee_function = 'CORS'
                   AND argument_expr IS NOT NULL
                 ORDER BY file, line
-            """)
+                """
+            )
 
-            for file, line, _func, args in self.cursor.fetchall():
+            for file, line, _func, args in flask_rows:
                 if not ("resources" in args and "/*" in args):
                     continue
 
@@ -941,10 +954,24 @@ class CORSAnalyzer:
                 )
 
 
-def find_cors_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Main entry point for CORS vulnerability detection."""
-    analyzer = CORSAnalyzer(context)
-    return analyzer.analyze()
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect CORS security vulnerabilities.
+
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    findings: list[StandardFinding] = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        analyzer = CORSAnalyzer(db)
+        findings = analyzer.analyze()
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def register_taint_patterns(taint_registry):
@@ -975,3 +1002,11 @@ def register_taint_patterns(taint_registry):
 
     for method in response_methods:
         taint_registry.register_sink(method, "response", "all")
+
+
+__all__ = [
+    "analyze",
+    "METADATA",
+    "register_taint_patterns",
+    "CORSPatterns",
+]

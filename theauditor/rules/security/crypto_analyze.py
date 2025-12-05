@@ -1,191 +1,130 @@
-"""Cryptography Security Analyzer - Schema Contract Compliant Implementation."""
+"""Cryptography Security Analyzer - Fidelity-Compliant Implementation.
+
+Detects cryptographic vulnerabilities:
+- Weak random number generation
+- Weak/broken hash algorithms
+- Weak encryption algorithms
+- Missing/static salt
+- Weak KDF iterations
+- ECB mode usage
+- Missing/static IV
+- Predictable seeds
+- Hardcoded keys
+- Weak key sizes
+- Passwords in URLs
+- Timing-vulnerable comparisons
+- Deprecated crypto libraries
+"""
 
 import re
-import sqlite3
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="crypto_security",
     category="security",
     target_extensions=[".py", ".js", ".ts", ".php"],
     exclude_patterns=["test/", "spec.", "__tests__", "demo/"],
-    execution_scope="database")
-
-
-WEAK_RANDOM_FUNCTIONS = frozenset(
-    [
-        "Math.random",
-        "random.random",
-        "random.randint",
-        "random.choice",
-        "random.randbytes",
-        "random.randrange",
-        "random.getrandbits",
-        "random.uniform",
-        "random.sample",
-        "random.shuffle",
-        "rand",
-        "mt_rand",
-        "lcg_value",
-    ]
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
+WEAK_RANDOM_FUNCTIONS = frozenset([
+    "Math.random",
+    "random.random",
+    "random.randint",
+    "random.choice",
+    "random.randbytes",
+    "random.randrange",
+    "random.getrandbits",
+    "random.uniform",
+    "random.sample",
+    "random.shuffle",
+    "rand",
+    "mt_rand",
+    "lcg_value",
+])
 
-SECURE_RANDOM_FUNCTIONS = frozenset(
-    [
-        "secrets.token_hex",
-        "secrets.token_bytes",
-        "secrets.token_urlsafe",
-        "secrets.randbits",
-        "secrets.choice",
-        "crypto.randomBytes",
-        "crypto.getRandomValues",
-        "crypto.randomFillSync",
-        "crypto.randomUUID",
-        "os.urandom",
-        "SystemRandom",
-    ]
-)
+SECURE_RANDOM_FUNCTIONS = frozenset([
+    "secrets.token_hex",
+    "secrets.token_bytes",
+    "secrets.token_urlsafe",
+    "secrets.randbits",
+    "secrets.choice",
+    "crypto.randomBytes",
+    "crypto.getRandomValues",
+    "crypto.randomFillSync",
+    "crypto.randomUUID",
+    "os.urandom",
+    "SystemRandom",
+])
 
+WEAK_HASH_ALGORITHMS = frozenset([
+    "md5", "MD5", "sha1", "SHA1", "sha-1", "SHA-1",
+    "md4", "MD4", "md2", "MD2", "sha0", "SHA0",
+    "ripemd", "RIPEMD",
+])
 
-WEAK_HASH_ALGORITHMS = frozenset(
-    [
-        "md5",
-        "MD5",
-        "sha1",
-        "SHA1",
-        "sha-1",
-        "SHA-1",
-        "md4",
-        "MD4",
-        "md2",
-        "MD2",
-        "sha0",
-        "SHA0",
-        "ripemd",
-        "RIPEMD",
-    ]
-)
+STRONG_HASH_ALGORITHMS = frozenset([
+    "sha256", "SHA256", "sha-256", "SHA-256",
+    "sha384", "SHA384", "sha-384", "SHA-384",
+    "sha512", "SHA512", "sha-512", "SHA-512",
+    "sha3-256", "SHA3-256", "sha3-384", "SHA3-384", "sha3-512", "SHA3-512",
+    "blake2b", "BLAKE2B", "blake2s", "BLAKE2S",
+])
 
+WEAK_ENCRYPTION_ALIASES = frozenset([
+    "des", "3des", "tripledes", "des-ede3", "des-ede", "des3",
+    "rc4", "arcfour", "rc2", "blowfish", "cast", "cast5",
+    "idea", "tea", "xtea",
+])
 
-STRONG_HASH_ALGORITHMS = frozenset(
-    [
-        "sha256",
-        "SHA256",
-        "sha-256",
-        "SHA-256",
-        "sha384",
-        "SHA384",
-        "sha-384",
-        "SHA-384",
-        "sha512",
-        "SHA512",
-        "sha-512",
-        "SHA-512",
-        "sha3-256",
-        "SHA3-256",
-        "sha3-384",
-        "SHA3-384",
-        "sha3-512",
-        "SHA3-512",
-        "blake2b",
-        "BLAKE2B",
-        "blake2s",
-        "BLAKE2S",
-    ]
-)
-
-
-WEAK_ENCRYPTION_ALIASES = frozenset(
-    [
-        "des",
-        "3des",
-        "tripledes",
-        "des-ede3",
-        "des-ede",
-        "des3",
-        "rc4",
-        "arcfour",
-        "rc2",
-        "blowfish",
-        "cast",
-        "cast5",
-        "idea",
-        "tea",
-        "xtea",
-    ]
-)
-
-
-STRONG_ENCRYPTION_ALGORITHMS = frozenset(
-    [
-        "aes",
-        "AES",
-        "aes-128-gcm",
-        "AES-128-GCM",
-        "aes-256-gcm",
-        "AES-256-GCM",
-        "chacha20",
-        "ChaCha20",
-        "chacha20-poly1305",
-        "ChaCha20-Poly1305",
-        "xchacha20",
-        "XChaCha20",
-    ]
-)
-
+STRONG_ENCRYPTION_ALGORITHMS = frozenset([
+    "aes", "AES", "aes-128-gcm", "AES-128-GCM",
+    "aes-256-gcm", "AES-256-GCM", "chacha20", "ChaCha20",
+    "chacha20-poly1305", "ChaCha20-Poly1305", "xchacha20", "XChaCha20",
+])
 
 INSECURE_MODES = frozenset(["ecb", "ECB", "cbc", "CBC"])
 
-
 SECURE_MODES = frozenset(["gcm", "GCM", "ccm", "CCM", "eax", "EAX", "ocb", "OCB", "ctr", "CTR"])
 
+SECURITY_KEYWORDS = frozenset([
+    "password", "passwd", "pwd", "secret", "key", "token",
+    "auth", "authentication", "authorization", "session", "cookie",
+    "jwt", "api_key", "apikey", "access_token", "refresh_token",
+    "bearer", "credential", "credentials", "salt", "nonce", "iv",
+    "pin", "otp", "totp", "private", "priv", "encryption",
+    "signature", "sign", "verify", "certificate", "cert",
+])
 
-SECURITY_KEYWORDS = frozenset(
-    [
-        "password",
-        "passwd",
-        "pwd",
-        "secret",
-        "key",
-        "token",
-        "auth",
-        "authentication",
-        "authorization",
-        "session",
-        "cookie",
-        "jwt",
-        "api_key",
-        "apikey",
-        "access_token",
-        "refresh_token",
-        "bearer",
-        "credential",
-        "credentials",
-        "salt",
-        "nonce",
-        "iv",
-        "pin",
-        "otp",
-        "totp",
-        "private",
-        "priv",
-        "encryption",
-        "signature",
-        "sign",
-        "verify",
-        "certificate",
-        "cert",
-    ]
-)
+NON_SECURITY_KEYWORDS = frozenset([
+    "checksum", "etag", "cache", "hash_table", "hashmap", "hashtable",
+    "test", "mock", "example", "demo", "sample", "placeholder",
+    "file", "content", "data", "index", "offset", "length",
+])
 
+DEPRECATED_LIBRARIES = frozenset([
+    "pycrypto", "mcrypt", "openssl_encrypt", "openssl_decrypt", "CryptoJS.enc.Base64"
+])
+
+TIMING_VULNERABLE_COMPARISONS = frozenset([
+    "==", "===", "strcmp", "strcasecmp", ".equals", ".compare"
+])
+
+CONSTANT_TIME_COMPARISONS = frozenset([
+    "hmac.compare_digest", "secrets.compare_digest",
+    "crypto.timingSafeEqual", "hash_equals", "MessageDigest.isEqual",
+])
 
 _CAMEL_CASE_TOKEN_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+")
 
@@ -194,163 +133,27 @@ def _split_identifier_tokens(value: str | None) -> list[str]:
     """Split identifiers into normalized, lowercase tokens."""
     if not value:
         return []
-
     tokens: list[str] = []
-
     for chunk in re.split(r"[^0-9A-Za-z]+", value):
         if not chunk:
             continue
         tokens.extend(_CAMEL_CASE_TOKEN_RE.findall(chunk))
-
     return [token.lower() for token in tokens if token]
 
 
-NON_SECURITY_KEYWORDS = frozenset(
-    [
-        "checksum",
-        "etag",
-        "cache",
-        "hash_table",
-        "hashmap",
-        "hashtable",
-        "test",
-        "mock",
-        "example",
-        "demo",
-        "sample",
-        "placeholder",
-        "file",
-        "content",
-        "data",
-        "index",
-        "offset",
-        "length",
-    ]
-)
-
-
-DEPRECATED_LIBRARIES = frozenset(
-    ["pycrypto", "mcrypt", "openssl_encrypt", "openssl_decrypt", "CryptoJS.enc.Base64"]
-)
-
-
-TIMING_VULNERABLE_COMPARISONS = frozenset(
-    ["==", "===", "strcmp", "strcasecmp", ".equals", ".compare"]
-)
-
-
-CONSTANT_TIME_COMPARISONS = frozenset(
-    [
-        "hmac.compare_digest",
-        "secrets.compare_digest",
-        "crypto.timingSafeEqual",
-        "hash_equals",
-        "MessageDigest.isEqual",
-    ]
-)
-
-
-def find_crypto_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect cryptographic vulnerabilities using schema contract patterns."""
-    findings = []
-
-    if not context.db_path:
-        return findings
-
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
-
-    try:
-        findings.extend(_find_weak_random_generation(cursor))
-
-        findings.extend(_find_weak_hash_algorithms(cursor))
-
-        findings.extend(_find_weak_encryption_algorithms(cursor))
-
-        findings.extend(_find_missing_salt(cursor))
-
-        findings.extend(_find_static_salt(cursor))
-
-        findings.extend(_find_weak_kdf_iterations(cursor))
-
-        findings.extend(_find_ecb_mode(cursor))
-
-        findings.extend(_find_missing_iv(cursor))
-
-        findings.extend(_find_static_iv(cursor))
-
-        findings.extend(_find_predictable_seeds(cursor))
-
-        findings.extend(_find_hardcoded_keys(cursor))
-
-        findings.extend(_find_weak_key_size(cursor))
-
-        findings.extend(_find_password_in_url(cursor))
-
-        findings.extend(_find_timing_vulnerable_compare(cursor))
-
-        findings.extend(_find_deprecated_libraries(cursor))
-
-    finally:
-        conn.close()
-
-    return findings
-
-
-def _determine_confidence(file: str, line: int, func_name: str, cursor) -> Confidence:
-    """Determine confidence level based on context analysis."""
-
-    if func_name and any(kw in func_name.lower() for kw in SECURITY_KEYWORDS):
-        return Confidence.HIGH
-
-    if func_name and any(kw in func_name.lower() for kw in NON_SECURITY_KEYWORDS):
-        return Confidence.LOW
-
-    cursor.execute(
-        """
-        SELECT callee_function
-        FROM function_call_args
-        WHERE file = ?
-        AND callee_function IS NOT NULL
-    """,
-        [file],
-    )
-
-    security_operations = ["encrypt", "decrypt", "hash", "sign", "verify"]
-    proximity_count = 0
-    for (callee,) in cursor.fetchall():
-        cursor.execute(
-            """
-            SELECT line FROM function_call_args
-            WHERE file = ? AND callee_function = ?
-        """,
-            [file, callee],
-        )
-        func_line = cursor.fetchone()
-        if func_line and abs(func_line[0] - line) <= 5:
-            callee_lower = callee.lower()
-            if any(op in callee_lower for op in security_operations):
-                proximity_count += 1
-                break
-
-    if proximity_count > 0:
-        return Confidence.HIGH
-
-    cursor.execute(
-        """
-        SELECT target_var FROM assignments
-        WHERE file = ?
-        AND target_var IS NOT NULL
-    """,
-        [file],
-    )
-
-    for row in cursor.fetchall():
-        var_name = row[0].lower() if row[0] else ""
-        if any(kw in var_name for kw in SECURITY_KEYWORDS):
-            return Confidence.MEDIUM
-
-    return Confidence.MEDIUM
+def _contains_alias(text: str | None, alias: str) -> bool:
+    """Check if the identifier or argument contains a crypto alias token."""
+    if not text:
+        return False
+    text_tokens = set(_split_identifier_tokens(text))
+    if not text_tokens:
+        return False
+    alias_tokens = _split_identifier_tokens(alias)
+    if not alias_tokens:
+        return False
+    if len(alias_tokens) == 1:
+        return alias_tokens[0] in text_tokens
+    return all(token in text_tokens for token in alias_tokens)
 
 
 def _is_test_file(file_path: str) -> bool:
@@ -360,25 +163,110 @@ def _is_test_file(file_path: str) -> bool:
     return any(indicator in file_lower for indicator in test_indicators)
 
 
-def _find_weak_random_generation(cursor) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect cryptographic vulnerabilities using schema contract patterns.
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
+    findings: list[StandardFinding] = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_find_weak_random_generation(db))
+        findings.extend(_find_weak_hash_algorithms(db))
+        findings.extend(_find_weak_encryption_algorithms(db))
+        findings.extend(_find_missing_salt(db))
+        findings.extend(_find_static_salt(db))
+        findings.extend(_find_weak_kdf_iterations(db))
+        findings.extend(_find_ecb_mode(db))
+        findings.extend(_find_missing_iv(db))
+        findings.extend(_find_static_iv(db))
+        findings.extend(_find_predictable_seeds(db))
+        findings.extend(_find_hardcoded_keys(db))
+        findings.extend(_find_weak_key_size(db))
+        findings.extend(_find_password_in_url(db))
+        findings.extend(_find_timing_vulnerable_compare(db))
+        findings.extend(_find_deprecated_libraries(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+def _determine_confidence(db: RuleDB, file: str, line: int, func_name: str) -> Confidence:
+    """Determine confidence level based on context analysis."""
+    if func_name and any(kw in func_name.lower() for kw in SECURITY_KEYWORDS):
+        return Confidence.HIGH
+
+    if func_name and any(kw in func_name.lower() for kw in NON_SECURITY_KEYWORDS):
+        return Confidence.LOW
+
+    sql, params = Q.raw(
+        """
+        SELECT callee_function
+        FROM function_call_args
+        WHERE file = ?
+          AND callee_function IS NOT NULL
+        """,
+        [file],
+    )
+    rows = db.execute(sql, params)
+
+    security_operations = ["encrypt", "decrypt", "hash", "sign", "verify"]
+    for (callee,) in rows:
+        sql2, params2 = Q.raw(
+            """
+            SELECT line FROM function_call_args
+            WHERE file = ? AND callee_function = ?
+            """,
+            [file, callee],
+        )
+        func_rows = db.execute(sql2, params2)
+        if func_rows:
+            func_line = func_rows[0][0]
+            if abs(func_line - line) <= 5:
+                callee_lower = callee.lower()
+                if any(op in callee_lower for op in security_operations):
+                    return Confidence.HIGH
+
+    sql3, params3 = Q.raw(
+        """
+        SELECT target_var FROM assignments
+        WHERE file = ?
+          AND target_var IS NOT NULL
+        """,
+        [file],
+    )
+    var_rows = db.execute(sql3, params3)
+
+    for (var_name,) in var_rows:
+        var_lower = var_name.lower() if var_name else ""
+        if any(kw in var_lower for kw in SECURITY_KEYWORDS):
+            return Confidence.MEDIUM
+
+    return Confidence.MEDIUM
+
+
+def _find_weak_random_generation(db: RuleDB) -> list[StandardFinding]:
     """Find usage of weak random number generators for security purposes."""
-    findings = []
+    findings: list[StandardFinding] = []
 
     placeholders = " OR ".join(["callee_function = ?" for _ in WEAK_RANDOM_FUNCTIONS])
-    params = list(WEAK_RANDOM_FUNCTIONS)
+    params_list = list(WEAK_RANDOM_FUNCTIONS)
 
-    cursor.execute(
+    sql, params = Q.raw(
         f"""
         SELECT file, line, callee_function, caller_function, argument_expr
         FROM function_call_args
         WHERE {placeholders}
         ORDER BY file, line
-    """,
-        params,
+        """,
+        params_list,
     )
+    rows = db.execute(sql, params)
 
-    for file, line, callee, caller, args in cursor.fetchall():
-        confidence = _determine_confidence(file, line, caller, cursor)
+    for file, line, callee, caller, args in rows:
+        confidence = _determine_confidence(db, file, line, caller)
 
         if confidence == Confidence.LOW and _is_test_file(file):
             continue
@@ -400,18 +288,22 @@ def _find_weak_random_generation(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_weak_hash_algorithms(cursor) -> list[StandardFinding]:
+def _find_weak_hash_algorithms(db: RuleDB) -> list[StandardFinding]:
     """Find usage of weak/broken hash algorithms."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, callee_function, caller_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
-    for file, line, callee, caller, args in cursor.fetchall():
+    for file, line, callee, caller, args in rows:
         callee_str = callee if callee else ""
         args_str = args if args else ""
         combined = f"{callee_str} {args_str}".lower()
@@ -425,8 +317,7 @@ def _find_weak_hash_algorithms(cursor) -> list[StandardFinding]:
         if not weak_algo:
             continue
 
-        confidence = _determine_confidence(file, line, caller, cursor)
-
+        confidence = _determine_confidence(db, file, line, caller)
         if confidence == Confidence.LOW:
             continue
 
@@ -449,43 +340,27 @@ def _find_weak_hash_algorithms(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _contains_alias(text: str | None, alias: str) -> bool:
-    """Check if the identifier or argument contains a crypto alias token."""
-    if not text:
-        return False
-
-    text_tokens = set(_split_identifier_tokens(text))
-    if not text_tokens:
-        return False
-
-    alias_tokens = _split_identifier_tokens(alias)
-    if not alias_tokens:
-        return False
-
-    if len(alias_tokens) == 1:
-        return alias_tokens[0] in text_tokens
-
-    return all(token in text_tokens for token in alias_tokens)
-
-
-def _find_weak_encryption_algorithms(cursor) -> list[StandardFinding]:
+def _find_weak_encryption_algorithms(db: RuleDB) -> list[StandardFinding]:
     """Find usage of weak/broken encryption algorithms."""
     findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT DISTINCT file, line, callee_function, argument_expr
         FROM function_call_args
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     seen: set[tuple[str, int, str]] = set()
 
-    for file, line, callee, argument in cursor.fetchall():
+    for file, line, callee, argument in rows:
         callee_lower = (callee or "").lower()
         argument_lower = (argument or "").lower()
 
-        matched_algos = set()
-
+        matched_algos: set[str] = set()
         for alias in WEAK_ENCRYPTION_ALIASES:
             if _contains_alias(callee_lower, alias) or _contains_alias(argument_lower, alias):
                 matched_algos.add(alias)
@@ -520,22 +395,26 @@ def _find_weak_encryption_algorithms(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_missing_salt(cursor) -> list[StandardFinding]:
+def _find_missing_salt(db: RuleDB) -> list[StandardFinding]:
     """Find password hashing without salt."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     hash_functions = ["hash", "digest", "bcrypt", "scrypt", "pbkdf2"]
     password_keywords = ["password", "passwd", "pwd"]
 
-    for file, line, callee, args in cursor.fetchall():
+    for file, line, callee, args in rows:
         callee_lower = callee.lower()
         if not any(hf in callee_lower for hf in hash_functions):
             continue
@@ -544,28 +423,21 @@ def _find_missing_salt(cursor) -> list[StandardFinding]:
         if not any(pw in args_lower for pw in password_keywords):
             continue
 
-        cursor.execute(
+        sql2, params2 = Q.raw(
             """
-            SELECT target_var, source_expr
+            SELECT target_var, source_expr, line
             FROM assignments
             WHERE file = ?
               AND target_var IS NOT NULL
-        """,
+            """,
             [file],
         )
+        assign_rows = db.execute(sql2, params2)
 
         has_salt_nearby = False
-        for var, expr in cursor.fetchall():
-            cursor.execute(
-                """
-            SELECT line FROM assignments WHERE file = ? AND target_var = ?
-        """,
-                [file, var],
-            )
-            assign_line = cursor.fetchone()
+        for var, expr, assign_line in assign_rows:
             if (
-                assign_line
-                and abs(assign_line[0] - line) <= 10
+                abs(assign_line - line) <= 10
                 and ("salt" in (var or "").lower() or "salt" in (expr or "").lower())
             ):
                 has_salt_nearby = True
@@ -591,21 +463,25 @@ def _find_missing_salt(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_static_salt(cursor) -> list[StandardFinding]:
+def _find_static_salt(db: RuleDB) -> list[StandardFinding]:
     """Find hardcoded salt values."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, target_var, source_expr
         FROM assignments
         WHERE target_var IS NOT NULL
           AND source_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     secure_patterns = ["random", "generate", "uuid", "secrets", "urandom"]
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in rows:
         if "salt" not in var.lower():
             continue
 
@@ -634,20 +510,24 @@ def _find_static_salt(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_weak_kdf_iterations(cursor) -> list[StandardFinding]:
+def _find_weak_kdf_iterations(db: RuleDB) -> list[StandardFinding]:
     """Find weak key derivation functions with low iterations."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     kdf_functions = ["pbkdf2", "scrypt", "bcrypt"]
 
-    for file, line, callee, args in cursor.fetchall():
+    for file, line, callee, args in rows:
         callee_lower = callee.lower()
         if not any(kdf in callee_lower for kdf in kdf_functions):
             continue
@@ -664,8 +544,7 @@ def _find_weak_kdf_iterations(cursor) -> list[StandardFinding]:
 
         for num_str in numbers:
             num = int(num_str)
-
-            if num < 100000 and num > 100:
+            if 100 < num < 100000:
                 findings.append(
                     StandardFinding(
                         rule_name="crypto-weak-kdf-iterations",
@@ -684,21 +563,25 @@ def _find_weak_kdf_iterations(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_ecb_mode(cursor) -> list[StandardFinding]:
+def _find_ecb_mode(db: RuleDB) -> list[StandardFinding]:
     """Find usage of ECB mode in encryption."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     crypto_functions = ["cipher", "encrypt", "decrypt", "AES", "DES"]
 
-    for file, line, callee, args in cursor.fetchall():
+    for file, line, callee, args in rows:
         args_lower = args.lower()
         if "ecb" not in args_lower:
             continue
@@ -721,18 +604,21 @@ def _find_ecb_mode(cursor) -> list[StandardFinding]:
             )
         )
 
-    cursor.execute("""
+    sql2, params2 = Q.raw(
+        """
         SELECT file, line, target_var, source_expr
         FROM assignments
         WHERE target_var IS NOT NULL
           AND source_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    assign_rows = db.execute(sql2, params2)
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in assign_rows:
         if "mode" not in var.lower():
             continue
-
         if "ecb" not in expr.lower():
             continue
 
@@ -753,22 +639,25 @@ def _find_ecb_mode(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_missing_iv(cursor) -> list[StandardFinding]:
+def _find_missing_iv(db: RuleDB) -> list[StandardFinding]:
     """Find encryption operations without initialization vector."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
-    for file, line, callee, args in cursor.fetchall():
+    for file, line, callee, args in rows:
         callee_lower = callee.lower()
         if not ("encrypt" in callee_lower or "cipher" in callee_lower):
             continue
-
         if "decrypt" in callee_lower:
             continue
 
@@ -778,26 +667,20 @@ def _find_missing_iv(cursor) -> list[StandardFinding]:
             has_iv_in_args = any(term in args_lower for term in ["iv", "nonce", "initialization"])
 
         if not has_iv_in_args:
-            cursor.execute(
+            sql2, params2 = Q.raw(
                 """
-                SELECT target_var, source_expr
+                SELECT target_var, source_expr, line
                 FROM assignments
                 WHERE file = ?
                   AND target_var IS NOT NULL
-            """,
+                """,
                 [file],
             )
+            assign_rows = db.execute(sql2, params2)
 
             has_iv_nearby = False
-            for var, expr in cursor.fetchall():
-                cursor.execute(
-                    """
-            SELECT line FROM assignments WHERE file = ? AND target_var = ?
-        """,
-                    [file, var],
-                )
-                assign_line = cursor.fetchone()
-                if assign_line and abs(assign_line[0] - line) <= 10:
+            for var, expr, assign_line in assign_rows:
+                if abs(assign_line - line) <= 10:
                     var_lower = (var or "").lower()
                     expr_lower = (expr or "").lower()
                     if "iv" in var_lower or "nonce" in var_lower or "random" in expr_lower:
@@ -822,23 +705,27 @@ def _find_missing_iv(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_static_iv(cursor) -> list[StandardFinding]:
+def _find_static_iv(db: RuleDB) -> list[StandardFinding]:
     """Find hardcoded initialization vectors."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, target_var, source_expr
         FROM assignments
         WHERE target_var IS NOT NULL
           AND source_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     iv_keywords = ["iv", "nonce", "initialization_vector"]
     literal_starts = ['"', "'", "[0,", "bytes("]
     secure_patterns = ["random", "generate", "urandom"]
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in rows:
         var_lower = var.lower()
         if not any(kw in var_lower for kw in iv_keywords):
             continue
@@ -868,32 +755,30 @@ def _find_static_iv(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_predictable_seeds(cursor) -> list[StandardFinding]:
+def _find_predictable_seeds(db: RuleDB) -> list[StandardFinding]:
     """Find predictable seeds for random number generators."""
-    findings = []
+    findings: list[StandardFinding] = []
 
     timestamp_functions = [
-        "time.time",
-        "datetime.now",
-        "Date.now",
-        "Date.getTime",
-        "timestamp",
-        "time()",
-        "microtime",
-        "performance.now",
+        "time.time", "datetime.now", "Date.now", "Date.getTime",
+        "timestamp", "time()", "microtime", "performance.now",
     ]
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, target_var, source_expr
         FROM assignments
         WHERE target_var IS NOT NULL
           AND source_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     seed_keywords = ["seed", "random"]
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in rows:
         var_lower = var.lower()
         if not any(kw in var_lower for kw in seed_keywords):
             continue
@@ -919,15 +804,19 @@ def _find_predictable_seeds(cursor) -> list[StandardFinding]:
                 )
             )
 
-    cursor.execute("""
+    sql2, params2 = Q.raw(
+        """
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    func_rows = db.execute(sql2, params2)
 
-    for file, line, callee, args in cursor.fetchall():
+    for file, line, callee, args in func_rows:
         callee_lower = callee.lower()
         if not ("seed" in callee_lower or "srand" in callee_lower):
             continue
@@ -950,33 +839,31 @@ def _find_predictable_seeds(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_hardcoded_keys(cursor) -> list[StandardFinding]:
+def _find_hardcoded_keys(db: RuleDB) -> list[StandardFinding]:
     """Find hardcoded encryption keys."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, target_var, source_expr
         FROM assignments
         WHERE target_var IS NOT NULL
           AND source_expr IS NOT NULL
           AND LENGTH(source_expr) > 10
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     key_keywords = [
-        "key",
-        "secret",
-        "cipher_key",
-        "encryption_key",
-        "aes_key",
-        "des_key",
-        "private_key",
-        "priv_key",
+        "key", "secret", "cipher_key", "encryption_key",
+        "aes_key", "des_key", "private_key", "priv_key",
     ]
     literal_starts = ['"', "'", 'b"', "b'"]
     secure_patterns = ["env", "config", "random", "generate"]
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in rows:
         var_lower = var.lower()
         if not any(kw in var_lower for kw in key_keywords):
             continue
@@ -1008,21 +895,25 @@ def _find_hardcoded_keys(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_weak_key_size(cursor) -> list[StandardFinding]:
+def _find_weak_key_size(db: RuleDB) -> list[StandardFinding]:
     """Find usage of weak encryption key sizes."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     keygen_patterns = ["generate_key", "keygen", "new_key", "random", "key"]
 
-    for file, line, callee, args in cursor.fetchall():
+    for file, line, callee, args in rows:
         callee_lower = callee.lower()
         if not any(pattern in callee_lower for pattern in keygen_patterns):
             continue
@@ -1036,7 +927,6 @@ def _find_weak_key_size(cursor) -> list[StandardFinding]:
 
         for num_str in numbers:
             num = int(num_str)
-
             if num in [40, 56, 64, 80]:
                 findings.append(
                     StandardFinding(
@@ -1069,22 +959,26 @@ def _find_weak_key_size(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_password_in_url(cursor) -> list[StandardFinding]:
+def _find_password_in_url(db: RuleDB) -> list[StandardFinding]:
     """Find passwords transmitted in URLs."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IS NOT NULL
           AND argument_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     url_functions = ["url", "uri", "query", "params"]
     sensitive_keywords = ["password", "passwd", "pwd", "token", "secret"]
 
-    for file, line, callee, args in cursor.fetchall():
+    for file, line, callee, args in rows:
         callee_lower = callee.lower()
         if not any(uf in callee_lower for uf in url_functions):
             continue
@@ -1110,21 +1004,25 @@ def _find_password_in_url(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_timing_vulnerable_compare(cursor) -> list[StandardFinding]:
+def _find_timing_vulnerable_compare(db: RuleDB) -> list[StandardFinding]:
     """Find timing-vulnerable string comparisons for secrets."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT path, name, line, type
         FROM symbols
         WHERE name IS NOT NULL
           AND type = 'comparison'
         ORDER BY path, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     sensitive_keywords = ["password", "token", "secret", "key", "hash", "signature"]
 
-    for file, name, line, _sym_type in cursor.fetchall():
+    for file, name, line, _sym_type in rows:
         name_lower = name.lower()
         if not any(kw in name_lower for kw in sensitive_keywords):
             continue
@@ -1143,15 +1041,19 @@ def _find_timing_vulnerable_compare(cursor) -> list[StandardFinding]:
             )
         )
 
-    cursor.execute("""
+    sql2, params2 = Q.raw(
+        """
         SELECT file, line, callee_function, argument_expr
         FROM function_call_args
         WHERE callee_function IN ('strcmp', 'strcasecmp', 'memcmp')
           AND argument_expr IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    func_rows = db.execute(sql2, params2)
 
-    for file, line, callee, args in cursor.fetchall():
+    for file, line, callee, args in func_rows:
         args_lower = args.lower()
         if not any(kw in args_lower for kw in ["password", "token", "secret"]):
             continue
@@ -1173,9 +1075,9 @@ def _find_timing_vulnerable_compare(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_deprecated_libraries(cursor) -> list[StandardFinding]:
+def _find_deprecated_libraries(db: RuleDB) -> list[StandardFinding]:
     """Find usage of deprecated cryptography libraries."""
-    findings = []
+    findings: list[StandardFinding] = []
 
     deprecated_funcs = [
         ("pycrypto", "pycrypto is unmaintained"),
@@ -1185,14 +1087,18 @@ def _find_deprecated_libraries(cursor) -> list[StandardFinding]:
         ("sha1_file", "SHA1 is deprecated"),
     ]
 
-    cursor.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file, line, callee_function
         FROM function_call_args
         WHERE callee_function IS NOT NULL
         ORDER BY file, line
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
-    for file, line, callee in cursor.fetchall():
+    for file, line, callee in rows:
         for deprecated, reason in deprecated_funcs:
             if deprecated in callee:
                 findings.append(
@@ -1213,22 +1119,14 @@ def _find_deprecated_libraries(cursor) -> list[StandardFinding]:
     return findings
 
 
-def register_taint_patterns(taint_registry):
+def register_taint_patterns(taint_registry) -> None:
     """Register crypto-specific patterns with taint analyzer."""
-
     for func in WEAK_RANDOM_FUNCTIONS:
         taint_registry.register_source(func, "weak_random", "any")
 
     crypto_sinks = [
-        "encrypt",
-        "decrypt",
-        "sign",
-        "verify",
-        "generateKey",
-        "deriveKey",
-        "hash",
-        "digest",
+        "encrypt", "decrypt", "sign", "verify",
+        "generateKey", "deriveKey", "hash", "digest",
     ]
-
     for sink in crypto_sinks:
         taint_registry.register_sink(sink, "crypto_operation", "any")

@@ -1,24 +1,38 @@
-"""PII Data Analyzer - Comprehensive International Edition."""
+"""PII Data Analyzer - Comprehensive International Edition.
+
+Detects PII exposure issues:
+- Direct PII in assignments (CWE-359)
+- PII logged to console/files (CWE-532)
+- PII in error responses (CWE-209)
+- PII in URLs/query strings (CWE-598)
+- Unencrypted PII storage (CWE-311)
+- PII in client-side storage (CWE-922)
+- PII access without authorization (CWE-862)
+"""
 
 import re
-import sqlite3
 from enum import Enum
 from functools import lru_cache
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="pii_exposure",
     category="security",
     target_extensions=[".py", ".js", ".ts", ".jsx", ".tsx"],
     exclude_patterns=["test/", "spec.", "__tests__", "demo/"],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="assignments",
+)
 
 
 class PrivacyRegulation(Enum):
@@ -1208,47 +1222,46 @@ def get_applicable_regulations(pii_type: str) -> list[PrivacyRegulation]:
     return regulations
 
 
-def find_pii_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect PII exposure issues using comprehensive international patterns."""
-    findings = []
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect PII exposure issues using comprehensive international patterns.
+
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
-        return findings
+        return RuleResult(findings=findings, manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
-
-    try:
+    with RuleDB(context.db_path, METADATA.name) as db:
         pii_categories = _organize_pii_patterns()
 
-        findings.extend(_detect_direct_pii(cursor, pii_categories))
+        # Core PII detections
+        findings.extend(_detect_direct_pii(db, pii_categories))
+        findings.extend(_detect_pii_in_logging(db, pii_categories))
+        findings.extend(_detect_pii_in_errors(db, pii_categories))
+        findings.extend(_detect_pii_in_urls(db, pii_categories))
+        findings.extend(_detect_unencrypted_pii(db, pii_categories))
+        findings.extend(_detect_client_side_pii(db, pii_categories))
+        findings.extend(_detect_pii_in_exceptions(db, pii_categories))
+        findings.extend(_detect_derived_pii(db, pii_categories))
+        findings.extend(_detect_aggregated_pii(db))
+        findings.extend(_detect_third_party_pii(db, pii_categories))
+        findings.extend(_detect_pii_in_route_patterns(db, pii_categories))
+        findings.extend(_detect_pii_in_apis(db, pii_categories))
 
-        findings.extend(_detect_pii_in_logging(cursor, pii_categories))
+        # Extended compliance detections
+        findings.extend(_detect_pii_in_exports(db, pii_categories))
+        findings.extend(_detect_pii_retention(db, pii_categories))
+        findings.extend(_detect_pii_cross_border(db, pii_categories))
+        findings.extend(_detect_pii_consent_gaps(db, pii_categories))
+        findings.extend(_detect_pii_in_metrics(db, pii_categories))
+        findings.extend(_detect_pii_access_control(db, pii_categories))
 
-        findings.extend(_detect_pii_in_errors(cursor, pii_categories))
-
-        findings.extend(_detect_pii_in_urls(cursor, pii_categories))
-
-        findings.extend(_detect_unencrypted_pii(cursor, pii_categories))
-
-        findings.extend(_detect_client_side_pii(cursor, pii_categories))
-
-        findings.extend(_detect_pii_in_exceptions(cursor, pii_categories))
-
-        findings.extend(_detect_derived_pii(cursor, pii_categories))
-
-        findings.extend(_detect_aggregated_pii(cursor))
-
-        findings.extend(_detect_third_party_pii(cursor, pii_categories))
-
-        findings.extend(_detect_pii_in_route_patterns(cursor, pii_categories))
-
-        findings.extend(_detect_pii_in_apis(cursor, pii_categories))
-
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def _organize_pii_patterns() -> dict[str, set[str]]:
@@ -1367,22 +1380,18 @@ def _determine_confidence(
     return Confidence.MEDIUM
 
 
-def _detect_direct_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_direct_pii(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect direct PII fields in assignments and symbols."""
     findings = []
 
-    all_patterns = set()
-    for category_patterns in pii_categories.values():
-        all_patterns.update(category_patterns)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    cursor.execute("""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE target_var IS NOT NULL
-        ORDER BY file, line
-    """)
-
-    for file, line, var, _expr in cursor.fetchall():
+    for file, line, var, _expr in rows:
         var_lower = var.lower()
         pii_category = None
         pii_pattern = None
@@ -1420,19 +1429,19 @@ def _detect_direct_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
     return findings
 
 
-def _detect_pii_in_logging(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_in_logging(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII being logged."""
     findings = []
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if not any(log_func in func for log_func in LOGGING_FUNCTIONS):
             continue
 
@@ -1467,57 +1476,44 @@ def _detect_pii_in_logging(cursor, pii_categories: dict) -> list[StandardFinding
     return findings
 
 
-def _detect_pii_in_errors(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_in_errors(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII in error responses."""
     findings = []
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if not any(resp_func in func for resp_func in ERROR_RESPONSE_FUNCTIONS):
             continue
 
-        cursor.execute(
-            """
-            SELECT COUNT(*) FROM symbols
-            WHERE path = ?
-              AND type = 'catch'
-              AND ABS(line - ?) <= 10
-        """,
-            [file, line],
+        # Check for catch blocks nearby
+        catch_rows = db.query(
+            Q("symbols")
+            .select("COUNT(*)")
+            .where("path = ?", file)
+            .where("type = ?", "catch")
+            .where("ABS(line - ?) <= 10", line)
         )
+        catch_count = catch_rows[0][0] if catch_rows else 0
 
-        catch_count = cursor.fetchone()[0]
-
-        cursor.execute(
-            """
-            SELECT COUNT(*) FROM symbols
-            WHERE path = ?
-              AND name IS NOT NULL
-              AND ABS(line - ?) <= 10
-        """,
-            [file, line],
-        )
-
-        cursor.execute(
-            """
-            SELECT name FROM symbols
-            WHERE path = ?
-              AND name IS NOT NULL
-              AND ABS(line - ?) <= 10
-        """,
-            [file, line],
+        # Check for error-related symbol names nearby
+        symbol_rows = db.query(
+            Q("symbols")
+            .select("name")
+            .where("path = ?", file)
+            .where("name IS NOT NULL")
+            .where("ABS(line - ?) <= 10", line)
         )
 
         error_names = sum(
             1
-            for (name,) in cursor.fetchall()
+            for (name,) in symbol_rows
             if "error" in name.lower() or "exception" in name.lower()
         )
         in_error_context = catch_count > 0 or error_names > 0
@@ -1526,7 +1522,7 @@ def _detect_pii_in_errors(cursor, pii_categories: dict) -> list[StandardFinding]
             detected_pii = _detect_pii_matches(args, pii_categories)
 
             if detected_pii:
-                pii_pattern, pii_category = detected_pii[0]
+                pii_pattern, _pii_category = detected_pii[0]
                 regulations = get_applicable_regulations(pii_pattern)
 
                 findings.append(
@@ -1547,21 +1543,21 @@ def _detect_pii_in_errors(cursor, pii_categories: dict) -> list[StandardFinding]
     return findings
 
 
-def _detect_pii_in_urls(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_in_urls(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII in URLs and query parameters."""
     findings = []
 
     url_functions = frozenset(["urlencode", "encodeURIComponent", "URLSearchParams", "build_url"])
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if not any(url_func in func for url_func in url_functions):
             continue
 
@@ -1598,7 +1594,7 @@ def _detect_pii_in_urls(cursor, pii_categories: dict) -> list[StandardFinding]:
     return findings
 
 
-def _detect_unencrypted_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_unencrypted_pii(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect unencrypted PII being stored."""
     findings = []
 
@@ -1614,15 +1610,15 @@ def _detect_unencrypted_pii(cursor, pii_categories: dict) -> list[StandardFindin
         "password",
     }
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if not any(store_func in func for store_func in DATABASE_STORAGE_FUNCTIONS):
             continue
 
@@ -1631,19 +1627,17 @@ def _detect_unencrypted_pii(cursor, pii_categories: dict) -> list[StandardFindin
 
         matched = _detect_specific_pattern(args, must_encrypt)
         if matched:
-            cursor.execute(
-                """
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 5
-                  AND (callee_function LIKE '%encrypt%'
-                       OR callee_function LIKE '%hash%'
-                       OR callee_function LIKE '%bcrypt%')
-            """,
-                [file, line],
+            # Check for encryption calls nearby
+            encrypt_rows = db.query(
+                Q("function_call_args")
+                .select("COUNT(*)")
+                .where("file = ?", file)
+                .where("ABS(line - ?) <= 5", line)
+                .where(
+                    "(callee_function LIKE '%encrypt%' OR callee_function LIKE '%hash%' OR callee_function LIKE '%bcrypt%')"
+                )
             )
-
-            has_encryption = cursor.fetchone()[0] > 0
+            has_encryption = encrypt_rows[0][0] > 0 if encrypt_rows else False
 
             if not has_encryption:
                 findings.append(
@@ -1669,7 +1663,7 @@ def _detect_unencrypted_pii(cursor, pii_categories: dict) -> list[StandardFindin
     return findings
 
 
-def _detect_client_side_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_client_side_pii(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII stored in client-side storage."""
     findings = []
 
@@ -1685,15 +1679,15 @@ def _detect_client_side_pii(cursor, pii_categories: dict) -> list[StandardFindin
         "drivers_license",
     }
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if not any(storage_func in func for storage_func in CLIENT_STORAGE_FUNCTIONS):
             continue
 
@@ -1728,34 +1722,31 @@ def _detect_client_side_pii(cursor, pii_categories: dict) -> list[StandardFindin
     return findings
 
 
-def _detect_pii_in_exceptions(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_in_exceptions(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII exposed in exception handling."""
     findings = []
 
-    cursor.execute("""
-        SELECT path, line, name
-        FROM symbols
-        WHERE type IN ('catch', 'except', 'exception', 'error')
-        ORDER BY path, line
-    """)
+    handler_rows = db.query(
+        Q("symbols")
+        .select("path", "line", "name")
+        .where("type IN ('catch', 'except', 'exception', 'error')")
+        .order_by("path, line")
+    )
 
-    for file, handler_line, _handler_name in cursor.fetchall():
-        cursor.execute(
-            """
-            SELECT callee_function, line, argument_expr
-            FROM function_call_args
-            WHERE file = ?
-              AND line >= ?
-              AND line <= ? + 20
-              AND callee_function IS NOT NULL
-              AND argument_expr IS NOT NULL
-        """,
-            [file, handler_line, handler_line],
+    log_keywords = frozenset(["log", "print", "send"])
+
+    for file, handler_line, _handler_name in handler_rows:
+        call_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function", "line", "argument_expr")
+            .where("file = ?", file)
+            .where("line >= ?", handler_line)
+            .where("line <= ?", handler_line + 20)
+            .where("callee_function IS NOT NULL")
+            .where("argument_expr IS NOT NULL")
         )
 
-        log_keywords = frozenset(["log", "print", "send"])
-
-        for func, line, args in cursor.fetchall():
+        for func, line, args in call_rows:
             if not any(keyword in func.lower() for keyword in log_keywords):
                 continue
 
@@ -1780,7 +1771,7 @@ def _detect_pii_in_exceptions(cursor, pii_categories: dict) -> list[StandardFind
     return findings
 
 
-def _detect_derived_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_derived_pii(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII derived from other fields."""
     findings = []
 
@@ -1791,14 +1782,14 @@ def _detect_derived_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
         ("account_info", ["account_number", "routing_number"]),
     ]
 
-    cursor.execute("""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE target_var IS NOT NULL
-          AND source_expr IS NOT NULL
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+    )
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in rows:
         var_lower = var.lower()
         expr_lower = expr.lower()
 
@@ -1825,20 +1816,20 @@ def _detect_derived_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
     return findings
 
 
-def _detect_aggregated_pii(cursor) -> list[StandardFinding]:
+def _detect_aggregated_pii(db: RuleDB) -> list[StandardFinding]:
     """Detect quasi-identifiers that become PII when combined."""
     findings = []
 
     quasi_list = list(QUASI_IDENTIFIERS)
 
-    cursor.execute("""
-        SELECT file, line, target_var
-        FROM assignments
-        WHERE target_var IS NOT NULL
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var")
+        .where("target_var IS NOT NULL")
+    )
 
-    file_quasi = {}
-    for file, line, var in cursor.fetchall():
+    file_quasi: dict[str, dict] = {}
+    for file, line, var in rows:
         var_lower = var.lower()
 
         if any(q in var_lower for q in quasi_list):
@@ -1871,7 +1862,7 @@ def _detect_aggregated_pii(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _detect_third_party_pii(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_third_party_pii(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII being sent to third-party services."""
     findings = []
 
@@ -1889,15 +1880,15 @@ def _detect_third_party_pii(cursor, pii_categories: dict) -> list[StandardFindin
         ]
     )
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if not any(api in func for api in third_party_apis):
             continue
 
@@ -1961,7 +1952,7 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_sink(func, "client_storage", "any")
 
 
-def _detect_pii_in_route_patterns(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_in_route_patterns(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detects PII exposed in parameterized API route patterns."""
     findings = []
 
@@ -1969,15 +1960,15 @@ def _detect_pii_in_route_patterns(cursor, pii_categories: dict) -> list[Standard
     for category_patterns in pii_categories.values():
         all_pii_patterns.update(category_patterns)
 
-    cursor.execute("""
-        SELECT file, line, method, pattern
-        FROM api_endpoints
-        WHERE pattern IS NOT NULL
-          AND pattern != ''
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("api_endpoints")
+        .select("file", "line", "method", "pattern")
+        .where("pattern IS NOT NULL")
+        .where("pattern != ''")
+        .order_by("file, line")
+    )
 
-    for file, line, method, route_pattern in cursor.fetchall():
+    for file, line, method, route_pattern in rows:
         extracted_params = []
 
         for segment in route_pattern.split("/"):
@@ -2018,18 +2009,18 @@ def _detect_pii_in_route_patterns(cursor, pii_categories: dict) -> list[Standard
     return findings
 
 
-def _detect_pii_in_apis(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_in_apis(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII exposed in API endpoints."""
     findings = []
 
-    cursor.execute("""
-        SELECT file, line, method, path
-        FROM api_endpoints
-        WHERE path IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("api_endpoints")
+        .select("file", "line", "method", "path")
+        .where("path IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, method, route_path in cursor.fetchall():
+    for file, line, method, route_path in rows:
         detected_pii = _detect_pii_matches(route_path, pii_categories)
 
         if detected_pii:
@@ -2065,7 +2056,7 @@ def _detect_pii_in_apis(cursor, pii_categories: dict) -> list[StandardFinding]:
     return findings
 
 
-def _detect_pii_in_exports(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_in_exports(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII in data exports (CSV, JSON, XML)."""
     findings = []
 
@@ -2089,15 +2080,15 @@ def _detect_pii_in_exports(cursor, pii_categories: dict) -> list[StandardFinding
         ]
     )
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if not any(export_func in func for export_func in export_functions):
             continue
 
@@ -2133,7 +2124,7 @@ def _detect_pii_in_exports(cursor, pii_categories: dict) -> list[StandardFinding
     return findings
 
 
-def _detect_pii_retention(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_retention(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII retention policy violations."""
     findings = []
 
@@ -2147,15 +2138,15 @@ def _detect_pii_retention(cursor, pii_categories: dict) -> list[StandardFinding]
         ]
     )
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if not any(cache_func in func for cache_func in cache_functions):
             continue
 
@@ -2195,7 +2186,7 @@ def _detect_pii_retention(cursor, pii_categories: dict) -> list[StandardFinding]
     return findings
 
 
-def _detect_pii_cross_border(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_cross_border(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect cross-border PII transfers."""
     findings = []
 
@@ -2219,14 +2210,14 @@ def _detect_pii_cross_border(cursor, pii_categories: dict) -> list[StandardFindi
         ]
     )
 
-    cursor.execute("""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE source_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in rows:
         expr_lower = expr.lower()
         if not ("http" in expr_lower or "api" in expr_lower):
             continue
@@ -2234,27 +2225,15 @@ def _detect_pii_cross_border(cursor, pii_categories: dict) -> list[StandardFindi
         is_cross_border = any(api in expr_lower for api in cross_border_apis)
 
         if is_cross_border:
-            cursor.execute(
-                """
-                SELECT COUNT(*) FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 10
-                  AND argument_expr IS NOT NULL
-            """,
-                [file, line],
+            arg_rows = db.query(
+                Q("function_call_args")
+                .select("argument_expr")
+                .where("file = ?", file)
+                .where("ABS(line - ?) <= 10", line)
+                .where("argument_expr IS NOT NULL")
             )
 
-            cursor.execute(
-                """
-                SELECT argument_expr FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 10
-                  AND argument_expr IS NOT NULL
-            """,
-                [file, line],
-            )
-
-            has_var_usage = any(var in (arg or "") for (arg,) in cursor.fetchall())
+            has_var_usage = any(var in (arg or "") for (arg,) in arg_rows)
 
             if has_var_usage:
                 findings.append(
@@ -2278,7 +2257,7 @@ def _detect_pii_cross_border(cursor, pii_categories: dict) -> list[StandardFindi
     return findings
 
 
-def _detect_pii_consent_gaps(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_consent_gaps(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII processing without consent checks."""
     findings = []
 
@@ -2296,17 +2275,17 @@ def _detect_pii_consent_gaps(cursor, pii_categories: dict) -> list[StandardFindi
         ]
     )
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
     processing_keywords = frozenset(["process", "analyze", "track", "collect"])
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
         if not any(keyword in func_lower for keyword in processing_keywords):
             continue
@@ -2317,19 +2296,17 @@ def _detect_pii_consent_gaps(cursor, pii_categories: dict) -> list[StandardFindi
         )
 
         if has_pii:
-            cursor.execute(
-                """
-                SELECT callee_function FROM function_call_args
-                WHERE file = ?
-                  AND ABS(line - ?) <= 20
-                  AND callee_function IS NOT NULL
-            """,
-                [file, line],
+            nearby_rows = db.query(
+                Q("function_call_args")
+                .select("callee_function")
+                .where("file = ?", file)
+                .where("ABS(line - ?) <= 20", line)
+                .where("callee_function IS NOT NULL")
             )
 
             has_consent_check = any(
                 any(consent in (nearby_func or "").lower() for consent in consent_checks)
-                for (nearby_func,) in cursor.fetchall()
+                for (nearby_func,) in nearby_rows
             )
 
             if not has_consent_check:
@@ -2357,7 +2334,7 @@ def _detect_pii_consent_gaps(cursor, pii_categories: dict) -> list[StandardFindi
     return findings
 
 
-def _detect_pii_in_metrics(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_in_metrics(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII in metrics and monitoring."""
     findings = []
 
@@ -2378,15 +2355,15 @@ def _detect_pii_in_metrics(cursor, pii_categories: dict) -> list[StandardFinding
         ]
     )
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if not any(metric_func in func for metric_func in metrics_functions):
             continue
 
@@ -2415,7 +2392,7 @@ def _detect_pii_in_metrics(cursor, pii_categories: dict) -> list[StandardFinding
     return findings
 
 
-def _detect_pii_access_control(cursor, pii_categories: dict) -> list[StandardFinding]:
+def _detect_pii_access_control(db: RuleDB, pii_categories: dict) -> list[StandardFinding]:
     """Detect PII access without proper authorization checks."""
     findings = []
 
@@ -2436,18 +2413,18 @@ def _detect_pii_access_control(cursor, pii_categories: dict) -> list[StandardFin
         ]
     )
 
-    cursor.execute("""
-        SELECT file, line, name
-        FROM symbols
-        WHERE type = 'function'
-          AND name IS NOT NULL
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("symbols")
+        .select("path", "line", "name")
+        .where("type = ?", "function")
+        .where("name IS NOT NULL")
+        .order_by("path, line")
+    )
 
     pii_function_keywords = frozenset(["get", "fetch", "load", "retrieve"])
     pii_entity_keywords = frozenset(["user", "profile", "customer", "patient"])
 
-    for file, line, func_name in cursor.fetchall():
+    for file, line, func_name in rows:
         func_name_lower = func_name.lower()
 
         has_pii_action = any(keyword in func_name_lower for keyword in pii_function_keywords)
@@ -2456,20 +2433,18 @@ def _detect_pii_access_control(cursor, pii_categories: dict) -> list[StandardFin
         if not (has_pii_action and has_pii_entity):
             continue
 
-        cursor.execute(
-            """
-            SELECT callee_function FROM function_call_args
-            WHERE file = ?
-              AND line >= ?
-              AND line <= ? + 50
-              AND callee_function IS NOT NULL
-        """,
-            [file, line, line],
+        nearby_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("file = ?", file)
+            .where("line >= ?", line)
+            .where("line <= ?", line + 50)
+            .where("callee_function IS NOT NULL")
         )
 
         has_auth = any(
             any(auth in (nearby_func or "").lower() for auth in auth_checks)
-            for (nearby_func,) in cursor.fetchall()
+            for (nearby_func,) in nearby_rows
         )
 
         if not has_auth:
@@ -2493,78 +2468,9 @@ def _detect_pii_access_control(cursor, pii_categories: dict) -> list[StandardFin
     return findings
 
 
-def generate_pii_summary(findings: list[StandardFinding]) -> dict:
-    """Generate a summary report of PII findings."""
-    summary = {
-        "total_findings": len(findings),
-        "by_severity": {},
-        "by_category": {},
-        "by_regulation": {},
-        "top_risks": [],
-    }
-
-    for finding in findings:
-        sev = (
-            finding.severity.value if hasattr(finding.severity, "value") else str(finding.severity)
-        )
-        summary["by_severity"][sev] = summary["by_severity"].get(sev, 0) + 1
-
-    for finding in findings:
-        if finding.additional_info and "pii_category" in finding.additional_info:
-            cat = finding.additional_info["pii_category"]
-            summary["by_category"][cat] = summary["by_category"].get(cat, 0) + 1
-
-    for finding in findings:
-        if finding.additional_info and "regulations" in finding.additional_info:
-            for reg in finding.additional_info["regulations"]:
-                summary["by_regulation"][reg] = summary["by_regulation"].get(reg, 0) + 1
-
-    critical_findings = [f for f in findings if f.severity == Severity.CRITICAL]
-    summary["top_risks"] = [
-        {"rule": f.rule_name, "message": f.message, "file": f.file_path, "line": f.line}
-        for f in critical_findings[:5]
-    ]
-
-    return summary
-
-
-def analyze_pii_comprehensive(context: StandardRuleContext) -> dict:
-    """Run comprehensive PII analysis and return detailed report."""
-    findings = find_pii_issues(context)
-
-    if context.db_path:
-        conn = sqlite3.connect(context.db_path)
-        cursor = conn.cursor()
-
-        try:
-            pii_categories = _organize_pii_patterns()
-
-            findings.extend(_detect_pii_in_apis(cursor, pii_categories))
-            findings.extend(_detect_pii_in_exports(cursor, pii_categories))
-            findings.extend(_detect_pii_retention(cursor, pii_categories))
-            findings.extend(_detect_pii_cross_border(cursor, pii_categories))
-            findings.extend(_detect_pii_consent_gaps(cursor, pii_categories))
-            findings.extend(_detect_pii_in_metrics(cursor, pii_categories))
-            findings.extend(_detect_pii_access_control(cursor, pii_categories))
-        finally:
-            conn.close()
-
-    summary = generate_pii_summary(findings)
-
-    return {
-        "findings": findings,
-        "summary": summary,
-        "analyzer": "PII Analyzer - Comprehensive International Edition",
-        "version": "2.0.0",
-        "patterns_count": sum(len(s) for s in _organize_pii_patterns().values()),
-        "countries_supported": 50,
-        "regulations_covered": len(PrivacyRegulation),
-    }
-
-
 __all__ = [
-    "find_pii_issues",
-    "analyze_pii_comprehensive",
+    "analyze",
+    "METADATA",
     "register_taint_patterns",
     "PrivacyRegulation",
     "get_applicable_regulations",

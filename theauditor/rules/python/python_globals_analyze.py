@@ -1,111 +1,173 @@
-"""Detect risky global mutable state usage in Python modules."""
-
-import sqlite3
-from dataclasses import dataclass
+"""Python Global Mutable State Analyzer - Detects risky global state that causes concurrency issues."""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="python_globals",
     category="concurrency",
     target_extensions=[".py"],
     exclude_patterns=[
-        "frontend/",
-        "client/",
         "node_modules/",
-        "test/",
-        "__tests__/",
-        "migrations/",
+        "vendor/",
+        ".venv/",
+        "__pycache__/",
     ],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="assignments",
+)
+
+# Mutable type literals that create shared mutable state
+MUTABLE_LITERALS = frozenset([
+    "{}",
+    "[]",
+    "dict(",
+    "list(",
+    "set(",
+    "defaultdict(",
+    "OrderedDict(",
+    "Counter(",
+    "deque(",
+])
+
+# Safe patterns that look mutable but aren't problematic
+SAFE_PATTERNS = frozenset([
+    "logging.getLogger",
+    "getLogger",
+    "frozenset(",
+    "tuple(",
+    "namedtuple(",
+    "Enum(",
+    "Lock(",
+    "RLock(",
+    "Semaphore(",
+])
 
 
-@dataclass(frozen=True)
-class GlobalPatterns:
-    MUTABLE_LITERALS = frozenset(["{}", "[]", "dict(", "list(", "set("])
-    IMMUTABLE_OK = frozenset(["logging.getLogger"])
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect global mutable state that causes concurrency issues.
 
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
 
-class GlobalAnalyzer:
-    def __init__(self, context: StandardRuleContext):
-        self.context = context
-        self.patterns = GlobalPatterns()
-        self.findings: list[StandardFinding] = []
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
 
-    def analyze(self) -> list[StandardFinding]:
-        if not self.context.db_path:
-            return []
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
+        seen: set[str] = set()
 
-        conn = sqlite3.connect(self.context.db_path)
-        cursor = conn.cursor()
+        def add_finding(
+            file: str,
+            line: int,
+            rule_name: str,
+            message: str,
+            severity: Severity,
+            confidence: Confidence = Confidence.HIGH,
+            cwe_id: str | None = None,
+        ) -> None:
+            """Add a finding if not already seen."""
+            key = f"{file}:{line}:{rule_name}"
+            if key in seen:
+                return
+            seen.add(key)
 
-        try:
-            from theauditor.indexer.schema import build_query
-
-            query = build_query(
-                "assignments",
-                ["file", "line", "target_var", "source_expr"],
-                where="source_expr IS NOT NULL",
-                order_by="file, line",
+            findings.append(
+                StandardFinding(
+                    rule_name=rule_name,
+                    message=message,
+                    file_path=file,
+                    line=line,
+                    severity=severity,
+                    category=METADATA.category,
+                    confidence=confidence,
+                    cwe_id=cwe_id,
+                )
             )
-            cursor.execute(query)
 
-            candidates = []
-            for file, line, var, expr in cursor.fetchall():
-                if not expr:
-                    continue
+        _check_global_mutable_state(db, add_finding)
 
-                if any(literal in expr for literal in self.patterns.MUTABLE_LITERALS):
-                    candidates.append((file, line, var, expr))
-
-            for file, line, var, expr in candidates:
-                var_lower = (var or "").lower()
-                if not var_lower or var_lower.startswith("_"):
-                    continue
-                if var_lower.isupper():
-                    continue
-                if any(allowed in (expr or "") for allowed in self.patterns.IMMUTABLE_OK):
-                    continue
-
-                cursor.execute(
-                    """
-                    SELECT COUNT(*)
-                    FROM variable_usage
-                    WHERE file = ?
-                      AND variable_name = ?
-                      AND scope_level IS NOT NULL
-                      AND scope_level > 0
-                    """,
-                    (file, var),
-                )
-                usage_count = cursor.fetchone()[0]
-                if usage_count == 0:
-                    continue
-
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="python-global-mutable-state",
-                        message=f'Global mutable "{var}" is modified inside functions ({usage_count} writes)',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        confidence=Confidence.MEDIUM,
-                        category="concurrency",
-                    )
-                )
-
-        finally:
-            conn.close()
-
-        return self.findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    analyzer = GlobalAnalyzer(context)
-    return analyzer.analyze()
+def _check_global_mutable_state(db: RuleDB, add_finding) -> None:
+    """Find global mutable state that is modified inside functions.
+
+    Global mutable state (dicts, lists, sets) shared across threads/requests
+    causes race conditions, data corruption, and hard-to-debug issues.
+    """
+    # Find all module-level assignments with mutable literals
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
+
+    candidates: list[tuple[str, int, str, str]] = []
+    for row in rows:
+        file, line, var, expr = row[0], row[1], row[2], row[3]
+        if not expr or not var:
+            continue
+
+        # Check for mutable type creation
+        if any(literal in str(expr) for literal in MUTABLE_LITERALS):
+            candidates.append((file, line, var, expr))
+
+    for file, line, var, expr in candidates:
+        # Skip private/protected variables (convention for internal use)
+        if var.startswith("_"):
+            continue
+
+        # Skip CONSTANTS (ALL_CAPS naming convention)
+        if var.isupper():
+            continue
+
+        # Skip safe patterns
+        if any(safe in str(expr) for safe in SAFE_PATTERNS):
+            continue
+
+        # Check if this variable is used inside functions (scope_level > 0)
+        usage_count = _count_function_usages(db, file, var)
+
+        if usage_count == 0:
+            continue
+
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-global-mutable-state",
+            message=f'Global mutable "{var}" is used inside functions ({usage_count} times) - concurrency hazard',
+            severity=Severity.HIGH,
+            confidence=Confidence.MEDIUM,
+            cwe_id="CWE-362",
+        )
+
+
+def _count_function_usages(db: RuleDB, file: str, var: str) -> int:
+    """Count how many times a variable is used inside functions (scope_level > 0)."""
+    sql, params = Q.raw(
+        """
+        SELECT COUNT(*)
+        FROM variable_usage
+        WHERE file = ?
+          AND variable_name = ?
+          AND scope_level IS NOT NULL
+          AND scope_level > 0
+        """,
+        [file, var],
+    )
+
+    rows = db.execute(sql, params)
+    return rows[0][0] if rows else 0

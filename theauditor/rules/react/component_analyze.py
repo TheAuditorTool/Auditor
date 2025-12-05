@@ -1,6 +1,18 @@
-"""React Component Analyzer - Database-Driven Implementation."""
+"""React Component Analyzer - Detects component anti-patterns and best practices violations.
 
-import sqlite3
+Checks for:
+- Large components (>300 lines)
+- Multiple components per file (>3)
+- Missing memoization for performance-sensitive components
+- Inline components (defined inside other components)
+- Missing display names for anonymous components
+- Poor component naming (non-PascalCase, too short)
+- Components that don't return JSX
+- Excessive hooks usage (>10)
+- Prop complexity (too many props)
+- Mixed component hierarchy (pages mixed with components)
+"""
+
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
@@ -8,149 +20,121 @@ from typing import Any
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="react_component_issues",
     category="react",
     target_extensions=[".jsx", ".tsx", ".js", ".ts"],
     target_file_patterns=["frontend/", "client/", "src/components/", "app/"],
-    exclude_patterns=["node_modules/", "__tests__/", "*.test.jsx", "*.test.tsx", "migrations/"])
+    exclude_patterns=["node_modules/", "__tests__/", "*.test.jsx", "*.test.tsx", "*.spec.jsx", "*.spec.tsx", "migrations/"],
+    execution_scope="database",
+    primary_table="react_components",
+)
 
 
 @dataclass(frozen=True)
 class ReactComponentPatterns:
     """Immutable pattern definitions for React component violations."""
 
-    MAX_COMPONENT_LINES = 300
-    MAX_COMPONENTS_PER_FILE = 3
-    MAX_PROPS_COUNT = 10
+    MAX_COMPONENT_LINES: int = 300
+    MAX_COMPONENTS_PER_FILE: int = 3
+    MAX_PROPS_COUNT: int = 10
+    MAX_HOOKS_COUNT: int = 10
 
-    MEMO_CANDIDATES = frozenset(["list", "table", "grid", "card", "item", "row", "cell"])
-
-    PERFORMANCE_PROPS = frozenset(["data", "items", "list", "rows", "options", "children"])
-
-    COMPONENT_SUFFIXES = frozenset(
-        [
-            "Component",
-            "Container",
-            "Page",
-            "View",
-            "Modal",
-            "Dialog",
-            "Form",
-            "List",
-            "Table",
-            "Card",
-            "Button",
-        ]
-    )
-
-    ANONYMOUS_PATTERNS = frozenset(["anonymous", "arrow", "function", "_", "temp"])
+    MEMO_CANDIDATES: frozenset = frozenset(["list", "table", "grid", "card", "item", "row", "cell"])
+    PERFORMANCE_PROPS: frozenset = frozenset(["data", "items", "list", "rows", "options", "children"])
+    COMPONENT_SUFFIXES: frozenset = frozenset([
+        "Component", "Container", "Page", "View", "Modal",
+        "Dialog", "Form", "List", "Table", "Card", "Button",
+    ])
+    ANONYMOUS_PATTERNS: frozenset = frozenset(["anonymous", "arrow", "function", "_", "temp"])
 
 
 class ReactComponentAnalyzer:
     """Analyzer for React component best practices and anti-patterns."""
 
-    def __init__(self, context: StandardRuleContext):
+    def __init__(self, db: RuleDB):
         """Initialize analyzer with database context."""
-        self.context = context
+        self.db = db
         self.patterns = ReactComponentPatterns()
-        self.findings = []
+        self.findings: list[StandardFinding] = []
+        self.components: list[dict[str, Any]] = []
+        self.components_by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        self.component_hooks: dict[tuple, set[str]] = {}
+        self.component_dependencies: dict[tuple, set[str]] = {}
 
     def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
-
-        conn = sqlite3.connect(self.context.db_path)
-        conn.row_factory = sqlite3.Row
-        self.cursor = conn.cursor()
         self._bootstrap_component_metadata()
 
-        try:
-            self._check_large_components()
-            self._check_multiple_components_per_file()
-            self._check_missing_memoization()
-            self._check_inline_components()
-            self._check_missing_display_names()
-            self._check_component_naming()
-            self._check_no_jsx_components()
-            self._check_excessive_hooks()
-            self._check_prop_complexity()
-            self._check_component_hierarchy()
-
-        finally:
-            conn.close()
+        self._check_large_components()
+        self._check_multiple_components_per_file()
+        self._check_missing_memoization()
+        self._check_inline_components()
+        self._check_missing_display_names()
+        self._check_component_naming()
+        self._check_no_jsx_components()
+        self._check_excessive_hooks()
+        self._check_prop_complexity()
+        self._check_component_hierarchy()
 
         return self.findings
 
-    def _check_large_components(self):
+    def _check_large_components(self) -> None:
         """Check for components that are too large."""
-        self.cursor.execute(
-            """
-            SELECT file, name, type, start_line, end_line,
-                   (end_line - start_line) as lines
-            FROM react_components
-            WHERE (end_line - start_line) > ?
-            ORDER BY lines DESC
-        """,
-            (self.patterns.MAX_COMPONENT_LINES,),
+        rows = self.db.query(
+            Q("react_components")
+            .select("file", "name", "type", "start_line", "end_line")
+            .where("(end_line - start_line) > ?", self.patterns.MAX_COMPONENT_LINES)
+            .order_by("(end_line - start_line) DESC")
         )
 
-        for row in self.cursor.fetchall():
-            file, name, comp_type, start, end, lines = row
-
+        for file, name, comp_type, start, end in rows:
+            lines = end - start
             self.findings.append(
                 StandardFinding(
                     rule_name="react-large-component",
-                    message=f"Component {name} is too large ({lines} lines)",
+                    message=f"Component {name} is too large ({lines} lines, max: {self.patterns.MAX_COMPONENT_LINES})",
                     file_path=file,
                     line=start,
                     severity=Severity.MEDIUM,
                     category="react-component",
-                    snippet=f"{name}: {lines} lines (max: {self.patterns.MAX_COMPONENT_LINES})",
+                    snippet=f"{name}: {lines} lines",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-1066",
                 )
             )
 
-    def _check_multiple_components_per_file(self):
+    def _check_multiple_components_per_file(self) -> None:
         """Check for files with too many components."""
-        self.cursor.execute(
-            """
-            SELECT file, COUNT(*) as component_count,
-                   GROUP_CONCAT(name) as components
-            FROM react_components
-            GROUP BY file
-            HAVING component_count > ?
-            ORDER BY component_count DESC
-        """,
-            (self.patterns.MAX_COMPONENTS_PER_FILE,),
-        )
+        for file_path, components in self.components_by_file.items():
+            count = len(components)
+            if count <= self.patterns.MAX_COMPONENTS_PER_FILE:
+                continue
 
-        for row in self.cursor.fetchall():
-            file, count, components = row
-            comp_list = components.split(",")[:5]
-
+            comp_names = [c["name"] for c in components if c["name"]][:5]
             self.findings.append(
                 StandardFinding(
                     rule_name="react-multiple-components",
                     message=f"File contains {count} components (max: {self.patterns.MAX_COMPONENTS_PER_FILE})",
-                    file_path=file,
+                    file_path=file_path,
                     line=1,
                     severity=Severity.LOW,
                     category="react-component",
-                    snippet=f"Components: {', '.join(comp_list)}{'...' if count > 5 else ''}",
+                    snippet=f"Components: {', '.join(comp_names)}{'...' if count > 5 else ''}",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-1066",
                 )
             )
 
-    def _check_missing_memoization(self):
+    def _check_missing_memoization(self) -> None:
         """Check for components that should be memoized but aren't."""
         performance_tokens = set(self.patterns.PERFORMANCE_PROPS)
         memo_tokens = set(self.patterns.MEMO_CANDIDATES)
@@ -160,6 +144,9 @@ class ReactComponentAnalyzer:
                 continue
 
             name = component["name"] or ""
+            if not name:
+                continue
+
             basename = self._component_basename(name)
             normalized_basename = basename.lower()
             key = self._component_key(component["file"], name)
@@ -191,36 +178,44 @@ class ReactComponentAnalyzer:
                     )
                 )
 
-    def _check_inline_components(self):
-        """Check for components defined inside other components."""
-        self.cursor.execute("""
-            SELECT c1.file, c1.name as parent, c2.name as child,
-                   c1.start_line, c2.start_line as child_line
-            FROM react_components c1
-            JOIN react_components c2 ON c1.file = c2.file
-            WHERE c2.start_line > c1.start_line
-              AND c2.end_line < c1.end_line
-              AND c1.name != c2.name
-        """)
+    def _check_inline_components(self) -> None:
+        """Check for components defined inside other components.
 
-        for row in self.cursor.fetchall():
-            file, parent, child, parent_line, child_line = row
+        This is a performance anti-pattern - inline components are recreated
+        on every render, losing state and causing unnecessary re-renders.
+        """
+        for file_path, components in self.components_by_file.items():
+            if len(components) < 2:
+                continue
 
-            self.findings.append(
-                StandardFinding(
-                    rule_name="react-inline-component",
-                    message=f"Component {child} is defined inside {parent}",
-                    file_path=file,
-                    line=child_line,
-                    severity=Severity.HIGH,
-                    category="react-component",
-                    snippet=f"{child} inside {parent}",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-1050",
-                )
-            )
+            sorted_components = sorted(components, key=lambda c: c["start_line"] or 0)
 
-    def _check_missing_display_names(self):
+            for i, outer in enumerate(sorted_components):
+                outer_start = outer["start_line"] or 0
+                outer_end = outer["end_line"] or 0
+                if outer_end <= outer_start:
+                    continue
+
+                for inner in sorted_components[i + 1:]:
+                    inner_start = inner["start_line"] or 0
+                    inner_end = inner["end_line"] or 0
+
+                    if inner_start > outer_start and inner_end < outer_end and outer["name"] != inner["name"]:
+                        self.findings.append(
+                            StandardFinding(
+                                rule_name="react-inline-component",
+                                message=f"Component {inner['name']} is defined inside {outer['name']}",
+                                file_path=file_path,
+                                line=inner_start,
+                                severity=Severity.HIGH,
+                                category="react-component",
+                                snippet=f"{inner['name']} inside {outer['name']}",
+                                confidence=Confidence.HIGH,
+                                cwe_id="CWE-1050",
+                            )
+                        )
+
+    def _check_missing_display_names(self) -> None:
         """Check for anonymous components without display names."""
         for component in self.components:
             name = component["name"] or ""
@@ -255,19 +250,17 @@ class ReactComponentAnalyzer:
                     )
                 )
 
-    def _check_component_naming(self):
+    def _check_component_naming(self) -> None:
         """Check for poor component naming conventions."""
-        self.cursor.execute("""
-            SELECT file, name, type, start_line
-            FROM react_components
-            WHERE name IS NOT NULL
-              AND LENGTH(name) > 0
-        """)
+        for component in self.components:
+            name = component["name"]
+            if not name:
+                continue
 
-        for row in self.cursor.fetchall():
-            file, name, comp_type, line = row
+            file = component["file"]
+            line = component["start_line"] or 1
 
-            if name and not name[0].isupper():
+            if not name[0].isupper():
                 self.findings.append(
                     StandardFinding(
                         rule_name="react-component-naming",
@@ -276,12 +269,11 @@ class ReactComponentAnalyzer:
                         line=line,
                         severity=Severity.LOW,
                         category="react-component",
-                        snippet=f"{name}",
+                        snippet=name,
                         confidence=Confidence.HIGH,
                         cwe_id="CWE-1078",
                     )
                 )
-
             elif len(name) < 3:
                 self.findings.append(
                     StandardFinding(
@@ -291,41 +283,31 @@ class ReactComponentAnalyzer:
                         line=line,
                         severity=Severity.LOW,
                         category="react-component",
-                        snippet=f"{name}",
+                        snippet=name,
                         confidence=Confidence.MEDIUM,
                         cwe_id="CWE-1078",
                     )
                 )
 
-    def _check_no_jsx_components(self):
+    def _check_no_jsx_components(self) -> None:
         """Check for components that don't return JSX."""
+        for component in self.components:
+            if component["has_jsx"]:
+                continue
 
-        self.cursor.execute("""
-            SELECT
-                rc.file,
-                rc.name,
-                rc.type,
-                rc.start_line,
-                rc.has_jsx,
-                COUNT(rch.hook_name) as hook_count
-            FROM react_components rc
-            LEFT JOIN react_component_hooks rch
-                ON rc.file = rch.component_file
-                AND rc.name = rch.component_name
-            WHERE rc.has_jsx = 0
-            GROUP BY rc.file, rc.name, rc.type, rc.start_line, rc.has_jsx
-            HAVING hook_count = 0
-        """)
+            name = component["name"] or ""
+            key = self._component_key(component["file"], name)
+            hooks = self.component_hooks.get(key, set())
 
-        for row in self.cursor.fetchall():
-            file, name, comp_type, line, has_jsx, hook_count = row
+            if hooks:
+                continue
 
             self.findings.append(
                 StandardFinding(
                     rule_name="react-no-jsx",
                     message=f"Component {name} does not appear to return JSX",
-                    file_path=file,
-                    line=line,
+                    file_path=component["file"],
+                    line=component["start_line"] or 1,
                     severity=Severity.MEDIUM,
                     category="react-component",
                     snippet=f"{name}: no JSX detected",
@@ -334,29 +316,21 @@ class ReactComponentAnalyzer:
                 )
             )
 
-    def _check_excessive_hooks(self):
+    def _check_excessive_hooks(self) -> None:
         """Check for components with too many hooks."""
-        self.cursor.execute("""
-            SELECT h.file, h.component_name,
-                   COUNT(*) as hook_count,
-                   GROUP_CONCAT(h.hook_name) as hooks
-            FROM react_hooks h
-            JOIN react_components c ON h.file = c.file
-              AND h.component_name = c.name
-            GROUP BY h.file, h.component_name
-            HAVING hook_count > 10
-            ORDER BY hook_count DESC
-        """)
+        for key, hooks in self.component_hooks.items():
+            file_path, component_name = key
+            count = len(hooks)
 
-        for row in self.cursor.fetchall():
-            file, component, count, hooks = row
-            hook_list = hooks.split(",")[:5]
+            if count <= self.patterns.MAX_HOOKS_COUNT:
+                continue
 
+            hook_list = list(hooks)[:5]
             self.findings.append(
                 StandardFinding(
                     rule_name="react-excessive-hooks",
-                    message=f"Component {component} uses {count} hooks - consider refactoring",
-                    file_path=file,
+                    message=f"Component {component_name} uses {count} hooks - consider refactoring",
+                    file_path=file_path,
                     line=1,
                     severity=Severity.MEDIUM,
                     category="react-component",
@@ -366,36 +340,32 @@ class ReactComponentAnalyzer:
                 )
             )
 
-    def _check_prop_complexity(self):
+    def _check_prop_complexity(self) -> None:
         """Check for components with too many props."""
-        self.cursor.execute("""
-            SELECT file, name, start_line, props_type
-            FROM react_components
-            WHERE props_type IS NOT NULL
-              AND LENGTH(props_type) > 200
-        """)
+        for component in self.components:
+            props = component["props_type"]
+            if not props or len(props) <= 200:
+                continue
 
-        for row in self.cursor.fetchall():
-            file, name, line, props = row
+            prop_count = props.count(":")
+            if prop_count <= self.patterns.MAX_PROPS_COUNT:
+                continue
 
-            prop_count = props.count(":") if props else 0
-
-            if prop_count > self.patterns.MAX_PROPS_COUNT:
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="react-prop-complexity",
-                        message=f"Component {name} has ~{prop_count} props - too complex",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.LOW,
-                        category="react-component",
-                        snippet=f"{name}: ~{prop_count} props",
-                        confidence=Confidence.LOW,
-                        cwe_id="CWE-1066",
-                    )
+            self.findings.append(
+                StandardFinding(
+                    rule_name="react-prop-complexity",
+                    message=f"Component {component['name']} has ~{prop_count} props - too complex",
+                    file_path=component["file"],
+                    line=component["start_line"] or 1,
+                    severity=Severity.LOW,
+                    category="react-component",
+                    snippet=f"{component['name']}: ~{prop_count} props",
+                    confidence=Confidence.LOW,
+                    cwe_id="CWE-1066",
                 )
+            )
 
-    def _check_component_hierarchy(self):
+    def _check_component_hierarchy(self) -> None:
         """Check for potential component hierarchy issues."""
         for file_path, components in self.components_by_file.items():
             total = len(components)
@@ -410,9 +380,9 @@ class ReactComponentAnalyzer:
                 basename = self._component_basename(component["name"]).lower()
                 if basename.endswith("container"):
                     containers += 1
-                if basename.endswith("component"):
+                elif basename.endswith("component"):
                     components_count += 1
-                if basename.endswith("page"):
+                elif basename.endswith("page"):
                     pages += 1
 
             if pages > 0 and components_count > 0:
@@ -433,26 +403,23 @@ class ReactComponentAnalyzer:
 
     def _bootstrap_component_metadata(self) -> None:
         """Load component-level metadata and relationship tables once."""
-        self.components: list[dict[str, Any]] = []
-        self.components_by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        rows = self.db.query(
+            Q("react_components")
+            .select("file", "name", "type", "start_line", "end_line", "has_jsx", "props_type")
+        )
 
-        self.cursor.execute("""
-            SELECT file, name, type, start_line, end_line, has_jsx, props_type
-            FROM react_components
-        """)
-
-        for row in self.cursor.fetchall():
+        for file, name, comp_type, start_line, end_line, has_jsx, props_type in rows:
             component = {
-                "file": row["file"],
-                "name": row["name"],
-                "type": row["type"],
-                "start_line": row["start_line"],
-                "end_line": row["end_line"],
-                "has_jsx": bool(row["has_jsx"]),
-                "props_type": row["props_type"],
+                "file": file,
+                "name": name,
+                "type": comp_type,
+                "start_line": start_line,
+                "end_line": end_line,
+                "has_jsx": bool(has_jsx),
+                "props_type": props_type,
             }
             self.components.append(component)
-            self.components_by_file[component["file"]].append(component)
+            self.components_by_file[file].append(component)
 
         self.component_hooks = self._load_component_hooks()
         self.component_dependencies = self._load_component_dependencies()
@@ -460,27 +427,27 @@ class ReactComponentAnalyzer:
     def _load_component_hooks(self) -> dict[tuple, set[str]]:
         """Return mapping of components to hooks used."""
         hooks: dict[tuple, set[str]] = defaultdict(set)
-        self.cursor.execute("""
-            SELECT component_file, component_name, hook_name
-            FROM react_component_hooks
-        """)
-        for row in self.cursor.fetchall():
-            key = self._component_key(row["component_file"], row["component_name"])
-            hooks[key].add(row["hook_name"])
+        rows = self.db.query(
+            Q("react_component_hooks")
+            .select("component_file", "component_name", "hook_name")
+        )
+        for component_file, component_name, hook_name in rows:
+            key = self._component_key(component_file, component_name)
+            hooks[key].add(hook_name)
         return hooks
 
     def _load_component_dependencies(self) -> dict[tuple, set[str]]:
         """Return mapping of components to dependency tokens."""
         dependencies: dict[tuple, set[str]] = defaultdict(set)
-        self.cursor.execute("""
-            SELECT hook_file, hook_component, dependency_name
-            FROM react_hook_dependencies
-        """)
-        for row in self.cursor.fetchall():
-            normalized = self._normalize_dependency_name(row["dependency_name"])
+        rows = self.db.query(
+            Q("react_hook_dependencies")
+            .select("hook_file", "hook_component", "dependency_name")
+        )
+        for hook_file, hook_component, dependency_name in rows:
+            normalized = self._normalize_dependency_name(dependency_name)
             if not normalized:
                 continue
-            key = self._component_key(row["hook_file"], row["hook_component"])
+            key = self._component_key(hook_file, hook_component)
             dependencies[key].add(normalized)
         return dependencies
 
@@ -527,7 +494,19 @@ class ReactComponentAnalyzer:
         return len(name) >= 3 and any(char.isalpha() for char in name)
 
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect React component anti-patterns and best practices violations."""
-    analyzer = ReactComponentAnalyzer(context)
-    return analyzer.analyze()
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect React component anti-patterns and best practices violations.
+
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        analyzer = ReactComponentAnalyzer(db)
+        findings = analyzer.analyze()
+        return RuleResult(findings=findings, manifest=db.get_manifest())

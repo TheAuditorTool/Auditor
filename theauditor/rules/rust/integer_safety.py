@@ -5,9 +5,6 @@ Detects integer-related vulnerabilities:
 - Truncating `as` casts
 - Integer overflow risks
 - Missing overflow checks in crypto/financial code
-
-Uses RuleDB for fidelity tracking. Rust-specific tables use db.execute()
-since they may not be in Q class schema.
 """
 
 import re
@@ -21,6 +18,7 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="rust_integer_safety",
@@ -28,8 +26,8 @@ METADATA = RuleMetadata(
     target_extensions=[".rs"],
     exclude_patterns=["test/", "tests/", "benches/"],
     execution_scope="database",
+    primary_table="rust_functions",
 )
-
 
 # Regex patterns for truncating casts - handles variable whitespace
 TRUNCATING_CAST_TYPES = ["u8", "i8", "u16", "i16", "u32", "i32", "usize", "isize"]
@@ -39,31 +37,43 @@ CAST_PATTERN = re.compile(
     r"\bas\s+(" + "|".join(TRUNCATING_CAST_TYPES) + r")\b", re.IGNORECASE
 )
 
-
 HIGH_RISK_FUNCTIONS = [
     "transfer", "withdraw", "deposit", "balance",
     "amount", "price", "fee", "reward", "stake", "mint", "burn",
 ]
 
 
-def _table_exists(db: RuleDB, table_name: str) -> bool:
-    """Check if a table exists in the database."""
-    rows = db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        [table_name],
-    )
-    return len(rows) > 0
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Rust integer safety issues.
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
+    findings: list[StandardFinding] = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_check_high_risk_functions(db))
+        findings.extend(_check_macro_casts(db))
+        findings.extend(_check_wrapping_usage(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def _check_high_risk_functions(db: RuleDB) -> list[StandardFinding]:
     """Flag functions with financial/crypto names that don't use checked math."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    rows = db.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file_path, line, name, visibility
         FROM rust_functions
         WHERE visibility = 'pub'
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, fn_name, _ = row
@@ -98,13 +108,17 @@ def _check_macro_casts(db: RuleDB) -> list[StandardFinding]:
 
     Uses regex to handle variable whitespace: "x as u8", "x  as  u8", "(x)as u8".
     """
-    findings = []
+    findings: list[StandardFinding] = []
 
-    rows = db.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file_path, line, macro_name, containing_function, args_sample
         FROM rust_macro_invocations
         WHERE args_sample IS NOT NULL
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, macro_name, containing_fn, args = row
@@ -138,14 +152,18 @@ def _check_macro_casts(db: RuleDB) -> list[StandardFinding]:
 
 def _check_wrapping_usage(db: RuleDB) -> list[StandardFinding]:
     """Check for explicit wrapping arithmetic usage (informational)."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    rows = db.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file_path, line, import_path
         FROM rust_use_statements
         WHERE import_path LIKE '%Wrapping%'
            OR import_path LIKE '%Saturating%'
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, import_path = row
@@ -166,32 +184,3 @@ def _check_wrapping_usage(db: RuleDB) -> list[StandardFinding]:
         )
 
     return findings
-
-
-def analyze(context: StandardRuleContext) -> RuleResult:
-    """Detect Rust integer safety issues.
-
-    Returns RuleResult with findings and fidelity manifest.
-    """
-    findings = []
-
-    if not context.db_path:
-        return RuleResult(findings=findings, manifest={})
-
-    with RuleDB(context.db_path, METADATA.name) as db:
-        if _table_exists(db, "rust_functions"):
-            findings.extend(_check_high_risk_functions(db))
-
-        if _table_exists(db, "rust_macro_invocations"):
-            findings.extend(_check_macro_casts(db))
-
-        if _table_exists(db, "rust_use_statements"):
-            findings.extend(_check_wrapping_usage(db))
-
-        return RuleResult(findings=findings, manifest=db.get_manifest())
-
-
-# Legacy alias for orchestrator discovery
-def find_integer_safety_issues(context: StandardRuleContext) -> RuleResult:
-    """Detect Rust integer safety issues."""
-    return analyze(context)

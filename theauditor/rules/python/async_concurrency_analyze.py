@@ -1,889 +1,835 @@
-"""Python Async and Concurrency Analyzer - Database-First Approach."""
+"""Python Async and Concurrency Analyzer - Detects race conditions and concurrency issues."""
 
-import sqlite3
-from dataclasses import dataclass
-
-from theauditor.indexer.schema import build_query, get_table_schema
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="python_async_concurrency",
     category="concurrency",
     target_extensions=[".py"],
     exclude_patterns=[
-        "frontend/",
-        "client/",
         "node_modules/",
-        "test/",
-        "__tests__/",
-        "migrations/",
-    ])
-
-
-COUNTER_OPS = frozenset(["+= 1", "-= 1", "+= ", "-= "])
-
-
-TASK_CREATORS = frozenset(
-    [
-        "asyncio.create_task",
-        "asyncio.ensure_future",
-        "create_task",
-        "ensure_future",
-        "loop.create_task",
-    ]
+        "vendor/",
+        ".venv/",
+        "__pycache__/",
+    ],
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
+# Counter operations that indicate non-atomic modifications
+COUNTER_OPS = frozenset(["+= 1", "-= 1", "+= ", "-= "])
 
-EXECUTOR_PATTERNS = ["ThreadPoolExecutor", "ProcessPoolExecutor", "map", "submit"]
+# Task creation functions that don't need await
+TASK_CREATORS = frozenset([
+    "asyncio.create_task",
+    "asyncio.ensure_future",
+    "create_task",
+    "ensure_future",
+    "loop.create_task",
+])
 
+# Executor patterns for parallel execution
+EXECUTOR_PATTERNS = ("ThreadPoolExecutor", "ProcessPoolExecutor", "map", "submit")
 
-SHARED_STATE_SOURCES = [
-    "global",
-    "self.",
-    "cls.",
-    "__class__.",
-    "threading.local",
-    "asyncio.Queue",
-    "multiprocessing.Queue",
-    "shared_memory",
-    "mmap",
-    "memoryview",
-]
+# TOCTOU check functions (time-of-check)
+TOCTOU_CHECKS = frozenset([
+    "exists",
+    "isfile",
+    "isdir",
+    "path.exists",
+    "os.path.exists",
+    "os.path.isfile",
+    "os.path.isdir",
+    "Path.exists",
+    "has_key",
+    "hasattr",
+    "__contains__",
+])
 
+# TOCTOU action functions (time-of-use)
+TOCTOU_ACTIONS = frozenset([
+    "open",
+    "mkdir",
+    "makedirs",
+    "create",
+    "write",
+    "unlink",
+    "remove",
+    "rmdir",
+    "rename",
+    "move",
+    "copy",
+    "shutil.copy",
+    "shutil.move",
+    "Path.mkdir",
+    "Path.write_text",
+    "Path.write_bytes",
+])
 
-@dataclass(frozen=True)
-class ConcurrencyPatterns:
-    """Immutable pattern definitions for concurrency detection."""
+# Concurrency-related imports
+CONCURRENCY_IMPORTS = frozenset([
+    "threading",
+    "multiprocessing",
+    "asyncio",
+    "concurrent",
+    "queue",
+    "Queue",
+    "gevent",
+    "eventlet",
+    "twisted",
+    "trio",
+    "anyio",
+    "curio",
+])
 
-    TOCTOU_CHECKS = frozenset(
-        [
-            "exists",
-            "isfile",
-            "isdir",
-            "path.exists",
-            "os.path.exists",
-            "os.path.isfile",
-            "os.path.isdir",
-            "Path.exists",
-            "has_key",
-            "hasattr",
-            "__contains__",
-        ]
-    )
+# Lock-related methods
+LOCK_METHODS = frozenset([
+    "acquire",
+    "release",
+    "Lock",
+    "RLock",
+    "Semaphore",
+    "BoundedSemaphore",
+    "Event",
+    "Condition",
+    "__enter__",
+    "__exit__",
+    "lock",
+    "unlock",
+    "wait",
+    "notify",
+])
 
-    TOCTOU_ACTIONS = frozenset(
-        [
-            "open",
-            "mkdir",
-            "makedirs",
-            "create",
-            "write",
-            "unlink",
-            "remove",
-            "rmdir",
-            "rename",
-            "move",
-            "copy",
-            "shutil.copy",
-            "shutil.move",
-            "Path.mkdir",
-            "Path.write_text",
-            "Path.write_bytes",
-        ]
-    )
+# Async gathering/parallel methods
+ASYNC_METHODS = frozenset([
+    "gather",
+    "asyncio.gather",
+    "wait",
+    "as_completed",
+    "create_task",
+    "ensure_future",
+    "run_coroutine_threadsafe",
+    "asyncio.create_task",
+    "asyncio.ensure_future",
+    "loop.create_task",
+])
 
-    CONCURRENCY_IMPORTS = frozenset(
-        [
-            "threading",
-            "multiprocessing",
-            "asyncio",
-            "concurrent",
-            "queue",
-            "Queue",
-            "gevent",
-            "eventlet",
-            "twisted",
-            "trio",
-            "anyio",
-            "curio",
-        ]
-    )
+# Thread/process start methods
+THREAD_START = frozenset([
+    "start",
+    "Thread.start",
+    "Process.start",
+    "run",
+    "submit",
+    "apply_async",
+    "map_async",
+])
 
-    LOCK_METHODS = frozenset(
-        [
-            "acquire",
-            "release",
-            "Lock",
-            "RLock",
-            "Semaphore",
-            "BoundedSemaphore",
-            "Event",
-            "Condition",
-            "__enter__",
-            "__exit__",
-            "lock",
-            "unlock",
-            "wait",
-            "notify",
-        ]
-    )
+# Thread/process cleanup methods
+THREAD_CLEANUP = frozenset([
+    "join",
+    "Thread.join",
+    "Process.join",
+    "terminate",
+    "kill",
+    "close",
+    "shutdown",
+    "wait",
+    "cancel",
+])
 
-    ASYNC_METHODS = frozenset(
-        [
-            "gather",
-            "asyncio.gather",
-            "wait",
-            "as_completed",
-            "create_task",
-            "ensure_future",
-            "run_coroutine_threadsafe",
-            "asyncio.create_task",
-            "asyncio.ensure_future",
-            "loop.create_task",
-        ]
-    )
+# Worker creation patterns
+WORKER_CREATION = frozenset([
+    "Process",
+    "Thread",
+    "Worker",
+    "Pool",
+    "ThreadPoolExecutor",
+    "ProcessPoolExecutor",
+    "ThreadPool",
+    "ProcessPool",
+    "fork",
+    "spawn",
+    "Popen",
+])
 
-    THREAD_START = frozenset(
-        ["start", "Thread.start", "Process.start", "run", "submit", "apply_async", "map_async"]
-    )
+# Write operations that cause race conditions when parallel
+WRITE_OPERATIONS = frozenset([
+    "save",
+    "update",
+    "insert",
+    "write",
+    "delete",
+    "remove",
+    "create",
+    "put",
+    "post",
+    "patch",
+    "upsert",
+    "bulk_create",
+    "bulk_update",
+    "execute",
+    "executemany",
+    "commit",
+])
 
-    THREAD_CLEANUP = frozenset(
-        [
-            "join",
-            "Thread.join",
-            "Process.join",
-            "terminate",
-            "kill",
-            "close",
-            "shutdown",
-            "wait",
-            "cancel",
-        ]
-    )
+# Sleep/delay methods
+SLEEP_METHODS = frozenset([
+    "sleep",
+    "time.sleep",
+    "delay",
+    "wait",
+    "pause",
+    "asyncio.sleep",
+    "gevent.sleep",
+    "eventlet.sleep",
+])
 
-    WORKER_CREATION = frozenset(
-        [
-            "Process",
-            "Thread",
-            "Worker",
-            "Pool",
-            "ThreadPoolExecutor",
-            "ProcessPoolExecutor",
-            "ThreadPool",
-            "ProcessPool",
-            "fork",
-            "spawn",
-            "Popen",
-        ]
-    )
+# Retry-related variable names
+RETRY_VARIABLES = frozenset([
+    "retry",
+    "retries",
+    "attempt",
+    "attempts",
+    "tries",
+    "max_retries",
+    "retry_count",
+    "num_retries",
+])
 
-    WRITE_OPERATIONS = frozenset(
-        [
-            "save",
-            "update",
-            "insert",
-            "write",
-            "delete",
-            "remove",
-            "create",
-            "put",
-            "post",
-            "patch",
-            "upsert",
-            "bulk_create",
-            "bulk_update",
-            "execute",
-            "executemany",
-            "commit",
-        ]
-    )
+# Backoff patterns indicating exponential backoff
+BACKOFF_PATTERNS = frozenset([
+    "**",
+    "exponential",
+    "backoff",
+    "*= 2",
+    "* 2",
+    "<< 1",
+    "math.pow",
+    "pow(2",
+])
 
-    SLEEP_METHODS = frozenset(
-        [
-            "sleep",
-            "time.sleep",
-            "delay",
-            "wait",
-            "pause",
-            "asyncio.sleep",
-            "gevent.sleep",
-            "eventlet.sleep",
-        ]
-    )
-
-    RETRY_VARIABLES = frozenset(
-        [
-            "retry",
-            "retries",
-            "attempt",
-            "attempts",
-            "tries",
-            "max_retries",
-            "retry_count",
-            "num_retries",
-        ]
-    )
-
-    BACKOFF_PATTERNS = frozenset(
-        ["**", "exponential", "backoff", "*= 2", "* 2", "<< 1", "math.pow", "pow(2"]
-    )
-
-    SINGLETON_VARS = frozenset(
-        [
-            "instance",
-            "_instance",
-            "__instance",
-            "singleton",
-            "_singleton",
-            "__singleton",
-            "INSTANCE",
-            "_INSTANCE",
-        ]
-    )
-
-    SHARED_STATE_PATTERNS = frozenset(
-        ["self.", "cls.", "global ", "__class__.", "classmethod", "staticmethod"]
-    )
+# Singleton variable names
+SINGLETON_VARS = frozenset([
+    "instance",
+    "_instance",
+    "__instance",
+    "singleton",
+    "_singleton",
+    "__singleton",
+    "INSTANCE",
+    "_INSTANCE",
+])
 
 
-class AsyncConcurrencyAnalyzer:
-    """Analyzer for Python async and concurrency issues."""
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Python async and concurrency issues.
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context."""
-        self.context = context
-        self.patterns = ConcurrencyPatterns()
-        self.findings = []
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
 
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
 
-        conn = sqlite3.connect(self.context.db_path)
-        self.cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
+        seen: set[str] = set()
 
-        try:
-            self._validate_required_tables()
+        def add_finding(
+            file: str,
+            line: int,
+            rule_name: str,
+            message: str,
+            severity: Severity,
+            confidence: Confidence = Confidence.HIGH,
+            cwe_id: str | None = None,
+        ) -> None:
+            """Add a finding if not already seen."""
+            key = f"{file}:{line}:{rule_name}"
+            if key in seen:
+                return
+            seen.add(key)
 
-            has_concurrency = self._detect_concurrency_usage()
-
-            self._check_race_conditions()
-            self._check_async_without_await()
-            self._check_parallel_writes()
-            self._check_threading_issues()
-            self._check_lock_issues()
-            self._check_shared_state_no_lock(has_concurrency)
-            self._check_sleep_in_loops()
-            self._check_retry_without_backoff()
-
-        finally:
-            conn.close()
-
-        return self.findings
-
-    def _validate_required_tables(self):
-        """Validate all required tables exist - crash if missing (schema contract)."""
-        required_tables = [
-            "refs",
-            "function_call_args",
-            "assignments",
-            "cfg_blocks",
-            "cfg_edges",
-            "cfg_block_statements",
-        ]
-        for table_name in required_tables:
-            get_table_schema(table_name)
-
-    def _validate_columns(self, table_name: str, columns: list[str]):
-        """Validate columns exist in table schema."""
-        schema = get_table_schema(table_name)
-        valid_cols = set(schema.column_names())
-        for col in columns:
-            if col not in valid_cols:
-                raise ValueError(
-                    f"Column '{col}' not in table '{table_name}'. "
-                    f"Valid columns: {', '.join(sorted(valid_cols))}"
-                )
-
-    def _detect_concurrency_usage(self) -> bool:
-        """Check if project uses threading/async/multiprocessing."""
-
-        self._validate_columns("refs", ["value"])
-
-        placeholders = ",".join("?" * len(self.patterns.CONCURRENCY_IMPORTS))
-        self.cursor.execute(
-            f"""
-            SELECT COUNT(*) FROM refs
-            WHERE value IN ({placeholders})
-        """,
-            list(self.patterns.CONCURRENCY_IMPORTS),
-        )
-
-        count = self.cursor.fetchone()[0]
-        return count > 0
-
-    def _check_race_conditions(self):
-        """Detect TOCTOU race conditions."""
-
-        self._validate_columns("function_call_args", ["file", "line", "callee_function"])
-
-        check_placeholders = ",".join("?" * len(self.patterns.TOCTOU_CHECKS))
-        action_placeholders = ",".join("?" * len(self.patterns.TOCTOU_ACTIONS))
-
-        self.cursor.execute(
-            f"""
-            SELECT DISTINCT f1.file, f1.line, f1.callee_function
-            FROM function_call_args f1
-            WHERE f1.callee_function IN ({check_placeholders})
-              AND EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f1.file
-                    AND f2.line > f1.line
-                    AND f2.line <= f1.line + 10
-                    AND f2.callee_function IN ({action_placeholders})
-              )
-            ORDER BY f1.file, f1.line
-        """,
-            list(self.patterns.TOCTOU_CHECKS) + list(self.patterns.TOCTOU_ACTIONS),
-        )
-
-        for file, line, check_func in self.cursor.fetchall():
-            self.findings.append(
+            findings.append(
                 StandardFinding(
-                    rule_name="python-toctou-race",
-                    message=f"Time-of-check-time-of-use race: {check_func} followed by action",
+                    rule_name=rule_name,
+                    message=message,
                     file_path=file,
                     line=line,
-                    severity=Severity.CRITICAL,
-                    category="concurrency",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-367",
+                    severity=severity,
+                    category=METADATA.category,
+                    confidence=confidence,
+                    cwe_id=cwe_id,
                 )
             )
 
-    def _check_shared_state_no_lock(self, has_concurrency: bool):
-        """Find shared state modifications without locks."""
-        if not has_concurrency:
-            return
+        # Check if project uses concurrency at all
+        has_concurrency = _detect_concurrency_usage(db)
 
-        self._validate_columns(
-            "assignments", ["file", "line", "target_var", "in_function", "source_expr"]
+        # Run all checks
+        _check_race_conditions(db, add_finding)
+        _check_async_without_await(db, add_finding)
+        _check_parallel_writes(db, add_finding)
+        _check_threading_issues(db, add_finding)
+        _check_lock_issues(db, add_finding)
+        _check_shared_state_no_lock(db, add_finding, has_concurrency)
+        _check_sleep_in_loops(db, add_finding)
+        _check_retry_without_backoff(db, add_finding)
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+def _detect_concurrency_usage(db: RuleDB) -> bool:
+    """Check if project uses threading/async/multiprocessing."""
+    placeholders = ", ".join("?" for _ in CONCURRENCY_IMPORTS)
+    sql, params = Q.raw(
+        f"SELECT COUNT(*) FROM refs WHERE value IN ({placeholders})",
+        list(CONCURRENCY_IMPORTS),
+    )
+    rows = db.execute(sql, params)
+    count = rows[0][0] if rows else 0
+    return count > 0
+
+
+def _check_race_conditions(db: RuleDB, add_finding) -> None:
+    """Detect TOCTOU (time-of-check-time-of-use) race conditions.
+
+    Pattern: check(path) followed by action(path) without atomic operation.
+    Example: if os.path.exists(f): open(f) -- race between check and open.
+    """
+    check_placeholders = ", ".join("?" for _ in TOCTOU_CHECKS)
+    action_placeholders = ", ".join("?" for _ in TOCTOU_ACTIONS)
+
+    sql, params = Q.raw(
+        f"""
+        SELECT DISTINCT f1.file, f1.line, f1.callee_function
+        FROM function_call_args f1
+        WHERE f1.callee_function IN ({check_placeholders})
+          AND EXISTS (
+              SELECT 1 FROM function_call_args f2
+              WHERE f2.file = f1.file
+                AND f2.line > f1.line
+                AND f2.line <= f1.line + 10
+                AND f2.callee_function IN ({action_placeholders})
+          )
+        ORDER BY f1.file, f1.line
+        """,
+        list(TOCTOU_CHECKS) + list(TOCTOU_ACTIONS),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, check_func = row[0], row[1], row[2]
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-toctou-race",
+            message=f"Time-of-check-time-of-use race: {check_func} followed by action",
+            severity=Severity.CRITICAL,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-367",
         )
 
-        query = build_query(
-            "assignments", ["file", "line", "target_var", "in_function"], order_by="file, line"
-        )
-        self.cursor.execute(query)
 
-        shared_state_assignments = []
-        for file, line, var, function in self.cursor.fetchall():
-            if var.startswith("self.") or var.startswith("cls.") or var.startswith("__class__."):
-                shared_state_assignments.append((file, line, var, function))
+def _check_async_without_await(db: RuleDB, add_finding) -> None:
+    """Find async function calls not awaited.
 
-        for file, line, var, function in shared_state_assignments:
-            has_lock = self._check_lock_nearby(file, line, function)
+    Missing await causes coroutine to never execute, silently dropping work.
+    """
+    # First, identify async functions by looking for await patterns
+    rows = db.query(
+        Q("function_call_args")
+        .select("caller_function", "argument_expr", "callee_function")
+    )
 
-            if not has_lock:
-                confidence = Confidence.HIGH if "+=" in var or "-=" in var else Confidence.MEDIUM
+    async_functions = set()
+    for row in rows:
+        caller, arg_expr, callee = row[0], row[1], row[2]
+        if caller and ((arg_expr and "await" in str(arg_expr)) or (callee and "await" in str(callee))):
+            async_functions.add(caller)
 
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="python-shared-state-no-lock",
-                        message=f'Shared state "{var}" modified without synchronization',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category="concurrency",
-                        confidence=confidence,
-                        cwe_id="CWE-362",
-                    )
-                )
+    if not async_functions:
+        return
 
-        query = build_query("assignments", ["file", "line", "target_var", "source_expr"])
-        self.cursor.execute(query)
+    # Find calls to async functions without await
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "caller_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-        for file, line, var, expr in self.cursor.fetchall():
-            if not expr or not any(op in expr for op in COUNTER_OPS):
-                continue
+    for row in rows:
+        file, line, func, caller, arg_expr = row[0], row[1], row[2], row[3], row[4]
 
-            if not (var.startswith("self.") or var.startswith("cls.")):
-                continue
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-unprotected-increment",
-                    message=f'Unprotected counter operation on "{var}"',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category="concurrency",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-362",
-                )
+        if func not in async_functions:
+            continue
+
+        # Skip if already awaited
+        if arg_expr and "await" in str(arg_expr):
+            continue
+
+        # Skip task creators (they handle the coroutine)
+        if func in TASK_CREATORS:
+            continue
+
+        # Only flag if caller is also async (can use await)
+        if caller in async_functions:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-async-no-await",
+                message=f'Async function "{func}" called without await',
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-667",
             )
 
-    def _check_lock_nearby(self, file: str, line: int, function: str) -> bool:
-        """Check if there's lock protection nearby."""
-        lock_placeholders = ",".join("?" * len(self.patterns.LOCK_METHODS))
-        params = list(self.patterns.LOCK_METHODS) + [file, line, line]
 
-        query = f"""
+def _check_parallel_writes(db: RuleDB, add_finding) -> None:
+    """Find parallel operations with write operations - data corruption risk."""
+    # Check asyncio.gather with writes
+    async_placeholders = ", ".join("?" for _ in ASYNC_METHODS)
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, argument_expr
+        FROM function_call_args
+        WHERE callee_function IN ({async_placeholders})
+        ORDER BY file, line
+        """,
+        list(ASYNC_METHODS),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, args = row[0], row[1], row[2]
+        if not args:
+            continue
+
+        args_lower = str(args).lower()
+        has_writes = any(op in args_lower for op in WRITE_OPERATIONS)
+
+        if has_writes:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-parallel-writes",
+                message="Parallel write operations without synchronization",
+                severity=Severity.CRITICAL,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-362",
+            )
+
+    # Check executor patterns with writes nearby
+    executor_placeholders = ", ".join("?" for _ in EXECUTOR_PATTERNS)
+    write_placeholders = ", ".join("?" for _ in WRITE_OPERATIONS)
+
+    sql, params = Q.raw(
+        f"""
+        SELECT f.file, f.line, f.callee_function
+        FROM function_call_args f
+        WHERE f.callee_function IN ({executor_placeholders})
+          AND EXISTS (
+              SELECT 1 FROM function_call_args f2
+              WHERE f2.file = f.file
+                AND f2.line >= f.line - 10
+                AND f2.line <= f.line + 10
+                AND f2.callee_function IN ({write_placeholders})
+          )
+        """,
+        list(EXECUTOR_PATTERNS) + list(WRITE_OPERATIONS),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, executor = row[0], row[1], row[2]
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-executor-writes",
+            message=f'Parallel executor "{executor}" with write operations',
+            severity=Severity.HIGH,
+            confidence=Confidence.MEDIUM,
+            cwe_id="CWE-362",
+        )
+
+
+def _check_threading_issues(db: RuleDB, add_finding) -> None:
+    """Find thread lifecycle issues - threads started but not joined."""
+    start_placeholders = ", ".join("?" for _ in THREAD_START)
+    cleanup_placeholders = ", ".join("?" for _ in THREAD_CLEANUP)
+
+    # Threads started without join
+    sql, params = Q.raw(
+        f"""
+        SELECT DISTINCT f1.file, f1.line, f1.callee_function
+        FROM function_call_args f1
+        WHERE f1.callee_function IN ({start_placeholders})
+          AND NOT EXISTS (
+              SELECT 1 FROM function_call_args f2
+              WHERE f2.file = f1.file
+                AND f2.callee_function IN ({cleanup_placeholders})
+                AND f2.line > f1.line
+          )
+        """,
+        list(THREAD_START) + list(THREAD_CLEANUP),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, method = row[0], row[1], row[2]
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-thread-no-join",
+            message=f'Thread/Process "{method}" started but never joined',
+            severity=Severity.HIGH,
+            confidence=Confidence.MEDIUM,
+            cwe_id="CWE-404",
+        )
+
+    # Workers created without cleanup
+    worker_placeholders = ", ".join("?" for _ in WORKER_CREATION)
+
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, callee_function
+        FROM function_call_args
+        WHERE callee_function IN ({worker_placeholders})
+          AND NOT EXISTS (
+              SELECT 1 FROM function_call_args f2
+              WHERE f2.file = file
+                AND f2.callee_function IN ({cleanup_placeholders})
+                AND f2.line > line
+          )
+        """,
+        list(WORKER_CREATION) + list(THREAD_CLEANUP),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, worker_type = row[0], row[1], row[2]
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-worker-no-cleanup",
+            message=f"{worker_type} created but may not be properly cleaned up",
+            severity=Severity.MEDIUM,
+            confidence=Confidence.LOW,
+            cwe_id="CWE-404",
+        )
+
+
+def _check_lock_issues(db: RuleDB, add_finding) -> None:
+    """Find lock-related issues: missing timeouts, nested locks, unprotected singletons."""
+    lock_placeholders = ", ".join("?" for _ in LOCK_METHODS)
+
+    # Locks without timeout
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE callee_function IN ({lock_placeholders})
+        ORDER BY file, line
+        """,
+        list(LOCK_METHODS),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, lock_func, args = row[0], row[1], row[2], row[3]
+        if args:
+            args_lower = str(args).lower()
+            if "timeout" in args_lower or "blocking" in args_lower:
+                continue
+        if lock_func in ("acquire", "Lock", "RLock", "Semaphore"):
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-lock-no-timeout",
+                message=f'Lock "{lock_func}" without timeout - infinite wait risk',
+                severity=Severity.HIGH,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-667",
+            )
+
+    # Multiple locks in same function (deadlock risk)
+    sql, params = Q.raw(
+        f"""
+        SELECT file, caller_function, COUNT(*) as lock_count
+        FROM function_call_args
+        WHERE callee_function IN ({lock_placeholders})
+          AND caller_function IS NOT NULL
+        GROUP BY file, caller_function
+        HAVING COUNT(*) > 1
+        """,
+        list(LOCK_METHODS),
+    )
+
+    for row in db.execute(sql, params):
+        file, function, count = row[0], row[1], row[2]
+        if count > 1 and function:
+            add_finding(
+                file=file,
+                line=1,
+                rule_name="python-nested-locks",
+                message=f'Multiple locks ({count}) in function "{function}" - deadlock risk',
+                severity=Severity.CRITICAL,
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-833",
+            )
+
+    # Singleton patterns without lock protection
+    singleton_placeholders = ", ".join("?" for _ in SINGLETON_VARS)
+
+    sql, params = Q.raw(
+        f"""
+        SELECT a.file, a.line, a.target_var
+        FROM assignments a
+        WHERE a.target_var IN ({singleton_placeholders})
+          AND NOT EXISTS (
+              SELECT 1 FROM function_call_args f
+              WHERE f.file = a.file
+                AND f.callee_function IN ({lock_placeholders})
+                AND ABS(f.line - a.line) <= 5
+          )
+        """,
+        list(SINGLETON_VARS) + list(LOCK_METHODS),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, var = row[0], row[1], row[2]
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-singleton-race",
+            message=f'Singleton "{var}" without synchronization',
+            severity=Severity.CRITICAL,
+            confidence=Confidence.MEDIUM,
+            cwe_id="CWE-362",
+        )
+
+
+def _check_shared_state_no_lock(db: RuleDB, add_finding, has_concurrency: bool) -> None:
+    """Find shared state modifications without locks."""
+    if not has_concurrency:
+        return
+
+    # Get assignments to shared state (self., cls., __class__.)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "in_function", "source_expr")
+        .order_by("file, line")
+    )
+
+    for row in rows:
+        file, line, var, function, source_expr = row[0], row[1], row[2], row[3], row[4]
+
+        # Only check shared state patterns
+        if not var:
+            continue
+        if not (var.startswith("self.") or var.startswith("cls.") or var.startswith("__class__.")):
+            continue
+
+        # Check if lock is nearby
+        has_lock = _check_lock_nearby(db, file, line, function)
+
+        if not has_lock:
+            # Higher confidence for counter operations
+            confidence = Confidence.HIGH if any(op in str(var) for op in COUNTER_OPS) else Confidence.MEDIUM
+
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-shared-state-no-lock",
+                message=f'Shared state "{var}" modified without synchronization',
+                severity=Severity.HIGH,
+                confidence=confidence,
+                cwe_id="CWE-362",
+            )
+
+        # Check for unprotected counter operations specifically
+        if source_expr and any(op in str(source_expr) for op in COUNTER_OPS):
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-unprotected-increment",
+                message=f'Unprotected counter operation on "{var}"',
+                severity=Severity.CRITICAL,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-362",
+            )
+
+
+def _check_lock_nearby(db: RuleDB, file: str, line: int, function: str | None) -> bool:
+    """Check if there's lock protection nearby."""
+    lock_placeholders = ", ".join("?" for _ in LOCK_METHODS)
+    params = list(LOCK_METHODS) + [file, line, line]
+
+    if function:
+        sql, params = Q.raw(
+            f"""
             SELECT COUNT(*) FROM function_call_args f
             WHERE f.callee_function IN ({lock_placeholders})
               AND f.file = ?
               AND f.line >= ? - 5
               AND f.line <= ? + 5
-        """
-
-        if function:
-            query += " AND f.caller_function = ?"
-            params.append(function)
-
-        query += " LIMIT 1"
-        self.cursor.execute(query, params)
-        return self.cursor.fetchone()[0] > 0
-
-    def _check_async_without_await(self):
-        """Find async function calls not awaited."""
-
-        self._validate_columns(
-            "function_call_args",
-            ["file", "line", "caller_function", "callee_function", "argument_expr"],
+              AND f.caller_function = ?
+            LIMIT 1
+            """,
+            list(LOCK_METHODS) + [file, line, line, function],
+        )
+    else:
+        sql, params = Q.raw(
+            f"""
+            SELECT COUNT(*) FROM function_call_args f
+            WHERE f.callee_function IN ({lock_placeholders})
+              AND f.file = ?
+              AND f.line >= ? - 5
+              AND f.line <= ? + 5
+            LIMIT 1
+            """,
+            list(LOCK_METHODS) + [file, line, line],
         )
 
-        query = build_query(
-            "function_call_args", ["caller_function", "argument_expr", "callee_function"]
+    rows = db.execute(sql, params)
+    return rows[0][0] > 0 if rows else False
+
+
+def _check_sleep_in_loops(db: RuleDB, add_finding) -> None:
+    """Find sleep operations in loops - performance antipattern."""
+    sleep_placeholders = ", ".join("?" for _ in SLEEP_METHODS)
+
+    sql, params = Q.raw(
+        f"""
+        SELECT DISTINCT cb.file, f.line, f.callee_function
+        FROM cfg_blocks cb
+        JOIN function_call_args f ON f.file = cb.file
+        WHERE cb.block_type IN ('loop', 'for_loop', 'while_loop')
+          AND f.line >= cb.start_line
+          AND f.line <= cb.end_line
+          AND f.callee_function IN ({sleep_placeholders})
+        ORDER BY cb.file, f.line
+        """,
+        list(SLEEP_METHODS),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, sleep_func = row[0], row[1], row[2]
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-sleep-in-loop",
+            message=f'Sleep "{sleep_func}" in loop causes performance issues',
+            severity=Severity.MEDIUM,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-1050",
         )
-        self.cursor.execute(query)
 
-        async_functions = set()
-        for caller, arg_expr, callee in self.cursor.fetchall():
-            if caller and ((arg_expr and "await" in arg_expr) or "await" in callee):
-                async_functions.add(caller)
 
-        if not async_functions:
-            return
+def _check_retry_without_backoff(db: RuleDB, add_finding) -> None:
+    """Find retry loops without exponential backoff - thundering herd risk."""
+    # Get all loops
+    loop_rows = db.query(
+        Q("cfg_blocks")
+        .select("file", "start_line", "end_line")
+        .where("block_type IN (?, ?, ?)", "loop", "while_loop", "for_loop")
+    )
 
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "callee_function", "caller_function", "argument_expr"],
-            order_by="file, line",
-        )
-        self.cursor.execute(query)
+    # Get all assignments
+    assignment_rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+    )
 
-        for file, line, func, caller, arg_expr in self.cursor.fetchall():
-            if func not in async_functions:
+    # Index assignments by file for faster lookup
+    assignments_by_file: dict[str, list] = {}
+    for row in assignment_rows:
+        file = row[0]
+        if file not in assignments_by_file:
+            assignments_by_file[file] = []
+        assignments_by_file[file].append(row)
+
+    # Find retry loops
+    retry_loops = []
+    for loop_row in loop_rows:
+        file, start_line, end_line = loop_row[0], loop_row[1], loop_row[2]
+
+        has_retry = False
+        for assign in assignments_by_file.get(file, []):
+            assign_line, target_var, source_expr = assign[1], assign[2], assign[3]
+            if not (start_line <= assign_line <= end_line):
                 continue
 
-            if arg_expr and "await" in arg_expr:
-                continue
+            if target_var and target_var in RETRY_VARIABLES:
+                has_retry = True
+                break
+            if source_expr and ("retry" in str(source_expr).lower() or "attempt" in str(source_expr).lower()):
+                has_retry = True
+                break
 
-            if func in TASK_CREATORS:
-                continue
+        if has_retry:
+            retry_loops.append((file, start_line, end_line))
 
-            if caller in async_functions:
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="python-async-no-await",
-                        message=f'Async function "{func}" called without await',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category="concurrency",
-                        confidence=Confidence.MEDIUM,
-                        cwe_id="CWE-667",
-                    )
-                )
+    # Check each retry loop for backoff
+    for file, start_line, end_line in retry_loops:
+        has_backoff = _check_backoff_pattern(db, file, start_line, end_line)
 
-    def _check_parallel_writes(self):
-        """Find parallel operations with write operations."""
+        if not has_backoff:
+            has_sleep = _check_sleep_in_range(db, file, start_line, end_line)
 
-        self._validate_columns(
-            "function_call_args", ["file", "line", "argument_expr", "callee_function"]
-        )
-
-        gather_placeholders = ",".join("?" * len(self.patterns.ASYNC_METHODS))
-        self.cursor.execute(
-            f"""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE callee_function IN ({gather_placeholders})
-            ORDER BY file, line
-        """,
-            list(self.patterns.ASYNC_METHODS),
-        )
-
-        for file, line, args in self.cursor.fetchall():
-            if not args:
-                continue
-
-            has_writes = any(op in args.lower() for op in self.patterns.WRITE_OPERATIONS)
-
-            if has_writes:
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="python-parallel-writes",
-                        message="Parallel write operations without synchronization",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        category="concurrency",
-                        confidence=Confidence.HIGH,
-                        cwe_id="CWE-362",
-                    )
-                )
-
-        executor_placeholders = ",".join("?" * len(EXECUTOR_PATTERNS))
-        write_placeholders = ",".join("?" * len(self.patterns.WRITE_OPERATIONS))
-
-        self.cursor.execute(
-            f"""
-            SELECT f.file, f.line, f.callee_function
-            FROM function_call_args f
-            WHERE f.callee_function IN ({executor_placeholders})
-              AND EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f.file
-                    AND f2.line >= f.line - 10
-                    AND f2.line <= f.line + 10
-                    AND f2.callee_function IN ({write_placeholders})
-              )
-        """,
-            EXECUTOR_PATTERNS + list(self.patterns.WRITE_OPERATIONS),
-        )
-
-        for file, line, executor in self.cursor.fetchall():
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-executor-writes",
-                    message=f'Parallel executor "{executor}" with write operations',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="concurrency",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-362",
-                )
-            )
-
-    def _check_threading_issues(self):
-        """Find thread lifecycle issues."""
-
-        self._validate_columns("function_call_args", ["file", "line", "callee_function"])
-
-        start_placeholders = ",".join("?" * len(self.patterns.THREAD_START))
-        cleanup_placeholders = ",".join("?" * len(self.patterns.THREAD_CLEANUP))
-
-        self.cursor.execute(
-            f"""
-            SELECT DISTINCT f1.file, f1.line, f1.callee_function
-            FROM function_call_args f1
-            WHERE f1.callee_function IN ({start_placeholders})
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = f1.file
-                    AND f2.callee_function IN ({cleanup_placeholders})
-                    AND f2.line > f1.line
-              )
-        """,
-            list(self.patterns.THREAD_START) + list(self.patterns.THREAD_CLEANUP),
-        )
-
-        for file, line, method in self.cursor.fetchall():
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-thread-no-join",
-                    message=f'Thread/Process "{method}" started but never joined',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="concurrency",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-404",
-                )
-            )
-
-        worker_placeholders = ",".join("?" * len(self.patterns.WORKER_CREATION))
-
-        self.cursor.execute(
-            f"""
-            SELECT file, line, callee_function
-            FROM function_call_args
-            WHERE callee_function IN ({worker_placeholders})
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f2
-                  WHERE f2.file = file
-                    AND f2.callee_function IN ({cleanup_placeholders})
-                    AND f2.line > line
-              )
-        """,
-            list(self.patterns.WORKER_CREATION) + list(self.patterns.THREAD_CLEANUP),
-        )
-
-        for file, line, worker_type in self.cursor.fetchall():
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-worker-no-cleanup",
-                    message=f"{worker_type} created but may not be properly cleaned up",
-                    file_path=file,
-                    line=line,
+            if has_sleep:
+                add_finding(
+                    file=file,
+                    line=start_line,
+                    rule_name="python-retry-no-backoff",
+                    message="Retry logic without exponential backoff",
                     severity=Severity.MEDIUM,
-                    category="concurrency",
-                    confidence=Confidence.LOW,
-                    cwe_id="CWE-404",
-                )
-            )
-
-    def _check_sleep_in_loops(self):
-        """Find sleep operations in loops."""
-
-        self._validate_columns("cfg_blocks", ["file", "block_type", "start_line", "end_line"])
-        self._validate_columns("function_call_args", ["file", "line", "callee_function"])
-
-        sleep_placeholders = ",".join("?" * len(self.patterns.SLEEP_METHODS))
-
-        self.cursor.execute(
-            f"""
-            SELECT DISTINCT cb.file, f.line, f.callee_function
-            FROM cfg_blocks cb
-            JOIN function_call_args f ON f.file = cb.file
-            WHERE cb.block_type IN ('loop', 'for_loop', 'while_loop')
-              AND f.line >= cb.start_line
-              AND f.line <= cb.end_line
-              AND f.callee_function IN ({sleep_placeholders})
-            ORDER BY cb.file, f.line
-        """,
-            list(self.patterns.SLEEP_METHODS),
-        )
-
-        for file, line, sleep_func in self.cursor.fetchall():
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-sleep-in-loop",
-                    message=f'Sleep "{sleep_func}" in loop causes performance issues',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category="performance",
-                    confidence=Confidence.HIGH,
+                    confidence=Confidence.MEDIUM,
                     cwe_id="CWE-1050",
                 )
-            )
 
-    def _check_retry_without_backoff(self):
-        """Find retry loops without exponential backoff."""
 
-        self._validate_columns("cfg_blocks", ["file", "block_type", "start_line", "end_line"])
-        self._validate_columns("assignments", ["file", "line", "target_var", "source_expr"])
+def _check_backoff_pattern(db: RuleDB, file: str, start: int, end: int) -> bool:
+    """Check if there's exponential backoff in range."""
+    rows = db.query(
+        Q("assignments")
+        .select("source_expr")
+        .where("file = ? AND line >= ? AND line <= ?", file, start, end)
+    )
 
-        query = build_query(
-            "cfg_blocks",
-            ["file", "start_line", "end_line"],
-            where="block_type IN ('loop', 'while_loop', 'for_loop')",
-        )
-        self.cursor.execute(query)
-        all_loops = self.cursor.fetchall()
+    for row in rows:
+        source_expr = row[0]
+        if not source_expr:
+            continue
+        source_lower = str(source_expr).lower()
+        for pattern in BACKOFF_PATTERNS:
+            if pattern.lower() in source_lower:
+                return True
 
-        query = build_query("assignments", ["file", "line", "target_var", "source_expr"])
-        self.cursor.execute(query)
-        all_assignments = self.cursor.fetchall()
+    return False
 
-        retry_loops = []
-        for file, start_line, end_line in all_loops:
-            has_retry = False
-            for assign_file, assign_line, target_var, source_expr in all_assignments:
-                if assign_file != file or not (start_line <= assign_line <= end_line):
-                    continue
 
-                if target_var in self.patterns.RETRY_VARIABLES:
-                    has_retry = True
-                    break
-                if source_expr and (
-                    "retry" in source_expr.lower() or "attempt" in source_expr.lower()
-                ):
-                    has_retry = True
-                    break
+def _check_sleep_in_range(db: RuleDB, file: str, start: int, end: int) -> bool:
+    """Check if there's sleep in line range."""
+    sleep_placeholders = ", ".join("?" for _ in SLEEP_METHODS)
 
-            if has_retry:
-                retry_loops.append((file, start_line, end_line))
-
-        for file, start_line, end_line in retry_loops:
-            has_backoff = self._check_backoff_pattern(file, start_line, end_line)
-
-            if not has_backoff:
-                has_sleep = self._check_sleep_in_range(file, start_line, end_line)
-
-                if has_sleep:
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name="python-retry-no-backoff",
-                            message="Retry logic without exponential backoff",
-                            file_path=file,
-                            line=start_line,
-                            severity=Severity.MEDIUM,
-                            category="performance",
-                            confidence=Confidence.MEDIUM,
-                            cwe_id="CWE-1050",
-                        )
-                    )
-
-    def _check_backoff_pattern(self, file: str, start: int, end: int) -> bool:
-        """Check if there's exponential backoff in range."""
-
-        query = build_query(
-            "assignments", ["source_expr"], where="file = ? AND line >= ? AND line <= ?"
-        )
-        self.cursor.execute(query, (file, start, end))
-
-        for (source_expr,) in self.cursor.fetchall():
-            if not source_expr:
-                continue
-            source_lower = source_expr.lower()
-            for pattern in self.patterns.BACKOFF_PATTERNS:
-                if pattern.lower() in source_lower:
-                    return True
-
-        return False
-
-    def _check_sleep_in_range(self, file: str, start: int, end: int) -> bool:
-        """Check if there's sleep in line range."""
-        sleep_placeholders = ",".join("?" * len(self.patterns.SLEEP_METHODS))
-
-        self.cursor.execute(
-            f"""
-            SELECT COUNT(*) FROM function_call_args
-            WHERE file = ?
-              AND line >= ?
-              AND line <= ?
-              AND callee_function IN ({sleep_placeholders})
-            LIMIT 1
+    sql, params = Q.raw(
+        f"""
+        SELECT COUNT(*) FROM function_call_args
+        WHERE file = ?
+          AND line >= ?
+          AND line <= ?
+          AND callee_function IN ({sleep_placeholders})
+        LIMIT 1
         """,
-            [file, start, end] + list(self.patterns.SLEEP_METHODS),
-        )
+        [file, start, end] + list(SLEEP_METHODS),
+    )
 
-        return self.cursor.fetchone()[0] > 0
-
-    def _check_lock_issues(self):
-        """Find lock-related issues."""
-
-        self._validate_columns(
-            "function_call_args",
-            ["file", "line", "caller_function", "callee_function", "argument_expr"],
-        )
-        self._validate_columns("assignments", ["file", "line", "target_var"])
-
-        lock_methods_list = list(self.patterns.LOCK_METHODS)
-        lock_placeholders = ",".join("?" * len(lock_methods_list))
-
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "callee_function", "argument_expr"],
-            where=f"callee_function IN ({lock_placeholders})",
-            order_by="file, line",
-        )
-        self.cursor.execute(query, lock_methods_list)
-
-        for file, line, lock_func, args in self.cursor.fetchall():
-            if args:
-                args_lower = args.lower()
-                if "timeout" in args_lower or "blocking" in args_lower:
-                    continue
-            if lock_func in ["acquire", "Lock", "RLock", "Semaphore"]:
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="python-lock-no-timeout",
-                        message=f'Lock "{lock_func}" without timeout - infinite wait risk',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category="concurrency",
-                        confidence=Confidence.HIGH,
-                        cwe_id="CWE-667",
-                    )
-                )
-
-        self.cursor.execute(
-            f"""
-            SELECT file, caller_function, COUNT(*) as lock_count
-            FROM function_call_args
-            WHERE callee_function IN ({lock_placeholders})
-            GROUP BY file, caller_function
-            HAVING COUNT(*) > 1
-        """,
-            list(self.patterns.LOCK_METHODS),
-        )
-
-        for file, function, count in self.cursor.fetchall():
-            if count > 1:
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="python-nested-locks",
-                        message=f'Multiple locks ({count}) in function "{function}" - deadlock risk',
-                        file_path=file,
-                        line=1,
-                        severity=Severity.CRITICAL,
-                        category="concurrency",
-                        confidence=Confidence.MEDIUM,
-                        cwe_id="CWE-833",
-                    )
-                )
-
-        singleton_placeholders = ",".join("?" * len(self.patterns.SINGLETON_VARS))
-
-        self.cursor.execute(
-            f"""
-            SELECT a.file, a.line, a.target_var
-            FROM assignments a
-            WHERE a.target_var IN ({singleton_placeholders})
-              AND NOT EXISTS (
-                  SELECT 1 FROM function_call_args f
-                  WHERE f.file = a.file
-                    AND f.callee_function IN ({lock_placeholders})
-                    AND ABS(f.line - a.line) <= 5
-              )
-        """,
-            list(self.patterns.SINGLETON_VARS) + list(self.patterns.LOCK_METHODS),
-        )
-
-        for file, line, var in self.cursor.fetchall():
-            self.findings.append(
-                StandardFinding(
-                    rule_name="python-singleton-race",
-                    message=f'Singleton "{var}" without synchronization',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category="concurrency",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-362",
-                )
-            )
-
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Python async and concurrency issues."""
-    analyzer = AsyncConcurrencyAnalyzer(context)
-    return analyzer.analyze()
-
-
-def register_taint_patterns(taint_registry):
-    """Register concurrency-specific taint patterns."""
-    patterns = ConcurrencyPatterns()
-
-    for pattern in SHARED_STATE_SOURCES:
-        taint_registry.register_source(pattern, "shared_state", "python")
-
-    for pattern in patterns.LOCK_METHODS:
-        taint_registry.register_sink(pattern, "synchronization", "python")
-
-    for pattern in patterns.ASYNC_METHODS:
-        taint_registry.register_sink(pattern, "async_operation", "python")
-
-    for pattern in patterns.THREAD_START:
-        taint_registry.register_sink(pattern, "thread_process", "python")
+    rows = db.execute(sql, params)
+    return rows[0][0] > 0 if rows else False

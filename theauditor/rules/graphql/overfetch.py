@@ -1,147 +1,190 @@
-"""GraphQL Overfetch Detection - ORM Field Analysis."""
+"""GraphQL Overfetch Detection.
 
-import sqlite3
+Detects when GraphQL resolvers may fetch sensitive ORM fields that are
+not exposed in the schema. Even if a field isn't in the GraphQL type,
+the resolver might load the entire model, exposing sensitive data in
+memory or logs.
+
+CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="graphql_overfetch",
     category="security",
     target_extensions=[".graphql", ".gql", ".graphqls", ".py", ".js", ".ts"],
-    execution_scope="database")
-
-
-SENSITIVE_FIELDS = frozenset(
-    [
-        "password",
-        "passwordHash",
-        "password_hash",
-        "hashed_password",
-        "apiKey",
-        "api_key",
-        "secretKey",
-        "secret_key",
-        "privateKey",
-        "private_key",
-        "token",
-        "accessToken",
-        "access_token",
-        "refreshToken",
-        "refresh_token",
-        "ssn",
-        "social_security",
-        "credit_card",
-        "creditCard",
-        "cvv",
-        "bankAccount",
-        "bank_account",
-        "routingNumber",
-        "routing_number",
-        "salary",
-        "medicalRecord",
-        "medical_record",
-    ]
+    exclude_patterns=["node_modules/", ".venv/", "test/", "__pycache__/"],
+    execution_scope="database",
+    primary_table="graphql_types",
 )
 
+# Sensitive field patterns that should never be overfetched
+SENSITIVE_FIELD_PATTERNS = frozenset([
+    "password",
+    "passwordhash",
+    "password_hash",
+    "hashed_password",
+    "passhash",
+    "pass_hash",
+    "apikey",
+    "api_key",
+    "secretkey",
+    "secret_key",
+    "privatekey",
+    "private_key",
+    "token",
+    "accesstoken",
+    "access_token",
+    "refreshtoken",
+    "refresh_token",
+    "bearertoken",
+    "bearer_token",
+    "authtoken",
+    "auth_token",
+    "ssn",
+    "social_security",
+    "socialsecurity",
+    "creditcard",
+    "credit_card",
+    "cardnumber",
+    "card_number",
+    "cvv",
+    "cvc",
+    "bankaccount",
+    "bank_account",
+    "accountnumber",
+    "account_number",
+    "routingnumber",
+    "routing_number",
+    "salary",
+    "income",
+    "medicalrecord",
+    "medical_record",
+    "healthrecord",
+    "health_record",
+    "diagnosis",
+    "prescription",
+    "encryptionkey",
+    "encryption_key",
+    "signingkey",
+    "signing_key",
+    "mfasecret",
+    "mfa_secret",
+    "totpsecret",
+    "totp_secret",
+    "recoverycode",
+    "recovery_code",
+])
 
-def check_graphql_overfetch(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect overfetch patterns in GraphQL resolvers."""
+
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect overfetch patterns in GraphQL resolvers.
+
+    Identifies cases where ORM models have sensitive fields that are
+    not exposed in the corresponding GraphQL type, but could be
+    fetched by resolvers loading full model instances.
+
+    Args:
+        context: Rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
     if not context.db_path:
-        return []
+        return RuleResult(findings=[], manifest={})
 
-    findings = []
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = []
 
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table' AND name IN ('graphql_types', 'python_orm_models')
-    """)
-    if len(cursor.fetchall()) < 2:
-        return findings
-
-    cursor.execute("""
-        SELECT t.type_id, t.type_name
-        FROM graphql_types t
-        WHERE t.kind = 'object'
-    """)
-
-    for type_row in cursor.fetchall():
-        type_name = type_row["type_name"]
-        type_id = type_row["type_id"]
-
-        cursor.execute(
-            """
-            SELECT field_name
-            FROM graphql_fields
-            WHERE type_id = ?
-        """,
-            (type_id,),
+        # Get all GraphQL object types
+        type_rows = db.query(
+            Q("graphql_types")
+            .select("type_id", "type_name", "schema_path")
+            .where("kind = ?", "OBJECT")
         )
 
-        exposed_fields = {row["field_name"] for row in cursor.fetchall()}
+        for type_row in type_rows:
+            type_id, type_name, schema_path = type_row
 
-        cursor.execute(
-            """
-            SELECT model_name, file
-            FROM python_orm_models
-            WHERE model_name LIKE ?
-        """,
-            (f"%{type_name}%",),
-        )
+            if not type_name:
+                continue
 
-        orm_models = cursor.fetchall()
+            # Get fields exposed in this GraphQL type
+            field_rows = db.query(
+                Q("graphql_fields")
+                .select("field_name")
+                .where("type_id = ?", type_id)
+            )
+            exposed_fields = {row[0].lower() for row in field_rows if row[0]}
 
-        for orm_row in orm_models:
-            model_name = orm_row["model_name"]
-            model_file = orm_row["file"]
-
-            cursor.execute(
-                """
-                SELECT field_name, field_type
-                FROM python_orm_fields
-                WHERE model_name = ?
-            """,
-                (model_name,),
+            # Find matching ORM models (by name similarity)
+            orm_rows = db.query(
+                Q("python_orm_models")
+                .select("model_name", "file", "line")
+                .where("model_name LIKE ?", f"%{type_name}%")
             )
 
-            orm_fields = cursor.fetchall()
+            for orm_row in orm_rows:
+                model_name, model_file, model_line = orm_row
 
-            for field_row in orm_fields:
-                field_name = field_row["field_name"]
-                field_type = field_row["field_type"]
+                if not model_name:
+                    continue
 
-                if field_name not in exposed_fields:
-                    is_sensitive = any(sens in field_name.lower() for sens in SENSITIVE_FIELDS)
+                # Get all ORM fields for this model
+                orm_field_rows = db.query(
+                    Q("python_orm_fields")
+                    .select("field_name", "field_type", "line")
+                    .where("model_name = ?", model_name)
+                )
+
+                for orm_field_row in orm_field_rows:
+                    field_name, field_type, field_line = orm_field_row
+
+                    if not field_name:
+                        continue
+
+                    field_lower = field_name.lower()
+
+                    # Skip if field is exposed in GraphQL
+                    if field_lower in exposed_fields:
+                        continue
+
+                    # Check if this is a sensitive field
+                    is_sensitive = any(
+                        pattern in field_lower
+                        for pattern in SENSITIVE_FIELD_PATTERNS
+                    )
 
                     if is_sensitive:
-                        finding = StandardFinding(
-                            rule_name="graphql_overfetch",
-                            message=f"Sensitive field '{field_name}' in {model_name} model not exposed in GraphQL schema {type_name}, but may be fetched by resolvers",
-                            file_path=model_file,
-                            line=0,
-                            severity=Severity.MEDIUM,
-                            category="security",
-                            confidence=Confidence.MEDIUM,
-                            snippet=f"ORM field: {field_name} ({field_type})",
-                            cwe_id="CWE-200",
-                            additional_info={
-                                "orm_model": model_name,
-                                "graphql_type": type_name,
-                                "sensitive_field": field_name,
-                                "field_type": field_type,
-                                "exposed_fields": list(exposed_fields),
-                                "recommendation": "Ensure resolver uses .only() or explicit field selection to avoid fetching unexposed sensitive fields",
-                            },
+                        findings.append(
+                            StandardFinding(
+                                rule_name=METADATA.name,
+                                message=f"Sensitive ORM field '{field_name}' in {model_name} not exposed in GraphQL type {type_name}, but may be overfetched by resolvers",
+                                file_path=model_file or "",
+                                line=field_line or model_line or 0,
+                                severity=Severity.MEDIUM,
+                                category=METADATA.category,
+                                confidence=Confidence.MEDIUM,
+                                snippet=f"ORM field: {field_name} ({field_type or 'unknown type'})",
+                                cwe_id="CWE-200",
+                                additional_info={
+                                    "orm_model": model_name,
+                                    "graphql_type": type_name,
+                                    "sensitive_field": field_name,
+                                    "field_type": field_type,
+                                    "recommendation": "Use .only() or explicit field selection in resolver to avoid fetching sensitive fields",
+                                },
+                            )
                         )
-                        findings.append(finding)
 
-    conn.close()
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
