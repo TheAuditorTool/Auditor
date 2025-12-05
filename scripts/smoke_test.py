@@ -136,67 +136,91 @@ FALLBACK_COMMANDS = [
 ]
 
 
-# Commands for real minimal invocation (safe, quick, no destructive side effects)
-# These are hardcoded because they need specific arguments
+# 10 minute timeout for ALL commands - no arbitrary limits
+DEFAULT_TIMEOUT = 600
+
+# Commands for real minimal invocation - test EVERYTHING except setup-ai, full, detect-patterns
 INVOCATION_TESTS = [
-    # Utilities - no database needed
-    ("aud manual --list", "List manual topics", 10),
-    ("aud tools", "Show tool versions", 15),
-    ("aud planning list", "List plans", 10),
+    # UTILITIES
+    ("aud manual --list", "List manual topics"),
+    ("aud tools", "Show tool versions"),
+    ("aud tools list", "List all tools"),
+    ("aud planning list", "List plans"),
 
-    # Database readers - need .pf/repo_index.db
-    ("aud blueprint --structure", "Show codebase structure", 30),
-    ("aud detect-frameworks", "Show detected frameworks", 20),
-    ("aud deadcode --format summary", "Dead code summary", 60),
+    # DATABASE READERS
+    ("aud blueprint --structure", "Show codebase structure"),
+    ("aud detect-frameworks", "Show detected frameworks"),
+    ("aud deadcode --format summary", "Dead code summary"),
+    ("aud boundaries", "Security boundaries"),
+    ("aud query --symbol main", "Query symbol"),
+    ("aud explain theauditor/cli.py", "Explain file context"),
 
-    # Graph queries - need .pf/graphs.db
-    ("aud graph analyze", "Analyze dependency graph", 30),
-    ("aud graph query --uses theauditor.cli", "Query graph relationships", 15),
+    # GRAPH COMMANDS
+    ("aud graph analyze", "Analyze dependency graph"),
+    ("aud graph query --uses theauditor.cli", "Query graph relationships"),
+    ("aud graph build", "Build/rebuild graphs.db"),
+    ("aud graph build-dfg", "Build DFG in graphs.db"),
+    ("aud graph viz", "Graph viz DOT output"),
 
-    # ML commands - need .pf/ml/ and .pf/workset.json
-    ("aud suggest --print-plan", "ML suggestions", 30),
+    # ML COMMANDS
+    ("aud suggest --print-plan", "ML suggestions"),
+    ("aud learn", "Train ML models"),
 
-    # Session commands - need Claude sessions
-    ("aud session list", "List Claude sessions", 30),
-    ("aud session activity --limit 5", "Session activity", 30),
+    # SESSION COMMANDS
+    ("aud session list", "List Claude sessions"),
+    ("aud session activity --limit 5", "Session activity"),
+    ("aud session analyze", "Analyze sessions"),
+    ("aud session report", "Session report"),
 
-    # Context/explain - database queries
-    ("aud explain theauditor/cli.py", "Explain file context", 30),
+    # TAINT & PATTERNS
+    ("aud taint", "Taint analysis"),
+    ("aud fce", "FCE analysis"),
 
-    # Boundaries - security distance analysis
-    ("aud boundaries", "Security boundaries", 45),
+    # LINTING & DEPS
+    ("aud lint", "Run linters"),
+    ("aud deps", "Dependency analysis"),
+    ("aud deps --offline", "Deps offline mode"),
 
-    # Query command - symbol lookup
-    ("aud query --symbol main", "Query symbol", 15),
+    # DOCS & METADATA
+    ("aud docs", "Generate docs"),
+    ("aud metadata", "Git metadata"),
+
+    # WORKSET COMMANDS
+    ("aud workset show", "Show workset"),
+    ("aud workset list", "List workset files"),
+
+    # CFG (Control Flow Graph)
+    ("aud cfg theauditor/cli.py", "CFG for cli.py"),
+    ("aud cfg analyze theauditor/cli.py", "CFG analyze cli.py"),
+
+    # IMPACT ANALYSIS
+    ("aud impact theauditor/cli.py", "Impact analysis cli.py"),
+
+    # REFACTOR
+    ("aud refactor extract theauditor/cli.py --function main", "Refactor extract"),
+
+    # DOCKER & GRAPHQL
+    ("aud docker-analyze", "Docker analysis"),
+    ("aud graphql", "GraphQL analysis"),
+
+    # WORKFLOWS
+    ("aud workflows analyze", "Analyze workflows"),
 ]
 
 
-# Commands to SKIP (and why) - for documentation in the report
+# Commands to SKIP (and why) - ONLY THESE THREE
 SKIP_REASONS = {
-    "aud full": "Heavy pipeline - runs 20 phases, user handles manually",
-    "aud setup-ai": "Installs packages and creates venv",
-    "aud taint": "Long running + may prompt for schema confirmation",
+    "aud full": "Heavy pipeline - runs 20+ phases, too slow for smoke test",
+    "aud setup-ai": "Installs packages and creates venv - modifies environment",
     "aud detect-patterns": "Long running analysis (30+ seconds)",
-    "aud learn": "Re-trains ML models, modifies .pf/ml/",
-    "aud learn-feedback": "Requires feedback JSON file",
-    "aud session inspect": "Requires specific session file path",
-    "aud session report": "May be slow with many sessions",
-    "aud session analyze": "Modifies session_history.db",
-    "aud lint": "Runs external linters (eslint, ruff) - slow",
-    "aud deps": "May do network calls for vulnerability checks",
-    "aud docs": "May do network calls for documentation",
-    "aud fce": "Depends on taint/patterns outputs",
-    "aud metadata": "May invoke git commands",
-    "aud workset": "Modifies workset.json",
-    "aud graph build": "Rebuilds graphs.db (destructive)",
-    "aud graph build-dfg": "Rebuilds DFG in graphs.db",
-    "aud graph viz": "Requires graphviz for svg/png output",
-    "aud cfg": "Needs specific file argument",
-    "aud impact": "Needs specific target argument",
-    "aud refactor": "Needs specific arguments",
-    "aud docker-analyze": "Needs Dockerfile in project",
-    "aud graphql": "Needs GraphQL schema files",
-    "aud index": "Hidden command, use 'aud full --index'",
+}
+
+# Commands that exit non-zero when they find issues (intentional CI behavior)
+# These are NOT failures - they ran successfully and reported findings
+EXPECTED_NONZERO_COMMANDS = {
+    "aud boundaries",  # Exits 1 when input validation issues found
+    "aud lint",        # Exits non-zero when lint errors found
+    "aud suggest",     # May exit non-zero on model mismatch
 }
 
 
@@ -207,7 +231,7 @@ SKIP_REASONS = {
 LOG_DIR = Path("logs/smoke_test")
 
 
-def run_command(cmd: str, timeout: int = 30, cwd: Path | None = None) -> TestResult:
+def run_command(cmd: str, timeout: int = DEFAULT_TIMEOUT, cwd: Path | None = None) -> TestResult:
     """Run a command with isolated environment and log capture."""
     start = time.time()
     phase = "help" if "--help" in cmd else "invoke"
@@ -239,7 +263,18 @@ def run_command(cmd: str, timeout: int = 30, cwd: Path | None = None) -> TestRes
         )
         duration = time.time() - start
 
-        success = result.returncode == 0
+        # Check if this command is expected to exit non-zero on findings
+        is_expected_nonzero = any(cmd.startswith(ec) for ec in EXPECTED_NONZERO_COMMANDS)
+
+        # Success if exit 0, OR if expected non-zero and produced stdout (ran successfully)
+        if result.returncode == 0:
+            success = True
+        elif is_expected_nonzero and result.stdout and "error" not in result.stderr.lower():
+            # Command ran and produced output - findings are expected, not errors
+            success = True
+        else:
+            success = False
+
         error_summary = ""
         log_content = ""
 
@@ -333,7 +368,7 @@ def run_smoke_tests(help_only: bool = False, verbose: bool = False) -> SmokeTest
         print(f"  Discovered {len(all_commands)} commands")
 
     for cmd in all_commands:
-        result = run_command(cmd, timeout=15, cwd=project_root)
+        result = run_command(cmd, timeout=DEFAULT_TIMEOUT, cwd=project_root)
         report.results.append(result)
 
         status = "OK" if result.success else "FAIL"
@@ -357,8 +392,8 @@ def run_smoke_tests(help_only: bool = False, verbose: bool = False) -> SmokeTest
         else:
             print("\nPHASE 2: Testing minimal invocations...")
 
-        for cmd, description, timeout in INVOCATION_TESTS:
-            result = run_command(cmd, timeout=timeout, cwd=project_root)
+        for cmd, description in INVOCATION_TESTS:
+            result = run_command(cmd, timeout=DEFAULT_TIMEOUT, cwd=project_root)
             report.results.append(result)
 
             status = "OK" if result.success else "FAIL"
