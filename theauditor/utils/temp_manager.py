@@ -1,4 +1,27 @@
-"""Centralized temporary file management for TheAuditor."""
+"""Centralized temporary file management for TheAuditor.
+
+LEGACY/SPECIAL-CASE UTILITY
+===========================
+As of Python 3.13+, most subprocess capture use cases should use:
+
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+    )
+    # result.stdout and result.stderr are immediately available
+
+This TempManager class remains for edge cases where file-based capture is required:
+- Very large outputs that may exceed memory limits
+- Scenarios requiring persistent temp files across process boundaries
+- Legacy code paths not yet migrated to capture_output=True
+
+For new code, prefer subprocess.run(capture_output=True) unless you have a specific
+reason documented in your code comments.
+"""
 
 import os
 import uuid
@@ -6,7 +29,18 @@ from pathlib import Path
 
 
 class TempManager:
-    """Manages temporary files within project boundaries to avoid cross-filesystem issues."""
+    """Manages temporary files within project boundaries.
+
+    WHEN TO USE:
+    - Large subprocess outputs that may exceed memory
+    - Cross-process temp file sharing
+    - Legacy compatibility
+
+    WHEN NOT TO USE (prefer capture_output=True):
+    - Standard subprocess capture (pip, npm, git commands)
+    - Any output under ~100MB
+    - Single-process workflows
+    """
 
     @staticmethod
     def get_temp_dir(root_path: str) -> Path:

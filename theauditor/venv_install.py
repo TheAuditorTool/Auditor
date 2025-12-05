@@ -6,20 +6,13 @@ import os
 import platform
 import shutil
 import subprocess
+import tomllib
 import venv
 from pathlib import Path
 
+from theauditor.package_managers.deps import check_latest_versions
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - fallback for older interpreters
-    import tomli as tomllib  # type: ignore
-
-
-from theauditor.package_managers.deps import check_latest_versions
-from theauditor.utils.temp_manager import TempManager
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -253,37 +246,17 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
         )
 
     try:
-        stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
-            str(venv_path.parent), "pip_show"
+        result = subprocess.run(
+            [str(python_exe), "-m", "pip", "show", "theauditor"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=30,
         )
-
-        with (
-            open(stdout_path, "w+", encoding="utf-8") as stdout_fp,
-            open(stderr_path, "w+", encoding="utf-8") as stderr_fp,
-        ):
-            result = subprocess.run(
-                [str(python_exe), "-m", "pip", "show", "theauditor"],
-                stdout=stdout_fp,
-                stderr=stderr_fp,
-                text=True,
-                timeout=30,
-            )
-
-        with open(stdout_path, encoding="utf-8") as f:
-            result.stdout = f.read()
-        with open(stderr_path, encoding="utf-8") as f:
-            result.stderr = f.read()
-
-        try:
-            Path(stdout_path).unlink()
-            Path(stderr_path).unlink()
-        except (OSError, PermissionError):
-            pass
-
         if result.returncode == 0:
             check_mark = "[OK]"
             logger.info(f"{check_mark} TheAuditor already installed in {venv_path}")
-
             logger.info("  Upgrading to ensure latest version...")
     except subprocess.TimeoutExpired:
         logger.info("Warning: pip show timed out, proceeding with install")
@@ -301,33 +274,15 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
     ]
 
     try:
-        stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
-            str(venv_path.parent), "pip_install"
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=120,
+            cwd=str(venv_path.parent),
         )
-
-        with (
-            open(stdout_path, "w+", encoding="utf-8") as stdout_fp,
-            open(stderr_path, "w+", encoding="utf-8") as stderr_fp,
-        ):
-            result = subprocess.run(
-                cmd,
-                stdout=stdout_fp,
-                stderr=stderr_fp,
-                text=True,
-                timeout=120,
-                cwd=str(venv_path.parent),
-            )
-
-        with open(stdout_path, encoding="utf-8") as f:
-            result.stdout = f.read()
-        with open(stderr_path, encoding="utf-8") as f:
-            result.stderr = f.read()
-
-        try:
-            Path(stdout_path).unlink()
-            Path(stderr_path).unlink()
-        except (OSError, PermissionError):
-            pass
 
         if result.returncode != 0:
             logger.info("Error installing TheAuditor:")
@@ -341,33 +296,14 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
             check_mark = "[OK]"
             logger.info(f"{check_mark} Executable available: {aud_exe}")
         else:
-            stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
-                str(venv_path.parent), "verify"
+            verify_result = subprocess.run(
+                [str(python_exe), "-m", "theauditor.cli", "--version"],
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=10,
             )
-
-            with (
-                open(stdout_path, "w+", encoding="utf-8") as stdout_fp,
-                open(stderr_path, "w+", encoding="utf-8") as stderr_fp,
-            ):
-                verify_result = subprocess.run(
-                    [str(python_exe), "-m", "theauditor.cli", "--version"],
-                    stdout=stdout_fp,
-                    stderr=stderr_fp,
-                    text=True,
-                    timeout=10,
-                )
-
-            with open(stdout_path, encoding="utf-8") as f:
-                verify_result.stdout = f.read()
-            with open(stderr_path, encoding="utf-8") as f:
-                verify_result.stderr = f.read()
-
-            try:
-                Path(stdout_path).unlink()
-                Path(stderr_path).unlink()
-            except (OSError, PermissionError):
-                pass
-
             if verify_result.returncode == 0:
                 check_mark = "[OK]"
                 logger.info(f"{check_mark} Module available: python -m theauditor.cli")
@@ -830,33 +766,14 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
         logger.info("  Checking for latest linter versions...")
         try:
             if aud_exe.exists():
-                stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
-                    str(target_dir), "deps_upgrade"
+                result = subprocess.run(
+                    [str(aud_exe), "deps", "--upgrade-all", "--root", str(theauditor_root)],
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=300,
                 )
-
-                with (
-                    open(stdout_path, "w+", encoding="utf-8") as stdout_fp,
-                    open(stderr_path, "w+", encoding="utf-8") as stderr_fp,
-                ):
-                    result = subprocess.run(
-                        [str(aud_exe), "deps", "--upgrade-all", "--root", str(theauditor_root)],
-                        stdout=stdout_fp,
-                        stderr=stderr_fp,
-                        text=True,
-                        timeout=300,
-                    )
-
-                with open(stdout_path, encoding="utf-8") as f:
-                    result.stdout = f.read()
-                with open(stderr_path, encoding="utf-8") as f:
-                    result.stderr = f.read()
-
-                try:
-                    Path(stdout_path).unlink()
-                    Path(stderr_path).unlink()
-                except (OSError, PermissionError):
-                    pass
-
                 if result.returncode == 0:
                     check_mark = "[OK]"
                     logger.info(f"    {check_mark} Updated to latest package versions")
@@ -872,32 +789,14 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                 ["ruff", "mypy", "black", "bandit", "pylint", "sqlparse", "dockerfile-parse"],
             )
 
-            stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
-                str(target_dir), "pip_linters"
+            result = subprocess.run(
+                [str(python_exe), "-m", "pip", "install"] + linter_packages,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=300,
             )
-
-            with (
-                open(stdout_path, "w+", encoding="utf-8") as stdout_fp,
-                open(stderr_path, "w+", encoding="utf-8") as stderr_fp,
-            ):
-                result = subprocess.run(
-                    [str(python_exe), "-m", "pip", "install"] + linter_packages,
-                    stdout=stdout_fp,
-                    stderr=stderr_fp,
-                    text=True,
-                    timeout=300,
-                )
-
-            with open(stdout_path, encoding="utf-8") as f:
-                result.stdout = f.read()
-            with open(stderr_path, encoding="utf-8") as f:
-                result.stderr = f.read()
-
-            try:
-                Path(stdout_path).unlink()
-                Path(stderr_path).unlink()
-            except (OSError, PermissionError):
-                pass
 
             if result.returncode == 0:
                 check_mark = "[OK]"
@@ -909,32 +808,14 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                     pyproject_path, ["tree-sitter", "tree-sitter-language-pack"]
                 )
 
-                stdout_path2, stderr_path2 = TempManager.create_temp_files_for_subprocess(
-                    str(target_dir), "pip_ast"
+                result2 = subprocess.run(
+                    [str(python_exe), "-m", "pip", "install"] + ast_packages,
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=300,
                 )
-
-                with (
-                    open(stdout_path2, "w+", encoding="utf-8") as stdout_fp,
-                    open(stderr_path2, "w+", encoding="utf-8") as stderr_fp,
-                ):
-                    result2 = subprocess.run(
-                        [str(python_exe), "-m", "pip", "install"] + ast_packages,
-                        stdout=stdout_fp,
-                        stderr=stderr_fp,
-                        text=True,
-                        timeout=300,
-                    )
-
-                with open(stdout_path2, encoding="utf-8") as f:
-                    result2.stdout = f.read()
-                with open(stderr_path2, encoding="utf-8") as f:
-                    result2.stderr = f.read()
-
-                try:
-                    Path(stdout_path2).unlink()
-                    Path(stderr_path2).unlink()
-                except (OSError, PermissionError):
-                    pass
 
                 if result2.returncode == 0:
                     logger.info(f"    {check_mark} AST tools installed")
@@ -1117,36 +998,18 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                 npm_cmd = [str(npm_script)]
 
             logger.info("  Installing JS/TS linters using bundled Node.js...")
-            stdout_path, stderr_path = TempManager.create_temp_files_for_subprocess(
-                str(target_dir), "npm_install"
+            full_cmd = npm_cmd + ["install"]
+
+            result = subprocess.run(
+                full_cmd,
+                cwd=str(sandbox_dir),
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=120,
+                shell=False,
             )
-
-            with (
-                open(stdout_path, "w+", encoding="utf-8") as stdout_fp,
-                open(stderr_path, "w+", encoding="utf-8") as stderr_fp,
-            ):
-                full_cmd = npm_cmd + ["install"]
-
-                result = subprocess.run(
-                    full_cmd,
-                    cwd=str(sandbox_dir),
-                    stdout=stdout_fp,
-                    stderr=stderr_fp,
-                    text=True,
-                    timeout=120,
-                    shell=False,
-                )
-
-            with open(stdout_path, encoding="utf-8") as f:
-                result.stdout = f.read()
-            with open(stderr_path, encoding="utf-8") as f:
-                result.stderr = f.read()
-
-            try:
-                Path(stdout_path).unlink()
-                Path(stderr_path).unlink()
-            except (OSError, PermissionError):
-                pass
 
             if result.returncode == 0:
                 check_mark = "[OK]"

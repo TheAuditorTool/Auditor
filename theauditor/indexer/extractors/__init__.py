@@ -117,7 +117,7 @@ class ExtractorRegistry:
 
             except (ImportError, AttributeError) as e:
                 logger.error(f"EXTRACTOR LOAD FAILED: {module_name} - {e}")
-                continue
+                raise
 
     def get_extractor(self, file_path: str, file_extension: str) -> BaseExtractor | None:
         """Get the appropriate extractor for a file."""
