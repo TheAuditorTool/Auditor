@@ -5,8 +5,9 @@ internally, so we pass all files in a single invocation (no batching).
 """
 
 import json
+import time
 
-from theauditor.linters.base import BaseLinter, Finding
+from theauditor.linters.base import BaseLinter, Finding, LinterResult
 from theauditor.utils.logging import logger
 
 
@@ -21,27 +22,27 @@ class RuffLinter(BaseLinter):
     def name(self) -> str:
         return "ruff"
 
-    async def run(self, files: list[str]) -> list[Finding]:
+    async def run(self, files: list[str]) -> LinterResult:
         """Run Ruff on Python files.
 
         Args:
             files: List of Python file paths relative to project root
 
         Returns:
-            List of Finding objects from Ruff analysis
+            LinterResult with status and findings
         """
         if not files:
-            return []
+            return LinterResult.success(self.name, [], 0.0)
 
         ruff_bin = self.toolbox.get_venv_binary("ruff", required=False)
         if not ruff_bin:
-            logger.warning("Ruff not found - skipping Python linting")
-            return []
+            return LinterResult.skipped(self.name, "Ruff not found")
 
         config_path = self.toolbox.get_python_linter_config()
         if not config_path.exists():
-            logger.error(f"Ruff config not found: {config_path}")
-            return []
+            return LinterResult.skipped(self.name, f"Ruff config not found: {config_path}")
+
+        start_time = time.perf_counter()
 
         # No batching - Ruff handles parallelization internally
         cmd = [
@@ -57,18 +58,17 @@ class RuffLinter(BaseLinter):
         try:
             returncode, stdout, stderr = await self._run_command(cmd)
         except TimeoutError:
-            logger.error(f"[{self.name}] Timed out")
-            return []
+            return LinterResult.failed(self.name, "Timed out", time.perf_counter() - start_time)
 
         if not stdout.strip():
+            duration = time.perf_counter() - start_time
             logger.debug(f"[{self.name}] No issues found")
-            return []
+            return LinterResult.success(self.name, [], duration)
 
         try:
             results = json.loads(stdout)
         except json.JSONDecodeError as e:
-            logger.error(f"[{self.name}] Invalid JSON output: {e}")
-            return []
+            return LinterResult.failed(self.name, f"Invalid JSON output: {e}", time.perf_counter() - start_time)
 
         findings = []
         for item in results:
@@ -90,5 +90,6 @@ class RuffLinter(BaseLinter):
                 )
             )
 
-        logger.info(f"[{self.name}] Found {len(findings)} issues in {len(files)} files")
-        return findings
+        duration = time.perf_counter() - start_time
+        logger.info(f"[{self.name}] Found {len(findings)} issues in {len(files)} files ({duration:.2f}s)")
+        return LinterResult.success(self.name, findings, duration)

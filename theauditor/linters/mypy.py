@@ -6,8 +6,9 @@ for cross-file type inference, so we pass all files in a single invocation
 """
 
 import json
+import time
 
-from theauditor.linters.base import BaseLinter, Finding
+from theauditor.linters.base import BaseLinter, Finding, LinterResult
 from theauditor.utils.logging import logger
 
 
@@ -22,27 +23,27 @@ class MypyLinter(BaseLinter):
     def name(self) -> str:
         return "mypy"
 
-    async def run(self, files: list[str]) -> list[Finding]:
+    async def run(self, files: list[str]) -> LinterResult:
         """Run Mypy on Python files.
 
         Args:
             files: List of Python file paths relative to project root
 
         Returns:
-            List of Finding objects from Mypy analysis
+            LinterResult with status and findings
         """
         if not files:
-            return []
+            return LinterResult.success(self.name, [], 0.0)
 
         mypy_bin = self.toolbox.get_venv_binary("mypy", required=False)
         if not mypy_bin:
-            logger.warning("Mypy not found - skipping type checking")
-            return []
+            return LinterResult.skipped(self.name, "Mypy not found")
 
         config_path = self.toolbox.get_python_linter_config()
         if not config_path.exists():
-            logger.error(f"Mypy config not found: {config_path}")
-            return []
+            return LinterResult.skipped(self.name, f"Mypy config not found: {config_path}")
+
+        start_time = time.perf_counter()
 
         # No batching - Mypy needs full project context
         cmd = [
@@ -57,12 +58,12 @@ class MypyLinter(BaseLinter):
         try:
             returncode, stdout, stderr = await self._run_command(cmd)
         except TimeoutError:
-            logger.error(f"[{self.name}] Timed out")
-            return []
+            return LinterResult.failed(self.name, "Timed out", time.perf_counter() - start_time)
 
         if not stdout.strip():
+            duration = time.perf_counter() - start_time
             logger.debug(f"[{self.name}] No issues found")
-            return []
+            return LinterResult.success(self.name, [], duration)
 
         # Mypy outputs JSONL (one JSON object per line)
         findings = []
@@ -79,8 +80,9 @@ class MypyLinter(BaseLinter):
             if finding:
                 findings.append(finding)
 
-        logger.info(f"[{self.name}] Found {len(findings)} issues in {len(files)} files")
-        return findings
+        duration = time.perf_counter() - start_time
+        logger.info(f"[{self.name}] Found {len(findings)} issues in {len(files)} files ({duration:.2f}s)")
+        return LinterResult.success(self.name, findings, duration)
 
     def _parse_mypy_item(self, item: dict) -> Finding | None:
         """Parse a single Mypy JSON output item into a Finding.

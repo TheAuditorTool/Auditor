@@ -2,10 +2,12 @@
 
 This module provides the foundation for the strategy pattern used by linter classes:
 - Finding: Typed dataclass for lint results
+- LinterResult: Typed dataclass for linter execution results (status + findings)
 - BaseLinter: Abstract base class for all linter implementations
 """
 
 import asyncio
+import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -18,6 +20,9 @@ if TYPE_CHECKING:
 
 
 LINTER_TIMEOUT = 300
+
+# Status type for linter execution results
+LinterStatus = Literal["SUCCESS", "SKIPPED", "FAILED"]
 
 
 @dataclass
@@ -57,6 +62,43 @@ class Finding:
         return result
 
 
+@dataclass
+class LinterResult:
+    """Result of a linter execution.
+
+    Distinguishes between "no bugs found" (SUCCESS with empty findings)
+    and "linter didn't run" (SKIPPED or FAILED).
+
+    Attributes:
+        tool: Name of the linter
+        status: One of SUCCESS, SKIPPED, or FAILED
+        findings: List of Finding objects (empty if SKIPPED/FAILED)
+        duration: Execution time in seconds
+        error_message: Explanation if SKIPPED or FAILED
+    """
+
+    tool: str
+    status: LinterStatus
+    findings: list[Finding]
+    duration: float
+    error_message: str | None = None
+
+    @classmethod
+    def success(cls, tool: str, findings: list[Finding], duration: float) -> "LinterResult":
+        """Create a SUCCESS result."""
+        return cls(tool=tool, status="SUCCESS", findings=findings, duration=duration)
+
+    @classmethod
+    def skipped(cls, tool: str, reason: str) -> "LinterResult":
+        """Create a SKIPPED result (tool not installed, config missing, etc.)."""
+        return cls(tool=tool, status="SKIPPED", findings=[], duration=0.0, error_message=reason)
+
+    @classmethod
+    def failed(cls, tool: str, error: str, duration: float = 0.0) -> "LinterResult":
+        """Create a FAILED result (timeout, crash, invalid output)."""
+        return cls(tool=tool, status="FAILED", findings=[], duration=duration, error_message=error)
+
+
 class BaseLinter(ABC):
     """Abstract base class for linter implementations.
 
@@ -85,14 +127,14 @@ class BaseLinter(ABC):
         ...
 
     @abstractmethod
-    async def run(self, files: list[str]) -> list[Finding]:
-        """Run linter on files and return findings.
+    async def run(self, files: list[str]) -> LinterResult:
+        """Run linter on files and return result with status.
 
         Args:
             files: List of file paths (relative to project root) to lint
 
         Returns:
-            List of Finding objects representing lint issues found
+            LinterResult with status (SUCCESS/SKIPPED/FAILED) and findings
         """
         ...
 

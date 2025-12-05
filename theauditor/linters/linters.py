@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.indexer.database import DatabaseManager
-from theauditor.linters.base import Finding
+from theauditor.linters.base import Finding, LinterResult
 from theauditor.linters.clippy import ClippyLinter
 from theauditor.linters.eslint import EslintLinter
 from theauditor.linters.golangci import GolangciLinter
@@ -81,12 +81,16 @@ class LinterOrchestrator:
         Returns:
             List of finding dictionaries
         """
-        # Get files by language
-        js_files = self._get_source_files([".js", ".jsx", ".ts", ".tsx", ".mjs"])
-        py_files = self._get_source_files([".py"])
-        rs_files = self._get_source_files([".rs"])
-        go_files = self._get_source_files([".go"])
-        sh_files = self._get_source_files([".sh", ".bash"])
+        # Single DB query - fetch all source files with extensions
+        all_files = self._get_all_source_files()
+
+        # Python-side partitioning (O(N) in-memory, not O(5N) DB roundtrips)
+        js_extensions = {".js", ".jsx", ".ts", ".tsx", ".mjs"}
+        js_files = [p for p, ext in all_files if ext in js_extensions]
+        py_files = [p for p, ext in all_files if ext == ".py"]
+        rs_files = [p for p, ext in all_files if ext == ".rs"]
+        go_files = [p for p, ext in all_files if ext == ".go"]
+        sh_files = [p for p, ext in all_files if ext in {".sh", ".bash"}]
 
         # Filter to workset if provided
         if workset_files:
@@ -133,13 +137,23 @@ class LinterOrchestrator:
         tasks = [linter.run(files) for name, linter, files in linters]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Collect findings, handling exceptions
+        # Collect findings, handling LinterResult status
         all_findings: list[Finding] = []
         for (name, linter, files), result in zip(linters, results, strict=True):
             if isinstance(result, Exception):
                 logger.error(f"[{name}] Failed with exception: {result}")
                 continue
-            all_findings.extend(result)
+
+            # result is now LinterResult
+            linter_result: LinterResult = result
+
+            if linter_result.status == "SKIPPED":
+                logger.warning(f"[{name}] SKIPPED: {linter_result.error_message}")
+            elif linter_result.status == "FAILED":
+                logger.error(f"[{name}] FAILED: {linter_result.error_message}")
+            else:
+                # SUCCESS - collect findings
+                all_findings.extend(linter_result.findings)
 
         # Convert Finding objects to dicts for backward compatibility
         findings_dicts = [f.to_dict() for f in all_findings]
@@ -153,36 +167,24 @@ class LinterOrchestrator:
 
         return findings_dicts
 
-    def _get_source_files(self, extensions: list[str]) -> list[str]:
-        """Query database for source files with given extensions.
-
-        Args:
-            extensions: List of file extensions (e.g., [".py", ".pyi"])
+    def _get_all_source_files(self) -> list[tuple[str, str]]:
+        """Query database for ALL source files in one query.
 
         Returns:
-            List of file paths relative to project root
+            List of (path, extension) tuples for all source files.
+
+        Raises:
+            sqlite3.OperationalError: If database is locked or table missing.
+                This is intentional - infrastructure failures must crash loud.
         """
-        try:
-            cursor = self.db.conn.cursor()
-            placeholders = ",".join("?" * len(extensions))
-
-            query = (
-                "SELECT path FROM files WHERE ext IN ("
-                + placeholders
-                + ") AND file_category = 'source' ORDER BY path"
-            )
-            cursor.execute(query, extensions)
-
-            files = [row[0] for row in cursor.fetchall()]
-            logger.debug(f"Found {len(files)} files with extensions {extensions}")
-            return files
-
-        except sqlite3.OperationalError as e:
-            logger.error(f"Database query failed (table missing or locked?): {e}")
-            return []
-        except Exception as e:
-            logger.error(f"Unexpected database error: {e}")
-            return []
+        # NO try-except. If DB is broken, we crash. Zero Fallback policy.
+        cursor = self.db.conn.cursor()
+        cursor.execute(
+            "SELECT path, ext FROM files WHERE file_category = 'source' ORDER BY path"
+        )
+        files = cursor.fetchall()
+        logger.debug(f"Fetched {len(files)} source files from database")
+        return files
 
     def _write_json_output(self, findings: list[dict[str, Any]]):
         """Write findings to JSON file for AI consumption.

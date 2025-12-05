@@ -7,8 +7,9 @@ and filter output to match requested files.
 
 import json
 import shutil
+import time
 
-from theauditor.linters.base import LINTER_TIMEOUT, BaseLinter, Finding
+from theauditor.linters.base import LINTER_TIMEOUT, BaseLinter, Finding, LinterResult
 from theauditor.utils.logging import logger
 
 
@@ -23,7 +24,7 @@ class ClippyLinter(BaseLinter):
     def name(self) -> str:
         return "clippy"
 
-    async def run(self, files: list[str]) -> list[Finding]:
+    async def run(self, files: list[str]) -> LinterResult:
         """Run Clippy on Rust project.
 
         Clippy runs on the entire crate (cannot target individual files),
@@ -33,18 +34,18 @@ class ClippyLinter(BaseLinter):
             files: List of Rust file paths to filter output to
 
         Returns:
-            List of Finding objects from Clippy analysis (filtered to requested files)
+            LinterResult with status and findings (filtered to requested files)
         """
         # Check for Cargo.toml
         cargo_toml = self.root / "Cargo.toml"
         if not cargo_toml.exists():
-            logger.debug(f"[{self.name}] No Cargo.toml found - skipping")
-            return []
+            return LinterResult.skipped(self.name, "No Cargo.toml found")
 
         # Check cargo is available
         if not shutil.which("cargo"):
-            logger.warning(f"[{self.name}] Cargo not found - skipping Rust linting")
-            return []
+            return LinterResult.skipped(self.name, "Cargo not found")
+
+        start_time = time.perf_counter()
 
         cmd = [
             "cargo",
@@ -58,8 +59,7 @@ class ClippyLinter(BaseLinter):
         try:
             returncode, stdout, stderr = await self._run_command(cmd, timeout=LINTER_TIMEOUT)
         except TimeoutError:
-            logger.error(f"[{self.name}] Timed out")
-            return []
+            return LinterResult.failed(self.name, "Timed out", time.perf_counter() - start_time)
 
         # Build set of requested files for O(1) filtering
         requested_files = set(files) if files else set()
@@ -93,7 +93,8 @@ class ClippyLinter(BaseLinter):
             findings = all_findings
             logger.info(f"[{self.name}] Found {len(findings)} issues")
 
-        return findings
+        duration = time.perf_counter() - start_time
+        return LinterResult.success(self.name, findings, duration)
 
     def _parse_clippy_message(self, msg: dict) -> Finding | None:
         """Parse a Clippy compiler message into a Finding.
