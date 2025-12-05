@@ -2,6 +2,7 @@
 
 import glob
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -23,6 +24,45 @@ class FrameworkDetector:
 
         self._cargo_workspace_cache: dict[str, dict] = {}
 
+        # Centralized ignore set for O(1) lookups
+        self._ignored_dirs = frozenset({
+            "node_modules", "venv", ".venv", ".auditor_venv",
+            "vendor", "dist", "build", "__pycache__", ".git",
+            ".tox", ".pytest_cache", ".mypy_cache", ".ruff_cache",
+        })
+
+    def _should_skip(self, relative_path: Path) -> bool:
+        """Centralized ignore logic for path filtering.
+
+        Returns True if the path should be skipped (is in ignored directory
+        or matches exclude patterns).
+        """
+        parts = relative_path.parts
+
+        # Fast set intersection check - O(1) average case
+        if not self._ignored_dirs.isdisjoint(parts):
+            return True
+
+        # Check user-defined exclude patterns
+        if self.exclude_patterns:
+            path_str = relative_path.as_posix()
+            for pattern in self.exclude_patterns:
+                if pattern.endswith("/"):
+                    # Directory pattern
+                    dir_pattern = pattern.rstrip("/")
+                    if path_str.startswith(dir_pattern + "/"):
+                        return True
+                elif "*" in pattern:
+                    # Glob pattern
+                    from fnmatch import fnmatch
+                    if fnmatch(path_str, pattern):
+                        return True
+                elif path_str == pattern:
+                    # Exact match
+                    return True
+
+        return False
+
     def detect_all(self) -> list[dict[str, Any]]:
         """Detect all frameworks in the project."""
         self.detected_frameworks = []
@@ -33,11 +73,11 @@ class FrameworkDetector:
 
         self._detect_from_workspaces()
 
+        # Build lookup of manifest-detected frameworks for version enrichment
         manifest_frameworks = {}
         for fw in self.detected_frameworks:
-            if fw["source"] != "imports":
-                key = (fw["framework"], fw["language"])
-                manifest_frameworks[key] = fw["version"]
+            key = (fw["framework"], fw["language"])
+            manifest_frameworks[key] = fw["version"]
 
         self._check_framework_files()
 
@@ -71,94 +111,75 @@ class FrameworkDetector:
         return final_frameworks
 
     def _detect_from_manifests(self):
-        """Unified manifest detection using registry and ManifestParser - now directory-aware."""
+        """Unified manifest detection using registry and ManifestParser.
+
+        Uses single-pass os.walk() with directory pruning for O(N) efficiency
+        instead of 15 separate rglob() calls.
+        """
         parser = ManifestParser()
 
-        manifest_names = [
-            "pyproject.toml",
-            "package.json",
-            "requirements.txt",
-            "requirements-dev.txt",
-            "requirements-test.txt",
-            "setup.py",
-            "setup.cfg",
-            "Gemfile",
-            "Gemfile.lock",
-            "Cargo.toml",
-            "go.mod",
-            "pom.xml",
-            "build.gradle",
-            "build.gradle.kts",
+        # O(1) lookup set for manifest filenames
+        target_manifests = frozenset({
+            "pyproject.toml", "package.json", "requirements.txt",
+            "requirements-dev.txt", "requirements-test.txt", "setup.py",
+            "setup.cfg", "Gemfile", "Gemfile.lock", "Cargo.toml",
+            "go.mod", "pom.xml", "build.gradle", "build.gradle.kts",
             "composer.json",
-        ]
+        })
 
         manifests = {}
-        for manifest_name in manifest_names:
-            for manifest_path in self.project_path.rglob(manifest_name):
-                try:
-                    relative_path = manifest_path.relative_to(self.project_path)
-                    should_skip = False
 
-                    for part in relative_path.parts[:-1]:
-                        if part in [
-                            "node_modules",
-                            "venv",
-                            ".venv",
-                            ".auditor_venv",
-                            "vendor",
-                            "dist",
-                            "build",
-                            "__pycache__",
-                            ".git",
-                            ".tox",
-                            ".pytest_cache",
-                        ]:
-                            should_skip = True
-                            break
+        # Single-pass walk with directory pruning
+        for root, dirs, files in os.walk(self.project_path):
+            # Prune ignored directories IN-PLACE (prevents descending)
+            dirs[:] = [d for d in dirs if d not in self._ignored_dirs]
 
-                    if should_skip:
-                        continue
-
-                    dir_path = manifest_path.parent.relative_to(self.project_path)
-                    dir_str = str(dir_path) if dir_path != Path(".") else "."
-
-                    manifest_key = f"{dir_str}/{manifest_name}" if dir_str != "." else manifest_name
-                    manifests[manifest_key] = manifest_path
-
-                except ValueError:
+            # Check files against target set
+            for fname in files:
+                if fname not in target_manifests:
                     continue
+
+                manifest_path = Path(root) / fname
+                relative_path = manifest_path.relative_to(self.project_path)
+
+                # Additional filtering via exclude patterns
+                if self._should_skip(relative_path):
+                    continue
+
+                # Normalize key using .as_posix() for consistent forward slashes
+                manifest_key = relative_path.as_posix()
+                manifests[manifest_key] = manifest_path
 
         parsed_data = {}
         for manifest_key, path in manifests.items():
-            if path.exists():
-                try:
-                    filename = path.name
+            if not path.exists():
+                continue
 
-                    if filename.endswith(".toml"):
-                        parsed_data[manifest_key] = parser.parse_toml(path)
-                    elif filename.endswith(".json"):
-                        parsed_data[manifest_key] = parser.parse_json(path)
-                    elif filename.endswith((".yml", ".yaml")):
-                        parsed_data[manifest_key] = parser.parse_yaml(path)
-                    elif filename.endswith(".cfg"):
-                        parsed_data[manifest_key] = parser.parse_ini(path)
-                    elif filename.endswith(".txt"):
-                        parsed_data[manifest_key] = parser.parse_requirements_txt(path)
-                    elif (
-                        filename == "Gemfile"
-                        or filename == "Gemfile.lock"
-                        or (
-                            filename.endswith(".xml")
-                            or filename.endswith(".gradle")
-                            or filename.endswith(".kts")
-                            or filename.endswith(".mod")
-                        )
-                        or filename == "setup.py"
-                    ):
-                        with open(path, encoding="utf-8") as f:
-                            parsed_data[manifest_key] = f.read()
-                except Exception as e:
-                    logger.info(f"Warning: Failed to parse {manifest_key}: {e}")
+            filename = path.name
+
+            # ManifestParser methods handle their own exceptions internally
+            if filename.endswith(".toml"):
+                parsed_data[manifest_key] = parser.parse_toml(path)
+            elif filename.endswith(".json"):
+                parsed_data[manifest_key] = parser.parse_json(path)
+            elif filename.endswith((".yml", ".yaml")):
+                parsed_data[manifest_key] = parser.parse_yaml(path)
+            elif filename.endswith(".cfg"):
+                parsed_data[manifest_key] = parser.parse_ini(path)
+            elif filename.endswith(".txt"):
+                parsed_data[manifest_key] = parser.parse_requirements_txt(path)
+            elif (
+                filename == "Gemfile"
+                or filename == "Gemfile.lock"
+                or filename.endswith((".xml", ".gradle", ".kts", ".mod"))
+                or filename == "setup.py"
+            ):
+                # Raw file read - handle specific exceptions
+                try:
+                    with open(path, encoding="utf-8") as f:
+                        parsed_data[manifest_key] = f.read()
+                except (OSError, UnicodeDecodeError) as e:
+                    logger.warning(f"Failed to read {manifest_key}: {e}")
 
         for fw_name, fw_config in FRAMEWORK_REGISTRY.items():
             for required_manifest_name, search_configs in fw_config.get(
@@ -193,7 +214,6 @@ class FrameworkDetector:
                             and fw_config["package_pattern"] in manifest_data
                         ):
                             version = "unknown"
-                            import re
 
                             if fw_config.get("package_pattern"):
                                 pattern = fw_config["package_pattern"]
@@ -248,8 +268,6 @@ class FrameworkDetector:
 
                             if found:
                                 version = "unknown"
-                                import re
-
                                 pattern = fw_config.get("package_pattern", fw_name)
                                 version_match = re.search(
                                     rf"{re.escape(pattern)}.*?[>v]([\d.]+)",
@@ -308,192 +326,76 @@ class FrameworkDetector:
 
     def _detect_from_workspaces(self):
         """Detect frameworks from monorepo workspace packages."""
-
         package_json = self.project_path / "package.json"
         if not package_json.exists():
             return
 
         parser = ManifestParser()
-        try:
-            data = parser.parse_json(package_json)
+        # parse_json handles its own exceptions, returns {} on failure
+        data = parser.parse_json(package_json)
 
-            workspaces = data.get("workspaces", [])
+        workspaces = data.get("workspaces", [])
+        if isinstance(workspaces, dict):
+            workspaces = workspaces.get("packages", [])
 
-            if isinstance(workspaces, dict):
-                workspaces = workspaces.get("packages", [])
+        if not workspaces or not isinstance(workspaces, list):
+            return
 
-            if workspaces and isinstance(workspaces, list):
-                for pattern in workspaces:
-                    abs_pattern = str(self.project_path / pattern)
+        for pattern in workspaces:
+            abs_pattern = str(self.project_path / pattern)
 
-                    if "*" in abs_pattern:
-                        matched_paths = glob.glob(abs_pattern)
-                        for matched_path in matched_paths:
-                            matched_dir = Path(matched_path)
-                            if matched_dir.is_dir():
-                                workspace_pkg = matched_dir / "package.json"
-                                if workspace_pkg.exists():
-                                    self._check_workspace_package(workspace_pkg, parser)
-                    else:
-                        workspace_dir = self.project_path / pattern
-                        if workspace_dir.is_dir():
-                            workspace_pkg = workspace_dir / "package.json"
-                            if workspace_pkg.exists():
-                                self._check_workspace_package(workspace_pkg, parser)
-        except Exception as e:
-            logger.info(f"Warning: Failed to check workspaces: {e}")
+            if "*" in abs_pattern:
+                for matched_path in glob.glob(abs_pattern):
+                    matched_dir = Path(matched_path)
+                    if matched_dir.is_dir():
+                        workspace_pkg = matched_dir / "package.json"
+                        if workspace_pkg.exists():
+                            self._check_workspace_package(workspace_pkg, parser)
+            else:
+                workspace_dir = self.project_path / pattern
+                if workspace_dir.is_dir():
+                    workspace_pkg = workspace_dir / "package.json"
+                    if workspace_pkg.exists():
+                        self._check_workspace_package(workspace_pkg, parser)
 
     def _check_workspace_package(self, pkg_path: Path, parser: ManifestParser):
         """Check a single workspace package.json for frameworks."""
-        try:
-            data = parser.parse_json(pkg_path)
+        # parse_json handles its own exceptions, returns {} on failure
+        data = parser.parse_json(pkg_path)
 
-            all_deps = {}
-            if "dependencies" in data:
-                all_deps.update(data["dependencies"])
-            if "devDependencies" in data:
-                all_deps.update(data["devDependencies"])
+        all_deps = {}
+        if "dependencies" in data:
+            all_deps.update(data["dependencies"])
+        if "devDependencies" in data:
+            all_deps.update(data["devDependencies"])
 
-            for fw_name, fw_config in FRAMEWORK_REGISTRY.items():
-                if fw_config["language"] != "javascript":
-                    continue
+        for fw_name, fw_config in FRAMEWORK_REGISTRY.items():
+            if fw_config["language"] != "javascript":
+                continue
 
-                package_name = fw_config.get("package_pattern", fw_name)
-                if package_name in all_deps:
-                    version = all_deps[package_name]
+            package_name = fw_config.get("package_pattern", fw_name)
+            if package_name in all_deps:
+                version = all_deps[package_name]
+                version = re.sub(r"^[~^>=<]+", "", str(version)).strip()
 
-                    version = re.sub(r"^[~^>=<]+", "", str(version)).strip()
-
-                    try:
-                        rel_path = pkg_path.parent.relative_to(self.project_path)
-                        path = str(rel_path).replace("\\", "/") if rel_path != Path(".") else "."
-                        source = str(pkg_path.relative_to(self.project_path)).replace("\\", "/")
-                    except ValueError:
-                        path = "."
-                        source = str(pkg_path)
-
-                    self.detected_frameworks.append(
-                        {
-                            "framework": fw_name,
-                            "version": version,
-                            "language": "javascript",
-                            "path": path,
-                            "source": source,
-                        }
-                    )
-        except Exception as e:
-            logger.info(f"Warning: Failed to parse workspace package {pkg_path}: {e}")
-
-        pass
-
-    def _scan_source_imports(self):
-        """Scan source files for framework imports."""
-
-        max_files = 100
-        files_scanned = 0
-
-        lang_extensions = {
-            ".py": "python",
-            ".js": "javascript",
-            ".jsx": "javascript",
-            ".ts": "javascript",
-            ".tsx": "javascript",
-            ".go": "go",
-            ".java": "java",
-            ".rb": "ruby",
-            ".php": "php",
-            ".sh": "bash",
-            ".bash": "bash",
-        }
-
-        for ext, language in lang_extensions.items():
-            if files_scanned >= max_files:
-                break
-
-            for file_path in self.project_path.rglob(f"*{ext}"):
-                if files_scanned >= max_files:
-                    break
-
-                if any(
-                    part in file_path.parts
-                    for part in [
-                        "node_modules",
-                        "venv",
-                        ".venv",
-                        ".auditor_venv",
-                        "vendor",
-                        "dist",
-                        "build",
-                        "__pycache__",
-                        ".git",
-                    ]
-                ):
-                    continue
-
-                relative_path = file_path.relative_to(self.project_path)
-                should_skip = False
-                for pattern in self.exclude_patterns:
-                    if pattern.endswith("/"):
-                        dir_pattern = pattern.rstrip("/")
-                        if str(relative_path).startswith(dir_pattern + "/") or str(
-                            relative_path
-                        ).startswith(dir_pattern + "\\"):
-                            should_skip = True
-                            break
-
-                    elif "*" in pattern:
-                        from fnmatch import fnmatch
-
-                        if fnmatch(str(relative_path), pattern):
-                            should_skip = True
-                            break
-
-                    elif str(relative_path) == pattern:
-                        should_skip = True
-                        break
-
-                if should_skip:
-                    continue
-
-                files_scanned += 1
-
+                # Use .as_posix() for consistent path normalization
                 try:
-                    with open(file_path, encoding="utf-8", errors="ignore") as f:
-                        content = f.read()
+                    rel_path = pkg_path.parent.relative_to(self.project_path)
+                    path = rel_path.as_posix() if rel_path != Path(".") else "."
+                    source = pkg_path.relative_to(self.project_path).as_posix()
+                except ValueError:
+                    path = "."
+                    source = str(pkg_path)
 
-                    for fw_name, fw_config in FRAMEWORK_REGISTRY.items():
-                        if fw_config["language"] != language:
-                            continue
-
-                        if "import_patterns" in fw_config:
-                            for import_pattern in fw_config["import_patterns"]:
-                                if import_pattern in content:
-                                    file_dir = file_path.parent.relative_to(self.project_path)
-                                    dir_str = (
-                                        str(file_dir).replace("\\", "/")
-                                        if file_dir != Path(".")
-                                        else "."
-                                    )
-
-                                    if not any(
-                                        fw["framework"] == fw_name
-                                        and fw["language"] == language
-                                        and fw.get("path", ".") == dir_str
-                                        for fw in self.detected_frameworks
-                                    ):
-                                        self.detected_frameworks.append(
-                                            {
-                                                "framework": fw_name,
-                                                "version": "unknown",
-                                                "language": language,
-                                                "path": dir_str,
-                                                "source": "imports",
-                                            }
-                                        )
-                                    break
-
-                except Exception:
-                    continue
+                self.detected_frameworks.append(
+                    {
+                        "framework": fw_name,
+                        "version": version,
+                        "language": "javascript",
+                        "path": path,
+                        "source": source,
+                    }
+                )
 
     def _check_framework_files(self):
         """Check for framework-specific files."""
@@ -502,8 +404,6 @@ class FrameworkDetector:
             if "file_markers" in fw_config:
                 for file_marker in fw_config["file_markers"]:
                     if "*" in file_marker:
-                        import glob
-
                         pattern = str(self.project_path / file_marker)
                         if glob.glob(pattern):
                             if not any(
@@ -542,19 +442,22 @@ class FrameworkDetector:
     def _load_deps_cache(self):
         """Load TheAuditor's deps.json if available for version info."""
         deps_file = self.project_path / ".pf" / "deps.json"
-        if deps_file.exists():
-            try:
-                with open(deps_file) as f:
-                    data = json.load(f)
-                    self.deps_cache = {}
+        if not deps_file.exists():
+            return
 
-                    deps_list = data if isinstance(data, list) else data.get("dependencies", [])
+        try:
+            with open(deps_file, encoding="utf-8") as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Failed to load deps cache: {e}")
+            return
 
-                    for dep in deps_list:
-                        self.deps_cache[dep["name"]] = dep
-            except Exception as e:
-                logger.info(f"Warning: Could not load deps cache: {e}")
-                pass
+        self.deps_cache = {}
+        deps_list = data if isinstance(data, list) else data.get("dependencies", [])
+
+        for dep in deps_list:
+            if isinstance(dep, dict) and "name" in dep:
+                self.deps_cache[dep["name"]] = dep
 
     def _find_cargo_workspace_root(self, cargo_toml_path: Path) -> Path | None:
         """Find the Cargo workspace root for a given Cargo.toml."""
@@ -606,7 +509,6 @@ class FrameworkDetector:
         lines.append("FRAMEWORK          LANGUAGE      PATH            VERSION          SOURCE")
         lines.append("-" * 80)
 
-        imports_only = []
         for fw in self.detected_frameworks:
             framework = fw["framework"][:18].ljust(18)
             language = fw["language"][:12].ljust(12)
@@ -615,16 +517,6 @@ class FrameworkDetector:
             source = fw["source"]
 
             lines.append(f"{framework} {language} {path} {version} {source}")
-
-            if fw["source"] == "imports" and fw["version"] == "unknown":
-                imports_only.append(fw["framework"])
-
-        if imports_only:
-            lines.append("\n" + "=" * 60)
-            lines.append("NOTE: Frameworks marked with 'imports' source were detected from")
-            lines.append("import statements in the codebase (possibly test files) but are")
-            lines.append("not listed as dependencies. Version shown as 'unknown' because")
-            lines.append("they are not in package.json, pyproject.toml, or requirements.txt.")
 
         return "\n".join(lines)
 
