@@ -331,8 +331,8 @@ class FrameworkDetector:
             return
 
         parser = ManifestParser()
-        # parse_json handles its own exceptions, returns {} on failure
-        data = parser.parse_json(package_json)
+        # parse_json returns None on failure
+        data = parser.parse_json(package_json) or {}
 
         workspaces = data.get("workspaces", [])
         if isinstance(workspaces, dict):
@@ -360,8 +360,8 @@ class FrameworkDetector:
 
     def _check_workspace_package(self, pkg_path: Path, parser: ManifestParser):
         """Check a single workspace package.json for frameworks."""
-        # parse_json handles its own exceptions, returns {} on failure
-        data = parser.parse_json(pkg_path)
+        # parse_json returns None on failure
+        data = parser.parse_json(pkg_path) or {}
 
         all_deps = {}
         if "dependencies" in data:
@@ -467,12 +467,12 @@ class FrameworkDetector:
         while current >= self.project_path:
             candidate = current / "Cargo.toml"
             if candidate.exists() and candidate != cargo_toml_path:
-                data = parser.parse_toml(candidate)
+                data = parser.parse_toml(candidate) or {}
                 if "workspace" in data:
                     return candidate
             current = current.parent
 
-        data = parser.parse_toml(cargo_toml_path)
+        data = parser.parse_toml(cargo_toml_path) or {}
         if "workspace" in data:
             return cargo_toml_path
 
@@ -485,7 +485,7 @@ class FrameworkDetector:
             return self._cargo_workspace_cache[cache_key]
 
         parser = ManifestParser()
-        cargo_data = parser.parse_cargo_toml(workspace_root)
+        cargo_data = parser.parse_cargo_toml(workspace_root) or {}
         ws_deps = cargo_data.get("workspace_dependencies", {})
 
         self._cargo_workspace_cache[cache_key] = ws_deps
