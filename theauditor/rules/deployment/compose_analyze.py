@@ -8,11 +8,13 @@ Detects security misconfigurations in Docker Compose files:
 - Hardcoded secrets (CWE-798)
 - Weak passwords (CWE-521)
 - Exposed database/admin ports (CWE-668)
-- Vulnerable/unpinned images (CWE-937, CWE-330)
+- Vulnerable/unpinned images (CWE-937, CWE-1104)
 - Root user execution (CWE-250)
 - Dangerous capabilities (CWE-250)
 - Disabled security features (CWE-693)
 - Command injection risks (CWE-78)
+- Missing healthcheck (CWE-1188)
+- Missing restart policy (CWE-1188)
 """
 
 from theauditor.rules.base import (
@@ -512,18 +514,31 @@ def _analyze_service(
         findings.extend(_check_image_security(file_path, service_name, image))
 
     # Check: Root user
-    if user is None or user in ROOT_USER_IDS or (isinstance(user, str) and user.lower() in ROOT_USER_IDS):
-        severity = Severity.HIGH if user is None else Severity.CRITICAL
-        user_display = user if user else "[not set - defaults to root]"
+    # Note: "user not set" is MEDIUM because many official images (nginx, redis, postgres)
+    # already run as non-root by default. Only explicit root is CRITICAL.
+    if user in ROOT_USER_IDS or (isinstance(user, str) and user.lower() in ROOT_USER_IDS):
         findings.append(
             StandardFinding(
                 rule_name="compose-root-user",
-                message=f'Service "{service_name}" runs as root user (user: {user_display})',
+                message=f'Service "{service_name}" explicitly runs as root user',
                 file_path=file_path,
                 line=1,
-                severity=severity,
+                severity=Severity.CRITICAL,
                 category="deployment",
-                snippet=f"{service_name}:\n  user: {user_display}",
+                snippet=f"{service_name}:\n  user: {user}",
+                cwe_id="CWE-250",
+            )
+        )
+    elif user is None:
+        findings.append(
+            StandardFinding(
+                rule_name="compose-no-user-specified",
+                message=f'Service "{service_name}" has no user specified (may default to root depending on image)',
+                file_path=file_path,
+                line=1,
+                severity=Severity.MEDIUM,
+                category="deployment",
+                snippet=f"{service_name}:\n  # user: not specified",
                 cwe_id="CWE-250",
             )
         )
@@ -595,6 +610,40 @@ def _analyze_service(
             )
         )
 
+    # Check: Missing healthcheck
+    # Services should define healthcheck for proper orchestration and monitoring
+    healthcheck = service_data.get("healthcheck")
+    if not healthcheck:
+        findings.append(
+            StandardFinding(
+                rule_name="compose-missing-healthcheck",
+                message=f'Service "{service_name}" has no healthcheck defined - orchestrator cannot monitor health',
+                file_path=file_path,
+                line=1,
+                severity=Severity.LOW,
+                category="deployment",
+                snippet=f"{service_name}:\n  # healthcheck: not defined",
+                cwe_id="CWE-1188",
+            )
+        )
+
+    # Check: Missing restart policy
+    # Services without restart policy may not recover from crashes
+    restart = service_data.get("restart")
+    if not restart:
+        findings.append(
+            StandardFinding(
+                rule_name="compose-missing-restart-policy",
+                message=f'Service "{service_name}" has no restart policy - container will not auto-recover from crashes',
+                file_path=file_path,
+                line=1,
+                severity=Severity.LOW,
+                category="deployment",
+                snippet=f"{service_name}:\n  # restart: not defined (use 'unless-stopped' or 'always')",
+                cwe_id="CWE-1188",
+            )
+        )
+
     return findings
 
 
@@ -603,17 +652,21 @@ def _check_image_security(file_path: str, service_name: str, image: str) -> list
     findings = []
 
     # Check: Unpinned image version
-    if ":latest" in image or (":" not in image and "/" in image):
+    # An image is unpinned if it uses :latest OR has no tag at all (e.g., "nginx", "myrepo/myimage")
+    # Images with digest (@sha256:...) are considered pinned
+    has_digest = "@" in image
+    has_explicit_tag = ":" in image and not image.endswith(":latest")
+    if not has_digest and not has_explicit_tag:
         findings.append(
             StandardFinding(
                 rule_name="compose-unpinned-image",
-                message=f'Service "{service_name}" uses unpinned image version',
+                message=f'Service "{service_name}" uses unpinned image version (no tag or :latest)',
                 file_path=file_path,
                 line=1,
                 severity=Severity.MEDIUM,
                 category="security",
                 snippet=f"image: {image}",
-                cwe_id="CWE-330",
+                cwe_id="CWE-1104",
             )
         )
 

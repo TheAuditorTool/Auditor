@@ -8,11 +8,6 @@ Detects security vulnerabilities in Next.js applications including:
 - dangerouslySetInnerHTML without sanitization (CWE-79)
 - Error details exposure (CWE-209)
 - Missing rate limiting (CWE-770)
-
-# TODO(quality): Add Server Actions security checks (Next.js 14+)
-# TODO(quality): Add middleware.ts/js security analysis
-# TODO(quality): Add Server Component vs Client Component boundary checks
-# TODO(quality): Add revalidation security checks
 """
 
 from theauditor.rules.base import (

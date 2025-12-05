@@ -113,6 +113,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_werkzeug_debugger(db))
         findings.extend(_check_csrf_protection(db, flask_files))
         findings.extend(_check_session_security(db))
+        findings.extend(_check_unsafe_yaml(db))
+        findings.extend(_check_command_injection(db))
+        findings.extend(_check_jwt_vulnerabilities(db))
+        findings.extend(_check_path_traversal_sendfile(db))
+        findings.extend(_check_missing_security_headers(db, flask_files))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -649,13 +654,267 @@ def _check_session_security(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
-# TODO(quality): Missing detection patterns to add in future:
-# - yaml.unsafe_load / yaml.load without Loader parameter
-# - Command injection via subprocess with shell=True
-# - JWT vulnerabilities (weak algorithm, no expiry)
-# - Path traversal in send_file/send_from_directory
-# - Race conditions in file operations
-# - Missing security headers (X-Frame-Options, CSP, etc.)
+def _check_unsafe_yaml(db: RuleDB) -> list[StandardFinding]:
+    """Check for unsafe YAML loading."""
+    findings = []
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN (?, ?)", "yaml.load", "yaml.unsafe_load")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+
+        if callee == "yaml.unsafe_load":
+            findings.append(
+                StandardFinding(
+                    rule_name="flask-unsafe-yaml-load",
+                    message="yaml.unsafe_load allows arbitrary code execution",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    snippet="Use yaml.safe_load() instead",
+                    cwe_id="CWE-502",
+                )
+            )
+        elif "Loader" not in arg_expr:
+            # yaml.load without Loader parameter
+            findings.append(
+                StandardFinding(
+                    rule_name="flask-yaml-load-no-loader",
+                    message="yaml.load without Loader parameter - code execution risk",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    snippet="Use yaml.safe_load() or Loader=yaml.SafeLoader",
+                    cwe_id="CWE-502",
+                )
+            )
+
+    return findings
+
+
+def _check_command_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for command injection via subprocess with shell=True."""
+    findings = []
+
+    # Subprocess functions that can be dangerous
+    subprocess_funcs = (
+        "subprocess.run", "subprocess.call", "subprocess.Popen",
+        "subprocess.check_output", "subprocess.check_call",
+        "os.system", "os.popen", "os.popen2", "os.popen3", "os.popen4",
+        "commands.getoutput", "commands.getstatusoutput",
+    )
+    placeholders = ",".join("?" * len(subprocess_funcs))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *subprocess_funcs)
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+
+        # Check for shell=True with user input
+        if "shell=True" in arg_expr or "shell = True" in arg_expr:
+            for source in USER_INPUT_SOURCES:
+                if source in arg_expr:
+                    findings.append(
+                        StandardFinding(
+                            rule_name="flask-command-injection",
+                            message=f"Command injection - {source} in {callee} with shell=True",
+                            file_path=file,
+                            line=line,
+                            severity=Severity.CRITICAL,
+                            category="injection",
+                            confidence=Confidence.HIGH,
+                            snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                            cwe_id="CWE-78",
+                        )
+                    )
+                    break
+            else:
+                # shell=True without obvious user input (still risky)
+                findings.append(
+                    StandardFinding(
+                        rule_name="flask-shell-true",
+                        message=f"{callee} with shell=True - potential command injection",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="injection",
+                        confidence=Confidence.MEDIUM,
+                        snippet="Avoid shell=True, use list of arguments instead",
+                        cwe_id="CWE-78",
+                    )
+                )
+
+        # Check os.system which always uses shell
+        if callee == "os.system":
+            for source in USER_INPUT_SOURCES:
+                if source in arg_expr:
+                    findings.append(
+                        StandardFinding(
+                            rule_name="flask-os-system-injection",
+                            message=f"Command injection - {source} in os.system",
+                            file_path=file,
+                            line=line,
+                            severity=Severity.CRITICAL,
+                            category="injection",
+                            confidence=Confidence.HIGH,
+                            snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                            cwe_id="CWE-78",
+                        )
+                    )
+                    break
+
+    return findings
+
+
+def _check_jwt_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
+    """Check for JWT implementation vulnerabilities."""
+    findings = []
+
+    # JWT decode functions
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function LIKE ? OR callee_function LIKE ?",
+               "%jwt%decode%", "%decode%")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        arg_lower = arg_expr.lower()
+
+        # Skip if not JWT related
+        if "jwt" not in callee.lower() and "jwt" not in arg_lower:
+            continue
+
+        issues = []
+
+        # Check for missing algorithm specification
+        if "algorithms" not in arg_lower and "algorithm" not in arg_lower:
+            issues.append("no algorithm specified")
+
+        # Check for verify=False
+        if "verify=false" in arg_lower or "verify_signature=false" in arg_lower:
+            issues.append("signature verification disabled")
+
+        # Check for options disabling expiry
+        if "verify_exp" in arg_lower and "false" in arg_lower:
+            issues.append("expiry verification disabled")
+
+        if issues:
+            findings.append(
+                StandardFinding(
+                    rule_name="flask-jwt-vulnerability",
+                    message=f"JWT vulnerability: {', '.join(issues)}",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="authentication",
+                    confidence=Confidence.HIGH,
+                    snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                    cwe_id="CWE-347",
+                )
+            )
+
+    return findings
+
+
+def _check_path_traversal_sendfile(db: RuleDB) -> list[StandardFinding]:
+    """Check for path traversal in send_file/send_from_directory."""
+    findings = []
+
+    # Flask file sending functions
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN (?, ?, ?)",
+               "send_file", "send_from_directory", "safe_join")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                # Check if safe_join is used nearby for protection
+                if callee == "safe_join":
+                    continue  # safe_join is the protection
+
+                findings.append(
+                    StandardFinding(
+                        rule_name="flask-path-traversal-sendfile",
+                        message=f"Path traversal risk - {source} in {callee}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="injection",
+                        confidence=Confidence.HIGH,
+                        snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                        cwe_id="CWE-22",
+                    )
+                )
+                break
+
+    return findings
+
+
+def _check_missing_security_headers(db: RuleDB, flask_files: list[str]) -> list[StandardFinding]:
+    """Check for missing security headers."""
+    findings = []
+
+    # Check for flask-talisman (security headers middleware)
+    rows = db.query(
+        Q("refs")
+        .select("value")
+        .where("value IN (?, ?, ?)", "flask_talisman", "Talisman", "flask-talisman")
+        .limit(1)
+    )
+    if list(rows):
+        return findings
+
+    # Check for manual security headers
+    rows = db.query(
+        Q("function_call_args")
+        .select("argument_expr")
+        .where("argument_expr LIKE ? OR argument_expr LIKE ? OR argument_expr LIKE ?",
+               "%X-Frame-Options%", "%Content-Security-Policy%", "%X-Content-Type-Options%")
+        .limit(1)
+    )
+    if list(rows):
+        return findings
+
+    # No security headers found
+    if flask_files:
+        findings.append(
+            StandardFinding(
+                rule_name="flask-missing-security-headers",
+                message="Flask application without security headers (CSP, X-Frame-Options, etc.)",
+                file_path=flask_files[0],
+                line=1,
+                severity=Severity.MEDIUM,
+                category="security",
+                confidence=Confidence.MEDIUM,
+                snippet="Install flask-talisman for security headers",
+                cwe_id="CWE-693",
+            )
+        )
+
+    return findings
 
 
 # Taint patterns for taint tracking engine

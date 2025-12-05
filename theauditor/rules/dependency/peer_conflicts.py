@@ -1,12 +1,19 @@
 """Detect peer dependency mismatches (database-first implementation).
 
 Detects packages that declare peer dependency requirements which are either
-missing or have version mismatches with installed packages.
+missing or have version mismatches with installed packages. Handles:
+- Caret ranges (^17.0.0): major version must match
+- Tilde ranges (~17.0.0): major.minor must match
+- OR ranges (^16.0.0 || ^17.0.0 || ^18.0.0): any range satisfies
+- Comparison operators (>=, >, <, <=)
+- Wildcard versions (*, x, X)
+- Prerelease versions (-alpha, -beta, -rc)
 
 CWE: CWE-1104 (Use of Unmaintained Third Party Components)
 """
 
 import json
+import re
 
 from theauditor.rules.base import (
     RuleMetadata,
@@ -127,13 +134,14 @@ def _check_peer_deps(
             )
             continue
 
-        if _has_major_version_mismatch(peer_requirement, actual_version):
+        mismatch_reason = _check_version_mismatch(peer_requirement, actual_version)
+        if mismatch_reason:
             findings.append(
                 StandardFinding(
                     file_path=file_path,
                     line=1,
                     rule_name="peer-dependency-conflict",
-                    message=f"Package '{pkg_name}' requires peer dependency '{peer_name}' {peer_requirement}, but version {actual_version} is installed",
+                    message=f"Package '{pkg_name}' requires peer '{peer_name}' {peer_requirement}, but {actual_version} installed: {mismatch_reason}",
                     severity=Severity.HIGH,
                     category="dependency",
                     snippet=f"{pkg_name} requires {peer_name} {peer_requirement} (installed: {actual_version})",
@@ -144,38 +152,166 @@ def _check_peer_deps(
     return findings
 
 
-def _has_major_version_mismatch(requirement: str, actual: str) -> bool:
-    """Check if requirement and actual version have major version mismatch.
+def _check_version_mismatch(requirement: str, actual: str) -> str | None:
+    """Check if requirement and actual version are incompatible.
 
     Args:
         requirement: Semver requirement string (e.g., "^17.0.0", ">=16.0.0")
         actual: Actual installed version (e.g., "18.2.0")
 
     Returns:
-        True if there's a major version incompatibility
+        Mismatch reason string if incompatible, None if compatible
     """
+    requirement = requirement.strip()
+
+    # Handle OR ranges (||)
+    if "||" in requirement:
+        ranges = [r.strip() for r in requirement.split("||")]
+        mismatches = []
+        for r in ranges:
+            mismatch = _check_single_range(r, actual)
+            if mismatch is None:
+                return None  # At least one range matches
+            mismatches.append(mismatch)
+        return f"no matching range (tried: {', '.join(ranges)})"
+
+    return _check_single_range(requirement, actual)
+
+
+def _check_single_range(requirement: str, actual: str) -> str | None:
+    """Check a single version range against actual version.
+
+    Args:
+        requirement: Single semver range (e.g., "^17.0.0", ">=16.0.0")
+        actual: Actual installed version
+
+    Returns:
+        Mismatch reason string if incompatible, None if compatible
+    """
+    # Parse actual version
+    actual_parts = _parse_version(actual)
+    if actual_parts is None:
+        return None  # Can't parse, assume OK
+
+    actual_major, actual_minor, actual_patch = actual_parts
+
+    # Handle wildcards
+    if requirement in ("*", "x", "X", ""):
+        return None
+
+    # Handle caret range (^): compatible with major version
+    if requirement.startswith("^"):
+        req_parts = _parse_version(requirement[1:])
+        if req_parts is None:
+            return None
+        req_major, req_minor, req_patch = req_parts
+
+        if actual_major != req_major:
+            return f"major version {actual_major} != {req_major}"
+        # For 0.x versions, caret is more restrictive
+        if req_major == 0:
+            if actual_minor < req_minor:
+                return f"minor version {actual_minor} < {req_minor} (0.x range)"
+        return None
+
+    # Handle tilde range (~): compatible with major.minor
+    if requirement.startswith("~"):
+        req_parts = _parse_version(requirement[1:])
+        if req_parts is None:
+            return None
+        req_major, req_minor, _req_patch = req_parts
+
+        if actual_major != req_major:
+            return f"major version {actual_major} != {req_major}"
+        if actual_minor != req_minor:
+            return f"minor version {actual_minor} != {req_minor}"
+        return None
+
+    # Handle >=
+    if requirement.startswith(">="):
+        req_parts = _parse_version(requirement[2:])
+        if req_parts is None:
+            return None
+        req_major, req_minor, req_patch = req_parts
+
+        if (actual_major, actual_minor, actual_patch) < (req_major, req_minor, req_patch):
+            return f"version {actual} < {requirement[2:]}"
+        return None
+
+    # Handle >
+    if requirement.startswith(">") and not requirement.startswith(">="):
+        req_parts = _parse_version(requirement[1:])
+        if req_parts is None:
+            return None
+        req_major, req_minor, req_patch = req_parts
+
+        if (actual_major, actual_minor, actual_patch) <= (req_major, req_minor, req_patch):
+            return f"version {actual} <= {requirement[1:]}"
+        return None
+
+    # Handle <=
+    if requirement.startswith("<="):
+        req_parts = _parse_version(requirement[2:])
+        if req_parts is None:
+            return None
+        req_major, req_minor, req_patch = req_parts
+
+        if (actual_major, actual_minor, actual_patch) > (req_major, req_minor, req_patch):
+            return f"version {actual} > {requirement[2:]}"
+        return None
+
+    # Handle <
+    if requirement.startswith("<") and not requirement.startswith("<="):
+        req_parts = _parse_version(requirement[1:])
+        if req_parts is None:
+            return None
+        req_major, req_minor, req_patch = req_parts
+
+        if (actual_major, actual_minor, actual_patch) >= (req_major, req_minor, req_patch):
+            return f"version {actual} >= {requirement[1:]}"
+        return None
+
+    # Handle exact version or implicit caret (npm default)
+    req_parts = _parse_version(requirement)
+    if req_parts is None:
+        return None
+    req_major, _req_minor, _req_patch = req_parts
+
+    # Default: treat as major version requirement
+    if actual_major != req_major:
+        return f"major version {actual_major} != {req_major}"
+
+    return None
+
+
+def _parse_version(version: str) -> tuple[int, int, int] | None:
+    """Parse version string into (major, minor, patch) tuple.
+
+    Handles:
+    - Standard semver: 1.2.3
+    - With v prefix: v1.2.3
+    - With prerelease: 1.2.3-alpha.1
+    - Partial versions: 1.2, 1
+
+    Args:
+        version: Version string to parse
+
+    Returns:
+        Tuple of (major, minor, patch) or None if unparseable
+    """
+    # Strip v prefix
+    version = version.lstrip("vV").strip()
+
+    # Remove prerelease and build metadata
+    version = re.split(r"[-+]", version)[0]
+
+    # Split into parts
+    parts = version.split(".")
+
     try:
-        req_clean = requirement.lstrip("^~<>=vV").split(".")[0]
-        if req_clean in ("*", "x", "X", ""):
-            return False
-
-        req_major = int(req_clean)
-
-        actual_clean = actual.lstrip("vV").split(".")[0]
-        actual_major = int(actual_clean)
-
-        if requirement.startswith("^") or requirement.startswith("~"):
-            return actual_major != req_major
-        elif requirement.startswith(">="):
-            return actual_major < req_major
-        elif requirement.startswith(">"):
-            return actual_major <= req_major
-        elif requirement.startswith("<="):
-            return actual_major > req_major
-        elif requirement.startswith("<"):
-            return actual_major >= req_major
-        else:
-            return actual_major != req_major
-
+        major = int(parts[0]) if len(parts) > 0 and parts[0] else 0
+        minor = int(parts[1]) if len(parts) > 1 and parts[1] else 0
+        patch = int(parts[2]) if len(parts) > 2 and parts[2] else 0
+        return (major, minor, patch)
     except (ValueError, IndexError):
-        return False
+        return None

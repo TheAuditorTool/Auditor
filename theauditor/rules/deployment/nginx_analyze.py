@@ -7,6 +7,7 @@ Detects security misconfigurations in Nginx configurations:
 - Deprecated SSL/TLS protocols (CWE-327)
 - Weak SSL ciphers (CWE-327)
 - Server version disclosure (CWE-200)
+- Directory listing enabled (CWE-548)
 """
 
 import json
@@ -45,31 +46,58 @@ CRITICAL_HEADERS = {
 }
 
 SENSITIVE_PATHS = frozenset([
+    # Version control
     ".git",
     ".svn",
     ".hg",
     ".bzr",
+    # Configuration files
     ".env",
     ".htaccess",
     ".htpasswd",
-    "wp-admin",
-    "phpmyadmin",
-    "admin",
+    ".npmrc",
+    ".pypirc",
+    ".aws",
+    # IDE/Editor settings
     ".DS_Store",
     "Thumbs.db",
-    "backup",
-    ".backup",
-    ".bak",
     ".idea",
     ".vscode",
     ".settings",
+    # Admin interfaces
+    "wp-admin",
+    "phpmyadmin",
+    "admin",
+    "adminer",
+    # Backup files
+    "backup",
+    ".backup",
+    ".bak",
+    ".sql",
+    ".dump",
+    # Dependencies
     "node_modules",
     "vendor",
+    # Deployment artifacts
     ".dockerignore",
     "Dockerfile",
+    "docker-compose",
     "deploy",
     "deployment",
     ".deploy",
+    # Secrets and keys
+    "id_rsa",
+    "id_ed25519",
+    "id_ecdsa",
+    "credentials",
+    "secrets",
+    ".pem",
+    ".key",
+    # Config files
+    "database.yml",
+    "secrets.yml",
+    "config.php",
+    "wp-config",
 ])
 
 DEPRECATED_PROTOCOLS = frozenset([
@@ -79,6 +107,7 @@ DEPRECATED_PROTOCOLS = frozenset([
 WEAK_CIPHERS = frozenset([
     "RC4",
     "DES",
+    "3DES",
     "MD5",
     "NULL",
     "EXPORT",
@@ -88,8 +117,11 @@ WEAK_CIPHERS = frozenset([
     "AECDH",
     "PSK",
     "SRP",
-    "3DES",
     "CAMELLIA",
+    "SEED",      # Korean cipher, deprecated
+    "IDEA",      # Deprecated, patent issues
+    "RC2",       # Very weak
+    "ARIA",      # Korean cipher, less tested
 ])
 
 
@@ -165,6 +197,7 @@ def find_nginx_issues(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_exposed_paths(location_blocks))
         findings.extend(_check_ssl_configurations(ssl_configs))
         findings.extend(_check_server_tokens(server_tokens))
+        findings.extend(_check_autoindex(location_blocks))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -467,6 +500,30 @@ def _check_server_tokens(server_tokens: dict[str, str]) -> list[StandardFinding]
                     category="security",
                     snippet=f"server_tokens {value}",
                     cwe_id="CWE-200",
+                )
+            )
+
+    return findings
+
+
+def _check_autoindex(location_blocks: list[NginxLocationBlock]) -> list[StandardFinding]:
+    """Check for directory listing enabled (autoindex on)."""
+    findings = []
+
+    for location in location_blocks:
+        autoindex = location.directives.get("autoindex")
+        if autoindex and str(autoindex).lower() == "on":
+            location_pattern = _extract_location_pattern(location.context)
+            findings.append(
+                StandardFinding(
+                    rule_name="nginx-autoindex-enabled",
+                    message=f"Directory listing enabled at {location_pattern} - information disclosure risk",
+                    file_path=location.file_path,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="security",
+                    snippet=f"location {location_pattern} {{\n  autoindex on;\n}}",
+                    cwe_id="CWE-548",
                 )
             )
 

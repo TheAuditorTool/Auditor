@@ -75,6 +75,9 @@ def find_bash_quoting_issues(context: StandardRuleContext) -> RuleResult:
         # Check dangerous unquoted commands
         _check_dangerous_unquoted_commands(db, add_finding)
 
+        # Check unquoted array expansion
+        _check_unquoted_array_expansion(db, add_finding)
+
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
@@ -168,4 +171,58 @@ def _check_dangerous_unquoted_commands(db: RuleDB, add_finding) -> None:
                     message=f"{command_name} with unquoted glob and variable",
                     severity=Severity.HIGH,
                     confidence=Confidence.HIGH,
+                )
+
+
+def _check_unquoted_array_expansion(db: RuleDB, add_finding) -> None:
+    """Detect unquoted array expansion.
+
+    ${arr[@]} or ${arr[*]} without quotes causes word splitting and glob
+    expansion on each element. Should use "${arr[@]}" to preserve elements.
+
+    Examples:
+        BAD:  for f in ${files[@]}; do ...   # splits on spaces, expands globs
+        GOOD: for f in "${files[@]}"; do ... # preserves each element
+    """
+    # Check command arguments for unquoted array expansion
+    rows = db.query(
+        Q("bash_command_args")
+        .select("file", "command_line", "arg_value", "is_quoted")
+        .where("is_quoted = ? AND (arg_value LIKE ? OR arg_value LIKE ?)", 0, "%[@]%", "%[*]%")
+    )
+
+    for file, line, arg_value, is_quoted in rows:
+        arg = arg_value or ""
+        # Confirm it's actually an array expansion pattern
+        if "${" in arg and ("[@]" in arg or "[*]" in arg):
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-unquoted-array",
+                message=f"Unquoted array expansion: {arg[:50]}",
+                severity=Severity.MEDIUM,
+                confidence=Confidence.HIGH,
+            )
+
+    # Also check variable assignments
+    rows = db.query(
+        Q("bash_variables")
+        .select("file", "line", "value_expr")
+        .where("value_expr LIKE ? OR value_expr LIKE ?", "%[@]%", "%[*]%")
+    )
+
+    for file, line, value_expr in rows:
+        value = value_expr or ""
+        # Check if array expansion is unquoted (not inside double quotes)
+        # This is a heuristic - if the value contains ${...[@]} without surrounding quotes
+        if "${" in value and ("[@]" in value or "[*]" in value):
+            # Simple heuristic: if value doesn't start with " it's likely unquoted
+            if not value.startswith('"'):
+                add_finding(
+                    file=file,
+                    line=line,
+                    rule_name="bash-unquoted-array-assignment",
+                    message=f"Unquoted array expansion in assignment: {value[:50]}",
+                    severity=Severity.MEDIUM,
+                    confidence=Confidence.MEDIUM,
                 )

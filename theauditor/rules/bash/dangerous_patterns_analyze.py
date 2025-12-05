@@ -130,6 +130,9 @@ def find_bash_dangerous_patterns(context: StandardRuleContext) -> RuleResult:
         # Check dangerous environment variable manipulation (LD_PRELOAD, etc.)
         _check_dangerous_environment_vars(db, add_finding)
 
+        # Check read without -r flag (backslash escape injection)
+        _check_read_without_raw(db, add_finding)
+
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
@@ -545,3 +548,48 @@ def _check_dangerous_environment_vars(db: RuleDB, add_finding) -> None:
             confidence=Confidence.MEDIUM,
             cwe_id="CWE-426",
         )
+
+
+def _check_read_without_raw(db: RuleDB, add_finding) -> None:
+    """Detect read command without -r flag.
+
+    Without -r, backslashes in input are interpreted as escape characters,
+    allowing line continuation injection. An attacker can inject:
+        input\\nmalicious_command
+    which becomes a single line, potentially executing unintended commands.
+
+    CWE-78: Improper Neutralization of Special Elements used in an OS Command
+    """
+    rows = db.query(
+        Q("bash_commands")
+        .select("file", "line")
+        .where("command_name = ?", "read")
+    )
+
+    for file, line in rows:
+        # Check if -r flag is present in arguments
+        arg_rows = db.query(
+            Q("bash_command_args")
+            .select("arg_value", "normalized_flags")
+            .where("file = ? AND command_line = ?", file, line)
+        )
+
+        has_raw_flag = False
+        for arg_value, normalized_flags in arg_rows:
+            flags = normalized_flags or ""
+            arg = arg_value or ""
+            # Check for -r in normalized flags or as standalone arg
+            if "r" in flags or arg == "-r" or (arg.startswith("-") and "r" in arg):
+                has_raw_flag = True
+                break
+
+        if not has_raw_flag:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-read-without-r",
+                message="read without -r flag allows backslash escape injection",
+                severity=Severity.MEDIUM,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-78",
+            )

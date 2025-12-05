@@ -205,6 +205,59 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                 confidence=Confidence.HIGH,
             )
 
+        # Check indirect variable expansion ${!var}
+        # If var is user-controlled, attacker can access any variable
+        rows = db.query(
+            Q("bash_command_args")
+            .select("file", "command_line", "arg_value")
+            .where("arg_value LIKE ?", "%${!%")
+        )
+
+        for file, line, arg_value in rows:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-indirect-expansion",
+                message=f"Indirect variable expansion: {arg_value[:50]}",
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+            )
+
+        # Also check variable assignments for indirect expansion
+        rows = db.query(
+            Q("bash_variables")
+            .select("file", "line", "value_expr")
+            .where("value_expr LIKE ?", "%${!%")
+        )
+
+        for file, line, value_expr in rows:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-indirect-expansion",
+                message=f"Indirect variable expansion in assignment: {value_expr[:50]}",
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+            )
+
+        # Check process substitution with variable expansion
+        # <(cmd $var) or >(cmd $var) can inject commands if var is tainted
+        rows = db.query(
+            Q("bash_subshells")
+            .select("file", "line", "syntax", "command_text")
+            .where("syntax LIKE ? AND command_text LIKE ?", "%process%", "%$%")
+        )
+
+        for file, line, syntax, command_text in rows:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-process-substitution-injection",
+                message=f"Process substitution with variable: {command_text[:50]}",
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+            )
+
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 

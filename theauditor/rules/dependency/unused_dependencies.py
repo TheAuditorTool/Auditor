@@ -4,6 +4,12 @@ Flags dependencies that are declared in package manifests but never
 imported in the codebase. Unused dependencies increase attack surface
 and bundle size without providing value.
 
+Detection includes:
+- Direct imports (import/require)
+- Package.json script references
+- CLI tools and build plugins
+- Type definition packages
+
 CWE-1104: Use of Unmaintained Third Party Components
 """
 
@@ -28,13 +34,14 @@ METADATA = RuleMetadata(
     primary_table="package_dependencies",
 )
 
-# Packages that are used via CLI or config, not imports
+# Packages that are used via CLI or config, not direct imports
 CLI_PACKAGES: frozenset[str] = frozenset([
     "eslint",
     "prettier",
     "typescript",
     "tsc",
     "ts-node",
+    "tsx",
     "nodemon",
     "concurrently",
     "npm-run-all",
@@ -42,14 +49,67 @@ CLI_PACKAGES: frozenset[str] = frozenset([
     "lint-staged",
     "commitlint",
     "semantic-release",
+    "cross-env",
+    "dotenv-cli",
+    "rimraf",
+    "copyfiles",
+    "shx",
+    "ncp",
+])
+
+# Packages used as plugins/presets (referenced in config, not imported)
+PLUGIN_PACKAGES: frozenset[str] = frozenset([
+    # Babel
+    "@babel/preset-env",
+    "@babel/preset-react",
+    "@babel/preset-typescript",
+    "@babel/plugin-transform-runtime",
+    # ESLint
+    "eslint-plugin-react",
+    "eslint-plugin-react-hooks",
+    "eslint-plugin-import",
+    "eslint-plugin-jsx-a11y",
+    "eslint-config-prettier",
+    "eslint-config-airbnb",
+    # PostCSS
+    "autoprefixer",
+    "postcss-preset-env",
+    "tailwindcss",
+    "cssnano",
+    # Webpack/Build
+    "babel-loader",
+    "css-loader",
+    "style-loader",
+    "file-loader",
+    "url-loader",
+    "sass-loader",
+    "less-loader",
+    "postcss-loader",
+    "ts-loader",
+    "html-webpack-plugin",
+    "mini-css-extract-plugin",
+    "terser-webpack-plugin",
+])
+
+# CSS/styling packages (used via imports in CSS/SCSS, not JS)
+STYLING_PACKAGES: frozenset[str] = frozenset([
+    "normalize.css",
+    "reset-css",
+    "sanitize.css",
+    "modern-normalize",
+    "animate.css",
+    "font-awesome",
+    "@fortawesome/fontawesome-free",
 ])
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect packages declared in dependencies but never imported.
 
-    Cross-references declared dependencies against actual imports to find
-    packages that may be unnecessary.
+    Cross-references declared dependencies against:
+    - Direct imports in source code
+    - Package.json scripts
+    - Known CLI tools and plugins
 
     Args:
         context: Standard rule context with db_path
@@ -66,8 +126,14 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         # Get all imported package names
         imported_packages = _get_imported_packages(db)
 
+        # Get packages referenced in scripts
+        script_packages = _get_script_referenced_packages(db)
+
+        # Combine all "used" packages
+        used_packages = imported_packages | script_packages
+
         # Check JavaScript/Node dependencies
-        findings.extend(_check_js_unused(db, imported_packages))
+        findings.extend(_check_js_unused(db, used_packages))
 
         # Check Python dependencies
         findings.extend(_check_python_unused(db, imported_packages))
@@ -101,12 +167,54 @@ def _get_imported_packages(db: RuleDB) -> set[str]:
     return imported
 
 
-def _check_js_unused(db: RuleDB, imported: set[str]) -> list[StandardFinding]:
+def _get_script_referenced_packages(db: RuleDB) -> set[str]:
+    """Get packages referenced in package.json scripts.
+
+    Parses script commands to find direct package references.
+
+    Args:
+        db: RuleDB instance
+
+    Returns:
+        Set of package names referenced in scripts
+    """
+    referenced: set[str] = set()
+
+    rows = db.query(
+        Q("package_scripts")
+        .select("script_name", "script_command")
+        .order_by("script_name")
+    )
+
+    for script_name, script_command in rows:
+        if not script_command:
+            continue
+
+        # Extract package names from script command
+        # Common patterns: "eslint .", "prettier --write", "jest", "tsc"
+        parts = script_command.split()
+        if parts:
+            # First word is often the command/package
+            first_cmd = parts[0]
+            # Handle cross-env, npx, etc.
+            if first_cmd in ("cross-env", "npx", "pnpx", "yarn"):
+                if len(parts) > 1:
+                    first_cmd = parts[1]
+
+            # Clean up the command
+            cmd_clean = first_cmd.split("/")[-1]  # Handle ./node_modules/.bin/
+            if cmd_clean and not cmd_clean.startswith("-"):
+                referenced.add(cmd_clean.lower())
+
+    return referenced
+
+
+def _check_js_unused(db: RuleDB, used: set[str]) -> list[StandardFinding]:
     """Check JavaScript package dependencies for unused packages.
 
     Args:
         db: RuleDB instance
-        imported: Set of imported package names
+        used: Set of packages that are imported or referenced
 
     Returns:
         List of findings for unused JS dependencies
@@ -126,16 +234,12 @@ def _check_js_unused(db: RuleDB, imported: set[str]) -> list[StandardFinding]:
 
         normalized = _normalize_package_name(pkg_name)
 
-        # Skip if actually imported
-        if normalized in imported:
+        # Skip if actually used (imported or in scripts)
+        if normalized in used:
             continue
 
-        # Skip CLI/build tools that aren't imported
-        if _is_cli_or_build_tool(pkg_name):
-            continue
-
-        # Skip type definition packages
-        if pkg_name.startswith("@types/"):
+        # Skip known false positives
+        if _is_exempt_package(pkg_name):
             continue
 
         severity = Severity.LOW if is_dev else Severity.MEDIUM
@@ -183,7 +287,7 @@ def _check_python_unused(db: RuleDB, imported: set[str]) -> list[StandardFinding
             continue
 
         # Skip CLI/build tools
-        if _is_cli_or_build_tool(pkg_name):
+        if _is_exempt_package(pkg_name):
             continue
 
         severity = Severity.LOW if is_dev else Severity.MEDIUM
@@ -233,14 +337,14 @@ def _normalize_package_name(package: str) -> str:
     return base.lower()
 
 
-def _is_cli_or_build_tool(package: str) -> bool:
-    """Check if package is a CLI or build tool that isn't imported.
+def _is_exempt_package(package: str) -> bool:
+    """Check if package is exempt from unused detection.
 
     Args:
         package: Package name
 
     Returns:
-        True if package is a CLI/build tool
+        True if package should not be flagged as unused
     """
     pkg_lower = package.lower()
 
@@ -252,9 +356,32 @@ def _is_cli_or_build_tool(package: str) -> bool:
     if pkg_lower in DEV_ONLY_PACKAGES:
         return True
 
-    # Heuristic: packages starting with these are usually build/dev tools
-    build_prefixes = ("eslint-", "prettier-", "@babel/", "webpack-", "rollup-", "vite-")
-    if any(pkg_lower.startswith(prefix) for prefix in build_prefixes):
+    # Check against plugin packages
+    if pkg_lower in PLUGIN_PACKAGES:
+        return True
+
+    # Check against styling packages
+    if pkg_lower in STYLING_PACKAGES:
+        return True
+
+    # Type definition packages
+    if package.startswith("@types/"):
+        return True
+
+    # Heuristic: packages with these patterns are usually build/dev tools
+    exempt_patterns = (
+        "eslint-",
+        "prettier-",
+        "@babel/",
+        "webpack-",
+        "rollup-",
+        "vite-",
+        "-loader",
+        "-plugin",
+        "-preset",
+        "-config",
+    )
+    if any(pattern in pkg_lower for pattern in exempt_patterns):
         return True
 
     return False

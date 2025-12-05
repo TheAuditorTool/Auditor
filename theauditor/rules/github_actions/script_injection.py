@@ -33,18 +33,56 @@ METADATA = RuleMetadata(
 )
 
 
-# Untrusted paths that can be controlled by attacker via PR/issue
+# Untrusted paths that can be controlled by attacker
+# These are GitHub Actions context variables that can contain arbitrary user input
 UNTRUSTED_PATHS = frozenset([
+    # Pull request data (attacker creates PR)
     "github.event.pull_request.title",
     "github.event.pull_request.body",
     "github.event.pull_request.head.ref",
     "github.event.pull_request.head.label",
+    "github.event.pull_request.head.repo.default_branch",
+    "github.head_ref",
+    "github.ref_name",  # Can be PR branch name
+
+    # Issue data (attacker creates issue)
     "github.event.issue.title",
     "github.event.issue.body",
+
+    # Comment data (attacker posts comment)
     "github.event.comment.body",
     "github.event.review.body",
+    "github.event.review_comment.body",
+
+    # Discussion data (attacker creates discussion/comment)
+    "github.event.discussion.title",
+    "github.event.discussion.body",
+    "github.event.discussion_comment.body",
+
+    # Commit data (attacker controls commit messages)
     "github.event.head_commit.message",
-    "github.head_ref",
+    "github.event.head_commit.author.email",
+    "github.event.head_commit.author.name",
+    "github.event.commits",  # Array of commits with messages
+
+    # Release data (if attacker can create releases)
+    "github.event.release.name",
+    "github.event.release.body",
+    "github.event.release.tag_name",
+
+    # workflow_dispatch inputs (user-provided form inputs)
+    "inputs.",  # Prefix match for any input
+    "github.event.inputs.",  # Alternative path
+
+    # repository_dispatch payload (webhook payload)
+    "github.event.client_payload.",  # Prefix match for any payload field
+
+    # workflow_run data (triggered workflow can have untrusted context)
+    "github.event.workflow_run.head_branch",
+    "github.event.workflow_run.head_commit.message",
+
+    # Pages/wiki data
+    "github.event.pages",  # Wiki page names
 ])
 
 
@@ -141,9 +179,10 @@ def _find_script_injections(db: RuleDB) -> list[StandardFinding]:
                 except json.JSONDecodeError:
                     pass
 
-        # CRITICAL if pull_request_target (untrusted code runs with write access)
-        has_pr_target = "pull_request_target" in triggers
-        severity = Severity.CRITICAL if has_pr_target else Severity.HIGH
+        # CRITICAL if running with elevated privileges in untrusted context
+        critical_triggers = {"pull_request_target", "issue_comment", "workflow_run"}
+        has_critical_trigger = bool(critical_triggers & set(triggers))
+        severity = Severity.CRITICAL if has_critical_trigger else Severity.HIGH
 
         findings.append(
             _build_injection_finding(
@@ -154,7 +193,7 @@ def _find_script_injections(db: RuleDB) -> list[StandardFinding]:
                 run_script=run_script,
                 untrusted_refs=untrusted_refs,
                 severity=severity,
-                has_pr_target=has_pr_target,
+                triggers=triggers,
             )
         )
 
@@ -169,17 +208,19 @@ def _build_injection_finding(
     run_script: str,
     untrusted_refs: list[str],
     severity: Severity,
-    has_pr_target: bool,
+    triggers: list[str],
 ) -> StandardFinding:
     """Build finding for script injection vulnerability."""
     refs_str = ", ".join(untrusted_refs[:3])
     if len(untrusted_refs) > 3:
         refs_str += f" (+{len(untrusted_refs) - 3} more)"
 
+    trigger_str = ", ".join(triggers) if triggers else "unknown"
+
     message = (
         f"Workflow '{workflow_name}' job '{job_key}' step '{step_name}' "
         f"uses untrusted data in run: script without sanitization: {refs_str}. "
-        f"Attacker can inject commands via {'pull_request_target context' if has_pr_target else 'PR metadata'}."
+        f"Attacker can inject commands via {trigger_str} trigger context."
     )
 
     snippet_lines = []
@@ -207,7 +248,7 @@ def _build_injection_finding(
         "job_key": job_key,
         "step_name": step_name,
         "untrusted_references": untrusted_refs,
-        "has_pull_request_target": has_pr_target,
+        "triggers": triggers,
         "run_script_preview": run_script[:200] if len(run_script) > 200 else run_script,
         "mitigation": (
             "1. Pass untrusted data through environment variables instead of direct interpolation:\n"

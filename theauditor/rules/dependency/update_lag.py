@@ -1,6 +1,10 @@
 """Detect severely outdated dependencies using indexed version data.
 
-Flags dependencies that are 2+ major versions behind the latest release.
+Flags dependencies that are significantly behind the latest release:
+- 2+ major versions behind (HIGH/CRITICAL severity)
+- 1 major version behind for security-critical packages (MEDIUM severity)
+- Many minor versions behind (LOW severity)
+
 Severely outdated dependencies often miss critical security patches and
 may have known vulnerabilities.
 
@@ -26,12 +30,62 @@ METADATA = RuleMetadata(
     primary_table="dependency_versions",
 )
 
+# Security-critical packages that warrant higher severity when outdated
+# These commonly have security vulnerabilities or are attack targets
+SECURITY_CRITICAL_PACKAGES: frozenset[str] = frozenset([
+    # JavaScript - commonly exploited
+    "lodash",
+    "express",
+    "axios",
+    "node-fetch",
+    "got",
+    "request",
+    "minimist",
+    "yargs",
+    "commander",
+    "jsonwebtoken",
+    "passport",
+    "bcrypt",
+    "crypto-js",
+    "helmet",
+    "cors",
+    "body-parser",
+    "cookie-parser",
+    "dotenv",
+    "webpack",
+    "serialize-javascript",
+    "handlebars",
+    "marked",
+    "highlight.js",
+    "moment",
+    "luxon",
+    # Python - commonly exploited
+    "django",
+    "flask",
+    "requests",
+    "urllib3",
+    "pyyaml",
+    "pillow",
+    "jinja2",
+    "cryptography",
+    "paramiko",
+    "pyjwt",
+    "werkzeug",
+    "gunicorn",
+    "celery",
+    "sqlalchemy",
+    "psycopg2",
+    "pymysql",
+    "redis",
+    "boto3",
+])
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect severely outdated dependencies from version tracking data.
 
-    Uses the dependency_versions table populated by version checking
-    to identify packages that are multiple major versions behind.
+    Uses the dependency_versions table to identify packages that are
+    significantly behind, with special attention to security-critical packages.
 
     Args:
         context: Standard rule context with db_path
@@ -48,53 +102,143 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         # Build file path map for better finding locations
         file_path_map = _build_file_path_map(db)
 
-        # Query outdated dependencies with major version delta
-        rows = db.query(
-            Q("dependency_versions")
-            .select(
-                "manager",
-                "package_name",
-                "locked_version",
-                "latest_version",
-                "delta",
-                "is_outdated",
-                "error",
-            )
-            .where("is_outdated = ?", 1)
-            .where("delta = ?", "major")
-            .where("error IS NULL OR error = ?", "")
-            .order_by("manager, package_name")
-        )
-
-        for manager, pkg_name, locked, latest, delta, is_outdated, error in rows:
-            if not locked or not latest:
-                continue
-
-            versions_behind = _calculate_major_versions_behind(locked, latest)
-            if versions_behind < 2:
-                continue
-
-            # Determine severity based on how far behind
-            severity = Severity.MEDIUM if versions_behind == 2 else Severity.HIGH
-
-            # Get file path from map or use default
-            key = f"{manager}:{pkg_name}"
-            file_path = file_path_map.get(key, _default_file_path(manager))
-
-            findings.append(
-                StandardFinding(
-                    rule_name=METADATA.name,
-                    message=f"Dependency '{pkg_name}' is {versions_behind} major versions behind (using {locked}, latest is {latest})",
-                    file_path=file_path,
-                    line=1,
-                    severity=severity,
-                    category=METADATA.category,
-                    snippet=f"{pkg_name}: {locked} -> {latest}",
-                    cwe_id="CWE-1104",
-                )
-            )
+        # Check all outdated dependencies (both major and minor)
+        findings.extend(_check_major_outdated(db, file_path_map))
+        findings.extend(_check_minor_outdated(db, file_path_map))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+def _check_major_outdated(db: RuleDB, file_path_map: dict[str, str]) -> list[StandardFinding]:
+    """Check for major version lag (most severe).
+
+    Args:
+        db: RuleDB instance
+        file_path_map: Map of manager:package -> file_path
+
+    Returns:
+        List of findings for major version outdated packages
+    """
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("dependency_versions")
+        .select(
+            "manager",
+            "package_name",
+            "locked_version",
+            "latest_version",
+            "delta",
+            "is_outdated",
+            "error",
+        )
+        .where("is_outdated = ?", 1)
+        .where("delta = ?", "major")
+        .where("error IS NULL OR error = ?", "")
+        .order_by("manager, package_name")
+    )
+
+    for manager, pkg_name, locked, latest, delta, is_outdated, error in rows:
+        if not locked or not latest:
+            continue
+
+        versions_behind = _calculate_major_versions_behind(locked, latest)
+        is_critical = pkg_name.lower() in SECURITY_CRITICAL_PACKAGES
+
+        # Determine severity based on versions behind and criticality
+        if versions_behind >= 3:
+            severity = Severity.CRITICAL if is_critical else Severity.HIGH
+        elif versions_behind == 2:
+            severity = Severity.HIGH if is_critical else Severity.MEDIUM
+        elif versions_behind == 1 and is_critical:
+            # Single major version behind for security-critical package
+            severity = Severity.MEDIUM
+        else:
+            continue  # Skip if not significant enough
+
+        key = f"{manager}:{pkg_name}"
+        file_path = file_path_map.get(key, _default_file_path(manager))
+
+        critical_note = " (security-critical package)" if is_critical else ""
+        findings.append(
+            StandardFinding(
+                rule_name=METADATA.name,
+                message=f"Dependency '{pkg_name}' is {versions_behind} major version(s) behind{critical_note} ({locked} -> {latest})",
+                file_path=file_path,
+                line=1,
+                severity=severity,
+                category=METADATA.category,
+                snippet=f"{pkg_name}: {locked} -> {latest}",
+                cwe_id="CWE-1104",
+            )
+        )
+
+    return findings
+
+
+def _check_minor_outdated(db: RuleDB, file_path_map: dict[str, str]) -> list[StandardFinding]:
+    """Check for significant minor version lag.
+
+    Packages on same major but many minors behind may miss security patches.
+
+    Args:
+        db: RuleDB instance
+        file_path_map: Map of manager:package -> file_path
+
+    Returns:
+        List of findings for minor version outdated packages
+    """
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("dependency_versions")
+        .select(
+            "manager",
+            "package_name",
+            "locked_version",
+            "latest_version",
+            "delta",
+            "is_outdated",
+            "error",
+        )
+        .where("is_outdated = ?", 1)
+        .where("delta = ?", "minor")
+        .where("error IS NULL OR error = ?", "")
+        .order_by("manager, package_name")
+    )
+
+    for manager, pkg_name, locked, latest, delta, is_outdated, error in rows:
+        if not locked or not latest:
+            continue
+
+        minors_behind = _calculate_minor_versions_behind(locked, latest)
+        is_critical = pkg_name.lower() in SECURITY_CRITICAL_PACKAGES
+
+        # Only flag if significantly behind (5+ minors) or critical package (3+ minors)
+        threshold = 3 if is_critical else 5
+        if minors_behind < threshold:
+            continue
+
+        severity = Severity.MEDIUM if is_critical else Severity.LOW
+
+        key = f"{manager}:{pkg_name}"
+        file_path = file_path_map.get(key, _default_file_path(manager))
+
+        critical_note = " (security-critical)" if is_critical else ""
+        findings.append(
+            StandardFinding(
+                rule_name=METADATA.name,
+                message=f"Dependency '{pkg_name}' is {minors_behind} minor versions behind{critical_note} ({locked} -> {latest})",
+                file_path=file_path,
+                line=1,
+                severity=severity,
+                category=METADATA.category,
+                snippet=f"{pkg_name}: {locked} -> {latest}",
+                cwe_id="CWE-1104",
+            )
+        )
+
+    return findings
 
 
 def _build_file_path_map(db: RuleDB) -> dict[str, str]:
@@ -158,7 +302,6 @@ def _calculate_major_versions_behind(locked: str, latest: str) -> int:
         Number of major versions behind, or 0 if calculation fails
     """
     try:
-        # Strip common prefixes (v, ^, ~, <, >, =)
         locked_clean = locked.lstrip("v^~<>=")
         latest_clean = latest.lstrip("v^~<>=")
 
@@ -166,5 +309,35 @@ def _calculate_major_versions_behind(locked: str, latest: str) -> int:
         latest_major = int(latest_clean.split(".")[0])
 
         return max(0, latest_major - locked_major)
+    except (ValueError, IndexError):
+        return 0
+
+
+def _calculate_minor_versions_behind(locked: str, latest: str) -> int:
+    """Calculate how many minor versions behind locked is from latest.
+
+    Assumes same major version.
+
+    Args:
+        locked: Currently locked version string
+        latest: Latest available version string
+
+    Returns:
+        Number of minor versions behind, or 0 if calculation fails
+    """
+    try:
+        locked_clean = locked.lstrip("v^~<>=")
+        latest_clean = latest.lstrip("v^~<>=")
+
+        locked_parts = locked_clean.split(".")
+        latest_parts = latest_clean.split(".")
+
+        if len(locked_parts) < 2 or len(latest_parts) < 2:
+            return 0
+
+        locked_minor = int(locked_parts[1])
+        latest_minor = int(latest_parts[1])
+
+        return max(0, latest_minor - locked_minor)
     except (ValueError, IndexError):
         return 0

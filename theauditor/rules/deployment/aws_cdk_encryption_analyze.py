@@ -1,9 +1,14 @@
 """AWS CDK Encryption Detection - database-first rule.
 
-Detects unencrypted storage resources in AWS CDK code:
+Detects unencrypted storage and data resources in AWS CDK code:
 - RDS DatabaseInstance without storage_encrypted=True
 - EBS Volume without encrypted=True
 - DynamoDB Table using default encryption (not customer-managed)
+- ElastiCache without at_rest_encryption_enabled or transit_encryption_enabled
+- EFS FileSystem without encrypted=True
+- Kinesis Stream without encryption
+- SQS Queue without server-side encryption
+- SNS Topic without server-side encryption
 
 CWE-311: Missing Encryption of Sensitive Data
 """
@@ -35,7 +40,7 @@ METADATA = RuleMetadata(
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
-    """Detect unencrypted storage resources in CDK code.
+    """Detect unencrypted storage and data resources in CDK code.
 
     Args:
         context: Provides db_path, file_path, content, language, project_path
@@ -52,6 +57,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_unencrypted_rds(db))
         findings.extend(_check_unencrypted_ebs(db))
         findings.extend(_check_dynamodb_encryption(db))
+        findings.extend(_check_elasticache_encryption(db))
+        findings.extend(_check_efs_encryption(db))
+        findings.extend(_check_kinesis_encryption(db))
+        findings.extend(_check_sqs_encryption(db))
+        findings.extend(_check_sns_encryption(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -261,5 +271,351 @@ def _check_dynamodb_encryption(db: RuleDB) -> list[StandardFinding]:
                         },
                     )
                 )
+
+    return findings
+
+
+def _check_elasticache_encryption(db: RuleDB) -> list[StandardFinding]:
+    """Detect ElastiCache clusters without encryption.
+
+    Checks for:
+    - CfnReplicationGroup (Redis) without at_rest_encryption_enabled
+    - CfnReplicationGroup without transit_encryption_enabled
+    - CfnCacheCluster without encryption
+    """
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+    )
+
+    for construct_id, file_path, line, construct_name, cdk_class in rows:
+        is_elasticache = "elasticache" in cdk_class.lower() or "aws_elasticache" in cdk_class
+        is_replication_group = "ReplicationGroup" in cdk_class or "CfnReplicationGroup" in cdk_class
+        is_cache_cluster = "CacheCluster" in cdk_class or "CfnCacheCluster" in cdk_class
+
+        if not (is_elasticache and (is_replication_group or is_cache_cluster)):
+            continue
+
+        display_name = construct_name or "UnnamedCache"
+
+        prop_rows = db.query(
+            Q("cdk_construct_properties")
+            .select("property_name", "property_value_expr", "line")
+            .where("construct_id = ?", construct_id)
+        )
+
+        props = {row[0]: (row[1], row[2]) for row in prop_rows}
+
+        at_rest_key = next(
+            (k for k in props if k in ("at_rest_encryption_enabled", "atRestEncryptionEnabled")),
+            None,
+        )
+        transit_key = next(
+            (k for k in props if k in ("transit_encryption_enabled", "transitEncryptionEnabled")),
+            None,
+        )
+
+        if not at_rest_key or "false" in props[at_rest_key][0].lower():
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-elasticache-no-at-rest-encryption",
+                    message=f"ElastiCache '{display_name}' does not have at-rest encryption enabled",
+                    severity=Severity.HIGH,
+                    confidence="high",
+                    file_path=file_path,
+                    line=props[at_rest_key][1] if at_rest_key else line,
+                    snippet="at_rest_encryption_enabled=False" if at_rest_key else f"elasticache.CfnReplicationGroup(self, '{display_name}', ...)",
+                    category="missing_encryption",
+                    cwe_id="CWE-311",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "remediation": "Add at_rest_encryption_enabled=True to encrypt data at rest.",
+                    },
+                )
+            )
+
+        if not transit_key or "false" in props[transit_key][0].lower():
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-elasticache-no-transit-encryption",
+                    message=f"ElastiCache '{display_name}' does not have transit encryption enabled",
+                    severity=Severity.HIGH,
+                    confidence="high",
+                    file_path=file_path,
+                    line=props[transit_key][1] if transit_key else line,
+                    snippet="transit_encryption_enabled=False" if transit_key else f"elasticache.CfnReplicationGroup(self, '{display_name}', ...)",
+                    category="missing_encryption",
+                    cwe_id="CWE-319",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "remediation": "Add transit_encryption_enabled=True to encrypt data in transit.",
+                    },
+                )
+            )
+
+    return findings
+
+
+def _check_efs_encryption(db: RuleDB) -> list[StandardFinding]:
+    """Detect EFS FileSystem without encryption."""
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+    )
+
+    for construct_id, file_path, line, construct_name, cdk_class in rows:
+        is_efs = "efs" in cdk_class.lower() or "aws_efs" in cdk_class
+        is_filesystem = "FileSystem" in cdk_class
+
+        if not (is_efs and is_filesystem):
+            continue
+
+        display_name = construct_name or "UnnamedEFS"
+
+        prop_rows = db.query(
+            Q("cdk_construct_properties")
+            .select("property_value_expr", "line")
+            .where("construct_id = ?", construct_id)
+            .where("property_name = ?", "encrypted")
+        )
+
+        if not prop_rows:
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-efs-unencrypted",
+                    message=f"EFS filesystem '{display_name}' does not have encryption enabled",
+                    severity=Severity.HIGH,
+                    confidence="high",
+                    file_path=file_path,
+                    line=line,
+                    snippet=f"efs.FileSystem(self, '{display_name}', ...)",
+                    category="missing_encryption",
+                    cwe_id="CWE-311",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "remediation": "Add encrypted=True to enable EFS encryption at rest.",
+                    },
+                )
+            )
+        else:
+            prop_value, prop_line = prop_rows[0]
+            if "false" in prop_value.lower():
+                findings.append(
+                    StandardFinding(
+                        rule_name="aws-cdk-efs-unencrypted",
+                        message=f"EFS filesystem '{display_name}' has encryption explicitly disabled",
+                        severity=Severity.HIGH,
+                        confidence="high",
+                        file_path=file_path,
+                        line=prop_line,
+                        snippet="encrypted=False",
+                        category="missing_encryption",
+                        cwe_id="CWE-311",
+                        additional_info={
+                            "construct_id": construct_id,
+                            "construct_name": display_name,
+                            "remediation": "Change encrypted=False to encrypted=True.",
+                        },
+                    )
+                )
+
+    return findings
+
+
+def _check_kinesis_encryption(db: RuleDB) -> list[StandardFinding]:
+    """Detect Kinesis Stream without encryption."""
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+    )
+
+    for construct_id, file_path, line, construct_name, cdk_class in rows:
+        is_kinesis = "kinesis" in cdk_class.lower() or "aws_kinesis" in cdk_class
+        is_stream = "Stream" in cdk_class and "DeliveryStream" not in cdk_class
+
+        if not (is_kinesis and is_stream):
+            continue
+
+        display_name = construct_name or "UnnamedStream"
+
+        prop_rows = db.query(
+            Q("cdk_construct_properties")
+            .select("property_value_expr", "line")
+            .where("construct_id = ?", construct_id)
+            .where("property_name = ? OR property_name = ?", "encryption", "encryptionKey")
+        )
+
+        if not prop_rows:
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-kinesis-unencrypted",
+                    message=f"Kinesis stream '{display_name}' does not have encryption configured",
+                    severity=Severity.HIGH,
+                    confidence="high",
+                    file_path=file_path,
+                    line=line,
+                    snippet=f"kinesis.Stream(self, '{display_name}', ...)",
+                    category="missing_encryption",
+                    cwe_id="CWE-311",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "remediation": "Add encryption=kinesis.StreamEncryption.KMS with encryption_key to enable encryption.",
+                    },
+                )
+            )
+        else:
+            prop_value, prop_line = prop_rows[0]
+            if "UNENCRYPTED" in prop_value.upper():
+                findings.append(
+                    StandardFinding(
+                        rule_name="aws-cdk-kinesis-unencrypted",
+                        message=f"Kinesis stream '{display_name}' has encryption explicitly disabled",
+                        severity=Severity.HIGH,
+                        confidence="high",
+                        file_path=file_path,
+                        line=prop_line,
+                        snippet=f"encryption={prop_value}",
+                        category="missing_encryption",
+                        cwe_id="CWE-311",
+                        additional_info={
+                            "construct_id": construct_id,
+                            "construct_name": display_name,
+                            "remediation": "Change to encryption=kinesis.StreamEncryption.KMS.",
+                        },
+                    )
+                )
+
+    return findings
+
+
+def _check_sqs_encryption(db: RuleDB) -> list[StandardFinding]:
+    """Detect SQS Queue without server-side encryption."""
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+    )
+
+    for construct_id, file_path, line, construct_name, cdk_class in rows:
+        is_sqs = "sqs" in cdk_class.lower() or "aws_sqs" in cdk_class
+        is_queue = "Queue" in cdk_class
+
+        if not (is_sqs and is_queue):
+            continue
+
+        display_name = construct_name or "UnnamedQueue"
+
+        prop_rows = db.query(
+            Q("cdk_construct_properties")
+            .select("property_name", "property_value_expr", "line")
+            .where("construct_id = ?", construct_id)
+        )
+
+        props = {row[0]: (row[1], row[2]) for row in prop_rows}
+
+        encryption_key = next(
+            (k for k in props if k in ("encryption_master_key", "encryptionMasterKey", "encryption")),
+            None,
+        )
+
+        if not encryption_key:
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-sqs-unencrypted",
+                    message=f"SQS queue '{display_name}' does not have server-side encryption configured",
+                    severity=Severity.MEDIUM,
+                    confidence="high",
+                    file_path=file_path,
+                    line=line,
+                    snippet=f"sqs.Queue(self, '{display_name}', ...)",
+                    category="missing_encryption",
+                    cwe_id="CWE-311",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "remediation": "Add encryption=sqs.QueueEncryption.KMS or encryption_master_key to enable SSE.",
+                    },
+                )
+            )
+        else:
+            prop_value, prop_line = props[encryption_key]
+            if "UNENCRYPTED" in prop_value.upper():
+                findings.append(
+                    StandardFinding(
+                        rule_name="aws-cdk-sqs-unencrypted",
+                        message=f"SQS queue '{display_name}' has encryption explicitly disabled",
+                        severity=Severity.MEDIUM,
+                        confidence="high",
+                        file_path=file_path,
+                        line=prop_line,
+                        snippet=f"{encryption_key}={prop_value}",
+                        category="missing_encryption",
+                        cwe_id="CWE-311",
+                        additional_info={
+                            "construct_id": construct_id,
+                            "construct_name": display_name,
+                            "remediation": "Change to encryption=sqs.QueueEncryption.KMS.",
+                        },
+                    )
+                )
+
+    return findings
+
+
+def _check_sns_encryption(db: RuleDB) -> list[StandardFinding]:
+    """Detect SNS Topic without server-side encryption."""
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+    )
+
+    for construct_id, file_path, line, construct_name, cdk_class in rows:
+        is_sns = "sns" in cdk_class.lower() or "aws_sns" in cdk_class
+        is_topic = "Topic" in cdk_class
+
+        if not (is_sns and is_topic):
+            continue
+
+        display_name = construct_name or "UnnamedTopic"
+
+        prop_rows = db.query(
+            Q("cdk_construct_properties")
+            .select("property_value_expr", "line")
+            .where("construct_id = ?", construct_id)
+            .where("property_name = ? OR property_name = ?", "master_key", "masterKey")
+        )
+
+        if not prop_rows:
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-sns-unencrypted",
+                    message=f"SNS topic '{display_name}' does not have server-side encryption configured",
+                    severity=Severity.MEDIUM,
+                    confidence="high",
+                    file_path=file_path,
+                    line=line,
+                    snippet=f"sns.Topic(self, '{display_name}', ...)",
+                    category="missing_encryption",
+                    cwe_id="CWE-311",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "remediation": "Add master_key=kms.Key(...) to enable server-side encryption.",
+                    },
+                )
+            )
 
     return findings

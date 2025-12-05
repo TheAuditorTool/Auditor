@@ -120,6 +120,12 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_path_traversal(db))
         findings.extend(_check_missing_timeout(db, fastapi_files))
         findings.extend(_check_missing_exception_handlers(db))
+        findings.extend(_check_pydantic_mass_assignment(db))
+        findings.extend(_check_insecure_deserialization(db))
+        findings.extend(_check_ssrf(db))
+        findings.extend(_check_jwt_vulnerabilities(db))
+        findings.extend(_check_missing_rate_limiting(db, fastapi_files))
+        findings.extend(_check_missing_security_headers(db, fastapi_files))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -585,14 +591,326 @@ def _check_missing_exception_handlers(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
-# TODO(quality): Missing detection patterns to add in future:
-# - Pydantic model without extra="forbid" (mass assignment)
-# - Insecure deserialization (pickle, yaml.unsafe_load)
-# - SSRF via user-controlled URLs in httpx/requests
-# - JWT vulnerabilities (weak algorithm, no expiry check)
-# - Missing rate limiting on auth endpoints
-# - Response validation disabled (response_model_exclude_unset)
-# - Security headers missing (helmet equivalent for FastAPI)
+def _check_pydantic_mass_assignment(db: RuleDB) -> list[StandardFinding]:
+    """Check for Pydantic models without extra='forbid' allowing mass assignment."""
+    findings = []
+
+    # Look for Pydantic model definitions
+    rows = db.query(
+        Q("symbols")
+        .select("file", "line", "name")
+        .where("type = ? AND name LIKE ?", "class", "%Model%")
+        .order_by("file, line")
+    )
+
+    for file, line, class_name in rows:
+        # Check if this model has Config with extra = "forbid"
+        config_rows = db.query(
+            Q("symbols")
+            .select("name")
+            .where("file = ? AND line BETWEEN ? AND ? AND name = ?",
+                   file, line, line + 20, "Config")
+            .limit(1)
+        )
+
+        if not list(config_rows):
+            # No Config class - check if it's actually a Pydantic model
+            base_rows = db.query(
+                Q("refs")
+                .select("value")
+                .where("src = ? AND value IN (?, ?, ?)",
+                       file, "BaseModel", "pydantic", "Pydantic")
+                .limit(1)
+            )
+            if list(base_rows):
+                findings.append(
+                    StandardFinding(
+                        rule_name="fastapi-pydantic-mass-assignment",
+                        message=f"Pydantic model {class_name} without extra='forbid' - mass assignment risk",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="security",
+                        confidence=Confidence.LOW,
+                        snippet=f"Add Config class with extra = 'forbid' to {class_name}",
+                        cwe_id="CWE-915",
+                    )
+                )
+
+    return findings
+
+
+def _check_insecure_deserialization(db: RuleDB) -> list[StandardFinding]:
+    """Check for insecure deserialization vulnerabilities."""
+    findings = []
+
+    # Dangerous deserialization functions
+    dangerous_funcs = (
+        "pickle.loads", "pickle.load", "cPickle.loads", "cPickle.load",
+        "yaml.load", "yaml.unsafe_load",
+        "marshal.loads", "marshal.load",
+        "shelve.open",
+    )
+    placeholders = ",".join("?" * len(dangerous_funcs))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *dangerous_funcs)
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+
+        # Check if user input flows into deserialization
+        user_input_patterns = ("request", "Body", "Query", "Path", "Form", "File", "Header")
+        has_user_input = any(pattern in arg_expr for pattern in user_input_patterns)
+
+        if has_user_input:
+            findings.append(
+                StandardFinding(
+                    rule_name="fastapi-insecure-deserialization",
+                    message=f"Insecure deserialization via {callee} with user input - RCE risk",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                    cwe_id="CWE-502",
+                )
+            )
+        elif "yaml.load" in callee and "Loader" not in arg_expr:
+            # yaml.load without safe Loader
+            findings.append(
+                StandardFinding(
+                    rule_name="fastapi-unsafe-yaml-load",
+                    message="yaml.load without safe Loader parameter - code execution risk",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    snippet="Use yaml.safe_load() or specify Loader=yaml.SafeLoader",
+                    cwe_id="CWE-502",
+                )
+            )
+
+    return findings
+
+
+def _check_ssrf(db: RuleDB) -> list[StandardFinding]:
+    """Check for Server-Side Request Forgery vulnerabilities."""
+    findings = []
+
+    # HTTP request libraries commonly used with FastAPI
+    http_funcs = (
+        "httpx.get", "httpx.post", "httpx.put", "httpx.delete", "httpx.request",
+        "requests.get", "requests.post", "requests.put", "requests.delete",
+        "aiohttp.ClientSession", "urllib.request.urlopen",
+    )
+    placeholders = ",".join("?" * len(http_funcs))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders}) OR callee_function LIKE ?",
+               *http_funcs, "%http%")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+
+        # Check if user input controls the URL
+        user_input_patterns = ("request", "Query", "Path", "Body", "Header")
+        for pattern in user_input_patterns:
+            if pattern in arg_expr:
+                findings.append(
+                    StandardFinding(
+                        rule_name="fastapi-ssrf",
+                        message=f"SSRF vulnerability - user input controls URL in {callee}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="injection",
+                        confidence=Confidence.HIGH,
+                        snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                        cwe_id="CWE-918",
+                    )
+                )
+                break
+
+    return findings
+
+
+def _check_jwt_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
+    """Check for JWT implementation vulnerabilities."""
+    findings = []
+
+    # JWT decode functions
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function LIKE ? OR callee_function LIKE ?",
+               "%jwt%decode%", "%decode%jwt%")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        arg_lower = arg_expr.lower()
+
+        issues = []
+
+        # Check for algorithm confusion / none algorithm
+        if "algorithms" not in arg_lower and "algorithm" not in arg_lower:
+            issues.append("no algorithm specified (algorithm confusion attack)")
+        if "none" in arg_lower:
+            issues.append("'none' algorithm allowed")
+
+        # Check for verify=False
+        if "verify=false" in arg_lower or "verify_signature=false" in arg_lower:
+            issues.append("signature verification disabled")
+
+        # Check for missing options
+        if "options" in arg_lower and "verify_exp" in arg_lower and "false" in arg_lower:
+            issues.append("expiry verification disabled")
+
+        if issues:
+            findings.append(
+                StandardFinding(
+                    rule_name="fastapi-jwt-vulnerability",
+                    message=f"JWT vulnerability: {', '.join(issues)}",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="authentication",
+                    confidence=Confidence.HIGH,
+                    snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                    cwe_id="CWE-347",
+                )
+            )
+
+    # Check for weak secrets in JWT
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var LIKE ? OR target_var LIKE ?",
+               "%SECRET%", "%JWT%KEY%")
+        .order_by("file, line")
+    )
+
+    for file, line, var, value in rows:
+        value = value or ""
+        # Check for hardcoded weak secrets
+        if ('"' in value or "'" in value) and "environ" not in value and "getenv" not in value:
+            clean_value = value.strip("\"'")
+            if len(clean_value) < 32:
+                findings.append(
+                    StandardFinding(
+                        rule_name="fastapi-jwt-weak-secret",
+                        message=f"Weak/hardcoded JWT secret ({len(clean_value)} chars)",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="authentication",
+                        confidence=Confidence.HIGH,
+                        snippet=f"{var} = {value[:30]}...",
+                        cwe_id="CWE-798",
+                    )
+                )
+
+    return findings
+
+
+def _check_missing_rate_limiting(db: RuleDB, fastapi_files: list[str]) -> list[StandardFinding]:
+    """Check for missing rate limiting on authentication endpoints."""
+    findings = []
+
+    # Check for rate limiting middleware
+    rows = db.query(
+        Q("refs")
+        .select("value")
+        .where("value IN (?, ?, ?)", "slowapi", "fastapi-limiter", "ratelimit")
+        .limit(1)
+    )
+    if list(rows):
+        return findings
+
+    # Check for auth endpoints without rate limiting
+    rows = db.query(
+        Q("api_endpoints")
+        .select("file", "line", "pattern", "method")
+        .where("pattern LIKE ? OR pattern LIKE ? OR pattern LIKE ?",
+               "%login%", "%auth%", "%token%")
+        .order_by("file, line")
+    )
+
+    auth_endpoints = list(rows)
+    if auth_endpoints and fastapi_files:
+        findings.append(
+            StandardFinding(
+                rule_name="fastapi-missing-rate-limit",
+                message="Authentication endpoints without rate limiting - brute force risk",
+                file_path=auth_endpoints[0][0],
+                line=auth_endpoints[0][1],
+                severity=Severity.HIGH,
+                category="security",
+                confidence=Confidence.MEDIUM,
+                snippet="Add slowapi or fastapi-limiter for rate limiting",
+                cwe_id="CWE-307",
+            )
+        )
+
+    return findings
+
+
+def _check_missing_security_headers(db: RuleDB, fastapi_files: list[str]) -> list[StandardFinding]:
+    """Check for missing security headers middleware."""
+    findings = []
+
+    # Check for security headers middleware
+    security_middleware = ("secure-headers", "starlette-secure-headers", "fastapi-security-headers")
+    for middleware in security_middleware:
+        rows = db.query(
+            Q("refs")
+            .select("value")
+            .where("value = ?", middleware)
+            .limit(1)
+        )
+        if list(rows):
+            return findings
+
+    # Check for manual header configuration
+    rows = db.query(
+        Q("function_call_args")
+        .select("argument_expr")
+        .where("callee_function LIKE ? AND argument_expr LIKE ?",
+               "%Middleware%", "%header%")
+        .limit(1)
+    )
+    if list(rows):
+        return findings
+
+    # No security headers found
+    if fastapi_files:
+        findings.append(
+            StandardFinding(
+                rule_name="fastapi-missing-security-headers",
+                message="FastAPI application without security headers middleware",
+                file_path=fastapi_files[0],
+                line=1,
+                severity=Severity.MEDIUM,
+                category="security",
+                confidence=Confidence.MEDIUM,
+                snippet="Add X-Content-Type-Options, X-Frame-Options, CSP headers",
+                cwe_id="CWE-693",
+            )
+        )
+
+    return findings
 
 
 def register_taint_patterns(taint_registry) -> None:

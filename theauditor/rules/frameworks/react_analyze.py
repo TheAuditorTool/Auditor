@@ -13,12 +13,6 @@ Detects security vulnerabilities in React applications including:
 - Unprotected routes (CWE-862)
 - Missing CSRF protection (CWE-352)
 - Unescaped user input in JSX (CWE-79)
-
-# TODO(quality): Add React Server Components security checks
-# TODO(quality): Add hydration mismatch security analysis
-# TODO(quality): Add props drilling of sensitive data detection
-# TODO(quality): Add useRef DOM manipulation abuse detection
-# TODO(quality): Add dynamic import() security checks
 """
 
 from theauditor.rules.base import (
