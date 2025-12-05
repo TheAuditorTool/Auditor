@@ -347,6 +347,18 @@ class RichCommand(click.Command):
             if help_text:
                 console.print(f"      {help_text}")
 
+    def make_context(self, info_name, args, parent=None, **extra):
+        """Override to show --help instead of ugly 'Missing argument' errors."""
+        try:
+            return super().make_context(info_name, args, parent, **extra)
+        except click.MissingParameter as e:
+            # Show help instead of terse error
+            ctx = click.Context(self, info_name=info_name, parent=parent)
+            self.format_help(ctx, None)
+            console.print(f"\n[yellow]Required:[/yellow] {e.param.name}")
+            console.print(f"[dim]Run 'aud {info_name} --help' for full details[/dim]\n")
+            ctx.exit(0)
+
 
 @click.group(cls=RichGroup)
 @click.version_option(version=__version__, prog_name="aud")
