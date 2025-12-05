@@ -1,22 +1,25 @@
 """Bash Command Injection Analyzer - Detects shell injection vulnerabilities."""
 
-import sqlite3
 from dataclasses import dataclass
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="bash_injection",
     category="injection",
     target_extensions=[".sh", ".bash"],
     exclude_patterns=["node_modules/", "vendor/", ".git/"],
-    execution_scope="database")
+    execution_scope="database",
+)
 
 
 @dataclass(frozen=True)
@@ -33,37 +36,21 @@ class BashInjectionPatterns:
     XARGS_DANGEROUS_FLAGS: frozenset = frozenset(["-I", "-i", "-0"])
 
 
-class BashInjectionAnalyzer:
-    """Analyzer for Bash injection vulnerabilities."""
+def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
+    """Detect Bash injection vulnerabilities.
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context."""
-        self.context = context
-        self.patterns = BashInjectionPatterns()
-        self.findings: list[StandardFinding] = []
-        self.seen: set[str] = set()
+    Named find_* for orchestrator discovery - enables register_taint_patterns loading.
 
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    findings: list[StandardFinding] = []
+    seen: set[str] = set()
 
-        conn = sqlite3.connect(self.context.db_path)
-        conn.row_factory = sqlite3.Row
-        self.cursor = conn.cursor()
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
 
-        self._check_eval_injection()
-        self._check_variable_as_command()
-        self._check_xargs_injection()
-        self._check_backtick_injection()
-        self._check_source_injection()
-
-        conn.close()
-
-        return self.findings
-
-    def _add_finding(
-        self,
+    def add_finding(
         file: str,
         line: int,
         rule_name: str,
@@ -74,11 +61,11 @@ class BashInjectionAnalyzer:
     ) -> None:
         """Add a finding if not already seen."""
         key = f"{file}:{line}:{rule_name}"
-        if key in self.seen:
+        if key in seen:
             return
-        self.seen.add(key)
+        seen.add(key)
 
-        self.findings.append(
+        findings.append(
             StandardFinding(
                 rule_name=rule_name,
                 message=message,
@@ -91,27 +78,32 @@ class BashInjectionAnalyzer:
             )
         )
 
-    def _check_eval_injection(self) -> None:
-        """Detect eval with variable arguments."""
-        self.cursor.execute("""
-            SELECT c.file, c.line, c.command_name, a.arg_value, a.has_expansion
-            FROM bash_commands c
-            LEFT JOIN bash_command_args a
-                ON c.file = a.file
-                AND c.line = a.command_line
-                AND c.pipeline_position IS a.command_pipeline_position
-            WHERE c.command_name = 'eval'
-        """)
+    patterns = BashInjectionPatterns()
 
-        for row in self.cursor.fetchall():
-            file = row["file"]
-            line = row["line"]
-            arg_value = row["arg_value"] or ""
-            has_expansion = row["has_expansion"]
+    with RuleDB(context.db_path, METADATA.name) as db:
+        # Check eval injection
+        rows = db.query(
+            Q("bash_commands")
+            .select("file", "line", "command_name")
+            .where("command_name = ?", "eval")
+        )
 
-            # eval with any variable expansion is dangerous
-            if has_expansion or "$" in arg_value:
-                self._add_finding(
+        for file, line, command_name in rows:
+            # Check for variable expansion in arguments
+            arg_rows = db.query(
+                Q("bash_command_args")
+                .select("arg_value", "has_expansion")
+                .where("file = ? AND command_line = ?", file, line)
+            )
+
+            has_expansion = False
+            for arg_value, arg_has_expansion in arg_rows:
+                if arg_has_expansion or (arg_value and "$" in arg_value):
+                    has_expansion = True
+                    break
+
+            if has_expansion:
+                add_finding(
                     file=file,
                     line=line,
                     rule_name="bash-eval-injection",
@@ -120,8 +112,7 @@ class BashInjectionAnalyzer:
                     confidence=Confidence.HIGH,
                 )
             else:
-                # eval with literal is still suspicious
-                self._add_finding(
+                add_finding(
                     file=file,
                     line=line,
                     rule_name="bash-eval-usage",
@@ -130,49 +121,45 @@ class BashInjectionAnalyzer:
                     confidence=Confidence.MEDIUM,
                 )
 
-    def _check_variable_as_command(self) -> None:
-        """Detect variable used as command name."""
-        self.cursor.execute("""
-            SELECT file, line, command_name
-            FROM bash_commands
-            WHERE command_name LIKE '$%'
-               OR command_name LIKE '${%'
-        """)
+        # Check variable as command
+        rows = db.query(
+            Q("bash_commands")
+            .select("file", "line", "command_name")
+            .where("command_name LIKE ? OR command_name LIKE ?", "$%", "${%")
+        )
 
-        for row in self.cursor.fetchall():
-            self._add_finding(
-                file=row["file"],
-                line=row["line"],
+        for file, line, command_name in rows:
+            add_finding(
+                file=file,
+                line=line,
                 rule_name="bash-variable-as-command",
-                message=f"Variable used as command name: {row['command_name']}",
+                message=f"Variable used as command name: {command_name}",
                 severity=Severity.CRITICAL,
                 confidence=Confidence.HIGH,
             )
 
-    def _check_xargs_injection(self) -> None:
-        """Detect xargs with dangerous flags and untrusted input."""
-        self.cursor.execute("""
-            SELECT c.file, c.line, c.pipeline_position, a.arg_value
-            FROM bash_commands c
-            LEFT JOIN bash_command_args a
-                ON c.file = a.file
-                AND c.line = a.command_line
-                AND c.pipeline_position IS a.command_pipeline_position
-            WHERE c.command_name = 'xargs'
-        """)
+        # Check xargs injection
+        rows = db.query(
+            Q("bash_commands")
+            .select("file", "line")
+            .where("command_name = ?", "xargs")
+        )
 
-        xargs_calls: dict[tuple[str, int], list[str]] = {}
-        for row in self.cursor.fetchall():
-            key = (row["file"], row["line"])
-            if key not in xargs_calls:
-                xargs_calls[key] = []
-            if row["arg_value"]:
-                xargs_calls[key].append(row["arg_value"])
+        for file, line in rows:
+            arg_rows = db.query(
+                Q("bash_command_args")
+                .select("arg_value")
+                .where("file = ? AND command_line = ?", file, line)
+            )
 
-        for (file, line), args in xargs_calls.items():
-            has_dangerous_flag = any(arg in self.patterns.XARGS_DANGEROUS_FLAGS for arg in args)
+            has_dangerous_flag = any(
+                arg_value in patterns.XARGS_DANGEROUS_FLAGS
+                for (arg_value,) in arg_rows
+                if arg_value
+            )
+
             if has_dangerous_flag:
-                self._add_finding(
+                add_finding(
                     file=file,
                     line=line,
                     rule_name="bash-xargs-injection",
@@ -181,21 +168,18 @@ class BashInjectionAnalyzer:
                     confidence=Confidence.MEDIUM,
                 )
 
-    def _check_backtick_injection(self) -> None:
-        """Detect backtick substitution which is harder to nest safely."""
-        self.cursor.execute("""
-            SELECT file, line, command_text, capture_target
-            FROM bash_subshells
-            WHERE syntax = 'backtick'
-        """)
+        # Check backtick injection
+        rows = db.query(
+            Q("bash_subshells")
+            .select("file", "line", "command_text")
+            .where("syntax = ?", "backtick")
+        )
 
-        for row in self.cursor.fetchall():
-            command_text = row["command_text"] or ""
-            # Backticks with variable expansion are risky
-            if "$" in command_text:
-                self._add_finding(
-                    file=row["file"],
-                    line=row["line"],
+        for file, line, command_text in rows:
+            if command_text and "$" in command_text:
+                add_finding(
+                    file=file,
+                    line=line,
                     rule_name="bash-backtick-injection",
                     message="Backtick substitution with variables - prefer $() syntax",
                     severity=Severity.MEDIUM,
@@ -203,26 +187,83 @@ class BashInjectionAnalyzer:
                     cwe_id="CWE-78",
                 )
 
-    def _check_source_injection(self) -> None:
-        """Detect source/dot with variable path."""
-        self.cursor.execute("""
-            SELECT file, line, sourced_path, has_variable_expansion
-            FROM bash_sources
-            WHERE has_variable_expansion = 1
-        """)
+        # Check source injection
+        rows = db.query(
+            Q("bash_sources")
+            .select("file", "line", "sourced_path")
+            .where("has_variable_expansion = ?", 1)
+        )
 
-        for row in self.cursor.fetchall():
-            self._add_finding(
-                file=row["file"],
-                line=row["line"],
+        for file, line, sourced_path in rows:
+            add_finding(
+                file=file,
+                line=line,
                 rule_name="bash-source-injection",
-                message=f"source with variable path: {row['sourced_path']}",
+                message=f"source with variable path: {sourced_path}",
                 severity=Severity.CRITICAL,
                 confidence=Confidence.HIGH,
             )
 
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Bash injection vulnerabilities."""
-    analyzer = BashInjectionAnalyzer(context)
-    return analyzer.analyze()
+
+# Alias for backwards compatibility
+analyze = find_bash_injection_issues
+
+
+# =============================================================================
+# Taint Pattern Registration (for DFG-based taint analysis)
+# =============================================================================
+
+# Sources: User-controlled input that enters the script
+BASH_SOURCES: frozenset[str] = frozenset([
+    # Positional parameters (script/function arguments)
+    "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9",
+    "$@", "$*",
+    # Input commands
+    "read",
+    # CGI variables (web-exposed scripts)
+    "$QUERY_STRING", "$REQUEST_URI",
+    "$HTTP_USER_AGENT", "$HTTP_COOKIE", "$HTTP_REFERER",
+    # Common input variable names
+    "$INPUT", "$DATA", "$PAYLOAD", "$USER_INPUT",
+])
+
+# Sinks: Dangerous operations that should not receive tainted data
+BASH_COMMAND_SINKS: frozenset[str] = frozenset([
+    # Code/command execution
+    "eval", "exec",
+    "sh", "bash", "zsh", "ksh",
+    "source", ".",
+    # Dangerous file operations
+    "rm", "rmdir", "unlink",
+    "mv", "cp",
+    # Network commands (can exfiltrate data or fetch malicious payloads)
+    "curl", "wget",
+    # Command construction
+    "xargs",
+    # Database clients (SQL injection via shell)
+    "mysql", "psql", "sqlite3",
+])
+
+# Sanitizers: Functions that clean tainted data
+# printf %q is the standard bash shell escaper for safe command construction
+BASH_SANITIZERS: frozenset[str] = frozenset([
+    "printf",  # With %q format, properly escapes for shell
+])
+
+
+def register_taint_patterns(taint_registry) -> None:
+    """Register Bash injection-specific taint patterns.
+
+    Called by orchestrator.collect_rule_patterns() during taint analysis setup.
+    Pattern follows: rules/go/injection_analyze.py:306-323
+    """
+    for pattern in BASH_SOURCES:
+        taint_registry.register_source(pattern, "user_input", "bash")
+
+    for pattern in BASH_COMMAND_SINKS:
+        taint_registry.register_sink(pattern, "command", "bash")
+
+    for pattern in BASH_SANITIZERS:
+        taint_registry.register_sanitizer(pattern, "bash")
