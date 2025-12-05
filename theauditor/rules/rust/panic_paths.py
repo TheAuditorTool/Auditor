@@ -1,21 +1,24 @@
-"""Rust Panic Path Analyzer - Database-First Approach.
+"""Rust Panic Path Analyzer - Fidelity-Compliant.
 
 Detects panic-inducing patterns that may cause availability issues:
 - panic!() macro usage outside tests
 - unwrap() calls on Option/Result
 - expect() calls without meaningful messages
 - assert!() in production code
-"""
 
-import sqlite3
+Uses RuleDB for fidelity tracking. Rust-specific tables use db.execute()
+since they may not be in Q class schema.
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
 
 METADATA = RuleMetadata(
     name="rust_panic_paths",
@@ -28,200 +31,257 @@ METADATA = RuleMetadata(
         "*_test.rs",
         "test_*.rs",
     ],
-    execution_scope="database")
-
-
-PANIC_MACROS = frozenset(
-    [
-        "panic",
-        "todo",
-        "unimplemented",
-        "unreachable",
-    ]
+    execution_scope="database",
 )
 
 
-ASSERT_MACROS = frozenset(
-    [
-        "assert",
-        "assert_eq",
-        "assert_ne",
-        "debug_assert",
-        "debug_assert_eq",
-        "debug_assert_ne",
-    ]
-)
+PANIC_MACROS = frozenset(["panic", "todo", "unimplemented", "unreachable"])
+
+ASSERT_MACROS = frozenset([
+    "assert", "assert_eq", "assert_ne",
+    "debug_assert", "debug_assert_eq", "debug_assert_ne",
+])
 
 
-class PanicPathAnalyzer:
-    """Analyzer for Rust panic-inducing code patterns."""
+def _is_test_file(file_path: str) -> bool:
+    """Check if file is a test file."""
+    test_patterns = ["test", "_test.rs", "tests/", "/test/", "benches/"]
+    return any(pattern in file_path.lower() for pattern in test_patterns)
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context."""
-        self.context = context
-        self.findings = []
 
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
+def _check_panic_macros(db: RuleDB) -> list[StandardFinding]:
+    """Flag panic!() macro invocations outside tests."""
+    findings = []
+    placeholders = ",".join("?" * len(PANIC_MACROS))
 
-        conn = sqlite3.connect(self.context.db_path)
-        conn.row_factory = sqlite3.Row
-        self.cursor = conn.cursor()
-
-        try:
-            self.cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='rust_macro_invocations'
-            """)
-            if not self.cursor.fetchone():
-                return []
-
-            self._check_panic_macros()
-            self._check_assertion_macros()
-            self._check_todo_unimplemented()
-
-        finally:
-            conn.close()
-
-        return self.findings
-
-    def _is_test_file(self, file_path: str) -> bool:
-        """Check if file is a test file."""
-        test_patterns = ["test", "_test.rs", "tests/", "/test/", "benches/"]
-        return any(pattern in file_path.lower() for pattern in test_patterns)
-
-    def _check_panic_macros(self):
-        """Flag panic!() macro invocations outside tests."""
-        placeholders = ",".join("?" * len(PANIC_MACROS))
-
-        self.cursor.execute(
-            f"""
-            SELECT file_path, line, macro_name, containing_function, args_sample
-            FROM rust_macro_invocations
-            WHERE macro_name IN ({placeholders})
+    rows = db.execute(
+        f"""
+        SELECT file_path, line, macro_name, containing_function, args_sample
+        FROM rust_macro_invocations
+        WHERE macro_name IN ({placeholders})
         """,
-            list(PANIC_MACROS),
-        )
+        list(PANIC_MACROS),
+    )
 
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
+    for row in rows:
+        file_path, line, macro_name, containing_fn, args = row
+        containing_fn = containing_fn or "unknown"
+        args = args or ""
 
-            if self._is_test_file(file_path):
-                continue
+        if _is_test_file(file_path):
+            continue
 
-            line = row["line"]
-            macro_name = row["macro_name"]
-            containing_fn = row["containing_function"] or "unknown"
-            args = row["args_sample"] or ""
-
+        severity = Severity.HIGH
+        if macro_name == "panic":
+            severity = Severity.CRITICAL
+        elif macro_name in ("todo", "unimplemented"):
             severity = Severity.HIGH
-            if macro_name == "panic":
-                severity = Severity.CRITICAL
-            elif macro_name in ("todo", "unimplemented"):
-                severity = Severity.HIGH
 
-            self.findings.append(
-                StandardFinding(
-                    rule_name=f"rust-{macro_name}-in-production",
-                    message=f"{macro_name}!() in {containing_fn}() may cause runtime panic",
-                    file_path=file_path,
-                    line=line,
-                    severity=severity,
-                    category="availability",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-248",
-                    additional_info={
-                        "macro": macro_name,
-                        "function": containing_fn,
-                        "args_preview": args[:100] if args else None,
-                        "recommendation": "Use Result/Option types instead of panicking",
-                    },
-                )
+        findings.append(
+            StandardFinding(
+                rule_name=f"rust-{macro_name}-in-production",
+                message=f"{macro_name}!() in {containing_fn}() may cause runtime panic",
+                file_path=file_path,
+                line=line,
+                severity=severity,
+                category="availability",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-248",
+                additional_info={
+                    "macro": macro_name,
+                    "function": containing_fn,
+                    "args_preview": args[:100] if args else None,
+                    "recommendation": "Use Result/Option types instead of panicking",
+                },
             )
-
-    def _check_assertion_macros(self):
-        """Flag assert macros that may panic in production."""
-        placeholders = ",".join("?" * len(ASSERT_MACROS))
-
-        self.cursor.execute(
-            f"""
-            SELECT file_path, line, macro_name, containing_function, args_sample
-            FROM rust_macro_invocations
-            WHERE macro_name IN ({placeholders})
-        """,
-            list(ASSERT_MACROS),
         )
 
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
+    return findings
 
-            if self._is_test_file(file_path):
-                continue
 
-            line = row["line"]
-            macro_name = row["macro_name"]
-            containing_fn = row["containing_function"] or "unknown"
+def _check_assertion_macros(db: RuleDB) -> list[StandardFinding]:
+    """Flag assert macros that may panic in production."""
+    findings = []
+    placeholders = ",".join("?" * len(ASSERT_MACROS))
 
-            is_debug = macro_name.startswith("debug_")
-            severity = Severity.LOW if is_debug else Severity.MEDIUM
+    rows = db.execute(
+        f"""
+        SELECT file_path, line, macro_name, containing_function, args_sample
+        FROM rust_macro_invocations
+        WHERE macro_name IN ({placeholders})
+        """,
+        list(ASSERT_MACROS),
+    )
 
-            self.findings.append(
-                StandardFinding(
-                    rule_name=f"rust-{macro_name.replace('_', '-')}-production",
-                    message=f"{macro_name}!() in {containing_fn}() may panic on assertion failure",
-                    file_path=file_path,
-                    line=line,
-                    severity=severity,
-                    category="availability",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-248",
-                    additional_info={
-                        "macro": macro_name,
-                        "function": containing_fn,
-                        "is_debug_only": is_debug,
-                        "recommendation": "Consider using ensure! or returning Result instead",
-                    },
-                )
+    for row in rows:
+        file_path, line, macro_name, containing_fn, _ = row
+        containing_fn = containing_fn or "unknown"
+
+        if _is_test_file(file_path):
+            continue
+
+        is_debug = macro_name.startswith("debug_")
+        severity = Severity.LOW if is_debug else Severity.MEDIUM
+
+        findings.append(
+            StandardFinding(
+                rule_name=f"rust-{macro_name.replace('_', '-')}-production",
+                message=f"{macro_name}!() in {containing_fn}() may panic on assertion failure",
+                file_path=file_path,
+                line=line,
+                severity=severity,
+                category="availability",
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-248",
+                additional_info={
+                    "macro": macro_name,
+                    "function": containing_fn,
+                    "is_debug_only": is_debug,
+                    "recommendation": "Consider using ensure! or returning Result instead",
+                },
             )
+        )
 
-    def _check_todo_unimplemented(self):
-        """Flag todo!() and unimplemented!() as incomplete code."""
-        self.cursor.execute("""
-            SELECT file_path, line, macro_name, containing_function
-            FROM rust_macro_invocations
-            WHERE macro_name IN ('todo', 'unimplemented')
-        """)
+    return findings
 
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
-            line = row["line"]
-            macro_name = row["macro_name"]
-            containing_fn = row["containing_function"] or "unknown"
 
-            self.findings.append(
-                StandardFinding(
-                    rule_name="rust-incomplete-implementation",
-                    message=f"{macro_name}!() in {containing_fn}() indicates incomplete implementation",
-                    file_path=file_path,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="quality",
-                    confidence=Confidence.HIGH,
-                    additional_info={
-                        "macro": macro_name,
-                        "function": containing_fn,
-                        "recommendation": "Implement the missing functionality before deployment",
-                    },
-                )
+def _check_todo_unimplemented(db: RuleDB) -> list[StandardFinding]:
+    """Flag todo!() and unimplemented!() as incomplete code."""
+    findings = []
+
+    rows = db.execute("""
+        SELECT file_path, line, macro_name, containing_function
+        FROM rust_macro_invocations
+        WHERE macro_name IN ('todo', 'unimplemented')
+    """)
+
+    for row in rows:
+        file_path, line, macro_name, containing_fn = row
+        containing_fn = containing_fn or "unknown"
+
+        findings.append(
+            StandardFinding(
+                rule_name="rust-incomplete-implementation",
+                message=f"{macro_name}!() in {containing_fn}() indicates incomplete implementation",
+                file_path=file_path,
+                line=line,
+                severity=Severity.HIGH,
+                category="quality",
+                confidence=Confidence.HIGH,
+                additional_info={
+                    "macro": macro_name,
+                    "function": containing_fn,
+                    "recommendation": "Implement the missing functionality before deployment",
+                },
             )
+        )
+
+    return findings
 
 
-def find_panic_paths(context: StandardRuleContext) -> list[StandardFinding]:
+def _check_unwraps(db: RuleDB) -> list[StandardFinding]:
+    """Flag .unwrap() and .expect() calls that may panic.
+
+    These are method calls, NOT macros, so we query function_call_args table.
+    Patterns in database: 'unwrap', 'expect', or qualified like 'Option::unwrap'.
+    """
+    findings = []
+
+    rows = db.execute("""
+        SELECT file, line, callee_function, argument_expr
+        FROM function_call_args
+        WHERE file LIKE '%.rs'
+          AND (
+              callee_function = 'unwrap'
+              OR callee_function = 'expect'
+              OR callee_function LIKE '%::unwrap'
+              OR callee_function LIKE '%::expect'
+              OR callee_function = 'unwrap_or_default'
+          )
+        ORDER BY file, line
+    """)
+
+    for row in rows:
+        file_path, line, callee, args = row
+        args = args or ""
+
+        if _is_test_file(file_path):
+            continue
+
+        # Determine severity based on method
+        if callee in ("unwrap", "Option::unwrap", "Result::unwrap") or callee.endswith("::unwrap"):
+            severity = Severity.HIGH
+            message = ".unwrap() call may panic without meaningful error message"
+            rule_suffix = "unwrap"
+        elif callee in ("expect",) or callee.endswith("::expect"):
+            severity = Severity.MEDIUM
+            message = ".expect() call may panic"
+            rule_suffix = "expect"
+            if args and (args == '""' or args == "''"):
+                severity = Severity.HIGH
+                message = ".expect() with empty message - no better than unwrap()"
+        elif callee == "unwrap_or_default":
+            continue  # Safe - doesn't panic
+        else:
+            severity = Severity.MEDIUM
+            message = f".{callee}() call may panic"
+            rule_suffix = "unwrap"
+
+        findings.append(
+            StandardFinding(
+                rule_name=f"rust-panic-{rule_suffix}",
+                message=message,
+                file_path=file_path,
+                line=line,
+                severity=severity,
+                category="availability",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-248",
+                additional_info={
+                    "method": callee,
+                    "args_preview": args[:100] if args else None,
+                    "recommendation": "Use match, if let, or ? operator instead",
+                },
+            )
+        )
+
+    return findings
+
+
+def _table_exists(db: RuleDB, table_name: str) -> bool:
+    """Check if a table exists in the database."""
+    rows = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [table_name],
+    )
+    return len(rows) > 0
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Rust panic-inducing code patterns.
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
+    findings = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        # Check Rust macro table
+        if _table_exists(db, "rust_macro_invocations"):
+            findings.extend(_check_panic_macros(db))
+            findings.extend(_check_assertion_macros(db))
+            findings.extend(_check_todo_unimplemented(db))
+
+        # Check function_call_args for unwrap/expect
+        if _table_exists(db, "function_call_args"):
+            findings.extend(_check_unwraps(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+# Legacy alias for orchestrator discovery
+def find_panic_paths(context: StandardRuleContext) -> RuleResult:
     """Detect Rust panic-inducing code patterns."""
-    analyzer = PanicPathAnalyzer(context)
-    return analyzer.analyze()
-
-
-analyze = find_panic_paths
+    return analyze(context)

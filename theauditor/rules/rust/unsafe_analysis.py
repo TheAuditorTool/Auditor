@@ -1,209 +1,217 @@
-"""Rust Unsafe Block Analyzer - Database-First Approach.
+"""Rust Unsafe Block Analyzer - Fidelity-Compliant.
 
 Detects unsafe code patterns that may indicate security or safety issues:
 - Unsafe blocks without SAFETY comments
 - Unsafe code in public APIs
 - Unsafe trait implementations
-"""
 
-import sqlite3
+Uses RuleDB for fidelity tracking. Rust-specific tables use db.execute()
+since they may not be in Q class schema.
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
 
 METADATA = RuleMetadata(
     name="rust_unsafe",
     category="memory_safety",
     target_extensions=[".rs"],
-    exclude_patterns=[
-        "test/",
-        "tests/",
-        "benches/",
-        "examples/",
-    ],
-    execution_scope="database")
+    exclude_patterns=["test/", "tests/", "benches/", "examples/"],
+    execution_scope="database",
+)
 
 
-class UnsafeAnalyzer:
-    """Analyzer for Rust unsafe code patterns."""
+def _table_exists(db: RuleDB, table_name: str) -> bool:
+    """Check if a table exists in the database."""
+    rows = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [table_name],
+    )
+    return len(rows) > 0
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context."""
-        self.context = context
-        self.findings = []
 
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
+def _check_unsafe_without_safety_comment(db: RuleDB) -> list[StandardFinding]:
+    """Flag unsafe blocks without SAFETY comments."""
+    findings = []
 
-        conn = sqlite3.connect(self.context.db_path)
-        conn.row_factory = sqlite3.Row
-        self.cursor = conn.cursor()
+    rows = db.execute("""
+        SELECT
+            file_path, line_start, line_end,
+            containing_function, has_safety_comment, reason
+        FROM rust_unsafe_blocks
+        WHERE has_safety_comment = 0
+    """)
 
-        try:
-            self.cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='rust_unsafe_blocks'
-            """)
-            if not self.cursor.fetchone():
-                return []
+    for row in rows:
+        file_path, line, _, containing_fn, _, _ = row
+        containing_fn = containing_fn or "unknown"
 
-            self._check_unsafe_without_safety_comment()
-            self._check_unsafe_in_public_api()
-            self._check_unsafe_trait_impls()
-            self._check_unsafe_functions()
-
-        finally:
-            conn.close()
-
-        return self.findings
-
-    def _check_unsafe_without_safety_comment(self):
-        """Flag unsafe blocks without SAFETY comments."""
-        self.cursor.execute("""
-            SELECT
-                file_path, line_start, line_end,
-                containing_function, has_safety_comment, reason
-            FROM rust_unsafe_blocks
-            WHERE has_safety_comment = 0
-        """)
-
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
-            line = row["line_start"]
-            containing_fn = row["containing_function"] or "unknown"
-
-            self.findings.append(
-                StandardFinding(
-                    rule_name="rust-unsafe-no-safety-comment",
-                    message=f"Unsafe block in {containing_fn}() lacks // SAFETY: comment",
-                    file_path=file_path,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category="memory_safety",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-676",
-                    additional_info={
-                        "containing_function": containing_fn,
-                        "recommendation": "Add a // SAFETY: comment explaining why this unsafe block is sound",
-                    },
-                )
+        findings.append(
+            StandardFinding(
+                rule_name="rust-unsafe-no-safety-comment",
+                message=f"Unsafe block in {containing_fn}() lacks // SAFETY: comment",
+                file_path=file_path,
+                line=line,
+                severity=Severity.MEDIUM,
+                category="memory_safety",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-676",
+                additional_info={
+                    "containing_function": containing_fn,
+                    "recommendation": "Add a // SAFETY: comment explaining why this unsafe block is sound",
+                },
             )
+        )
 
-    def _check_unsafe_in_public_api(self):
-        """Flag public functions containing unsafe blocks."""
-        self.cursor.execute("""
-            SELECT DISTINCT
-                ub.file_path, ub.line_start,
-                rf.name as fn_name, rf.visibility, rf.line as fn_line
-            FROM rust_unsafe_blocks ub
-            JOIN rust_functions rf ON ub.file_path = rf.file_path
-                AND ub.containing_function = rf.name
-            WHERE rf.visibility = 'pub'
-              AND rf.is_unsafe = 0
-        """)
+    return findings
 
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
-            fn_name = row["fn_name"]
-            fn_line = row["fn_line"]
 
-            self.findings.append(
-                StandardFinding(
-                    rule_name="rust-unsafe-in-public-api",
-                    message=f"Public function {fn_name}() contains unsafe block but is not marked unsafe",
-                    file_path=file_path,
-                    line=fn_line,
-                    severity=Severity.HIGH,
-                    category="memory_safety",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-676",
-                    additional_info={
-                        "function": fn_name,
-                        "recommendation": "Consider marking the function unsafe or ensuring all invariants are upheld internally",
-                    },
-                )
+def _check_unsafe_in_public_api(db: RuleDB) -> list[StandardFinding]:
+    """Flag public functions containing unsafe blocks.
+
+    This is the key check for "Unsoundness" - CVE-level issues in libraries.
+    A safe public API that contains unsafe internally must uphold all invariants.
+    """
+    findings = []
+
+    if not _table_exists(db, "rust_functions"):
+        return findings
+
+    rows = db.execute("""
+        SELECT DISTINCT
+            ub.file_path, ub.line_start,
+            rf.name as fn_name, rf.visibility, rf.line as fn_line
+        FROM rust_unsafe_blocks ub
+        JOIN rust_functions rf ON ub.file_path = rf.file_path
+            AND ub.containing_function = rf.name
+        WHERE rf.visibility = 'pub'
+          AND rf.is_unsafe = 0
+    """)
+
+    for row in rows:
+        file_path, _, fn_name, _, fn_line = row
+
+        findings.append(
+            StandardFinding(
+                rule_name="rust-unsafe-in-public-api",
+                message=f"Public function {fn_name}() contains unsafe block but is not marked unsafe",
+                file_path=file_path,
+                line=fn_line,
+                severity=Severity.HIGH,
+                category="memory_safety",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-676",
+                additional_info={
+                    "function": fn_name,
+                    "recommendation": "Consider marking the function unsafe or ensuring all invariants are upheld internally",
+                },
             )
+        )
 
-    def _check_unsafe_trait_impls(self):
-        """Flag unsafe trait implementations for review."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='rust_unsafe_traits'
-        """)
-        if not self.cursor.fetchone():
-            return
+    return findings
 
-        self.cursor.execute("""
-            SELECT file_path, line, trait_name, impl_type
-            FROM rust_unsafe_traits
-        """)
 
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
-            line = row["line"]
-            trait_name = row["trait_name"]
-            impl_type = row["impl_type"] or "unknown"
+def _check_unsafe_trait_impls(db: RuleDB) -> list[StandardFinding]:
+    """Flag unsafe trait implementations for review."""
+    findings = []
 
-            self.findings.append(
-                StandardFinding(
-                    rule_name="rust-unsafe-trait-impl",
-                    message=f"Unsafe impl {trait_name} for {impl_type} requires manual verification",
-                    file_path=file_path,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category="memory_safety",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-676",
-                    additional_info={
-                        "trait": trait_name,
-                        "impl_type": impl_type,
-                        "recommendation": "Verify that this type truly upholds the unsafe trait's invariants",
-                    },
-                )
+    if not _table_exists(db, "rust_unsafe_traits"):
+        return findings
+
+    rows = db.execute("""
+        SELECT file_path, line, trait_name, impl_type
+        FROM rust_unsafe_traits
+    """)
+
+    for row in rows:
+        file_path, line, trait_name, impl_type = row
+        impl_type = impl_type or "unknown"
+
+        findings.append(
+            StandardFinding(
+                rule_name="rust-unsafe-trait-impl",
+                message=f"Unsafe impl {trait_name} for {impl_type} requires manual verification",
+                file_path=file_path,
+                line=line,
+                severity=Severity.MEDIUM,
+                category="memory_safety",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-676",
+                additional_info={
+                    "trait": trait_name,
+                    "impl_type": impl_type,
+                    "recommendation": "Verify that this type truly upholds the unsafe trait's invariants",
+                },
             )
+        )
 
-    def _check_unsafe_functions(self):
-        """Flag unsafe functions in public API."""
-        self.cursor.execute("""
-            SELECT file_path, line, name, visibility, return_type
-            FROM rust_functions
-            WHERE is_unsafe = 1 AND visibility = 'pub'
-        """)
+    return findings
 
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
-            line = row["line"]
-            fn_name = row["name"]
 
-            self.findings.append(
-                StandardFinding(
-                    rule_name="rust-unsafe-public-fn",
-                    message=f"Public unsafe function {fn_name}() exposes unsafe API",
-                    file_path=file_path,
-                    line=line,
-                    severity=Severity.LOW,
-                    category="memory_safety",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-676",
-                    additional_info={
-                        "function": fn_name,
-                        "recommendation": "Document safety requirements in function docs",
-                    },
-                )
+def _check_unsafe_functions(db: RuleDB) -> list[StandardFinding]:
+    """Flag unsafe functions in public API."""
+    findings = []
+
+    if not _table_exists(db, "rust_functions"):
+        return findings
+
+    rows = db.execute("""
+        SELECT file_path, line, name, visibility, return_type
+        FROM rust_functions
+        WHERE is_unsafe = 1 AND visibility = 'pub'
+    """)
+
+    for row in rows:
+        file_path, line, fn_name, _, _ = row
+
+        findings.append(
+            StandardFinding(
+                rule_name="rust-unsafe-public-fn",
+                message=f"Public unsafe function {fn_name}() exposes unsafe API",
+                file_path=file_path,
+                line=line,
+                severity=Severity.LOW,
+                category="memory_safety",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-676",
+                additional_info={
+                    "function": fn_name,
+                    "recommendation": "Document safety requirements in function docs",
+                },
             )
+        )
+
+    return findings
 
 
-def find_unsafe_issues(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Rust unsafe code issues.
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
+    findings = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        if _table_exists(db, "rust_unsafe_blocks"):
+            findings.extend(_check_unsafe_without_safety_comment(db))
+            findings.extend(_check_unsafe_in_public_api(db))
+            findings.extend(_check_unsafe_trait_impls(db))
+            findings.extend(_check_unsafe_functions(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+# Legacy alias for orchestrator discovery
+def find_unsafe_issues(context: StandardRuleContext) -> RuleResult:
     """Detect Rust unsafe code issues."""
-    analyzer = UnsafeAnalyzer(context)
-    return analyzer.analyze()
-
-
-analyze = find_unsafe_issues
+    return analyze(context)
