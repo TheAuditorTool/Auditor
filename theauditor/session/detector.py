@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Literal
 
+from theauditor.utils.logging import logger
+
 AgentType = Literal["claude-code", "codex", "unknown"]
 
 
@@ -64,11 +66,13 @@ def detect_codex_sessions(root_path: Path, home: Path) -> Path | None:
 
                         if Path(cwd).resolve() == root_path.resolve():
                             return codex_sessions
-            except (json.JSONDecodeError, OSError):
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Skipping corrupt session file: {session_file}: {e}")
                 continue
 
         return None
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Error scanning codex sessions: {e}")
         return None
 
 
@@ -88,7 +92,8 @@ def get_matching_codex_sessions(root_path: Path, sessions_dir: Path) -> list[Pat
 
                     if Path(cwd).resolve() == root_path.resolve():
                         matching.append(session_file)
-        except (json.JSONDecodeError, OSError):
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(f"Skipping corrupt session file: {session_file}: {e}")
             continue
 
     return matching
@@ -115,7 +120,8 @@ def detect_agent_type(session_dir: Path) -> AgentType:
             if data.get("type") == "file-history-snapshot":
                 return "claude-code"
 
-        except (json.JSONDecodeError, OSError, KeyError):
+        except (json.JSONDecodeError, OSError, KeyError) as e:
+            logger.warning(f"Skipping unreadable session file: {jsonl_file}: {e}")
             continue
 
     return "unknown"

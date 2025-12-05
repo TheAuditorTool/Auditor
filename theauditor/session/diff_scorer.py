@@ -1,5 +1,4 @@
 """DiffScorer - Score code diffs using TheAuditor's SAST pipeline."""
-import tempfile
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -8,7 +7,7 @@ from theauditor.session.parser import ToolCall
 from theauditor.utils.logging import logger
 
 
-@dataclass
+@dataclass(slots=True)
 class DiffScore:
     """Score for a single diff."""
 
@@ -33,7 +32,6 @@ class DiffScorer:
         """Initialize diff scorer."""
         self.db_path = db_path
         self.project_root = project_root
-        self.temp_files = []
 
     def score_diff(self, tool_call: ToolCall, files_read: set) -> DiffScore | None:
         """Score a single diff from Edit/Write tool call."""
@@ -48,42 +46,36 @@ class DiffScorer:
 
         blind_edit = file_path not in files_read
 
-        temp_file = self._write_temp_diff(file_path, new_code)
-        if not temp_file:
-            return None
+        # Run analysis directly on content string (no temp file I/O)
+        taint_score = self._run_taint(new_code)
+        pattern_score = self._run_patterns(new_code)
+        fce_score = self._check_completeness(file_path)
+        rca_score = self._get_historical_risk(file_path)
 
-        try:
-            taint_score = self._run_taint(temp_file)
-            pattern_score = self._run_patterns(temp_file, new_code)
-            fce_score = self._check_completeness(file_path)
-            rca_score = self._get_historical_risk(file_path)
+        risk_score = self._aggregate_scores(taint_score, pattern_score, fce_score, rca_score)
 
-            risk_score = self._aggregate_scores(taint_score, pattern_score, fce_score, rca_score)
+        old_lines = len(old_code.split("\n")) if old_code else 0
+        new_lines = len(new_code.split("\n")) if new_code else 0
 
-            old_lines = len(old_code.split("\n")) if old_code else 0
-            new_lines = len(new_code.split("\n")) if new_code else 0
+        normalized_file_path = str(Path(file_path).as_posix()) if file_path else file_path
 
-            normalized_file_path = str(Path(file_path).as_posix()) if file_path else file_path
-
-            return DiffScore(
-                file=normalized_file_path,
-                tool_call_uuid=tool_call.uuid,
-                timestamp=tool_call.timestamp.isoformat()
-                if hasattr(tool_call.timestamp, "isoformat")
-                else str(tool_call.timestamp),
-                risk_score=risk_score,
-                findings={
-                    "taint": taint_score,
-                    "patterns": pattern_score,
-                    "fce": fce_score,
-                    "rca": rca_score,
-                },
-                old_lines=old_lines,
-                new_lines=new_lines,
-                blind_edit=blind_edit,
-            )
-        finally:
-            self._cleanup_temp_files()
+        return DiffScore(
+            file=normalized_file_path,
+            tool_call_uuid=tool_call.uuid,
+            timestamp=tool_call.timestamp.isoformat()
+            if hasattr(tool_call.timestamp, "isoformat")
+            else str(tool_call.timestamp),
+            risk_score=risk_score,
+            findings={
+                "taint": taint_score,
+                "patterns": pattern_score,
+                "fce": fce_score,
+                "rca": rca_score,
+            },
+            old_lines=old_lines,
+            new_lines=new_lines,
+            blind_edit=blind_edit,
+        )
 
     def _extract_diff(self, tool_call: ToolCall) -> tuple[str | None, str, str]:
         """Extract file path, old code, and new code from tool call."""
@@ -94,55 +86,33 @@ class DiffScorer:
 
         return file_path, old_code, new_code
 
-    def _write_temp_diff(self, file_path: str, new_code: str) -> Path | None:
-        """Write diff to temporary file for analysis."""
-        try:
-            ext = Path(file_path).suffix if file_path else ".txt"
+    def _run_taint(self, content: str) -> float:
+        """Run taint analysis on code content.
 
-            with tempfile.NamedTemporaryFile(
-                mode="w", suffix=ext, delete=False, encoding="utf-8"
-            ) as f:
-                f.write(new_code)
-                temp_path = Path(f.name)
-                self.temp_files.append(temp_path)
-                return temp_path
-        except Exception as e:
-            logger.error(f"Failed to write temp file: {e}")
-            return None
+        Zero Fallback: No try/except - if analysis fails, it fails loud.
+        """
+        risk = 0.0
+        if 'cursor.execute(f"' in content or 'execute(f"' in content:
+            risk = max(risk, 0.9)
+        if "os.system(" in content or "subprocess.call(" in content:
+            risk = max(risk, 0.7)
+        if "eval(" in content or "exec(" in content:
+            risk = max(risk, 0.8)
 
-    def _run_taint(self, temp_file: Path) -> float:
-        """Run taint analysis on diff (simplified version)."""
+        return risk
 
-        try:
-            with open(temp_file, encoding="utf-8") as f:
-                content = f.read()
-
-            risk = 0.0
-            if 'cursor.execute(f"' in content or 'execute(f"' in content:
-                risk = max(risk, 0.9)
-            if "os.system(" in content or "subprocess.call(" in content:
-                risk = max(risk, 0.7)
-            if "eval(" in content or "exec(" in content:
-                risk = max(risk, 0.8)
-
-            return risk
-        except Exception as e:
-            logger.error(f"Taint analysis failed: {e}")
-            return 0.0
-
-    def _run_patterns(self, temp_file: Path, new_code: str) -> float:
-        """Run pattern detection on diff (simplified version)."""
-
+    def _run_patterns(self, content: str) -> float:
+        """Run pattern detection on code content."""
         risk = 0.0
 
         if (
-            "password" in new_code.lower()
-            and ("=" in new_code or ":" in new_code)
-            and ('"' in new_code or "'" in new_code)
+            "password" in content.lower()
+            and ("=" in content or ":" in content)
+            and ('"' in content or "'" in content)
         ):
             risk = max(risk, 0.6)
 
-        if "TODO" in new_code or "FIXME" in new_code:
+        if "TODO" in content or "FIXME" in content:
             risk = max(risk, 0.2)
 
         return risk
@@ -172,17 +142,3 @@ class DiffScorer:
         )
 
         return min(1.0, max(0.0, score))
-
-    def _cleanup_temp_files(self):
-        """Clean up temporary files created for analysis."""
-        for temp_file in self.temp_files:
-            try:
-                if temp_file.exists():
-                    temp_file.unlink()
-            except Exception as e:
-                logger.warning(f"Failed to cleanup temp file {temp_file}: {e}")
-        self.temp_files.clear()
-
-    def __del__(self):
-        """Ensure temp files are cleaned up on deletion."""
-        self._cleanup_temp_files()
