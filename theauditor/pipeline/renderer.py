@@ -1,5 +1,6 @@
 """Rich-based pipeline renderer with parallel track buffering."""
 
+import re
 import sys
 import time
 from pathlib import Path
@@ -15,6 +16,11 @@ from theauditor.utils.logging import logger, restore_stderr_sink, swap_to_rich_s
 from .events import PipelineObserver
 from .structures import PhaseResult
 from .ui import console as shared_console
+
+# Pre-compiled regex for colorizing numbers in log messages.
+# Matches digits NOT preceded by ANSI escape sequence start (\x1b[)
+# and NOT followed by 'm' (which would indicate ANSI color code like "32m").
+_NUMBER_COLORIZE_RE = re.compile(r'(?<!\x1b\[)(\d+)(?!\d*m)')
 
 
 class DynamicTable:
@@ -124,8 +130,6 @@ class RichRenderer(PipelineObserver):
         Usage:
             logger.add(renderer.log_message, format="{message}", level="INFO")
         """
-        import re
-
         # Extract the formatted message text (loguru passes the full message object)
         text = str(message).rstrip("\n")
 
@@ -136,9 +140,8 @@ class RichRenderer(PipelineObserver):
         # This makes counts like "250 files", "6787 symbols" pop with cyan
         if " - " in text:
             prefix, msg = text.split(" - ", 1)
-            # Colorize numbers in message, but preserve existing ANSI codes
-            # Use lambda to insert actual ANSI escape sequences (not regex escapes)
-            msg = re.sub(r'(?<!\x1b\[)(\d+)(?!\d*m)', lambda m: f'\x1b[36m{m.group(1)}\x1b[0m', msg)
+            # Use pre-compiled regex (module-level) for performance
+            msg = _NUMBER_COLORIZE_RE.sub(lambda m: f'\x1b[36m{m.group(1)}\x1b[0m', msg)
             text = f"{prefix} - {msg}"
 
         # Convert ANSI escape codes from loguru to Rich Text

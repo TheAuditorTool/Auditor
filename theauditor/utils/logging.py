@@ -40,7 +40,8 @@ PINO_LEVELS = {
 # Get configuration from environment
 _log_level = os.environ.get("THEAUDITOR_LOG_LEVEL", "INFO").upper()
 _json_mode = os.environ.get("THEAUDITOR_LOG_JSON", "0") == "1"
-_log_file = os.environ.get("THEAUDITOR_LOG_FILE")
+_log_file_raw = os.environ.get("THEAUDITOR_LOG_FILE")
+_log_file = str(Path(_log_file_raw).resolve()) if _log_file_raw else None  # Force absolute path
 _request_id = os.environ.get("THEAUDITOR_REQUEST_ID") or str(uuid.uuid4())
 
 
@@ -150,6 +151,7 @@ def configure_file_logging(log_dir: Path, level: str = "DEBUG") -> None:
         log_dir: Directory for log files (e.g., Path(".pf"))
         level: Minimum log level for file output
     """
+    log_dir = log_dir.resolve()  # Force absolute path for Windows compatibility
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "theauditor.log"
 
@@ -225,10 +227,7 @@ def restore_stderr_sink(rich_handler_id: int | None) -> None:
 
     # Remove the Rich handler if it exists
     if rich_handler_id is not None:
-        try:
-            logger.remove(rich_handler_id)
-        except ValueError:
-            pass  # Already removed
+        logger.remove(rich_handler_id)
 
     # Restore stderr handler
     _human_handler_id = logger.add(
