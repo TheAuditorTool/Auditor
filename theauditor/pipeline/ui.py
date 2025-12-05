@@ -25,6 +25,7 @@ AUDITOR_THEME = Theme(
 
 
 console = Console(theme=AUDITOR_THEME, force_terminal=sys.stdout.isatty())
+err_console = Console(theme=AUDITOR_THEME, stderr=True, force_terminal=sys.stderr.isatty())
 
 
 def print_header(title: str) -> None:

@@ -5,788 +5,660 @@ EXPLANATIONS_02: dict[str, dict[str, str]] = {
         "title": "Security Boundary Analysis",
         "summary": "Measure distance from entry points to security controls",
         "explanation": """
-Boundary analysis measures WHERE security controls (validation, authentication,
-sanitization) are enforced relative to entry points (HTTP routes, CLI commands).
-It reports factual distance measurements - how many function calls between where
-external data enters and where it gets validated.
+WHAT IT IS:
+Boundary analysis measures how far user input travels before security
+controls are applied. Distance 0 = control at entry. Distance 3+ = late
+validation, data already spread through multiple functions.
 
-KEY CONCEPTS:
+WHEN TO USE IT:
+- Auditing input validation placement in API handlers
+- Checking multi-tenant isolation (tenant_id filtering)
+- Reviewing authentication/authorization control placement
+- After aud full, to see boundary enforcement quality
 
-Boundary:
-  A point where trust level changes (external->internal, untrusted->validated).
-  Security controls should enforce boundaries at or near entry points.
+HOW TO USE IT:
 
-Distance:
-  Number of function calls between entry point and control point.
-  - Distance 0: Control at entry (validation in function signature)
-  - Distance 1-2: Control nearby (acceptable)
-  - Distance 3+: Control far from entry (data spreads before enforcement)
-  - Distance None: No control found (missing boundary enforcement)
+PREREQUISITES:
+    aud full                               # Build database first
 
-Entry Point:
-  Where external data enters your application:
-  - HTTP routes (GET /api/users)
-  - CLI commands
-  - Message queue handlers
-  - Websocket handlers
+STEPS:
+1. Run boundary analysis:
+    aud boundaries                         # All boundary types
+    aud boundaries --type input-validation # Focus on input validation
+    aud boundaries --type multi-tenant     # Focus on tenant isolation
 
-Control Point:
-  Where security enforcement happens:
-  - Input validation (validate(), parse(), sanitize())
-  - Authentication checks (@requires_auth, req.user)
-  - Authorization checks (check_permission())
-  - Output encoding (HTML escaping, parameterized queries)
+2. Interpret results - quality levels:
+   - clear: Control at distance 0 (best)
+   - acceptable: Control at distance 1-2
+   - fuzzy: Multiple controls or distance 3+
+   - missing: No control found (critical)
 
-BOUNDARY QUALITY LEVELS:
+3. Investigate flagged entry points:
+    aud explain <entry_file>               # Get context
 
-  clear: Single control at distance 0
-    Example: @validate_body decorator on route handler
-    Meaning: Validation happens before any application code runs
+EXAMPLE - Finding Late Validation:
+    aud full && aud boundaries --severity critical
+    # Output shows entry points with missing or late validation
+    # Each finding shows: entry point, control function, distance
 
-  acceptable: Single control at distance 1-2
-    Example: validate(req.body) called at start of handler
-    Meaning: Validation happens early, minimal unvalidated code paths
+DISTANCE SEMANTICS:
+- Distance 0: Control at entry (decorator or first line)
+- Distance 1-2: Control nearby (acceptable)
+- Distance 3+: Control far from entry (data spreads before enforcement)
+- Distance None: No control found (security gap)
 
-  fuzzy: Multiple controls OR distance 3+
-    Example: Different validation in 3 different code paths
-    Meaning: Boundary enforcement is scattered or inconsistent
+MULTI-TENANT USE CASE:
+For SaaS apps, tenant isolation is critical:
+    aud boundaries --type multi-tenant
+Flags queries on tenant tables without tenant_id filter.
 
-  missing: No control found
-    Example: User input flows directly to database query
-    Meaning: No boundary enforcement detected
+Example Violation (Distance 2 - too late):
+    const doc = db.query('SELECT * FROM docs WHERE id=?', [id]);
+    if (doc.tenant_id !== req.user.tenantId) return 403;  // After query!
 
-WHY DISTANCE MATTERS:
-
-Every function call between entry and validation is a place where:
-- Unvalidated data could be used incorrectly
-- Additional code paths branch off without validation
-- Side effects could occur before validation rejects bad input
-
-Example - Distance 3 Problem:
-  POST /api/users -> createUser() -> processUser() -> saveUser() -> validate()
-
-  If validate() rejects the input at distance 3:
-  - createUser() already ran (maybe logged something)
-  - processUser() already ran (maybe sent a notification)
-  - saveUser() might have started a transaction
-
-  The data spread through 3 functions before validation.
-
-MULTI-TENANT SECURITY (Critical):
-
-For SaaS applications, tenant isolation is crucial:
-  - Every query on tenant-sensitive tables MUST filter by tenant_id
-  - tenant_id MUST come from authenticated session, NOT user input
-  - Validation distance from auth to query should be minimal
-
-Example Violation:
-  app.get('/api/docs/:id', auth, (req, res) => {
-    // Distance to tenant check: 2 (after DB access - TOO LATE)
-    const doc = db.query('SELECT * FROM docs WHERE id=?', [req.params.id]);
-    if (doc.tenant_id !== req.user.tenantId) return 403;
-  })
-
-Correct Pattern:
-  app.get('/api/docs/:id', auth, (req, res) => {
-    // Distance 0 - tenant filter in query itself
+Correct Pattern (Distance 0):
     const doc = db.query('SELECT * FROM docs WHERE id=? AND tenant_id=?',
-                         [req.params.id, req.user.tenantId]);
-  })
+                         [id, req.user.tenantId]);  // In query itself
 
-USE THE COMMAND:
-    aud boundaries                           # Analyze all boundary types
-    aud boundaries --type input-validation   # Focus on input validation
-    aud boundaries --type multi-tenant       # Focus on tenant isolation
-    aud boundaries --format json             # Machine-parseable output
-    aud boundaries --severity critical       # Only critical findings
+COMBINING WITH OTHER TOOLS:
+- Use with aud taint: boundaries = where controls are, taint = where data flows
+- Use aud blueprint --boundaries for summary without re-running
+- Use aud explain on flagged files for deeper context
 
-RELATED CONCEPTS:
-    aud manual taint       # Data flow tracking (complements boundaries)
-    aud manual patterns    # Pattern detection for security rules
+AGENT WORKFLOW:
+The security agent uses boundaries to verify control placement.
+Query existing results with: aud blueprint --boundaries
+
+KEY OPTIONS:
+- --type: input-validation, multi-tenant, authorization
+- --format: report (human) or json (machine)
+- --severity: Filter by severity level
+- --max-entries: Limit entry points analyzed (performance)
+
+COMMON MISTAKES:
+- Running before aud full: No routes/endpoints indexed
+- Ignoring "fuzzy" quality: Scattered validation = inconsistent security
+- Not checking multi-tenant: Missing tenant filter = data leak
+- Only checking input-validation: Auth boundaries matter too
+
+EXIT CODES:
+- 0: Success, no critical boundary violations
+- 1: Critical boundary violations found
+
+RELATED:
+Commands: aud boundaries, aud taint, aud blueprint --boundaries
+Topics: aud manual taint, aud manual patterns, aud manual severity
 """,
     },
     "docker": {
         "title": "Docker Security Analysis",
         "summary": "Detect container misconfigurations, secrets, and vulnerable base images",
         "explanation": """
-Docker security analysis examines Dockerfiles and container configurations
-for common security mistakes that can lead to privilege escalation, secret
-exposure, or vulnerable deployments.
+WHAT IT IS:
+Docker security analysis examines Dockerfiles for privilege escalation risks,
+exposed secrets, and vulnerable base images. It reads from the indexed database
+(not live files) and applies security rules to detect common container mistakes.
 
-THE SECURITY RISKS:
+WHEN TO USE IT:
+- Before deploying new Docker images to production
+- During PR review when Dockerfiles are modified
+- As part of security audit after running aud full
+- In CI/CD pipelines to block insecure images
+- When investigating container escape vulnerabilities
 
-Running as Root:
-  Containers default to running as the root user. If an attacker escapes
-  the container, they have root privileges on the host. Always add:
-    USER nonroot
-  before ENTRYPOINT/CMD.
+HOW TO USE IT:
 
-Exposed Secrets:
-  ENV and ARG instructions are stored in image layers and can be extracted.
-  NEVER put secrets in Dockerfiles - use runtime injection instead:
-    BAD:  ENV API_KEY=sk_live_abc123
-    GOOD: Runtime: docker run -e API_KEY=$API_KEY ...
+PREREQUISITES:
+    aud full                              # Build database first (required)
 
-Unpinned Base Images:
-  Using 'latest' tag means builds are non-deterministic. A base image
-  update can break your build or introduce vulnerabilities:
-    BAD:  FROM node:latest
-    GOOD: FROM node:20.10.0@sha256:abc123...
+STEPS:
+1. Ensure Dockerfiles are indexed in the database:
+   aud full                               # Extracts Dockerfile contents
 
-Outdated Base Images:
-  Old base images contain known CVEs. TheAuditor checks image versions
-  and can query vulnerability databases for known issues.
+2. Run Docker security analysis:
+   aud docker-analyze                     # Full analysis
+   aud docker-analyze --severity high     # Filter to high+ severity
 
-WHAT THEAUDITOR DETECTS:
+3. Review findings in output:
+   - Terminal shows summary by severity
+   - Detailed JSON at .pf/raw/docker_findings.json
 
-Privilege Issues:
-  - Missing USER instruction (defaults to root)
-  - Explicit USER root
-  - SUDO usage in RUN commands
-  - --cap-add flags that escalate privileges
+4. For each finding, verify and remediate:
+   - Check if finding is true positive
+   - Apply fix (add USER, remove secrets, pin base image)
 
-Secret Exposure:
-  - High-entropy ENV/ARG values (likely secrets)
-  - Hardcoded credentials (passwords, API keys, tokens)
-  - Private keys copied into images (.pem, .key)
-  - AWS credentials or GitHub tokens
+EXAMPLE - Pre-Deployment Security Check:
+    aud full && aud docker-analyze --severity high --check-vulns
 
-Base Image Problems:
-  - 'latest' tag usage
-  - Outdated versions (Alpine <3.14, Ubuntu <20.04)
-  - Missing digest pinning
-  - Known CVEs (with --check-vulns)
+WHAT IT DETECTS:
+- Privilege Issues: Missing USER instruction, SUDO usage, --cap-add
+- Secret Exposure: Hardcoded API keys, passwords, private keys in ENV/ARG
+- Base Image Problems: 'latest' tag, outdated versions, missing digest
+- Hardening Failures: Missing HEALTHCHECK, exposed ports, chmod 777
 
-Hardening Failures:
-  - Missing HEALTHCHECK instruction
-  - Exposed privileged ports (<1024)
-  - World-writable permissions (chmod 777)
-  - apt-get/apk without --no-cache
+SEVERITY MAPPING:
+- CRITICAL: Hardcoded secrets, known CVEs in base image
+- HIGH: Running as root, SUDO installation, capability escalations
+- MEDIUM: Missing HEALTHCHECK, 'latest' tag, outdated base image
+- LOW: Cache not cleared, suboptimal instruction ordering
 
-SEVERITY LEVELS:
+COMBINING WITH OTHER TOOLS:
+- After docker-analyze: Run aud detect-patterns for broader security scan
+- For full audit: aud full includes docker analysis in pipeline
+- With deps: aud deps --vuln-scan checks package vulnerabilities
+- For IaC context: Combine with aud terraform or aud cdk
 
-CRITICAL:
-  - Hardcoded secrets in ENV/ARG
-  - Known CVEs in base image (with --check-vulns)
-  - Private key material in image
+AGENT WORKFLOW:
+When using the security agent (/theauditor:security), Docker analysis runs
+as part of Phase 3 infrastructure checks. The agent queries existing findings
+from the database rather than re-running analysis.
 
-HIGH:
-  - Running as root without explicit USER
-  - SUDO installation or usage
-  - Capability escalations (--cap-add)
+BEST PRACTICES (Dockerfile Structure):
+    FROM node:20.10.0@sha256:abc123       # Pin with digest
+    WORKDIR /app
+    COPY package*.json ./
+    RUN npm ci --only=production
+    COPY . .
+    USER node                             # Non-root user
+    HEALTHCHECK CMD curl -f http://localhost:3000/health || exit 1
+    CMD ["node", "server.js"]
 
-MEDIUM:
-  - Missing HEALTHCHECK
-  - Outdated base image version
-  - 'latest' tag usage
+RELATED:
+Commands: aud docker-analyze, aud detect-patterns, aud deps --vuln-scan
+Topics: aud manual patterns, aud manual severity, aud manual terraform
 
-LOW:
-  - World-writable permissions
-  - apt/apk cache not cleared
-  - Non-optimal instruction ordering
+COMMON MISTAKES:
+- Running before aud full: No database = no Dockerfile content to analyze
+- Ignoring MEDIUM findings: Unpinned base images become CRITICAL when CVEs hit
+- Not using --check-vulns: Without it, known CVEs in base images are not detected
+- Expecting live file analysis: Reads from database, re-run aud full after changes
 
-DOCKERFILE BEST PRACTICES:
-
-Minimal Structure:
-  FROM node:20.10.0@sha256:abc123
-  WORKDIR /app
-  COPY package*.json ./
-  RUN npm ci --only=production
-  COPY . .
-  USER node
-  HEALTHCHECK CMD curl -f http://localhost:3000/health || exit 1
-  CMD ["node", "server.js"]
-
-Key Points:
-  - Pin base image with digest
-  - Copy dependency files first (layer caching)
-  - Use USER instruction before ENTRYPOINT/CMD
-  - Add HEALTHCHECK for orchestration
-  - Run as non-root user
-
-MULTI-STAGE BUILDS:
-
-Reduce attack surface with multi-stage builds:
-  # Build stage
-  FROM node:20 AS builder
-  WORKDIR /app
-  COPY . .
-  RUN npm ci && npm run build
-
-  # Production stage (smaller, fewer vulnerabilities)
-  FROM node:20-alpine
-  WORKDIR /app
-  COPY --from=builder /app/dist ./dist
-  USER node
-  CMD ["node", "dist/server.js"]
-
-USE THE COMMAND:
-    aud docker-analyze                        # Full analysis
-    aud docker-analyze --no-check-vulns       # Skip vulnerability checks
-    aud docker-analyze --severity critical    # Only critical issues
-    aud docker-analyze --output results.json  # Export findings
-
-RELATED CONCEPTS:
-    aud manual patterns    # Pattern detection system
-    aud manual severity    # Severity classification
+EXIT CODES:
+- 0: Success, no critical/high issues found
+- 1: High severity findings detected
+- 2: Critical security vulnerabilities found
+- 3: Analysis incomplete (database missing)
 """,
     },
     "lint": {
         "title": "Code Linting and Static Analysis",
         "summary": "Run and normalize output from multiple linters across languages",
         "explanation": """
-The lint command orchestrates multiple industry-standard linters across your
-codebase and normalizes their output into a unified format. This enables
-consistent code quality analysis regardless of language mix.
+WHAT IT IS:
+The lint command orchestrates multiple industry-standard linters (ESLint, Ruff,
+Mypy, etc.) and normalizes their output into a unified format. This enables
+consistent code quality analysis across Python, JavaScript/TypeScript, Go,
+and Docker regardless of the underlying tool's native format.
 
-WHAT LINTING DOES:
+WHEN TO USE IT:
+- Before committing: Catch errors early in development
+- During CI/CD: Block merges with linter errors
+- Code review: Check quality of changed files only
+- Large codebases: Use --workset for 10-100x faster targeted linting
+- New project setup: Verify linters are working correctly
 
-Linting is automated static analysis that catches:
-- Syntax errors (code that won't run)
-- Type errors (wrong types passed to functions)
-- Style violations (inconsistent formatting)
-- Best practice violations (deprecated patterns)
-- Security issues (potential vulnerabilities)
-- Dead code (unreachable code paths)
+HOW TO USE IT:
+PREREQUISITES:
+    aud full                              # Optional: enables --workset mode
+    # Linters must be installed (auto-detected)
 
-WHY NORMALIZE OUTPUT:
+STEPS:
+    1. For full codebase lint:
+       aud lint                           # Lint everything
 
-Different linters have different output formats:
-- ESLint outputs JSON arrays
-- Ruff outputs SARIF format
-- Mypy outputs plain text
-- Pylint outputs custom format
+    2. For targeted lint (faster):
+       aud workset --diff HEAD~1          # Identify changed files
+       aud lint --workset                 # Lint only those files
 
-TheAuditor normalizes all output to a unified format:
-  {
-    "file": "src/auth.py",
-    "line": 42,
-    "column": 10,
-    "severity": "error",
-    "rule": "undefined-var",
-    "message": "Variable 'user' is not defined",
-    "tool": "eslint"
-  }
+    3. Review findings by severity:
+       - error: Must fix (code won't work)
+       - warning: Should fix (best practice)
+       - info: Consider fixing (style)
 
-This enables:
-- Unified reporting across languages
-- Consistent severity classification
-- Centralized findings database
-- Cross-tool correlation (via FCE)
+EXAMPLE - PR Review Workflow:
+    aud workset --diff main..HEAD         # What changed in PR?
+    aud lint --workset                    # Lint only changed files
+    # Shows: 3 errors, 12 warnings in 5 files
+    # Action: Fix errors before merge
+
+COMBINING WITH OTHER TOOLS:
+- With workset: Use aud workset first for targeted linting
+- With fce: Lint findings feed into FCE correlation
+- In CI/CD: Chain with other checks (aud lint && aud taint)
+- With detect-patterns: Lint catches syntax, patterns catch security
 
 SUPPORTED LINTERS:
-
 Python:
-  - ruff: Fast, comprehensive (recommended)
-  - mypy: Static type checking
-  - black: Code formatting (check mode)
-  - pylint: Classic linter
-  - bandit: Security-focused
+- ruff: Fast, comprehensive (recommended)
+- mypy: Static type checking
+- black: Code formatting (check mode)
+- bandit: Security-focused
 
 JavaScript/TypeScript:
-  - eslint: Industry standard
-  - prettier: Code formatting
-  - tsc: TypeScript type checking
+- eslint: Industry standard
+- prettier: Code formatting
+- tsc: TypeScript type checking
 
 Go:
-  - golangci-lint: Meta-linter
-  - go vet: Static analyzer
+- golangci-lint: Meta-linter
+- go vet: Static analyzer
 
 Docker:
-  - hadolint: Dockerfile linter
+- hadolint: Dockerfile linter
 
 AUTO-DETECTION:
-
-TheAuditor automatically detects which linters are available:
+TheAuditor automatically finds installed linters:
 1. Checks system PATH
 2. Checks node_modules/.bin (for JS tools)
 3. Checks .auditor_venv (sandbox installation)
-
 Only runs linters that are actually installed.
 
-WORKSET MODE:
-
-For large codebases, lint everything is slow. Use workset mode:
-
-  # Identify changed files
-  aud workset --diff HEAD~1
-
-  # Lint only changed files
-  aud lint --workset
-
-This reduces lint time from minutes to seconds.
-
-SEVERITY MAPPING:
-
-Linter output is normalized to three levels:
-  error:   Must fix (code won't work correctly)
-  warning: Should fix (best practice violation)
-  info:    Consider fixing (style/preference)
-
-COMMON WORKFLOWS:
-
-Development Cycle:
-  1. Make changes to code
-  2. aud workset --diff HEAD~1
-  3. aud lint --workset
-  4. Fix errors, commit
-
-CI/CD Pipeline:
-  aud lint || exit 1  # Fail on linter errors
-
-Pre-commit Hook:
-  aud workset --diff --cached && aud lint --workset
-
-USE THE COMMAND:
+COMMAND OPTIONS:
     aud lint                     # Lint entire codebase
-    aud lint --workset           # Lint only changed files
-    aud lint --print-plan        # Preview without running
-    aud lint --timeout 600       # Increase timeout
+    aud lint --workset           # Lint only workset files
+    aud lint --print-plan        # Preview what would run
+    aud lint --timeout 600       # Increase timeout (seconds)
 
-RELATED CONCEPTS:
-    aud manual workset   # Targeted file selection
-    aud manual patterns  # Pattern-based security rules
+NORMALIZED OUTPUT FORMAT:
+All linters output to unified format:
+  {
+    "file": "src/auth.py",
+    "line": 42,
+    "severity": "error",
+    "rule": "undefined-var",
+    "message": "Variable 'user' is not defined",
+    "tool": "ruff"
+  }
+
+RELATED:
+Commands: aud lint, aud workset, aud detect-patterns, aud fce
+Topics: aud manual workset, aud manual patterns, aud manual fce
+
+COMMON MISTAKES:
+- Linting full codebase when only a few files changed: Very slow
+  -> Use aud workset + aud lint --workset for 10-100x speedup
+- Running lint without installed linters: Silent failure
+  -> Use aud tools check to verify linters are installed
+- Ignoring warnings: They often indicate real bugs
+  -> Treat warnings seriously, especially type errors
+- Not using in CI/CD: Code quality degrades over time
+  -> Add aud lint || exit 1 to CI pipeline
+
+OUTPUT:
+- .pf/raw/lint.json: All normalized findings
+- findings_consolidated table: Merged into database
+- Exit code 1: If errors found
 """,
     },
     "frameworks": {
         "title": "Framework Detection",
         "summary": "Identify frameworks and libraries used in your project",
         "explanation": """
-Framework detection identifies the programming frameworks, libraries, and
-tools used in your project. This information is essential for:
-- Understanding the technology stack
-- Identifying framework-specific vulnerabilities
-- Generating appropriate security rules
-- Architecture documentation
+WHAT IT IS:
+Framework detection identifies programming frameworks, libraries, and tools used
+in your project by analyzing package manifests, import statements, config files,
+and decorator patterns. This information enables framework-specific security rules
+and architecture documentation.
 
-HOW DETECTION WORKS:
+WHEN TO USE IT:
+- When first analyzing a new codebase to understand tech stack
+- After running aud full to see detected frameworks
+- Before security audit to enable framework-specific rules
+- When documenting project architecture
+- To identify framework-specific vulnerabilities
 
-TheAuditor detects frameworks through multiple methods:
+HOW TO USE IT:
 
-1. Package Manifests:
-   - package.json (Node.js/JavaScript)
-   - requirements.txt (Python)
-   - pyproject.toml (Python)
-   - Cargo.toml (Rust)
-   - go.mod (Go)
-   - pom.xml (Java/Maven)
+PREREQUISITES:
+    aud full                              # Build database first (required)
 
-2. Import Statements:
-   - Python: from flask import Flask
-   - JavaScript: import React from 'react'
-   - TypeScript: import { Express } from 'express'
+STEPS:
+1. Index the codebase (detects frameworks automatically):
+   aud full                               # Frameworks detected during indexing
 
-3. Configuration Files:
-   - jest.config.js (Jest testing framework)
-   - pytest.ini (.pytest.ini) (pytest)
-   - webpack.config.js (Webpack)
-   - tsconfig.json (TypeScript)
+2. View detected frameworks:
+   aud detect-frameworks                  # Display in terminal
+   aud detect-frameworks --output-json ./stack.json  # Export to file
 
-4. Decorator Patterns:
-   - @app.route() (Flask)
-   - @pytest.fixture (pytest)
-   - @Component() (Angular)
+3. See frameworks in architecture context:
+   aud blueprint --structure              # Shows frameworks with file organization
 
-DETECTED FRAMEWORKS BY CATEGORY:
+EXAMPLE - Tech Stack Documentation:
+    aud full && aud detect-frameworks --output-json ./tech_stack.json
 
-Web Frameworks:
-  Python: Flask, Django, FastAPI, Starlette
-  JavaScript: Express, Nest.js, Koa, Hapi
-  Frontend: React, Vue, Angular, Svelte
+DETECTION METHODS:
+- Package Manifests: package.json, requirements.txt, pyproject.toml, Cargo.toml
+- Import Statements: from flask import Flask, import React from 'react'
+- Config Files: jest.config.js, pytest.ini, webpack.config.js, tsconfig.json
+- Decorators: @app.route() (Flask), @pytest.fixture, @Component() (Angular)
 
-Database:
-  ORMs: SQLAlchemy, Django ORM, Prisma, TypeORM
-  Clients: psycopg2, mysql-connector, pymongo
+SUPPORTED FRAMEWORKS:
+- Web: Flask, Django, FastAPI, Express, Nest.js, React, Vue, Angular
+- Database: SQLAlchemy, Prisma, TypeORM, psycopg2, pymongo
+- Testing: pytest, Jest, Mocha, Jasmine
+- Build: Webpack, Vite, setuptools, poetry
+- Cloud: boto3, @aws-sdk/*, google-cloud-*
 
-Testing:
-  Python: pytest, unittest, nose
-  JavaScript: Jest, Mocha, Jasmine
+PRIMARY VS SECONDARY:
+- Primary (is_primary=true): Core frameworks shaping architecture (Flask, React)
+- Secondary (is_primary=false): Utility libraries (lodash, requests)
 
-Build Tools:
-  JavaScript: Webpack, Vite, Rollup, esbuild
-  Python: setuptools, poetry, hatch
+COMBINING WITH OTHER TOOLS:
+- After detect-frameworks: Run aud deps --vuln-scan for framework CVEs
+- For security: Framework detection enables framework-specific security rules
+- With blueprint: aud blueprint --structure shows frameworks in architecture
+- For docs: aud docs fetch uses detected frameworks for documentation priority
 
-Cloud SDKs:
-  AWS: boto3, @aws-sdk/*
-  GCP: google-cloud-*, @google-cloud/*
-  Azure: azure-*, @azure/*
+AGENT WORKFLOW:
+Framework detection runs automatically during 'aud full'. The security agent
+(/theauditor:security) uses detected frameworks to enable appropriate rules.
+Query detected frameworks with:
+    aud detect-frameworks
 
-WHY FRAMEWORK DETECTION MATTERS:
+DATABASE TABLE:
+    CREATE TABLE frameworks (
+      name TEXT, version TEXT, language TEXT,
+      path TEXT, source TEXT, is_primary INTEGER
+    )
 
-Security Perspective:
-  - Different frameworks have different security patterns
-  - Framework-specific vulnerabilities (e.g., Django CSRF, Express XSS)
-  - Security rules are tailored to detected frameworks
-  - Dependency vulnerabilities are framework-aware
+RELATED:
+Commands: aud detect-frameworks, aud blueprint --structure, aud deps
+Topics: aud manual deps, aud manual patterns, aud manual architecture
 
-Architecture Understanding:
-  - Quickly understand a new codebase
-  - Identify technology decisions
-  - Document the tech stack
+COMMON MISTAKES:
+- Running detect-frameworks before aud full: No data to display
+- Expecting real-time detection: Reads from database, re-run aud full if changed
+- Missing transitive frameworks: Only detects explicitly declared dependencies
+- Confusing with deps: frameworks shows what's used, deps shows vulnerabilities
 
-PRIMARY VS SECONDARY FRAMEWORKS:
-
-Primary frameworks (is_primary=true):
-  - Core application frameworks (Flask, React, Express)
-  - Directly shape application architecture
-
-Secondary frameworks (is_primary=false):
-  - Utility libraries (lodash, requests)
-  - Development dependencies (prettier, eslint)
-
-DATABASE STORAGE:
-
-Framework data is stored in repo_index.db:
-  CREATE TABLE frameworks (
-    name TEXT,
-    version TEXT,
-    language TEXT,
-    path TEXT,      -- Where detected
-    source TEXT,    -- manifest, import, config
-    is_primary INTEGER
-  )
-
-USE THE COMMAND:
-    aud detect-frameworks              # Display detected frameworks
-    aud detect-frameworks --output-json ./stack.json  # Export to file
-    aud blueprint --structure          # See frameworks in architecture view
-
-RELATED CONCEPTS:
-    aud manual deps     # Dependency vulnerability scanning
-    aud manual patterns # Framework-specific security patterns
+EXIT CODES:
+- 0: Success, frameworks detected or no frameworks found
+- 1: Database not found (run 'aud full' first)
+- 3: Database query failed
 """,
     },
     "docs": {
         "title": "External Documentation Caching",
         "summary": "Fetch, cache, and summarize library documentation for AI context",
         "explanation": """
-The docs command fetches README files and API documentation from package
-repositories, caches them locally for offline use, and generates condensed
-"documentation capsules" optimized for LLM context windows.
+WHAT IT IS:
+Documentation caching fetches README files and API docs from package registries,
+caches them locally for offline use, and generates "documentation capsules" -
+condensed JSON summaries optimized for LLM context windows (<10KB per package).
 
-WHY DOCUMENTATION CACHING:
+WHEN TO USE IT:
+- After detecting dependencies to fetch their documentation
+- Before offline/air-gapped security audits
+- When AI assistants need library API context
+- After adding new dependencies to refresh cache
+- When generating documentation capsules for LLM consumption
 
-When AI assistants analyze code using external libraries, they need to
-understand library APIs. Without documentation:
-- AI makes assumptions about function signatures
-- Incorrect usage patterns are suggested
-- Security implications are missed
+HOW TO USE IT:
 
-Documentation caching solves this by:
-- Fetching official README files from package registries
-- Caching locally for offline/air-gapped environments
-- Generating AI-optimized summaries (<10KB per package)
-- Providing context without network access during analysis
+PREREQUISITES:
+    aud deps                              # Detect dependencies first (required)
 
-HOW IT WORKS:
+STEPS:
+1. Detect project dependencies:
+   aud deps                               # Creates .pf/deps.json
 
-1. Dependency Detection (prerequisite):
-   'aud deps' analyzes package.json, requirements.txt, etc.
-   Output: .pf/deps.json with list of all dependencies
+2. Fetch documentation from registries:
+   aud docs fetch                         # Downloads from PyPI/npm/GitHub
+   aud docs fetch --offline               # Use cache only (no network)
 
-2. Documentation Fetch:
-   'aud docs fetch' queries PyPI/npm for package metadata
-   Downloads README from GitHub/GitLab (allowlisted sources)
-   Caches raw markdown in .pf/context/docs/<package>.md
+3. Generate AI-optimized capsules:
+   aud docs summarize                     # Creates condensed JSON files
 
-3. Documentation Summarization:
-   'aud docs summarize' processes raw markdown
-   Extracts: API signatures, usage examples, common patterns
-   Filters: badges, contributor lists, build instructions
-   Output: .pf/context/doc_capsules/<package>.json
+4. View cached documentation:
+   aud docs view requests                 # View package docs
+   aud docs list                          # See all cached packages
 
-SECURITY CONSIDERATIONS:
+EXAMPLE - Full Documentation Setup:
+    aud deps && aud docs fetch && aud docs summarize
 
-By default, documentation is only fetched from allowlisted sources:
-- GitHub (github.com)
-- GitLab (gitlab.com)
-- Official registries (pypi.org, npmjs.com)
-
-This prevents:
-- Malicious packages injecting content
-- Arbitrary code execution from untrusted sources
-- Supply chain attacks via documentation
-
-The --allow-non-gh-readmes flag bypasses this (USE WITH CAUTION).
-
-DOCUMENTATION CAPSULE FORMAT:
-
-Capsules are JSON files optimized for AI consumption:
+CAPSULE FORMAT (AI-Optimized):
 {
   "package": "requests",
   "version": "2.31.0",
   "summary": "HTTP library for Python",
-  "key_apis": [
-    "requests.get(url, params=None, **kwargs)",
-    "requests.post(url, data=None, json=None, **kwargs)",
-    "Response.json() -> dict"
-  ],
-  "common_patterns": [
-    "response = requests.get(url)",
-    "if response.ok: data = response.json()"
-  ],
-  "documentation_url": "https://requests.readthedocs.io"
+  "key_apis": ["requests.get()", "requests.post()", "Response.json()"],
+  "common_patterns": ["response = requests.get(url)"]
 }
 
-OFFLINE MODE:
+SECURITY CONSIDERATIONS:
+Documentation is only fetched from allowlisted sources:
+- GitHub (github.com)
+- GitLab (gitlab.com)
+- Official registries (pypi.org, npmjs.com)
 
-After initial fetch, all documentation is cached locally:
-- No network access needed for analysis
-- Works in air-gapped environments
-- Cache persists across sessions
+The --allow-non-gh-readmes flag bypasses this (USE WITH CAUTION).
 
-To refresh: re-run 'aud docs fetch' after dependency updates.
+COMBINING WITH OTHER TOOLS:
+- After deps: aud deps detects dependencies, aud docs fetch downloads docs
+- With frameworks: Detected frameworks prioritize documentation fetching
+- For offline: Cache enables air-gapped security audits
+- With AI: Capsules provide context without reading full READMEs
 
-TYPICAL WORKFLOW:
+AGENT WORKFLOW:
+AI assistants use documentation capsules to understand library APIs without
+making assumptions. The typical flow is:
+    aud deps && aud docs fetch && aud docs summarize
 
-Initial Setup (with network):
-  aud deps                    # Detect dependencies
-  aud docs fetch              # Download documentation
-  aud docs summarize          # Generate capsules
+OUTPUT FILES:
+    .pf/deps.json                    # Dependency list (from aud deps)
+    .pf/context/docs/<pkg>.md        # Raw README files
+    .pf/context/doc_capsules/<pkg>.json  # AI-optimized summaries
 
-Offline Development:
-  aud docs view <package>     # View cached docs
-  aud docs list               # See what's available
+RELATED:
+Commands: aud docs fetch, aud docs summarize, aud docs view, aud docs list
+Topics: aud manual deps, aud manual frameworks
 
-After Dependency Changes:
-  aud deps                    # Update dependency list
-  aud docs fetch              # Fetch new docs only
+COMMON MISTAKES:
+- Running docs fetch before aud deps: No dependency list to fetch docs for
+- Expecting real-time updates: Cached docs don't auto-update, re-run fetch
+- Skipping summarize: Raw READMEs are large, capsules are optimized for AI
+- Using --allow-non-gh-readmes carelessly: Security risk from untrusted sources
 
-USE THE COMMANDS:
-    aud docs fetch                       # Download all dependency docs
-    aud docs fetch --offline             # Use cache only
-    aud docs summarize                   # Generate AI capsules
-    aud docs view requests               # View package docs
-    aud docs view requests --raw         # View raw README
-    aud docs list                        # List cached packages
-
-RELATED CONCEPTS:
-    aud manual deps        # Dependency detection
-    aud manual frameworks  # Framework identification
+EXIT CODES:
+- 0: Success, documentation fetched/summarized
+- 1: Some packages failed (partial success)
+- 2: Network error or all packages failed
+- 3: No dependencies found (run 'aud deps' first)
 """,
     },
     "rules": {
         "title": "Detection Rules and Patterns",
         "summary": "Security rules, vulnerability patterns, and code quality checks",
         "explanation": """
-TheAuditor uses a layered rule system to detect security vulnerabilities,
-code quality issues, and framework-specific patterns. Rules come from two
-sources: YAML pattern files and Python AST rules.
+WHAT IT IS:
+TheAuditor's detection system uses two layers: fast YAML regex patterns
+(secrets, hardcoded values) and accurate Python AST rules (semantic
+analysis of code structure). aud rules --summary shows all available rules.
 
-RULE ARCHITECTURE:
+WHEN TO USE IT:
+- Documenting what security checks TheAuditor performs
+- Verifying custom patterns are registered
+- Understanding what categories of vulnerabilities are covered
+- Before adding custom organization-specific patterns
 
-Two complementary detection mechanisms:
+HOW TO USE IT:
 
-1. YAML Pattern Files (regex-based):
-   - Fast, declarative pattern matching
-   - Good for: string patterns, secret detection, known-bad patterns
-   - Location: theauditor/patterns/*.yml
-   - Format: List of patterns with name, regex, severity
+PREREQUISITES:
+    # None - reads pattern files directly
 
-2. Python AST Rules (semantic analysis):
-   - Deep code understanding via AST parsing
-   - Good for: dataflow, control flow, semantic patterns
-   - Location: theauditor/rules/*.py
-   - Format: Functions named find_* that analyze AST
+STEPS:
+1. Generate capability report:
+    aud rules --summary
 
-PATTERN FILE FORMAT:
+2. Review output at .pf/auditor_capabilities.md:
+   - Lists all YAML patterns by category
+   - Lists all Python AST rules (find_* functions)
+   - Shows severity distribution
 
-YAML patterns follow this structure:
-- name: hardcoded_api_key
-  pattern: "(api_key|apikey)\\s*=\\s*['\"][^'\"]{20,}['\"]"
-  severity: high
-  message: Hardcoded API key detected
-  remediation: Use environment variables or secrets manager
-  cwe: CWE-798  # Use of Hard-coded Credentials
-  categories:
-    - secrets
-    - authentication
+3. Verify custom patterns:
+    aud rules --summary | grep -i "custom"
+
+EXAMPLE - Documenting Detection Capabilities:
+    aud rules --summary
+    # Generates .pf/auditor_capabilities.md
+    # Include in security audit documentation
+
+RULE SOURCES:
+1. YAML Patterns (theauditor/patterns/*.yml):
+   - Fast regex matching
+   - Good for: secrets, hardcoded values, known-bad strings
+   - Format: name, pattern (regex), severity, message, cwe
+
+2. Python AST Rules (theauditor/rules/*.py):
+   - Semantic code analysis
+   - Good for: dataflow, control flow, context-aware detection
+   - Format: Functions named find_* returning Finding objects
 
 PATTERN CATEGORIES:
+- Injection: SQL, command, LDAP, NoSQL injection
+- Authentication: Hardcoded credentials, weak passwords, JWT issues
+- Data Security: PII exposure, weak crypto, insecure random
+- Framework-Specific: Django CSRF, Flask debug, React XSS
 
-Injection Attacks:
-  - sql_injection: Unparameterized SQL queries
-  - command_injection: Shell command construction
-  - ldap_injection: LDAP query construction
-  - nosql_injection: MongoDB/Redis query patterns
+ADDING CUSTOM PATTERNS:
+Create theauditor/patterns/custom.yml:
+    - name: internal_api_call
+      pattern: "api\\.internal\\."
+      severity: medium
+      message: Internal API call detected
+      cwe: CWE-200
+      categories:
+        - custom
 
-Authentication:
-  - hardcoded_credentials: Passwords, API keys in source
-  - weak_password_patterns: Minimum length, complexity
-  - jwt_vulnerabilities: None algorithm, weak secrets
+Then verify: aud rules --summary | grep internal_api
 
-Data Security:
-  - pii_exposure: SSN, credit card, email patterns
-  - weak_crypto: MD5, SHA1, DES usage
-  - insecure_random: Math.random() for security
+COMBINING WITH OTHER TOOLS:
+- Use aud detect-patterns to run all rules on codebase
+- Use aud rules --summary for documentation/compliance
+- Rules feed into aud fce for correlation analysis
 
-Framework-Specific:
-  - django_csrf: Missing CSRF protection
-  - flask_debug: Debug mode in production
-  - react_dangerouslySetInnerHTML: XSS via innerHTML
+AGENT WORKFLOW:
+Before security audits, run aud rules --summary to document
+what vulnerabilities TheAuditor checks. Include capability
+report in audit deliverables.
 
-PYTHON AST RULE FORMAT:
+KEY OPTIONS:
+- --summary: Generate comprehensive capability report (required flag)
 
-Python rules analyze the AST directly:
+OUTPUT FILES:
+- .pf/auditor_capabilities.md: Full capability report
 
-def find_sql_injection(ast_data: dict) -> list[Finding]:
-    '''Detect SQL injection vulnerabilities.'''
-    findings = []
-    for call in ast_data.get('function_calls', []):
-        if call['name'] in SQL_EXECUTE_FUNCTIONS:
-            if has_string_concat_arg(call):
-                findings.append(Finding(
-                    rule='sql_injection',
-                    severity='critical',
-                    file=call['file'],
-                    line=call['line'],
-                    message='SQL query built with string concatenation'
-                ))
-    return findings
+COMMON MISTAKES:
+- Running without --summary: Command requires the flag
+- Expecting rules to run analysis: Use aud detect-patterns for that
+- Adding patterns with syntax errors: Validate YAML before running
+- Forgetting to verify custom patterns: Always run --summary after adding
 
-AST rules have access to:
-- function_calls: All function/method calls
-- assignments: Variable assignments
-- imports: Import statements
-- symbols: Classes, functions, variables
-- control_flow: If/else, loops, try/except
+EXIT CODES:
+- 0: Success, report generated
+- 3: Task incomplete (must use --summary flag)
 
-SEVERITY LEVELS:
-
-critical: Immediate exploitation risk (RCE, SQLi, auth bypass)
-high:     Significant risk (XSS, SSRF, information disclosure)
-medium:   Moderate risk (weak crypto, missing headers)
-low:      Code quality (complexity, naming conventions)
-
-CUSTOM PATTERNS:
-
-Add custom patterns to theauditor/patterns/custom.yml:
-
-- name: internal_api_endpoint
-  pattern: "api\\.internal\\."
-  severity: medium
-  message: Internal API call detected
-  categories:
-    - custom
-    - api
-
-Run 'aud rules --summary' to verify registration.
-
-USE THE COMMANDS:
-    aud rules --summary           # Generate capability report
-    aud detect-patterns           # Run all patterns on codebase
-    aud detect-patterns --type injection  # Specific category
-
-RELATED CONCEPTS:
-    aud manual patterns   # Pattern detection fundamentals
-    aud manual taint      # Dataflow-based detection
+RELATED:
+Commands: aud rules --summary, aud detect-patterns
+Topics: aud manual patterns, aud manual severity, aud manual taint
 """,
     },
     "setup": {
         "title": "Sandboxed Analysis Environment",
         "summary": "Create isolated environment with offline vulnerability scanning",
         "explanation": """
-The setup-ai command creates a completely isolated analysis environment
-with its own Python virtual environment, JavaScript tools, and offline
-vulnerability databases. This enables reproducible, air-gapped security
-analysis.
+WHAT IT IS:
+The setup-ai command creates a completely isolated analysis environment with its
+own Python venv, JavaScript tools, and offline vulnerability databases. This
+enables reproducible, air-gapped security analysis with no dependency conflicts.
 
-WHY SANDBOXED ENVIRONMENT:
+WHEN TO USE IT:
+- First time using TheAuditor on a project
+- When you need offline/air-gapped vulnerability scanning
+- To avoid conflicts with project dependencies
+- Setting up CI/CD environments with consistent tooling
+- After updating TheAuditor to refresh local tools
 
-Standard analysis tools often:
-- Conflict with project dependencies (version mismatches)
-- Require internet access (rate limits, API keys)
-- Pollute the global system (installed globally)
-- Cannot be used in air-gapped environments
+HOW TO USE IT:
 
-The sandboxed environment solves all these:
-- Isolated Python venv (no conflicts)
-- Isolated node_modules (no npm conflicts)
-- Offline vulnerability databases (no network needed)
-- Self-contained (portable between projects)
+PREREQUISITES:
+    Python 3.11+, Node.js (for JavaScript tools), network access (initial setup)
+
+STEPS:
+    1. Run setup for your project:
+       aud setup-ai --target .         # Creates .auditor_venv/ (~5-10 min)
+
+    2. Wait for downloads to complete:
+       - Python linters (ruff, mypy, black)
+       - JavaScript tools (ESLint, TypeScript)
+       - Vulnerability databases (~500MB)
+
+    3. Run analysis:
+       aud full                        # Uses sandboxed tools automatically
+
+EXAMPLE - First Time Project Setup:
+    cd /path/to/project
+    aud setup-ai --target .            # One-time setup
+    aud full                           # Run analysis
+    aud deps --vuln-scan               # Offline vulnerability scan
+
+COMMAND OPTIONS:
+    aud setup-ai --target .            # Setup current directory
+    aud setup-ai --target . --sync     # Force refresh all tools and databases
+    aud setup-ai --target . --dry-run  # Preview what will be installed
 
 WHAT GETS INSTALLED:
 
-Python Environment (.auditor_venv/):
-  - TheAuditor (editable install)
-  - ruff, mypy, black (Python linters)
-  - All TheAuditor dependencies
-  - Isolated from project and system
+PYTHON ENVIRONMENT (.auditor_venv/):
+- TheAuditor and all dependencies
+- ruff, mypy, black (Python linters)
+- Isolated from project and system Python
 
-JavaScript Tools (.auditor_tools/):
-  - ESLint with TypeScript support
-  - Prettier code formatter
-  - TypeScript compiler
-  - Isolated from project node_modules
+JAVASCRIPT TOOLS (.auditor_tools/):
+- ESLint with TypeScript support
+- Prettier code formatter
+- TypeScript compiler
+- Isolated from project node_modules
 
-Vulnerability Databases (.auditor_venv/vuln_cache/):
-  - npm advisory database (~300MB)
-  - PyPI advisory database (~200MB)
-  - Refreshes every 30 days
+VULNERABILITY DATABASES (.auditor_venv/vuln_cache/):
+- npm advisory database (~300MB)
+- PyPI advisory database (~200MB)
+- Auto-refreshes every 30 days
 
 DIRECTORY STRUCTURE:
-
-<project>/
-  .auditor_venv/                   # Sandboxed Python
-    bin/                           # Executables
-      aud                          # TheAuditor CLI
-      python                       # Isolated Python
-    lib/                           # Python packages
-    vuln_cache/                    # Offline databases
-      npm/                         # npm advisories
-      pypi/                        # PyPI advisories
-    .theauditor_tools/             # JavaScript tools
-      node_modules/                # Isolated npm packages
+    <project>/
+      .auditor_venv/                # Sandboxed environment
+        Scripts/ (Windows) or bin/ # Executables
+        vuln_cache/                 # Offline vulnerability databases
+      .auditor_tools/               # JavaScript tools
+        node_modules/               # Isolated npm packages
 
 OFFLINE VULNERABILITY SCANNING:
+After setup, aud deps --vuln-scan works completely offline:
+1. OSV-Scanner uses local advisory database
+2. No network requests during scanning
+3. Reproducible results (same database = same findings)
+4. Refresh with aud setup-ai --sync when needed
 
-After setup, vulnerability scanning works offline:
+MULTI-PROJECT SETUP:
+Each project can have its own sandbox:
+    ~/project-a/.auditor_venv/
+    ~/project-b/.auditor_venv/
 
-1. OSV-Scanner binary downloads advisories once
-2. Databases cached in vuln_cache/
-3. 'aud deps --vuln-scan' uses local databases
-4. No network requests during analysis
-5. Refresh with 'aud setup-ai --sync'
+COMBINING WITH OTHER TOOLS:
+- After setup: Run aud full for complete analysis
+- For CI/CD: Run setup once, then aud full --offline
+- For updates: Run aud setup-ai --sync periodically
 
-This enables:
-- Air-gapped security audits
-- Reproducible results (same database = same findings)
-- No rate limiting or API quotas
-- Fast scans (local lookups only)
+RELATED:
+- Commands: aud setup-ai, aud tools, aud deps
+- Topics: aud manual tools, aud manual deps, aud manual pipeline
 
-MULTI-PROJECT USAGE:
-
-Each project gets its own sandbox:
-  ~/project-a/.auditor_venv/
-  ~/project-b/.auditor_venv/
-
-Or share one sandbox across projects:
-  ~/.auditor_global/   # Create in home directory
-  # Reference from any project
-
-TYPICAL WORKFLOW:
-
-Initial Setup (once per project):
-  cd /path/to/project
-  aud setup-ai --target .    # ~5-10 minutes
-
-Daily Development:
-  aud init                   # Uses sandboxed tools
-  aud full                   # Runs analysis
-  aud deps --vuln-scan       # Offline vulnerability scan
-
-Periodic Refresh:
-  aud setup-ai --target . --sync   # Update databases
-
-USE THE COMMAND:
-    aud setup-ai --target .              # Setup current directory
-    aud setup-ai --target . --sync       # Force update
-    aud setup-ai --target . --dry-run    # Preview plan
-    aud setup-ai --target . --show-versions  # Check installed tools
-
-RELATED CONCEPTS:
-    aud manual tools   # Tool detection and management
-    aud manual deps    # Dependency and vulnerability analysis
+COMMON MISTAKES:
+- Skipping setup: Some features require sandboxed tools
+- No network during initial setup: Databases need to download first
+- Forgetting --sync: Vulnerability databases become stale
+- Running in wrong directory: Use --target to specify project path
 """,
     },
     "ml": {
@@ -796,6 +668,19 @@ RELATED CONCEPTS:
 TheAuditor's ML system learns patterns from historical audit runs to predict
 which files are most likely to contain vulnerabilities. This enables proactive
 risk assessment - analyze high-risk files first for faster issue discovery.
+
+WHEN TO USE IT:
+- Prioritizing code review on large PRs (focus on risky files first)
+- Identifying root cause files vs symptom files in bug hunts
+- Building institutional knowledge from historical audit patterns
+- Optimizing security review time on large codebases
+
+PREREQUISITES:
+- Run 'aud full' at least 5 times to build history in .pf/history/
+- Each run creates ~100-200 samples (files analyzed)
+- Cold-start mode works with less data but accuracy is poor
+- Optional: Git repository for churn features (--enable-git)
+- Optional: Claude Code sessions for agent behavior features
 
 THE ML VALUE PROPOSITION:
 
@@ -868,6 +753,19 @@ Production Ready (1000+ samples):
   - Predictions become useful
   - Can trust top-K rankings
 
+COMBINING WITH OTHER TOOLS:
+  ML + Session Analysis:
+    aud session analyze                      # Parse agent sessions
+    aud learn --session-analysis --enable-git # Include Tier 5 features
+
+  ML + Workset:
+    aud workset --diff main..HEAD            # Create focused file list
+    aud suggest --print-plan                 # Rank workset by risk
+
+  ML + Taint Analysis:
+    aud suggest --topk 5                     # Get highest risk files
+    aud taint --verbose                      # Focus deep analysis there
+
 HUMAN FEEDBACK LOOP:
 
 Models improve via supervised correction:
@@ -908,6 +806,13 @@ USE THE COMMANDS:
     aud suggest --topk 20               # More suggestions
     aud learn-feedback --feedback-file corrections.json
 
+COMMON MISTAKES:
+- Running 'aud suggest' before 'aud learn' (models don't exist yet)
+- Expecting good predictions with <500 samples (cold-start is unreliable)
+- Not re-training after code changes (models become stale)
+- Using --enable-git without a git repository (feature extraction fails)
+- Forgetting to run 'aud full' between code changes (history stays stale)
+
 RELATED CONCEPTS:
     aud manual fce        # Root cause vs symptom
     aud manual session    # Agent behavior analysis
@@ -921,11 +826,16 @@ The planning system provides deterministic task tracking with spec-based
 verification. Unlike external tools (Jira, Linear), planning integrates
 directly with TheAuditor's indexed codebase for instant verification.
 
-KEY BENEFITS:
-- Verification specs query actual code (not developer self-assessment)
-- Git snapshots create immutable audit trail
-- Zero external dependencies (offline-first)
-- Works seamlessly with aud index / aud full workflow
+WHEN TO USE IT:
+- Large refactoring requiring checkpoints and rollback capability
+- Migration projects with verifiable success criteria
+- Complex multi-phase work needing progress tracking
+- Team coordination with spec-based acceptance criteria
+
+PREREQUISITES:
+- Git repository (for snapshots and diffs)
+- Run 'aud full' before verify-task (needs indexed codebase)
+- YAML spec file for verification-based tasks
 
 DATABASE STRUCTURE:
   .pf/planning.db (separate from repo_index.db)
@@ -958,13 +868,13 @@ COMMON WORKFLOWS:
     2. aud query --api "/users" --format json  # Find analogous patterns
     3. aud planning add-task 1 --title "Add /products endpoint"
     4. [Implement feature]
-    5. aud index && aud planning verify-task 1 1
+    5. aud full && aud planning verify-task 1 1
 
   Refactoring Migration:
     1. aud planning init --name "Auth0 to Cognito"
     2. aud planning add-task 1 --title "Migrate routes" --spec auth_spec.yaml
     3. [Make changes]
-    4. aud index && aud planning verify-task 1 1 --auto-update
+    4. aud full && aud planning verify-task 1 1 --auto-update
     5. aud planning archive 1 --notes "Deployed to prod"
 
   Checkpoint-Driven Development:
@@ -991,10 +901,30 @@ SUBCOMMANDS:
   validate     Validate execution against session logs
   setup-agents Inject agent triggers into docs
 
+COMBINING WITH OTHER TOOLS:
+  Planning + Refactor Agent:
+    The planning system integrates with the /theauditor:planning slash command
+    which triggers the planning.md agent for database-first approach.
+    See: .auditor_venv/.theauditor_tools/agents/planning.md
+
+  Planning + Impact Analysis:
+    aud impact --file changed.py --line 50  # Assess blast radius
+    aud planning add-task 1 --title "Update affected files"
+
+  Planning + Workset:
+    aud workset --diff HEAD~5                # What changed?
+    aud planning checkpoint 1 1              # Snapshot before more work
+
+COMMON MISTAKES:
+- Forgetting to run 'aud full' before verify-task (spec checks stale index)
+- Creating specs that are too strict (any change fails verification)
+- Not using checkpoint before risky changes (lose rollback ability)
+- Using aud planning without git (snapshots and diffs won't work)
+
 USE THE COMMANDS:
     aud planning init --name "Migration Plan"
     aud planning add-task 1 --title "Task" --spec spec.yaml
-    aud index && aud planning verify-task 1 1 --verbose
+    aud full && aud planning verify-task 1 1 --verbose
     aud planning show 1 --format phases
 """,
     },
@@ -1002,68 +932,87 @@ USE THE COMMANDS:
         "title": "Terraform IaC Security Analysis",
         "summary": "Infrastructure-as-Code security analysis for Terraform configurations",
         "explanation": """
-TheAuditor provides comprehensive Terraform analysis for detecting infrastructure
-security misconfigurations before they reach production. Analyzes .tf files to
-find public exposure, missing encryption, and overly permissive IAM policies.
+WHAT IT IS:
+Terraform security analysis detects infrastructure misconfigurations in .tf files
+before deployment. It builds a provisioning graph showing how variables flow to
+resources and outputs, then runs security rules to find public exposure, missing
+encryption, and overly permissive IAM policies.
+
+WHEN TO USE IT:
+- Before applying Terraform changes to production
+- During PR review when infrastructure files are modified
+- As part of security audit after running aud full
+- In CI/CD pipelines to block insecure infrastructure
+- When auditing existing cloud infrastructure definitions
+
+HOW TO USE IT:
+
+PREREQUISITES:
+    aud full                              # Build database first (required)
+
+STEPS:
+1. Index your Terraform files:
+   aud full                               # Extracts .tf file contents
+
+2. Build the provisioning graph:
+   aud terraform provision                # Maps var->resource->output flow
+
+3. Run security analysis:
+   aud terraform analyze                  # All findings
+   aud terraform analyze --severity high  # Filter to high+ severity
+
+4. Review findings:
+   - Terminal shows summary by category
+   - Detailed JSON at .pf/raw/terraform_findings.json
+   - Graph visualization at .pf/raw/terraform_graph.json
+
+EXAMPLE - Pre-Deployment Security Check:
+    aud full && aud terraform provision && aud terraform analyze --severity high
 
 WHAT IT DETECTS:
-
-  Public Exposure:
-    - S3 buckets with public access
-    - Security groups allowing 0.0.0.0/0
-    - Databases with public accessibility enabled
-    - Unprotected ALB/NLB listeners
-
-  IAM & Permissions:
-    - Wildcard (*) permissions in IAM policies
-    - Overly permissive role trust policies
-    - Missing condition constraints
-    - Cross-account access risks
-
-  Encryption:
-    - Unencrypted S3 buckets, EBS volumes, RDS instances
-    - Missing SSL/TLS for data in transit
-    - Weak encryption algorithms
-
-  Secrets:
-    - Hardcoded credentials in resource definitions
-    - Exposed API keys and tokens
-    - Database passwords in plaintext
+- Public Exposure: S3 public access, 0.0.0.0/0 security groups, public RDS
+- IAM Issues: Wildcard permissions, overly permissive trust policies
+- Encryption: Unencrypted S3/EBS/RDS, missing TLS, weak algorithms
+- Secrets: Hardcoded credentials, exposed API keys, plaintext passwords
 
 PROVISIONING GRAPH:
 The provision command builds a data flow graph showing:
-  - Variable -> Resource -> Output connections
-  - Resource dependency chains
-  - Sensitive data propagation paths
-  - Public exposure blast radius
+- Variable -> Resource -> Output connections
+- Resource dependency chains (depends_on, implicit refs)
+- Sensitive data propagation paths
+- Public exposure blast radius
 
-SUBCOMMANDS:
-  provision  Build provisioning flow graph (var->resource->output)
-  analyze    Run security rules on Terraform configurations
-  report     Generate consolidated infrastructure security report
+COMBINING WITH OTHER TOOLS:
+- After terraform: Run aud cdk analyze if you also have CDK code
+- For full audit: aud full includes terraform in pipeline
+- With deps: Check Terraform provider versions for vulnerabilities
+- For code context: Use aud explain on modules referenced in .tf files
 
-TYPICAL WORKFLOW:
-    # 1. Index your Terraform files
-    aud full --index
-
-    # 2. Build provisioning graph
-    aud terraform provision
-
-    # 3. Run security analysis
-    aud terraform analyze
-
-    # 4. Review findings
-    cat .pf/raw/terraform_findings.json
+AGENT WORKFLOW:
+When using the security agent (/theauditor:security), Terraform analysis runs
+as part of Phase 3 infrastructure checks. The agent queries:
+    aud terraform provision && aud terraform analyze --severity high
 
 OUTPUT FILES:
     .pf/raw/terraform_graph.json      # Provisioning flow graph
     .pf/raw/terraform_findings.json   # Security findings
     .pf/graphs.db                     # Graph stored for querying
 
-USE THE COMMANDS:
-    aud terraform provision
-    aud terraform analyze --severity critical
-    aud terraform analyze --categories public_exposure
+RELATED:
+Commands: aud terraform provision, aud terraform analyze, aud cdk analyze
+Topics: aud manual docker, aud manual cdk, aud manual severity
+
+COMMON MISTAKES:
+- Running analyze before provision: Graph not built, missing dependency insights
+- Skipping aud full: No .tf content in database to analyze
+- Ignoring variable flow: Sensitive data may propagate through multiple resources
+- Not using --severity filter: Getting overwhelmed by low-priority findings
+
+EXIT CODES:
+- 0: Success, no critical/high issues found
+- 1: Security issues detected
+- 2: Critical security issues detected
+- 3: Analysis failed (database missing)
 """,
     },
     "tools": {
@@ -1072,6 +1021,15 @@ USE THE COMMANDS:
         "explanation": """
 TheAuditor uses multiple external tools for comprehensive code analysis. The tools
 command group helps detect, verify, and report on these dependencies.
+
+WHEN TO USE IT:
+- Before first run to verify environment is properly configured
+- CI/CD setup to ensure required tools are available
+- Troubleshooting missing tool errors
+- Documenting your analysis environment
+
+PREREQUISITES:
+- None (this command checks prerequisites for OTHER commands)
 
 TOOL CATEGORIES:
 
@@ -1106,6 +1064,19 @@ SUBCOMMANDS:
   check   Verify required tools are installed
   report  Generate version report files (.pf/raw/tools.json)
 
+COMBINING WITH OTHER TOOLS:
+  Tools + Setup:
+    aud setup-ai --target .              # Install tools to sandbox
+    aud tools check --strict             # Verify all installed
+
+  Tools + Full Audit:
+    aud tools check                      # Verify before running
+    aud full --offline                   # Run with confidence
+
+  CI/CD Pipeline:
+    aud tools check --required semgrep,bandit || exit 1
+    aud full
+
 TYPICAL WORKFLOW:
     # 1. Check what tools are installed
     aud tools
@@ -1125,6 +1096,12 @@ By default, 'aud tools check' requires:
 
 Use --strict to require ALL tools, or --required to specify custom requirements.
 
+COMMON MISTAKES:
+- Running analysis without checking tools first (failures mid-pipeline)
+- Installing tools in system PATH when sandbox is preferred
+- Expecting 'aud tools' to install missing tools (it only checks)
+- Not running 'aud setup-ai' after fresh clone
+
 USE THE COMMANDS:
     aud tools                          # List all tools
     aud tools list --json              # JSON output
@@ -1141,6 +1118,17 @@ USE THE COMMANDS:
 The metadata command group collects temporal and quality facts about your codebase
 for use in FCE (Feed-forward Correlation Engine) risk analysis. It answers: "What
 files change frequently?" and "What code is poorly tested?"
+
+WHEN TO USE IT:
+- Before running FCE to correlate vulnerabilities with code quality
+- Identifying hot spots that need refactoring attention
+- Prioritizing security review on high-churn, low-coverage files
+- Adding temporal dimension to ML training features
+
+PREREQUISITES:
+- Git repository for churn analysis
+- Coverage report file for coverage analysis (pytest-cov, Istanbul, lcov)
+- Run 'aud full' first if correlating with taint/pattern findings
 
 WHY METADATA MATTERS:
 
@@ -1187,6 +1175,20 @@ SUPPORTED COVERAGE FORMATS:
   JavaScript: coverage-final.json (Istanbul/nyc)
   Generic:    lcov.info
 
+COMBINING WITH OTHER TOOLS:
+  Metadata + FCE:
+    aud metadata churn && aud metadata coverage
+    aud fce                              # Correlates all findings + metadata
+
+  Metadata + ML:
+    aud metadata churn --days 30
+    aud learn --enable-git               # Uses churn as Tier 4 features
+
+  Metadata + Security Audit:
+    aud full
+    aud metadata analyze
+    aud manual fce                       # Understand correlation results
+
 TYPICAL WORKFLOW:
     # 1. Generate coverage report (using your test framework)
     pytest --cov=src --cov-report=json
@@ -1205,6 +1207,12 @@ USE THE COMMANDS:
     aud metadata coverage --coverage-file coverage.json
     aud metadata analyze                  # Both churn + coverage
 
+COMMON MISTAKES:
+- Running churn without a git repository (no history to analyze)
+- Expecting coverage analysis without a coverage report file
+- Using wrong coverage format (pytest-cov needs --cov-report=json)
+- Not running aud full first (FCE needs indexed findings to correlate)
+
 OUTPUT FILES:
     .pf/raw/churn_analysis.json     # Git churn data
     .pf/raw/coverage_analysis.json  # Test coverage data
@@ -1214,98 +1222,133 @@ OUTPUT FILES:
         "title": "AWS CDK Infrastructure-as-Code Security",
         "summary": "Security analysis for AWS CDK Python/TypeScript/JavaScript code",
         "explanation": """
-TheAuditor provides security analysis for AWS Cloud Development Kit (CDK) code,
-detecting infrastructure misconfigurations before deployment to AWS. Supports
-CDK written in Python, TypeScript, and JavaScript.
+WHAT IT IS:
+AWS CDK security analysis detects infrastructure misconfigurations in CDK code
+(Python, TypeScript, JavaScript) before deployment to AWS. Unlike Terraform
+which uses HCL, CDK uses programming languages - TheAuditor parses the AST to
+find security issues in construct configurations.
 
-WHAT CDK IS:
+WHEN TO USE IT:
+- Before running cdk deploy to production
+- During PR review when CDK stacks are modified
+- As part of security audit after running aud full
+- In CI/CD pipelines to block insecure infrastructure
+- When auditing existing CDK applications
 
-AWS CDK (Cloud Development Kit) lets you define AWS infrastructure using
-programming languages instead of YAML/JSON templates. TheAuditor analyzes
-CDK code to find security issues BEFORE deployment.
+HOW TO USE IT:
 
-Example CDK code (Python):
+PREREQUISITES:
+    aud full                              # Build database first (required)
+
+STEPS:
+1. Index your CDK project:
+   aud full                               # Extracts CDK construct definitions
+
+2. Run security analysis:
+   aud cdk analyze                        # All findings
+   aud cdk analyze --severity high        # Filter to high+ severity
+
+3. Review findings:
+   - Terminal shows summary by category
+   - Use --format json for machine-parseable output
+   - Findings stored in cdk_findings database table
+
+4. For programmatic access, use Python:
+   import sqlite3
+   conn = sqlite3.connect('.pf/repo_index.db')
+   c = conn.cursor()
+   c.execute('SELECT * FROM cdk_findings WHERE severity="critical"')
+
+EXAMPLE - Pre-Deployment Security Check:
+    aud full && aud cdk analyze --severity high
+
+WHAT IT DETECTS:
+- S3 Buckets: public_read_access=True, missing block_public_access, unencrypted
+- Databases: publicly_accessible=True, storage_encrypted=False, no backup
+- IAM: Wildcard actions, overly permissive policies, Principal.Account("*")
+- Network: Open security groups, missing NAT, public subnet misuse
+
+CDK CODE EXAMPLE (What Gets Flagged):
     bucket = s3.Bucket(
         self, "MyBucket",
-        public_read_access=True,     # <-- TheAuditor flags this
-        encryption=s3.BucketEncryption.UNENCRYPTED  # <-- And this
+        public_read_access=True,     # FLAGGED: data exposure
+        encryption=s3.BucketEncryption.UNENCRYPTED  # FLAGGED: compliance
     )
 
-SECURITY CHECKS:
+COMBINING WITH OTHER TOOLS:
+- After cdk: Run aud terraform analyze if you also have .tf files
+- For full audit: aud full includes CDK analysis in pipeline
+- With detect-patterns: Includes CDK-specific security rules
+- For code context: Use aud explain on CDK stack files
 
-  S3 Buckets:
-    - public_read_access=True (data exposure)
-    - Missing block_public_access configuration
-    - BucketEncryption.UNENCRYPTED (compliance violation)
+AGENT WORKFLOW:
+When using the security agent (/theauditor:security), CDK analysis runs
+as part of Phase 3 infrastructure checks. The agent queries:
+    aud cdk analyze --severity high
 
-  Databases (RDS/DynamoDB):
-    - publicly_accessible=True
-    - storage_encrypted=False
-    - Missing backup retention
+CDK VS TERRAFORM:
+- CDK: Programming languages (Python, TypeScript, JavaScript)
+- Terraform: HCL configuration files (.tf)
+Use aud cdk for CDK projects, aud terraform for Terraform projects.
 
-  IAM:
-    - PolicyStatement with "*" actions
-    - ManagedPolicy.fromAwsManagedPolicyName overprivilege
-    - Principal.Account("*") (cross-account risk)
+RELATED:
+Commands: aud cdk analyze, aud terraform analyze, aud detect-patterns
+Topics: aud manual terraform, aud manual docker, aud manual severity
 
-  Network:
-    - SecurityGroup with all traffic allowed
-    - VPC missing NAT for private subnets
-    - Public subnets hosting sensitive resources
-
-HOW IT WORKS:
-
-1. 'aud index' parses CDK code (AST extraction)
-2. Extracts CDK constructs to cdk_constructs table
-3. 'aud cdk analyze' runs security rules
-4. Writes findings to cdk_findings table
-5. Returns exit code based on severity
+COMMON MISTAKES:
+- Running before aud full: No CDK constructs in database to analyze
+- Expecting CloudFormation output: Analyzes CDK source, not synth output
+- Ignoring MEDIUM findings: Public access issues may seem minor but cascade
+- Not checking both CDK and Terraform: Projects often mix IaC approaches
 
 EXIT CODES:
-  0 = No security issues
-  1 = Security issues detected
-  2 = Critical security issues
-  3 = Analysis failed
-
-TYPICAL WORKFLOW:
-    # 1. Index your CDK project
-    aud full --index
-
-    # 2. Run security analysis
-    aud cdk analyze
-
-    # 3. Query findings from database
-    sqlite3 .pf/repo_index.db "SELECT * FROM cdk_findings"
-
-COMPARISON WITH TERRAFORM:
-  CDK: Programming languages (Python, TS, JS)
-  Terraform: HCL configuration files (.tf)
-
-  Use 'aud cdk' for CDK projects
-  Use 'aud terraform' for Terraform projects
-
-USE THE COMMANDS:
-    aud cdk analyze                    # Full analysis
-    aud cdk analyze --severity high    # High+ only
-    aud cdk analyze --format json      # JSON output
-
-RELATED COMMANDS:
-    aud terraform    # Terraform IaC analysis
-    aud detect-patterns  # Includes CDK security rules
+- 0: No security issues found
+- 1: Security issues detected
+- 2: Critical security issues detected
+- 3: Analysis failed (database missing)
 """,
     },
     "graphql": {
         "title": "GraphQL Schema and Resolver Analysis",
         "summary": "Map GraphQL SDL schemas to backend resolver implementations",
         "explanation": """
-TheAuditor provides GraphQL schema analysis, mapping SDL type definitions to
-backend resolver functions. This enables security analysis and taint tracking
-through the GraphQL execution layer.
+WHAT IT IS:
+GraphQL analysis correlates SDL schema definitions (.graphql/.gql files) with
+backend resolver implementations. This bridges the gap between "what clients
+can query" and "what code actually runs", enabling data flow tracking through
+the GraphQL execution layer.
 
-WHAT THIS DOES:
+WHEN TO USE IT:
+- After indexing a GraphQL API to understand schema-to-code mapping
+- Before taint analysis to include GraphQL argument flows
+- When auditing resolvers for security issues (N+1, auth bypass)
+- During PR review when schema or resolvers change
+- When finding orphaned resolvers or unimplemented fields
 
-GraphQL APIs separate schema (what clients see) from resolvers (what runs).
-TheAuditor correlates them:
+HOW TO USE IT:
+
+PREREQUISITES:
+    aud full                              # Build database first (required)
+
+STEPS:
+1. Index the codebase (extracts SDL + resolver code):
+   aud full                               # Parses .graphql and resolver files
+
+2. Build resolver mappings:
+   aud graphql build                      # Correlates fields to resolvers
+   aud graphql build --verbose            # Show correlation details
+
+3. Inspect schema and mappings:
+   aud graphql query --type Query         # List Query type fields
+   aud graphql query --field user         # Find user field resolver
+
+4. Use in taint analysis:
+   aud taint                              # Uses GraphQL edges for data flow
+
+EXAMPLE - Full GraphQL Security Audit:
+    aud full && aud graphql build && aud taint
+
+SCHEMA-TO-RESOLVER CORRELATION:
 
   Schema (SDL):               Resolver (Code):
   type Query {                @Query()
@@ -1318,279 +1361,317 @@ This enables:
 - Detecting N+1 query patterns
 - Security analysis of resolver implementations
 
-HOW IT WORKS:
-
-1. SDL Extraction (during 'aud index'):
-   Parses .graphql/.gql files into graphql_types and graphql_fields tables
-
-2. Resolver Detection:
-   Finds resolver patterns by framework:
-   - Graphene: resolve_<field> methods
-   - Ariadne: @query.field("name") decorators
-   - Strawberry: @strawberry.field on methods
-   - Apollo/NestJS: @Query()/@Mutation() decorators
-
-3. Correlation ('aud graphql build'):
-   Matches fields to resolvers via naming + type analysis
-   Stores in graphql_resolver_mappings table
-
-4. Execution Graph:
-   Builds field -> resolver -> downstream call edges
-   Used by taint analysis for data flow tracking
-
-SUBCOMMANDS:
-  build   Correlate SDL with resolvers, build execution graph
-  query   Query schema metadata (types, fields, resolvers)
-  viz     Visualize schema and execution graph
-
-TYPICAL WORKFLOW:
-    # 1. Index the codebase (extracts SDL + resolver code)
-    aud full --index
-
-    # 2. Build resolver mappings
-    aud graphql build
-
-    # 3. Inspect schema
-    aud graphql query --type Query --show-resolvers
-
-    # 4. Use in taint analysis
-    aud taint  # Uses GraphQL edges for data flow
-
 FRAMEWORK SUPPORT:
-  Python:     Graphene, Ariadne, Strawberry
-  JavaScript: Apollo Server, TypeGraphQL
-  TypeScript: NestJS GraphQL, TypeGraphQL
+- Python: Graphene (resolve_<field>), Ariadne (@query.field), Strawberry
+- JavaScript: Apollo Server, TypeGraphQL
+- TypeScript: NestJS GraphQL (@Query/@Mutation), TypeGraphQL
 
-OUTPUT:
-  Updates graphql_resolver_mappings table
-  Updates graphql_execution_edges table
-  Exports .pf/raw/graphql_schema.json
-  Exports .pf/raw/graphql_execution.json
+COMBINING WITH OTHER TOOLS:
+- After graphql build: Run aud taint for complete data flow analysis
+- For architecture: aud blueprint --graph shows GraphQL in call graph
+- With explain: aud explain <resolver_function> for caller/callee context
+- For security: Combine with aud detect-patterns for injection detection
 
-USE THE COMMANDS:
-    aud graphql build                    # Build resolver mappings
-    aud graphql build --verbose          # Show correlation details
-    aud graphql query --type Query       # Inspect Query type
-    aud graphql query --field user       # Find user field resolver
-    aud graphql viz --output schema.svg  # Generate visualization
+AGENT WORKFLOW:
+When using the dataflow agent (/theauditor:dataflow), GraphQL analysis runs
+as part of Phase 2 to build execution edges. The agent queries:
+    aud graphql build --verbose
 
-RELATED COMMANDS:
-    aud taint  # Uses GraphQL edges for taint
-    aud graph          # Generic call graph (GraphQL adds field layer)
+OUTPUT FILES:
+    .pf/raw/graphql_schema.json      # Schema metadata
+    .pf/raw/graphql_execution.json   # Execution graph edges
+
+DATABASE TABLES:
+    graphql_types              # Type definitions from SDL
+    graphql_fields             # Field definitions with args
+    graphql_resolver_mappings  # Field-to-resolver correlations
+    graphql_execution_edges    # Execution flow graph
+
+RELATED:
+Commands: aud graphql build, aud graphql query, aud taint, aud graph
+Topics: aud manual taint, aud manual graph, aud manual architecture
+
+COMMON MISTAKES:
+- Running graphql query before graphql build: No mappings to query
+- Expecting auto-correlation: Run 'aud graphql build' explicitly
+- Missing SDL files: Ensure .graphql/.gql files are in indexed directories
+- Wrong framework pattern: Check resolver naming matches detected framework
+
+EXIT CODES:
+- 0: Success, mappings built
+- 1: Partial success (some fields unresolved)
+- 2: Error (database missing or SDL parse failed)
 """,
     },
     "blueprint": {
         "title": "Blueprint Command",
         "summary": "Architectural fact visualization with drill-down analysis modes",
         "explanation": """
-The blueprint command provides a complete architectural overview of your indexed
-codebase. It operates in "truth courier" mode - presenting pure facts with zero
-recommendations or prescriptive language.
+WHAT IT IS:
+Blueprint provides a complete architectural overview of your indexed codebase
+in "truth courier" mode - presenting pure facts with zero recommendations.
+It's the starting point for understanding any codebase.
 
-DRILL-DOWN MODES:
-  (default):    Top-level overview with module counts and file organization
-  --structure:  File organization, LOC counts, module boundaries
-  --graph:      Import relationships, circular dependencies, hotspots
-  --security:   JWT/OAuth usage, SQL queries, API endpoints
-  --taint:      Taint sources/sinks, data flow paths
-  --boundaries: Entry points and validation control distances
-  --deps:       Package dependencies by manager (npm, pip, cargo)
-  --all:        Export complete data as JSON
+WHEN TO USE IT:
+- Onboarding: First command when exploring a new codebase
+- Planning: Before making architectural changes (database first!)
+- Security audit: See security surface overview
+- AI context: Get codebase facts for planning agents
+- Documentation: Export architecture as JSON for reports
 
-ADDITIONAL OPTIONS:
-  --format text|json  Output format (default: text for visual tree)
-  --monoliths         Find files exceeding line threshold (too large for AI)
-  --threshold N       Line count threshold for monoliths (default: 2150)
-
-WHAT IT SHOWS:
-  Structure:
-    - Files by directory and language
-    - Symbol counts (functions, classes, variables)
-    - File categories (source, test, scripts, migrations)
-
-  Graph Analysis:
-    - Hot files (high call counts)
-    - Import graph statistics
-    - Gateway files (bottlenecks)
-
-  Security Surface:
-    - JWT sign/verify locations
-    - OAuth and password handling
-    - SQL queries (total vs raw)
-    - API endpoints (protected vs unprotected)
-
-  Data Flow:
-    - Taint sources (unique variables)
-    - Cross-function flows
-    - Taint paths detected
-
-EXAMPLES:
-    aud blueprint                        # Top-level overview
-    aud blueprint --structure            # Drill into file organization
-    aud blueprint --security             # Security surface facts
-    aud blueprint --graph --format json  # Export graph data as JSON
-    aud blueprint --all > arch.json      # Full export
-    aud blueprint --monoliths            # Find oversized files
-    aud blueprint --monoliths --threshold 1000  # Custom threshold
-
-PERFORMANCE: 2-5 seconds (database queries + formatting)
+HOW TO USE IT:
 
 PREREQUISITES:
-    aud full    # Complete analysis (builds repo_index.db)
+    aud full                                  # Build the database first
 
-RELATED COMMANDS:
-    aud graph     # Dedicated graph analysis
-    aud explain   # File/symbol context
-    aud query     # Direct database queries
+STEPS:
+1. Get top-level overview:
+    aud blueprint                             # Default overview
 
-NOTE: Blueprint shows FACTS ONLY - no recommendations, no "should be"
-statements, no prescriptive language. For actionable insights, use
-'aud fce' or 'aud full' with correlation rules.
+2. Drill into specific dimensions:
+    aud blueprint --structure                 # File organization, LOC counts
+    aud blueprint --graph                     # Import relationships, hotspots
+    aud blueprint --security                  # JWT, OAuth, SQL, API endpoints
+    aud blueprint --taint                     # Taint sources/sinks
+    aud blueprint --deps                      # Package dependencies
+    aud blueprint --boundaries                # Entry points, validation distances
+
+3. Find large files (for AI chunk planning):
+    aud blueprint --monoliths                 # Files >2150 lines
+    aud blueprint --monoliths --threshold 1000  # Custom threshold
+
+4. Export for documentation:
+    aud blueprint --all > architecture.json   # Full JSON export
+    aud blueprint --graph --format json       # Specific dimension as JSON
+
+DRILL-DOWN FLAGS:
+- --structure: File counts, LOC, module boundaries
+- --graph: Import graph stats, hotspots, cycles
+- --security: JWT, OAuth, SQL, API endpoints
+- --taint: Sources, sinks, flow paths
+- --boundaries: Entry points, validation distances
+- --deps: Package dependencies by manager
+- --all: Complete JSON export
+
+EXAMPLE WORKFLOW - New Codebase Onboarding:
+    aud full                                  # Index the codebase
+    aud blueprint --structure                 # Understand file organization
+    aud blueprint --security                  # See security surface
+    aud blueprint --monoliths                 # Find large files needing chunks
+
+COMBINING WITH OTHER TOOLS:
+- With planning agent: Run blueprint --structure FIRST (database first rule)
+- With graph: Blueprint summarizes, graph commands drill deeper
+- With impact: Blueprint shows overall architecture, impact shows change scope
+- For export: --format json for programmatic consumption
+
+AGENT WORKFLOW:
+The planning agent (/theauditor:planning) MUST run blueprint in Phase 1:
+    aud blueprint --structure                 # Load foundation context
+    aud blueprint --monoliths                 # Identify large files
+
+This is THE ONE RULE: Database first. Always run blueprint before planning.
+
+COMMON MISTAKES:
+- Skipping aud full: Blueprint queries the database, needs indexing first
+- Expecting recommendations: Blueprint shows FACTS only (truth courier mode)
+- Missing --monoliths: Large files (>2150 lines) need chunked reading for AI
+
+RELATED:
+Commands: aud blueprint, aud graph, aud explain, aud query
+Topics: aud manual architecture, aud manual graph, aud manual pipeline
 """,
     },
     "refactor": {
         "title": "Refactoring Impact Analysis",
         "summary": "Detect incomplete refactorings from database schema migrations",
         "explanation": """
+WHAT IT IS:
 The refactor command detects code-schema mismatches from incomplete database
-refactorings. It analyzes migration files to identify removed/renamed tables
-and columns, then queries the codebase for references to deleted schema elements.
+migrations. When you DROP a table but code still references it, that's a
+runtime break waiting to happen. This command finds those mismatches by
+parsing migrations and cross-referencing against the indexed codebase.
 
-THE PROBLEM IT SOLVES:
-When you run a database migration that drops a table or column, code that still
-references that schema will break at runtime. This is the classic "forgot to
-update the queries" problem that breaks production silently.
+WHEN TO USE IT:
+- Before deploying migrations: Verify no code references dropped schema
+- After writing migrations: Find code that needs updating
+- During PR review: Check for incomplete refactorings
+- Schema cleanup: Find code referencing deprecated tables/columns
+- CI/CD gates: Block deployments with schema-code mismatches
+
+HOW TO USE IT:
+PREREQUISITES:
+    aud full                              # Build database first
+
+STEPS:
+    1. Run refactor analysis:
+       aud refactor                       # Analyze last 5 migrations
+
+    2. Review findings by severity:
+       - CRITICAL: Code references deleted table (will break)
+       - HIGH: Code references deleted column (will break)
+       - MEDIUM: Code may reference renamed element (verify)
+
+    3. For each finding, update the code:
+       aud explain <file>                 # Get context
+       # Update SQL queries / ORM models
+
+    4. Re-run to verify:
+       aud refactor                       # Should show 0 findings
+
+EXAMPLE - Pre-Deployment Check:
+    aud full && aud refactor
+    # Shows: api/users.py:42 references dropped column 'email'
+    # Action: Update query before deploying migration
+
+COMBINING WITH OTHER TOOLS:
+- Before refactor: Run aud full to index code references
+- With context: Define migration rules to track progress
+- With deadcode: After migration, find orphaned code
+- With impact: See full blast radius of schema changes
+- In CI/CD: Block merge if refactor finds CRITICAL issues
+
+AGENT WORKFLOW:
+The refactor agent (/theauditor:refactor) uses this command in Phase 2
+after running aud deadcode. It parses recent migrations, finds code-schema
+mismatches, and generates a fix list prioritized by severity.
 
 WHAT IT DETECTS:
-  Schema Changes (from migrations):
-    - Dropped tables (DROP TABLE, dropTable)
-    - Dropped columns (ALTER TABLE DROP COLUMN, removeColumn)
-    - Renamed tables (ALTER TABLE RENAME TO, renameTable)
-    - Renamed columns (renameColumn)
+Schema Changes (from migrations):
+- Dropped tables: DROP TABLE, dropTable()
+- Dropped columns: ALTER TABLE DROP COLUMN, removeColumn()
+- Renamed tables: RENAME TO, renameTable()
+- Renamed columns: renameColumn()
 
-  Code References (from repo_index.db):
-    - SQL queries mentioning deleted tables/columns
-    - ORM model references (SQLAlchemy, Django)
-    - Raw SQL in string literals
-    - Dynamic query builders
+Code References (from database):
+- SQL queries mentioning deleted tables/columns
+- ORM model references (SQLAlchemy, Django, TypeORM)
+- Raw SQL in string literals
+- Dynamic query builders
 
-  Severity Classification:
-    - CRITICAL: Code references deleted table (guaranteed break)
-    - HIGH: Code references deleted column in existing table
-    - MEDIUM: Code may reference renamed element (needs verification)
-
-HOW IT WORKS:
-  1. Parse migration files in --migration-dir
-  2. Extract DROP/ALTER/RENAME statements
-  3. Query repo_index.db for code referencing deleted schema
-  4. Cross-reference and report breaking changes
-
-OPTIONS:
-  --migration-dir, -m   Directory containing migrations (default: backend/migrations)
-  --migration-limit, -ml  Number of recent migrations to analyze (0=all, default=5)
-  --file, -f            Refactor profile YAML describing schema expectations
-  --output, -o          Output file for detailed report
-  --in-file             Only scan files matching pattern (e.g., 'src/components')
-
-EXAMPLES:
-    aud refactor                          # Analyze last 5 migrations
-    aud refactor --migration-limit 0      # Analyze ALL migrations
-    aud refactor --migration-dir ./db     # Custom migration directory
-    aud refactor --output report.json     # Export detailed report
+COMMAND OPTIONS:
+    aud refactor                          # Last 5 migrations
+    aud refactor --migration-limit 0      # ALL migrations
+    aud refactor --migration-dir ./db     # Custom directory
+    aud refactor --output report.json     # Export findings
     aud refactor --file profile.yaml      # Use refactor profile
-    aud refactor --in-file OrderDetails   # Focus on specific file pattern
+    aud refactor --in-file OrderDetails   # Focus on pattern
 
-PERFORMANCE: 2-5 seconds (migration parsing + database queries)
+RELATED:
+Commands: aud refactor, aud impact, aud query, aud deadcode
+Topics: aud manual impact, aud manual deadcode, aud manual context
 
-PREREQUISITES:
-    aud full    # Populates repo_index.db with code references
+COMMON MISTAKES:
+- Running before aud full: No code index means no detection
+  -> Always run aud full first to populate repo_index.db
+- Ignoring MEDIUM severity: Renames can break code too
+  -> Verify all renamed references are updated
+- Not checking ORM models: They reference schema too
+  -> Refactor detects SQLAlchemy, Django, TypeORM patterns
+- Deploying migrations before fixing: Runtime errors in production
+  -> Run aud refactor in CI/CD before deployment
 
-RELATED COMMANDS:
-    aud impact  # Broader change impact analysis
-    aud query   # Manual code search for schema elements
-
-NOTE: Detects syntactic mismatches only. Schema changes affecting data types
-or constraints may still cause runtime issues not detected by this command.
+EXIT CODES:
+- 0: No schema-code mismatches found
+- 1: Findings detected (review required)
+- 2: Error (database missing or migration parsing failed)
 """,
     },
     "query": {
         "title": "Database Query Interface",
         "summary": "Direct SQL queries over indexed code relationships",
         "explanation": """
-The query command provides direct access to TheAuditor's indexed code database.
-It returns exact file:line locations for symbols, dependencies, and call chains.
-No file reading, no parsing, no inference - just database lookups.
+WHAT IT IS:
+The query command provides direct access to TheAuditor's indexed database.
+It returns exact file:line locations for symbols, dependencies, and call
+chains. Pure database lookups - no file reading, no parsing, instant results.
+Use this for precise, targeted lookups; use aud explain for comprehensive context.
+
+WHEN TO USE IT:
+- Finding symbol callers: Who calls this function before I change it?
+- Checking file dependencies: Who imports this file before I move it?
+- API endpoint lookup: What handles this route?
+- Pattern search: Find all functions matching a pattern
+- Discovery mode: List all symbols in a file or matching a filter
+- Data flow tracing: Track variable assignments and usage
+
+HOW TO USE IT:
+PREREQUISITES:
+    aud full                              # Build database first
+
+STEPS:
+    1. Pick your query target:
+       aud query --symbol validateUser    # Look up a symbol
+       aud query --file src/auth.ts       # Look up a file
+       aud query --api "/users/:id"       # Look up an API route
+
+    2. Add action flags to show relationships:
+       aud query --symbol foo --show-callers   # Who calls foo?
+       aud query --file bar.ts --show-dependents  # Who imports bar.ts?
+
+    3. Add modifiers for output control:
+       aud query --symbol foo --show-callers --format json  # JSON output
+       aud query --symbol foo --show-callers --depth 2  # 2-level deep
+
+EXAMPLE - Before Renaming a Function:
+    aud query --symbol validateUser --show-callers
+    # Shows: called by auth.py:42, login.py:15, api.py:88
+    # Action: Update all 3 callers when renaming
+
+COMBINING WITH OTHER TOOLS:
+- For comprehensive context: Use aud explain instead (more info, one call)
+- For project overview: Use aud blueprint first, then query specifics
+- For impact analysis: Use aud impact for blast radius, query for details
+- In scripts: Use --format json for parseable output
 
 QUERY TARGETS (pick one):
-  --symbol NAME       Function/class/variable lookup
-  --file PATH         File dependency lookup (partial match)
-  --api ROUTE         API endpoint handler lookup
-  --component NAME    React/Vue component tree
-  --variable NAME     Variable for data flow tracing
-  --pattern PATTERN   SQL LIKE search (use % wildcard)
-  --list-symbols      Discovery mode with --filter and --path
-  --category CAT      Security category (jwt, oauth, password, sql, xss, auth)
-  --search TERM       Cross-table exploratory search
+    --symbol NAME       Function/class/variable lookup
+    --file PATH         File dependency lookup
+    --api ROUTE         API endpoint handler lookup
+    --component NAME    React/Vue component tree
+    --variable NAME     Variable for data flow tracing
+    --pattern PATTERN   SQL LIKE search (use % wildcard)
+    --list-symbols      List symbols with --filter and --path
+    --category CAT      Security category (jwt, oauth, password, sql)
+    --search TERM       Cross-table exploratory search
 
 ACTION FLAGS (what to show):
-  --show-callers      Who calls this symbol?
-  --show-callees      What does this symbol call?
-  --show-dependencies What does this file import?
-  --show-dependents   Who imports this file?
-  --show-incoming     Who calls symbols in this file?
-  --show-tree         Component hierarchy (parent-child)
-  --show-hooks        React hooks used by component
-  --show-data-deps    What variables function reads/writes (DFG)
-  --show-flow         Variable flow through assignments (DFG)
-  --show-taint-flow   Cross-function taint flow (DFG)
-  --show-api-coverage Which endpoints have auth controls?
+    --show-callers      Who calls this symbol?
+    --show-callees      What does this symbol call?
+    --show-dependencies What does this file import?
+    --show-dependents   Who imports this file?
+    --show-incoming     Who calls symbols in this file?
+    --show-tree         Component hierarchy (parent-child)
+    --show-hooks        React hooks used by component
+    --show-data-deps    Variables function reads/writes (DFG)
+    --show-flow         Variable flow through assignments
+    --show-taint-flow   Cross-function taint flow
+    --show-api-coverage Which endpoints have auth controls?
 
 MODIFIERS:
-  --depth N              Transitive depth 1-5 (default=1)
-  --format text|json|tree  Output format (default=text)
-  --type-filter TYPE     Filter by symbol type (function, class, variable)
-  --show-code/--no-code  Include source snippets (default: no)
-  --save PATH            Save output to file
+    --depth N           Transitive depth 1-5 (default=1)
+    --format json       JSON output for parsing
+    --type-filter TYPE  Filter by type (function, class, variable)
+    --show-code         Include source snippets
+    --save PATH         Save output to file
 
-EXAMPLES:
-    # Find callers before refactoring
-    aud query --symbol validateUser --show-callers
+RELATED:
+Commands: aud query, aud explain, aud blueprint, aud impact
+Topics: aud manual explain, aud manual database, aud manual blueprint
 
-    # Check file dependencies before moving
-    aud query --file src/auth.ts --show-dependents
+COMMON MISTAKES:
+- Using query for comprehensive context: Too many calls needed
+  -> Use aud explain instead (returns everything in one call)
+- Querying ClassName.method as foo.bar: Methods stored differently
+  -> Query just the method name, or use exact ClassName.methodName
+- Running before aud full: No database means no results
+  -> Always run aud full first to populate repo_index.db
+- Forgetting --format json in scripts: Text output is for humans
+  -> Use --format json when parsing output programmatically
 
-    # Find API handler
-    aud query --api "/users/:id"
-
-    # Pattern search
-    aud query --pattern "auth%" --type-filter function
-
-    # List functions in file
-    aud query --file auth.py --list functions
-
-    # JSON for parsing
-    aud query --symbol foo --show-callers --format json
-
-    # Discovery mode
-    aud query --list-symbols --filter '*Controller*'
-
-PERFORMANCE: <10ms for indexed lookups
-
-PREREQUISITES:
-    aud full    # Builds repo_index.db
-
-RELATED COMMANDS:
-    aud explain         # More comprehensive context (recommended)
-    aud manual database # Database schema reference
-
-ANTI-PATTERNS:
-  X  aud query --symbol foo.bar
-     Methods are stored as ClassName.methodName
-     -> First run: aud query --symbol bar
-     -> Then use exact name from output
-
-  X  Using query for comprehensive context
-     -> Use 'aud explain' instead (returns more in one call)
+PERFORMANCE:
+- <10ms for indexed lookups
+- Instant results (pure database query, no file I/O)
 """,
     },
     "deps": {
@@ -1599,6 +1680,12 @@ ANTI-PATTERNS:
         "explanation": """
 The deps command provides comprehensive dependency analysis supporting multiple
 package managers: npm/yarn, pip/poetry, Docker, and Cargo.
+
+WHEN TO USE IT:
+- CI/CD pipelines to block deploys with known vulnerabilities
+- Pre-release security checks on third-party dependencies
+- Batch upgrading outdated packages by ecosystem
+- Auditing supply chain risk in your dependency tree
 
 SUPPORTED FILES:
   - package.json / package-lock.json (npm/yarn)
@@ -1627,6 +1714,18 @@ VULNERABILITY SCANNING (--vuln-scan):
   - Exit code 2 for critical vulnerabilities
   - Offline mode uses local OSV databases
 
+COMBINING WITH OTHER TOOLS:
+  Deps + Full Audit:
+    aud full --offline                   # Complete security audit
+    aud deps --vuln-scan                 # Add supply chain check
+
+  Deps + FCE Correlation:
+    aud deps --vuln-scan
+    aud fce                              # Correlate vuln findings with code
+
+  CI/CD Pipeline:
+    aud deps --vuln-scan --offline || exit 2  # Block on vulnerabilities
+
 EXAMPLES:
     aud deps                              # Basic dependency inventory
     aud deps --check-latest               # Check for outdated packages
@@ -1645,6 +1744,12 @@ EXIT CODES:
     0 = Success
     2 = Critical vulnerabilities found (--vuln-scan)
 
+COMMON MISTAKES:
+- Running --check-latest without network access (needs registry APIs)
+- Using --upgrade-all without testing (breaks your project)
+- Expecting vuln-scan to find code vulnerabilities (only finds package CVEs)
+- Not using --offline in CI/CD (rate limits cause flaky builds)
+
 PERFORMANCE: 1-30 seconds (depends on network and registry responses)
 
 PREREQUISITES:
@@ -1653,132 +1758,193 @@ PREREQUISITES:
 
 RELATED COMMANDS:
     aud manual frameworks  # Framework detection
-    aud manual docs        # Documentation caching
+    aud manual rust        # Rust/Cargo specific analysis
 """,
     },
     "explain": {
         "title": "Comprehensive Code Context",
         "summary": "Get complete context about a file, symbol, or component in one call",
         "explanation": """
-The explain command provides a complete "briefing packet" in ONE command,
-eliminating the need to run multiple queries or read entire files.
-Optimized for AI workflows.
+WHAT IT IS:
+The explain command provides a complete "briefing packet" in ONE command.
+It returns everything you need to know about a file, symbol, or component:
+definitions, callers, callees, dependencies, and code snippets. Optimized
+for AI workflows - saves 5-10 query calls per task.
+
+WHEN TO USE IT:
+- Before modifying code: Understand callers before changing signature
+- Investigating a symbol: Find definition, callers, and what it calls
+- Understanding a file: See all symbols, imports, and who depends on it
+- Component analysis: Get props, hooks, and child components
+- Replacing multiple queries: One call instead of 5-6 aud query calls
+
+HOW TO USE IT:
+PREREQUISITES:
+    aud full                              # Build database first
+
+STEPS:
+    1. Run explain on your target (auto-detects type):
+       aud explain src/auth.py            # File context
+       aud explain validateUser           # Symbol context
+       aud explain Dashboard              # Component context
+
+    2. Review the briefing packet:
+       - SYMBOLS DEFINED (for files)
+       - CALLERS / CALLEES (for symbols)
+       - DEPENDENCIES / DEPENDENTS (for files)
+
+    3. Use the context to make informed changes
+
+EXAMPLE - Before Refactoring a Function:
+    aud explain validateUser
+    # Shows: defined at auth.py:42, called by 15 functions
+    # Shows: calls sanitizeInput, checkPermissions
+    # Action: Now you know the blast radius before changing signature
 
 TARGET TYPES (auto-detected):
-  File path:     aud explain src/auth.ts
-  Symbol:        aud explain authenticateUser
-  Class.method:  aud explain UserController.create
-  Component:     aud explain Dashboard
+- File path: aud explain src/auth.ts
+- Symbol name: aud explain validateUser
+- Class.method: aud explain UserController.create
+- Component: aud explain Dashboard
+
+COMBINING WITH OTHER TOOLS:
+- Instead of query: Use explain for comprehensive context in one call
+- Before impact: Use explain to understand a symbol before impact analysis
+- After deadcode: Use explain to verify a file is truly unused
+- With blueprint: Use blueprint for overview, explain for specific targets
 
 WHAT IT RETURNS:
 
-  For files:
-    - SYMBOLS DEFINED: All functions, classes, variables with line numbers
-    - HOOKS USED: React/Vue hooks (if applicable)
-    - DEPENDENCIES: Files imported by this file
-    - DEPENDENTS: Files that import this file
-    - OUTGOING CALLS: Functions called from this file
-    - INCOMING CALLS: Functions in this file called elsewhere
+For files:
+- SYMBOLS DEFINED: Functions, classes, variables with line numbers
+- HOOKS USED: React/Vue hooks (frontend files)
+- DEPENDENCIES: Files imported by this file
+- DEPENDENTS: Files that import this file
+- OUTGOING CALLS: Functions called from this file
+- INCOMING CALLS: Functions in this file called elsewhere
 
-  For symbols:
-    - DEFINITION: File, line, type, signature
-    - CALLERS: Who calls this symbol
-    - CALLEES: What this symbol calls
+For symbols:
+- DEFINITION: File, line, type, signature
+- CALLERS: Who calls this symbol
+- CALLEES: What this symbol calls
 
-  For components:
-    - COMPONENT INFO: Type, props, file location
-    - HOOKS USED: React hooks with lines
-    - CHILD COMPONENTS: Components rendered by this one
+For components:
+- COMPONENT INFO: Type, props, file location
+- HOOKS USED: React hooks with lines
+- CHILD COMPONENTS: Components rendered by this one
 
-WHY USE THIS:
-  - Single command replaces 5-6 queries
-  - Includes code snippets by default
-  - Saves 5,000-10,000 context tokens per task
-  - Auto-detects target type (no flags needed)
+COMMAND OPTIONS:
+    aud explain <target>                  # Auto-detect type
+    aud explain <target> --format json    # JSON for AI parsing
+    aud explain <target> --depth 2        # Follow call graph deeper
+    aud explain <target> --no-code        # Skip snippets (faster)
+    aud explain <target> --limit 10       # Max items per section
+    aud explain <target> --section callers # Only show callers
 
-EXAMPLES:
-    aud explain src/auth/service.ts       # File context
-    aud explain validateInput             # Symbol context
-    aud explain Dashboard --format json   # JSON output for AI
-    aud explain OrderController --no-code # Fast mode
-    aud explain utils/helpers.py --limit 10
+RELATED:
+Commands: aud explain, aud query, aud blueprint, aud impact
+Topics: aud manual query, aud manual blueprint, aud manual impact
 
-PERFORMANCE: <100ms for files with <50 symbols
+COMMON MISTAKES:
+- Using query for comprehensive context: Explain does it in one call
+  -> Use aud explain instead of multiple aud query commands
+- Running before aud full: No database means no results
+  -> Always run aud full first to populate repo_index.db
+- Forgetting --format json for AI: Text output is for humans
+  -> Use --format json when parsing output programmatically
+- Deep depth on large codebases: Slow and too much output
+  -> Start with --depth 1, increase only if needed
 
-OPTIONS:
-    --depth N      Call graph depth (1-5, default=1)
-    --format json  JSON output for AI consumption
-    --section X    Show only specific section
-    --no-code      Disable code snippets (faster)
-    --limit N      Max items per section (default=20)
-
-PREREQUISITES:
-    aud full    # Builds repo_index.db
-
-RELATED COMMANDS:
-    aud query       # Low-level database queries
-    aud blueprint   # Project-wide overview
-    aud impact      # Change blast radius
+PERFORMANCE:
+- <100ms for files with <50 symbols
+- Scales linearly with symbol count and call graph depth
 """,
     },
     "deadcode": {
         "title": "Dead Code Detection",
         "summary": "Find unused modules, functions, and unreachable code",
         "explanation": """
-Dead code detection identifies isolated modules, unreachable functions, and
-never-imported code by analyzing the import graph. Any module with symbols
-that is never imported is potentially dead.
+WHAT IT IS:
+Dead code detection finds modules and functions that are never imported or
+called anywhere in your codebase. It queries the database (not files) to
+identify code that can be safely removed, reducing maintenance burden and
+attack surface.
 
-WHAT IT DETECTS:
-  Isolated Modules:
-    - Python files with functions/classes never imported anywhere
-    - JavaScript modules with exports never imported
-    - Entire features implemented but never integrated
+WHEN TO USE IT:
+- After completing a refactoring to find orphaned code
+- Before major releases to reduce bundle size and complexity
+- During code reviews to verify removed features are fully deleted
+- In CI/CD to prevent accumulating unused code over time
+- After removing a feature to find all related dead code
 
-  Dead Functions:
-    - Functions defined but never called (within analyzed scope)
-    - Callback handlers for removed event listeners
-    - Deprecated API endpoints no longer routed
+HOW TO USE IT:
+PREREQUISITES:
+    aud full                              # Build database first (required)
 
-  False Positive Reduction:
-    - CLI entry points (cli.py, main.py) = medium confidence
-    - Test files (test_*.py) = medium confidence
-    - Migration scripts = excluded by default
-    - Empty __init__.py = low confidence
+STEPS:
+    1. Run dead code detection:
+       aud deadcode                       # Find all dead code
+
+    2. Review findings by confidence level:
+       - HIGH: Definitely unused, safe to delete
+       - MEDIUM: Might be entry point or test, verify manually
+       - LOW: Likely false positive (empty __init__.py, generated)
+
+    3. For each HIGH confidence finding, verify and delete:
+       aud explain <file>                 # Check for hidden usage
+       git rm <file>                      # Remove if truly dead
+
+EXAMPLE - Cleaning Up After Refactoring:
+    aud full && aud deadcode --path-filter 'src/%'
+    # Shows: src/old_auth.py [HIGH] - 0 imports, 5 functions
+    # Action: Verify not used, then delete
+
+COMBINING WITH OTHER TOOLS:
+- Before deadcode: Run aud full to ensure fresh database
+- After deadcode: Use aud explain <file> to verify findings
+- With refactor: Run aud refactor first to find incomplete migrations
+- In CI/CD: Use --fail-on-dead-code to block PRs adding dead code
+
+AGENT WORKFLOW:
+The refactor agent (/theauditor:refactor) runs aud deadcode in Phase 1
+to verify files are actively used before analyzing for refactoring.
+If deadcode shows [HIGH] confidence unused, the agent flags for cleanup
+rather than refactoring.
 
 CONFIDENCE LEVELS:
-  HIGH: Regular module with symbols, never imported, not special file
-  MEDIUM: Entry point, test file, or script (might be invoked externally)
-  LOW: Empty __init__.py, generated code (false positive likely)
+- HIGH: Regular module with symbols, never imported, not special file
+- MEDIUM: Entry point, test file, or script (might be invoked externally)
+- LOW: Empty __init__.py, generated code (false positive likely)
 
-ALGORITHM (Database-Only):
-  1. Query symbols table for files containing functions/classes
-  2. Query refs table for all imported file paths
-  3. Compute set difference: files_with_code - imported_files
-  4. Classify confidence based on file path patterns
-  5. Filter by --path-filter and --exclude patterns
+WHAT IT DETECTS:
+- Isolated Modules: Files with code never imported anywhere
+- Dead Functions: Functions defined but never called
+- Orphaned Features: Entire features implemented but never integrated
 
-EXAMPLES:
+COMMAND OPTIONS:
     aud deadcode                              # Find all dead code
-    aud deadcode --path-filter 'src/%'        # Analyze specific directory
-    aud deadcode --fail-on-dead-code          # CI/CD strict mode
-    aud deadcode --format json --save report.json
-    aud deadcode --format summary
+    aud deadcode --path-filter 'src/%'        # Specific directory only
+    aud deadcode --exclude 'test/%'           # Skip test files
+    aud deadcode --fail-on-dead-code          # Exit 1 if dead code found
+    aud deadcode --format json                # Machine-readable output
+    aud deadcode --format summary             # Counts only
 
-PERFORMANCE: ~1-2 seconds (pure database query, no file I/O)
+RELATED:
+Commands: aud deadcode, aud refactor, aud graph analyze, aud explain
+Topics: aud manual refactor, aud manual graph, aud manual impact
 
-PREREQUISITES:
-    aud full    # Populates symbols and refs tables
+COMMON MISTAKES:
+- Running before aud full: No database means no analysis
+  -> Always run aud full first to populate symbols and refs tables
+- Deleting MEDIUM confidence files: These might be CLI entry points
+  -> Verify with aud explain or grep for external invocations
+- Ignoring deadcode in CI: Technical debt accumulates silently
+  -> Add aud deadcode --fail-on-dead-code to CI pipeline
 
 EXIT CODES:
-    0 = Success, no dead code (or --fail-on-dead-code not set)
-    1 = Dead code found AND --fail-on-dead-code flag set
-    2 = Error (database missing or query failed)
-
-RELATED COMMANDS:
-    aud graph analyze   # Dependency graph view
-    aud refactor        # Incomplete refactorings
-    aud impact          # Change blast radius (opposite of dead code)
+- 0: Success (no dead code, or dead code found but --fail-on-dead-code not set)
+- 1: Dead code found AND --fail-on-dead-code flag set
+- 2: Error (database missing or query failed)
 """,
     },
     "session": {
@@ -1789,12 +1955,17 @@ Session analysis parses and analyzes AI agent interaction logs to extract
 metrics, detect patterns, and store data for machine learning. Supports
 Claude Code, Codex, and other AI coding assistants.
 
-WHY SESSION ANALYSIS:
-Understanding how AI agents interact with your codebase reveals:
-- Agent efficiency (work/talk ratio, tokens per edit)
-- Common patterns and anti-patterns
-- Training data for ML-based suggestions
-- Quality indicators for agent behavior
+WHEN TO USE IT:
+- After completing a complex coding session to measure efficiency
+- Building training data for ML models (aud learn)
+- Diagnosing why an agent session was slow or expensive
+- Comparing agent performance across different projects
+
+PREREQUISITES:
+- AI agent session logs must exist in standard locations
+- Claude Code: ~/.claude/projects/<project-name>/
+- Codex: ~/.codex/sessions/
+- Or specify custom path with --session-dir
 
 SESSION LOCATIONS:
   Claude Code:  ~/.claude/projects/<project-name>/
@@ -1840,6 +2011,16 @@ Session data is stored in .pf/ml/session_history.db for:
 - Generating suggestions based on similar sessions
 - Long-term trend analysis
 
+COMBINING WITH OTHER TOOLS:
+  Session + ML Training:
+    aud session analyze                  # Parse and store session data
+    aud learn --session-analysis         # Train with agent behavior features
+    aud suggest --print-plan             # Get predictions using session patterns
+
+  Session + Audit Comparison:
+    aud session activity --limit 10      # See recent session efficiency
+    aud full && aud fce                  # Compare: agent work vs audit findings
+
 USE THE COMMANDS:
     aud session list                    # Find available sessions
     aud session analyze                 # Store to ML database
@@ -1847,9 +2028,16 @@ USE THE COMMANDS:
     aud session activity --limit 20     # Check efficiency trends
     aud session report --limit 5        # Aggregate findings
 
+COMMON MISTAKES:
+- Running analyze on empty session directory (no data found)
+- Expecting sessions from different projects to auto-merge (they don't)
+- Not running 'aud session analyze' before 'aud learn' (no training data)
+- Confusing session efficiency with code quality (separate concerns)
+
 RELATED COMMANDS:
     aud learn      Train ML on session data
     aud suggest    Get suggestions from learned patterns
+    aud manual ml  Understand machine learning system
 """,
     },
 }
