@@ -1,5 +1,6 @@
 """Pipeline execution infrastructure."""
 
+from .pipelines import run_full_pipeline
 from .renderer import RichRenderer
 from .structures import PhaseResult, PipelineContext, TaskStatus
 from .ui import (
@@ -13,6 +14,7 @@ from .ui import (
 )
 
 __all__ = [
+    "run_full_pipeline",
     "PhaseResult",
     "TaskStatus",
     "PipelineContext",

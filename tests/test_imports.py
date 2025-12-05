@@ -17,7 +17,7 @@ def test_cli_imports():
 
 def test_pipelines_imports():
     """Verify pipelines module imports work."""
-    from theauditor import pipelines
+    from theauditor.pipeline import pipelines
 
     assert hasattr(pipelines, "run_command_async")
 
