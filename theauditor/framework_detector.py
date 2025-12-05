@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from theauditor.framework_registry import FRAMEWORK_REGISTRY
-from theauditor.manifest_parser import ManifestParser
+from theauditor.indexer.extractors.manifest_parser import ManifestParser
 from theauditor.utils.logging import logger
 
 
