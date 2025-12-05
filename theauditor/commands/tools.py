@@ -191,6 +191,13 @@ def tools(ctx: click.Context) -> None:
     Detect, verify, and report on installed analysis tools including linters,
     security scanners, and language runtimes.
 
+    AI ASSISTANT CONTEXT:
+      Purpose: Detect and verify installed analysis tools (linters, runtimes, scanners)
+      Input: System PATH, .auditor_venv sandbox
+      Output: Tool version information (stdout or .pf/raw/tools.json)
+      Prerequisites: None (reads system state directly)
+      Integration: Run before aud full to verify toolchain, or after setup-ai
+
     \b
     SUBCOMMANDS:
       list    Show all tools and versions (default)

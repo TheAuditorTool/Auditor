@@ -173,9 +173,14 @@ def query(
       --format json|text  Output format (default=text)
       --show-code         Include source snippets
 
-    \b
-    EXAMPLES (Copy These Patterns)
-    ------------------------------
+    AI ASSISTANT CONTEXT:
+      Purpose: Query code relationships from indexed database (symbols, callers, dependencies)
+      Input: .pf/repo_index.db (after aud full)
+      Output: Structured results (text, JSON, or tree format)
+      Prerequisites: aud full (populates symbols, calls, refs tables)
+      Integration: Use for precise lookups; use aud explain for comprehensive context
+
+    EXAMPLES:
       # Find callers before refactoring
       aud query --symbol validateUser --show-callers
 

@@ -23,7 +23,7 @@ def graph():
       Purpose: Analyze code architecture via dependency and call graphs
       Input: .pf/repo_index.db (code index)
       Output: .pf/graphs.db (graph database), visualizations
-      Prerequisites: aud index (populates refs and calls tables)
+      Prerequisites: aud full (populates refs and calls tables)
       Integration: Architecture reviews, refactoring planning, impact analysis
       Performance: ~5-30 seconds (graph construction + analysis)
 
@@ -45,7 +45,7 @@ def graph():
       - Hidden coupling (indirect dependencies via intermediaries)
 
     TYPICAL WORKFLOW:
-      aud index
+      aud full
       aud graph build
       aud graph analyze
       aud graph query --uses auth.py
@@ -53,8 +53,8 @@ def graph():
     EXAMPLES:
       aud graph build
       aud graph analyze --workset
-      aud graph query --imports database
-      aud graph viz --format dot --output deps.svg
+      aud graph query --uses database
+      aud graph viz --format dot --out-dir ./output/
 
     PERFORMANCE:
       Small (<100 files):  ~2-5 seconds
@@ -64,7 +64,7 @@ def graph():
     RELATED COMMANDS:
       aud impact    # Uses graph for change impact analysis
       aud deadcode  # Uses graph for isolation detection
-      aud index     # Populates refs/calls tables
+      aud full      # Populates refs/calls tables
 
     NOTE: Graph commands use separate graphs.db database (not repo_index.db).
     This is an optimization for complex graph traversal queries.
@@ -353,7 +353,7 @@ def graph_analyze(root, db, out, max_depth, workset):
       Purpose: Detect architectural issues via graph analysis
       Input: .pf/graphs.db (import and call graphs from 'aud graph build')
       Output: .pf/raw/graph_analysis.json (cycles, hotspots, health metrics)
-      Prerequisites: aud index, aud graph build
+      Prerequisites: aud full, aud graph build
       Integration: Architecture reviews, refactoring planning, impact analysis
       Performance: ~3-10 seconds (graph traversal + metrics calculation)
 

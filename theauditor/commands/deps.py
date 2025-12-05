@@ -78,7 +78,14 @@ def deps(
       --upgrade-cargo:  Only Cargo.toml
       (Combine flags to upgrade multiple ecosystems)
 
-    Examples:
+    AI ASSISTANT CONTEXT:
+      Purpose: Analyze dependencies for vulnerabilities, outdated packages, and upgrades
+      Input: package.json, pyproject.toml, requirements.txt, Cargo.toml, Dockerfiles
+      Output: .pf/raw/deps.json, .pf/raw/deps_latest.json, .pf/raw/vulnerabilities.json
+      Prerequisites: None (reads manifest files directly, no database required)
+      Integration: Run standalone or as part of aud full pipeline
+
+    EXAMPLES:
       aud deps                              # Basic dependency inventory
       aud deps --check-latest               # Check for outdated packages (grouped by file)
       aud deps --upgrade-py                 # Upgrade only Python dependencies

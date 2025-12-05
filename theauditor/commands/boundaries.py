@@ -66,7 +66,7 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
       Purpose: Measure boundary enforcement quality via call-chain distance analysis
       Input: .pf/repo_index.db (symbols, call_graph, routes, validators)
       Output: Boundary analysis report with distance measurements (facts only, NO recommendations)
-      Prerequisites: aud index (populates call graph for distance calculation)
+      Prerequisites: aud full (populates call graph for distance calculation)
       Integration: Security audit pipeline, complements taint analysis
       Performance: ~5-30s depending on entry point count and call graph size
 
@@ -137,7 +137,7 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
       aud taint: Detects data flow violations (untrusted->sink)
       aud boundaries: Detects control placement violations (distance from entry)
       aud blueprint --boundaries: Shows boundary architecture in codebase structure
-      aud context query --boundary "/api/users": Shows boundary details for specific route
+      aud query --api "/api/users": Query API endpoint handlers and relationships
 
     MULTI-TENANT SaaS USE CASE (Critical for Compliance):
       Problem: Missing tenant_id filter = cross-tenant data leak = lawsuit

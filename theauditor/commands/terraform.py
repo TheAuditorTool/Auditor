@@ -25,9 +25,9 @@ def terraform():
 
     AI ASSISTANT CONTEXT:
       Purpose: Detect infrastructure security issues in Terraform code
-      Input: *.tf files (indexed by 'aud index')
+      Input: *.tf files (extracted by 'aud full')
       Output: .pf/raw/terraform_findings.json (security issues)
-      Prerequisites: aud index (extracts Terraform resources)
+      Prerequisites: aud full (extracts Terraform resources)
       Integration: Pre-deployment security validation, IaC auditing
       Performance: ~5-15 seconds (HCL parsing + security rules)
 
@@ -49,7 +49,7 @@ def terraform():
       - Hard-coded secrets in configurations
 
     TYPICAL WORKFLOW:
-      aud index
+      aud full
       aud terraform provision
       aud terraform analyze
 
@@ -94,7 +94,7 @@ def provision(root, workset, output, db, graphs_db):
       aud terraform provision --output graph.json # Custom output path
 
     Prerequisites:
-      - Must run 'aud index' first to extract Terraform resources
+      - Must run 'aud full' first to extract Terraform resources
       - Terraform files must be in project (.tf, .tfvars)
 
     Output:
@@ -233,7 +233,7 @@ def analyze(root, severity, categories, output, db):
       aud terraform analyze --categories public_exposure
 
     Prerequisites:
-      - Run 'aud index' first to extract Terraform resources
+      - Run 'aud full' first to extract Terraform resources
       - Optionally run 'aud terraform provision' for graph-based analysis
 
     Output:

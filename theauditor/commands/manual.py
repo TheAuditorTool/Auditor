@@ -225,7 +225,7 @@ def manual(concept, list_concepts):
       Before First Analysis:
         aud manual pipeline      # Understand execution flow
         aud manual taint         # Learn security analysis
-        aud init && aud full
+        aud full                 # Run complete audit (creates .pf/)
 
       Understanding Command Output:
         aud taint

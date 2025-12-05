@@ -35,8 +35,8 @@ def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_
       Purpose: Creates focused file subset for targeted analysis (incremental workflows)
       Input: Git diff / file patterns + .pf/repo_index.db (import graph)
       Output: .pf/workset.json (seed files + expanded dependencies)
-      Prerequisites: aud index (for dependency expansion), git repository (for --diff)
-      Integration: Used with --workset flag on taint, lint, impact, etc.
+      Prerequisites: aud full (for dependency expansion), git repository (for --diff)
+      Integration: Output consumed by aud lint --workset for targeted analysis
       Performance: ~1-3 seconds (git diff + graph query), analysis 10-100x faster
 
     WHAT IT COMPUTES:
@@ -82,29 +82,29 @@ def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_
 
     EXAMPLES:
       # Use Case 1: Analyze files changed in last commit
-      aud workset --diff HEAD~1 && aud taint --workset
+      aud workset --diff HEAD~1 && aud lint --workset
 
       # Use Case 2: PR review workflow (feature branch vs main)
-      aud workset --diff main..feature && aud full --workset
+      aud workset --diff main..feature && aud lint --workset
 
       # Use Case 3: Analyze specific files and their dependencies
       aud workset --files auth.py api.py --max-depth 2
 
       # Use Case 4: Pattern-based analysis (all API endpoints)
-      aud workset --include "*/api/*" && aud docker-analyze --workset
+      aud workset --include "*/api/*" && aud lint --workset
 
-      # Use Case 5: Full analysis without git diff (all source files)
-      aud workset --all && aud deadcode --workset
+      # Use Case 5: Targeted lint on all source files
+      aud workset --all && aud lint --workset
 
     COMMON WORKFLOWS:
       Pre-Commit Hook (Fast Validation):
-        aud workset --diff HEAD && aud taint --workset --fail-fast
+        aud workset --diff HEAD && aud lint --workset
 
       CI/CD PR Checks (Changed Files Only):
-        aud index && aud workset --diff origin/main..HEAD && aud full --workset
+        aud full --index && aud workset --diff origin/main..HEAD && aud lint --workset
 
       Iterative Development (After Code Changes):
-        aud workset --diff HEAD~3 && aud lint --workset && aud impact --workset
+        aud workset --diff HEAD~3 && aud lint --workset
 
     OUTPUT FILES:
       .pf/workset.json               # Workset file consumed by --workset flag
@@ -156,7 +156,7 @@ def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_
 
     PREREQUISITES:
       Required:
-        aud index              # Populates refs table for dependency expansion
+        aud full               # Populates refs table for dependency expansion
 
       Optional:
         Git repository         # For --diff flag (not needed for --files/--all)
@@ -168,10 +168,8 @@ def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_
       2 = No files matched criteria (empty workset)
 
     RELATED COMMANDS:
-      aud index              # Must run first to populate import graph
-      aud taint --workset   # Use workset for targeted taint analysis
-      aud impact --workset   # Use workset for change impact analysis
-      aud full --workset     # Run all checks on workset files only
+      aud full               # Must run first to populate import graph
+      aud lint --workset     # Use workset for targeted lint analysis
 
     SEE ALSO:
       aud explain workset    # Deep dive into workset algorithm
@@ -195,7 +193,7 @@ def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_
 
       Missing dependencies (analysis incomplete):
         -> Increase --max-depth to capture transitive dependencies
-        -> Verify 'aud index' ran successfully (check .pf/repo_index.db)
+        -> Verify 'aud full' ran successfully (check .pf/repo_index.db)
         -> Use --print-stats to see seed vs expanded file counts
 
     NOTE: Workset is purely a performance optimization - it does NOT change analysis

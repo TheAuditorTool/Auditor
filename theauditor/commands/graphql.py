@@ -23,7 +23,7 @@ def graphql():
       Purpose: Map GraphQL schema to backend resolvers for security analysis
       Input: .pf/repo_index.db (code index with graphql_* tables)
       Output: Resolver mappings, execution edges, findings cache
-      Prerequisites: aud index (extracts SDL schemas + resolver patterns)
+      Prerequisites: aud full (extracts SDL schemas + resolver patterns)
       Integration: Taint analysis, security rules, data flow tracking
       Performance: ~2-10 seconds (schema correlation + graph construction)
 
@@ -46,10 +46,10 @@ def graphql():
       - Argument mapping (GraphQL args → function parameters)
 
     TYPICAL WORKFLOW:
-      aud index                    # Extract SDL + resolvers
+      aud full                     # Extract SDL + resolvers
       aud graphql build            # Correlate and build execution graph
       aud graphql query --type User  # Inspect User type fields
-      aud taint            # Use GraphQL edges for taint
+      aud taint                    # Use GraphQL edges for taint
 
     EXAMPLES:
       aud graphql build
@@ -62,18 +62,15 @@ def graphql():
       Large (200+ types):   ~5-10 seconds
 
     RELATED COMMANDS:
-      aud index        # Extracts GraphQL schemas and resolvers
-      aud taint  # Uses GraphQL execution edges
+      aud full         # Extracts GraphQL schemas and resolvers
+      aud taint        # Uses GraphQL execution edges
       aud graph        # Generic call graph (GraphQL adds field layer)
 
     NOTE: GraphQL data stored in repo_index.db (graphql_* tables).
     The build command adds resolver_mappings and execution_edges.
 
     EXAMPLE:
-      aud graphql query --field user --show-path
-
-    Output:
-      Query.user → UserResolver.resolve_user() → getUserById() → db.query()
+      aud graphql query --field user --show-resolvers
 
     SEE ALSO:
       aud manual graphql   Learn about GraphQL schema and resolver analysis

@@ -1,6 +1,6 @@
 """Display frameworks detected during indexing and generate AI-consumable output.
 
-This command reads from the frameworks table populated by 'aud index'.
+This command reads from the frameworks table populated by 'aud full'.
 It does NOT re-parse manifests - database is the single source of truth.
 """
 
@@ -20,7 +20,7 @@ from theauditor.pipeline.ui import console
 def detect_frameworks(project_path, output_json):
     """Display detected frameworks from indexed codebase in AI-consumable format.
 
-    Reads framework metadata from the database (populated during 'aud index') and outputs
+    Reads framework metadata from the database (populated during 'aud full') and outputs
     structured JSON for AI assistant consumption. This command is database-only - it does
     NOT re-parse manifests or analyze source code. The database is the single source of truth.
 
@@ -28,7 +28,7 @@ def detect_frameworks(project_path, output_json):
       Purpose: Exposes detected frameworks/libraries for architecture understanding
       Input: .pf/repo_index.db (frameworks table)
       Output: .pf/raw/frameworks.json (structured framework list)
-      Prerequisites: aud index (must run first to populate database)
+      Prerequisites: aud full (must run first to populate database)
       Integration: Used by blueprint and structure commands for architecture visualization
       Performance: ~1 second (database query only, no file I/O)
 
@@ -48,14 +48,14 @@ def detect_frameworks(project_path, output_json):
 
     HOW IT WORKS:
       1. Connects to .pf/repo_index.db (fails if not exists)
-      2. Queries frameworks table (populated by 'aud index' extractors)
+      2. Queries frameworks table (populated by 'aud full' extractors)
       3. Retrieves: framework name, version, language, source file, detection method
       4. Outputs JSON to .pf/raw/frameworks.json (AI-consumable format)
       5. Displays human-readable ASCII table to stdout
 
     EXAMPLES:
       # Use Case 1: Basic framework detection after indexing
-      aud index && aud detect-frameworks
+      aud full && aud detect-frameworks
 
       # Use Case 2: Custom output path for CI/CD integration
       aud detect-frameworks --output-json ./build/frameworks.json
@@ -64,11 +64,11 @@ def detect_frameworks(project_path, output_json):
       aud detect-frameworks --project-path ./services/api
 
       # Use Case 4: Pipeline workflow (index → detect → analyze)
-      aud index && aud detect-frameworks && aud blueprint --format json
+      aud full && aud detect-frameworks && aud blueprint --format json
 
     COMMON WORKFLOWS:
       Architecture Documentation:
-        aud index && aud detect-frameworks && aud blueprint
+        aud full && aud detect-frameworks && aud blueprint
 
       Security Audit (framework-specific CVEs):
         aud detect-frameworks && aud deps --vuln-scan
@@ -109,18 +109,18 @@ def detect_frameworks(project_path, output_json):
 
     PREREQUISITES:
       Required:
-        aud index              # Must run first to populate frameworks table
+        aud full               # Must run first to populate frameworks table
 
       Optional:
         None (standalone query command)
 
     EXIT CODES:
       0 = Success, frameworks detected or no frameworks found
-      1 = Database not found (run 'aud index' first)
+      1 = Database not found (run 'aud full' first)
       3 = Database query failed (check .pf/pipeline.log)
 
     RELATED COMMANDS:
-      aud index              # Populates frameworks table (run first)
+      aud full               # Populates frameworks table (run first)
       aud blueprint          # Visual architecture including frameworks
       aud deps               # Analyzes framework dependencies for CVEs
 
@@ -130,19 +130,19 @@ def detect_frameworks(project_path, output_json):
 
     TROUBLESHOOTING:
       Error: "Database not found"
-        → Run 'aud index' first to create .pf/repo_index.db
+        → Run 'aud full' first to create .pf/repo_index.db
 
       No frameworks detected despite having package.json:
-        → Check 'aud index' output for errors
+        → Check 'aud full' output for errors
         → Verify package.json is valid JSON
         → Check .pf/pipeline.log for extractor failures
 
       Wrong framework versions detected:
-        → Re-run 'aud index' to refresh database
+        → Re-run 'aud full' to refresh database
         → Framework versions come from manifest files (package.json, requirements.txt)
 
     NOTE: This is a read-only database query. It does not modify files or re-parse
-    manifests. To refresh framework detection, run 'aud index' again.
+    manifests. To refresh framework detection, run 'aud full' again.
     """
     project_path = Path(project_path).resolve()
     db_path = project_path / ".pf" / "repo_index.db"

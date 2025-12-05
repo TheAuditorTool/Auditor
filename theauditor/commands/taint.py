@@ -140,21 +140,21 @@ def taint_analyze(
       # Use Case 4: Export for SAST tool integration
       aud taint --json --output ./sast_results.json
 
-      # Use Case 5: Fast scan (disable CFG for speed)
-      aud taint --no-cfg  # 3-5x faster but less accurate
+      # Use Case 5: Fast scan (forward mode, less accurate)
+      aud taint --mode forward  # Faster but may miss complex paths
 
       # Use Case 6: Memory-constrained environment
       aud taint --memory-limit 512  # Limit cache to 512MB
 
-      # Use Case 7: Combined with workset (analyze recent changes)
-      aud workset --diff HEAD~1 && aud taint --workset
+      # Use Case 7: Complete analysis (all flow directions)
+      aud taint --mode complete  # Most thorough, slowest
 
     COMMON WORKFLOWS:
       Pre-Commit Security Check:
         aud full --index && aud taint --severity critical
 
       Pull Request Review:
-        aud workset --diff main..feature && aud taint --workset
+        aud full --index && aud taint --severity high
 
       CI/CD Pipeline (fail on high severity):
         aud taint --severity high || exit 2
@@ -208,7 +208,7 @@ def taint_analyze(
       Medium (20K LOC):    ~30 seconds,   ~500MB RAM
       Large (100K+ LOC):   ~5 minutes,    ~2GB RAM
       With --memory:       5-10x faster (caching enabled)
-      With --no-cfg:       3-5x faster (less accurate)
+      With --mode forward: 2-3x faster (less accurate)
 
     FLAG INTERACTIONS:
       Mutually Exclusive:
@@ -216,11 +216,11 @@ def taint_analyze(
 
       Recommended Combinations:
         --severity critical --verbose    # Debug critical issues
-        --memory --use-cfg              # Optimal accuracy + performance (default)
-        --no-cfg --memory-limit 512     # Fast scan on low-memory systems
+        --mode backward --memory         # Optimal accuracy + performance (default)
+        --mode forward --memory-limit 512  # Fast scan on low-memory systems
 
       Flag Modifiers:
-        --use-cfg: Path-sensitive analysis (recommended, slower but accurate)
+        --mode: Analysis direction (backward=IFDS default, forward=faster, complete=thorough)
         --memory: In-memory caching (5-10x faster, uses ~500MB-2GB RAM)
         --max-depth: Controls inter-procedural depth (higher=slower+more paths)
         --severity: Filters output only (does not skip analysis)
@@ -253,29 +253,29 @@ def taint_analyze(
         -> Run 'aud full' first to create .pf/repo_index.db
 
       Analysis too slow (>10 minutes):
-        → Use --no-cfg for 3-5x speedup (less accurate)
-        → Limit scope with 'aud workset' first
-        → Reduce --max-depth from 5 to 3
+        -> Use --mode forward for 2-3x speedup (less accurate)
+        -> Use aud full --index first, then run taint on indexed data
+        -> Reduce --max-depth from 5 to 3
 
       Out of memory errors:
-        → Set --memory-limit to lower value (e.g., --memory-limit 512)
-        → Use --no-memory to disable caching (slower but uses less RAM)
-        → Analyze in smaller batches with --path-filter
+        -> Set --memory-limit to lower value (e.g., --memory-limit 512)
+        -> Use --no-memory to disable caching (slower but uses less RAM)
+        -> Run aud full --index first, then taint on smaller scope
 
       False positives (sanitized input flagged):
-        → Check if sanitization function is recognized (see taint/core.py TaintRegistry)
-        → Use custom sanitizers via .theauditor.yml config
-        → Review with --verbose to see full taint path
+        -> Check if sanitization function is recognized (see taint/core.py TaintRegistry)
+        -> Use custom sanitizers via .theauditor.yml config
+        -> Review with --verbose to see full taint path
 
       False negatives (known vulnerability not detected):
-        → Verify source is in taint source registry
-        → Check sink pattern is recognized
-        → Increase --max-depth to trace deeper paths
-        → Check .pf/pipeline.log for analysis warnings
+        -> Verify source is in taint source registry
+        -> Check sink pattern is recognized
+        -> Increase --max-depth to trace deeper paths
+        -> Check .pf/pipeline.log for analysis warnings
 
     NOTE: Taint analysis is conservative (over-reports) to avoid missing vulnerabilities.
-    Review findings manually - not all taint paths are exploitable. Path-sensitive analysis
-    (--use-cfg) reduces false positives by respecting conditional sanitization.
+    Review findings manually - not all taint paths are exploitable. The default --mode backward
+    uses IFDS algorithm for path-sensitive analysis, reducing false positives.
     """
     import json as json_lib
 
@@ -332,7 +332,7 @@ def taint_analyze(
                     console.print(f"[error]  - {error}[/error]", highlight=False)
 
             console.print(
-                "[error]\nFix: Run 'aud index' to rebuild database with correct schema.[/error]",
+                "[error]\nFix: Run 'aud full' to rebuild database with correct schema.[/error]",
             )
             console.rule()
 

@@ -111,7 +111,7 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
       Purpose: Measure blast radius + coupling for change planning
       Input: .pf/repo_index.db (symbol table and call graph)
       Output: Impact report, planning context, or JSON
-      Prerequisites: aud index (populates symbol table and refs)
+      Prerequisites: aud full (populates symbol table and refs)
       Integration: Pre-refactoring risk assessment, planning agent
       Performance: ~1-5 seconds (graph traversal)
 
@@ -140,7 +140,7 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
       aud manual impact       Learn about blast radius analysis
       aud manual refactor     Detect incomplete refactorings
 
-    Note: Requires 'aud index' to be run first."""
+    Note: Requires 'aud full' to be run first."""
 
     import importlib.util
 
@@ -211,7 +211,7 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
                 raise click.ClickException(
                     f"Symbol '{symbol}' not found in database.\n"
                     "Hints:\n"
-                    "  - Run 'aud index' to rebuild the index\n"
+                    "  - Run 'aud full' to rebuild the index\n"
                     "  - Use 'aud query --pattern \"{symbol}%\"' to find similar symbols\n"
                     "  - Class methods are indexed as ClassName.methodName"
                 )
@@ -283,7 +283,7 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
             if not file_symbols:
                 raise click.ClickException(
                     f"No functions or classes found in '{file}'.\n"
-                    "Ensure the file has been indexed with 'aud index'."
+                    "Ensure the file has been indexed with 'aud full'."
                 )
 
             sym_name, sym_line, sym_type = file_symbols[0]

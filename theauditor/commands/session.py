@@ -65,7 +65,7 @@ def session():
       aud learn       ML training on session data
       aud suggest     Get suggestions from learned patterns
 
-    See: aud manual session, aud manual ml
+    See: aud manual ml
     """
     pass
 
@@ -106,7 +106,7 @@ def analyze(session_dir):
       aud session list      List available sessions
       aud learn             Train ML on session data
 
-    See: aud manual session, aud manual ml
+    See: aud manual ml
     """
     from pathlib import Path
 
@@ -199,7 +199,7 @@ def report(project_path, db_path, limit, show_findings):
       aud session activity   More detailed activity breakdown
       aud session inspect    Single session deep dive
 
-    See: aud manual session
+    See: aud manual ml
     """
     if project_path is None:
         project_path = str(Path.cwd())
@@ -315,7 +315,7 @@ def inspect(session_file, db_path):
       aud session list      Find sessions to inspect
       aud session activity  Aggregate activity across sessions
 
-    See: aud manual session
+    See: aud manual ml
     """
     console.print(f"Loading session: {session_file}", highlight=False)
 
@@ -422,7 +422,7 @@ def activity(project_path, limit, json_output):
       aud session inspect   Detailed single session analysis
       aud session report    Aggregate findings report
 
-    See: aud manual session, aud manual ml
+    See: aud manual ml
     """
     if project_path is None:
         project_path = str(Path.cwd())
@@ -527,7 +527,7 @@ def list(project_path):
       aud session inspect   Deep dive on a specific session
       aud session analyze   Bulk analyze to ML database
 
-    See: aud manual session
+    See: aud manual ml
     """
     if project_path is None:
         project_path = str(Path.cwd())

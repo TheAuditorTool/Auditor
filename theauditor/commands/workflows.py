@@ -29,9 +29,9 @@ def workflows():
 
     AI ASSISTANT CONTEXT:
       Purpose: Detect CI/CD security issues in GitHub Actions workflows
-      Input: .github/workflows/*.yml files (indexed by 'aud index')
+      Input: .github/workflows/*.yml files (extracted by 'aud full')
       Output: .pf/raw/workflow_findings.json (security issues)
-      Prerequisites: aud index (extracts workflow files)
+      Prerequisites: aud full (extracts workflow files)
       Integration: CI/CD security audits, supply chain validation
       Performance: ~2-5 seconds (workflow parsing + rule matching)
 
@@ -47,13 +47,12 @@ def workflows():
       - Supply chain risks (external reusable workflows)
 
     TYPICAL WORKFLOW:
-      aud index
-      aud detect-patterns  # or aud full
+      aud full
       aud workflows analyze
 
     EXAMPLES:
       aud workflows analyze
-      aud workflows analyze --out ./workflow_issues.json
+      aud workflows analyze --output ./workflow_issues.json
 
     RELATED COMMANDS:
       aud detect-patterns  # Includes workflow security rules
@@ -104,7 +103,7 @@ def analyze(root, workset, severity, output, db, chunk_size):
       aud workflows analyze --output report.json # Custom output path
 
     Prerequisites:
-      - Must run 'aud index' first to extract workflows
+      - Must run 'aud full' first to extract workflows
       - Optionally run 'aud detect-patterns' for security findings
 
     Output Files:
