@@ -1,6 +1,6 @@
 """Semantic Table Registry for FCE.
 
-Categorizes all 226 database tables by their role in convergence analysis.
+Categorizes ~148 database tables by their role in convergence analysis.
 This enables intelligent querying without writing custom logic for each table.
 
 Table Categories:

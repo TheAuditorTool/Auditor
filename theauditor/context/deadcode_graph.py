@@ -2,6 +2,7 @@
 
 import json
 import sqlite3
+from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -637,15 +638,19 @@ class GraphDeadCodeDetector:
         if not all_imports:
             return []
 
-        # Build lookup of actual function calls: {(caller_file, callee_file)}
-        # Uses callee_file_path column from function_call_args
+        # Build lookup of actual function calls for O(1) exact match
+        # Structure: caller_file -> set of callee_files
+        # Performance: O(M) build, O(1) lookup vs O(N*M) nested loop
+        call_index: dict[str, set[str]] = defaultdict(set)
+
         repo_cursor.execute("""
             SELECT DISTINCT file, callee_file_path
             FROM function_call_args
             WHERE callee_file_path IS NOT NULL
               AND callee_file_path != ''
         """)
-        actual_calls = {(row[0], row[1]) for row in repo_cursor.fetchall()}
+        for row in repo_cursor.fetchall():
+            call_index[row[0]].add(row[1])
 
         # Also check JSX calls
         repo_cursor.execute("""
@@ -654,7 +659,13 @@ class GraphDeadCodeDetector:
             WHERE callee_file_path IS NOT NULL
               AND callee_file_path != ''
         """)
-        actual_calls.update((row[0], row[1]) for row in repo_cursor.fetchall())
+        for row in repo_cursor.fetchall():
+            call_index[row[0]].add(row[1])
+
+        # Pre-compute all callee files for fuzzy matching fallback
+        all_callees = set()
+        for callees in call_index.values():
+            all_callees.update(callees)
 
         # Find ghost imports: imported but never called
         findings = []
@@ -665,18 +676,37 @@ class GraphDeadCodeDetector:
             if any(pattern in imported for pattern in exclude_patterns):
                 continue
 
-            # Check if any call exists from importer to imported
-            # We need fuzzy matching because paths might differ slightly
+            # O(1) exact match check first
+            if importer in call_index and imported in call_index[importer]:
+                continue  # Exact match found, not a ghost import
+
+            # Fuzzy matching fallback for path variations
+            # Only runs for imports that didn't exact-match
             has_call = False
-            for caller_file, callee_file in actual_calls:
-                if caller_file == importer or caller_file.endswith(importer):
-                    if callee_file == imported or callee_file.endswith(imported):
-                        has_call = True
-                        break
-                    # Also check if imported path is contained in callee_file
-                    if imported in callee_file or callee_file in imported:
-                        has_call = True
-                        break
+            caller_callees = call_index.get(importer, set())
+
+            # Check if any callee matches imported (suffix/contains)
+            for callee_file in caller_callees:
+                if callee_file.endswith(imported) or imported.endswith(callee_file):
+                    has_call = True
+                    break
+                if imported in callee_file or callee_file in imported:
+                    has_call = True
+                    break
+
+            # If still no match, check suffix match on caller
+            if not has_call:
+                for caller_file, callees in call_index.items():
+                    if caller_file.endswith(importer) or importer.endswith(caller_file):
+                        if imported in callees:
+                            has_call = True
+                            break
+                        for callee_file in callees:
+                            if callee_file.endswith(imported) or imported in callee_file:
+                                has_call = True
+                                break
+                        if has_call:
+                            break
 
             if not has_call:
                 confidence, reason = self._classify_ghost_import(importer, imported)

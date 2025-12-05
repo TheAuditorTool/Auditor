@@ -4,6 +4,7 @@ Follows the proven CodeQueryEngine pattern from theauditor/context/query.py.
 """
 
 import sqlite3
+from collections import defaultdict
 from pathlib import Path
 
 from theauditor.fce.registry import SemanticTableRegistry
@@ -35,8 +36,9 @@ class FCEQueryEngine:
         Raises:
             FileNotFoundError: If repo_index.db doesn't exist
         """
-        self.root = root
-        pf_dir = root / ".pf"
+        # Force absolute path resolution for consistent DB path matching
+        self.root = Path(root).resolve()
+        pf_dir = self.root / ".pf"
 
         repo_db_path = pf_dir / "repo_index.db"
         if not repo_db_path.exists():
@@ -63,9 +65,63 @@ class FCEQueryEngine:
 
         self.registry = SemanticTableRegistry()
 
+        # Cache valid tables and their columns at init (Zero Fallback: no runtime schema checks)
+        self._table_columns: dict[str, set[str]] = {}
+        self._load_table_schema()
+
+    def _load_table_schema(self) -> None:
+        """Load actual tables from DB and cache their columns.
+
+        Called once at init. Validates registry against actual schema.
+        No try/except - if DB is corrupt, fail loud.
+        """
+        cursor = self.repo_db.cursor()
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        actual_tables = {row[0] for row in cursor.fetchall()}
+
+        # Cache columns for context tables that actually exist
+        all_context = self.registry.get_all_context_tables()
+        for table in all_context:
+            if table in actual_tables:
+                cursor.execute(f"PRAGMA table_info({table})")
+                self._table_columns[table] = {row[1] for row in cursor.fetchall()}
+
     def _normalize_path(self, file_path: str) -> str:
         """Normalize file path for database queries."""
         return normalize_path_for_db(file_path, self.root)
+
+    def _build_vector_index(self) -> dict[str, set[Vector]]:
+        """Build file->vectors index in 2 queries (fixes N+1 pattern).
+
+        Returns:
+            Dict mapping file_path to set of Vectors present for that file
+        """
+        index: dict[str, set[Vector]] = defaultdict(set)
+        cursor = self.repo_db.cursor()
+
+        # Query 1: All findings_consolidated data (STATIC, PROCESS, STRUCTURAL)
+        cursor.execute("SELECT file, tool FROM findings_consolidated")
+        for row in cursor.fetchall():
+            file_path = row["file"]
+            if not file_path:
+                continue
+            tool = row["tool"]
+            if tool == "cfg-analysis":
+                index[file_path].add(Vector.STRUCTURAL)
+            elif tool == "churn-analysis":
+                index[file_path].add(Vector.PROCESS)
+            elif tool != "graph-analysis":  # Skip graph-analysis, not a findings source
+                index[file_path].add(Vector.STATIC)
+
+        # Query 2: All taint flows (FLOW vector)
+        cursor.execute("SELECT source_file, sink_file FROM taint_flows")
+        for row in cursor.fetchall():
+            if row["source_file"]:
+                index[row["source_file"]].add(Vector.FLOW)
+            if row["sink_file"]:
+                index[row["sink_file"]].add(Vector.FLOW)
+
+        return dict(index)
 
     def _has_static_findings(self, file_path: str) -> bool:
         """Check if file has any linter findings (STATIC vector).
@@ -241,6 +297,8 @@ class FCEQueryEngine:
     def get_convergence_points(self, min_vectors: int = 2) -> list[ConvergencePoint]:
         """Find all locations where multiple vectors converge.
 
+        Uses bulk loading (2 queries) instead of N+1 pattern.
+
         Args:
             min_vectors: Minimum number of vectors required (1-4, default 2)
 
@@ -250,24 +308,14 @@ class FCEQueryEngine:
         if min_vectors < 1 or min_vectors > 4:
             raise ValueError("min_vectors must be between 1 and 4")
 
-        cursor = self.repo_db.cursor()
         convergence_points: list[ConvergencePoint] = []
 
-        # Get all unique files with findings
-        cursor.execute("""
-            SELECT DISTINCT file FROM findings_consolidated
-            UNION
-            SELECT DISTINCT source_file FROM taint_flows
-            UNION
-            SELECT DISTINCT sink_file FROM taint_flows
-        """)
+        # Bulk load all vectors in 2 queries (not N+1)
+        vector_index = self._build_vector_index()
 
-        files_with_data = [row["file"] for row in cursor.fetchall() if row["file"]]
-
-        for file_path in files_with_data:
-            signal = self.get_vector_density(file_path)
-
-            if signal.vector_count >= min_vectors:
+        for file_path, vectors in vector_index.items():
+            if len(vectors) >= min_vectors:
+                # Only fetch facts for files that meet threshold
                 facts = self._get_facts_for_file(file_path)
 
                 if facts:
@@ -275,6 +323,8 @@ class FCEQueryEngine:
                     lines = [f.line for f in facts if f.line is not None]
                     line_start = min(lines) if lines else 1
                     line_end = max(lines) if lines else 1
+
+                    signal = VectorSignal(file_path=file_path, vectors_present=vectors)
 
                     convergence_points.append(
                         ConvergencePoint(
@@ -323,39 +373,36 @@ class FCEQueryEngine:
             facts=facts,
         )
 
-        # Build context layers from relevant tables
+        # Build context layers from relevant tables (using cached schema - no runtime PRAGMA)
         context_layers: dict[str, list[dict]] = {}
         context_tables = self.registry.get_context_tables_for_file(file_path)
 
         cursor = self.repo_db.cursor()
 
         for table in context_tables:
-            try:
-                # First check what columns exist in the table
-                cursor.execute(f"PRAGMA table_info({table})")
-                columns = {row[1] for row in cursor.fetchall()}
-
-                # Build query based on available columns
-                if "file" in columns:
-                    cursor.execute(
-                        f"SELECT * FROM {table} WHERE file LIKE ? LIMIT 50",
-                        (f"%{normalized}",),
-                    )
-                elif "path" in columns:
-                    cursor.execute(
-                        f"SELECT * FROM {table} WHERE path LIKE ? LIMIT 50",
-                        (f"%{normalized}",),
-                    )
-                else:
-                    # No file/path column - skip this table
-                    continue
-
-                rows = cursor.fetchall()
-                if rows:
-                    context_layers[table] = [dict(row) for row in rows]
-            except sqlite3.OperationalError:
-                # Table doesn't exist - skip it
+            # Use cached columns - skip tables not in DB (validated at init)
+            columns = self._table_columns.get(table)
+            if columns is None:
                 continue
+
+            # Build query based on available columns
+            if "file" in columns:
+                cursor.execute(
+                    f"SELECT * FROM {table} WHERE file LIKE ? LIMIT 50",
+                    (f"%{normalized}",),
+                )
+            elif "path" in columns:
+                cursor.execute(
+                    f"SELECT * FROM {table} WHERE path LIKE ? LIMIT 50",
+                    (f"%{normalized}",),
+                )
+            else:
+                # No file/path column - skip this table
+                continue
+
+            rows = cursor.fetchall()
+            if rows:
+                context_layers[table] = [dict(row) for row in rows]
 
         return AIContextBundle(
             convergence=convergence,
@@ -365,29 +412,19 @@ class FCEQueryEngine:
     def get_files_with_vectors(self) -> dict[str, VectorSignal]:
         """Get all files that have at least one vector.
 
+        Uses bulk loading (2 queries) instead of N+1 pattern.
+
         Returns:
             Dict mapping file_path to VectorSignal
         """
-        cursor = self.repo_db.cursor()
-        result: dict[str, VectorSignal] = {}
+        # Bulk load all vectors in 2 queries
+        vector_index = self._build_vector_index()
 
-        # Get all unique files
-        cursor.execute("""
-            SELECT DISTINCT file FROM findings_consolidated
-            UNION
-            SELECT DISTINCT source_file FROM taint_flows
-            UNION
-            SELECT DISTINCT sink_file FROM taint_flows
-        """)
-
-        for row in cursor.fetchall():
-            file_path = row["file"]
-            if file_path:
-                signal = self.get_vector_density(file_path)
-                if signal.vector_count > 0:
-                    result[file_path] = signal
-
-        return result
+        return {
+            file_path: VectorSignal(file_path=file_path, vectors_present=vectors)
+            for file_path, vectors in vector_index.items()
+            if vectors  # Only include files with at least one vector
+        }
 
     def get_summary(self) -> dict:
         """Get summary statistics for FCE analysis.
