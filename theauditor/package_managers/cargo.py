@@ -20,7 +20,7 @@ from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import get_rate_limiter
 
-from .base import BasePackageManager
+from .base import BasePackageManager, Dependency
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -48,18 +48,18 @@ class CargoPackageManager(BasePackageManager):
     def registry_url(self) -> str | None:
         return "https://crates.io/api/v1/crates/"
 
-    def parse_manifest(self, path: Path) -> list[dict[str, Any]]:
+    def parse_manifest(self, path: Path) -> list[Dependency]:
         """Parse Cargo.toml file for dependencies.
 
         Args:
             path: Path to Cargo.toml file
 
         Returns:
-            List of dependency dicts with name, version, manager, etc.
+            List of Dependency objects with guaranteed structure.
         """
         import tomllib
 
-        deps = []
+        deps: list[Dependency] = []
 
         with open(path, "rb") as f:
             data = tomllib.load(f)
@@ -92,14 +92,14 @@ class CargoPackageManager(BasePackageManager):
         deps_dict: dict[str, Any],
         kind: str,
         source: str,
-    ) -> list[dict[str, Any]]:
+    ) -> list[Dependency]:
         """Parse a Cargo.toml dependency section."""
-        deps = []
+        deps: list[Dependency] = []
 
         for name, spec in deps_dict.items():
             if isinstance(spec, str):
                 version = _clean_version(spec)
-                features = []
+                features: list[str] = []
                 is_workspace = False
             elif isinstance(spec, dict):
                 # Handle workspace dependencies
@@ -114,45 +114,44 @@ class CargoPackageManager(BasePackageManager):
             else:
                 continue
 
-            deps.append({
-                "name": name,
-                "version": version,
-                "manager": "cargo",
-                "features": features,
-                "kind": kind,
-                "is_dev": kind == "dev",
-                "is_workspace": is_workspace,
-                "files": [],
-                "source": source,
-            })
+            deps.append(Dependency(
+                name=name,
+                version=version,
+                manager="cargo",
+                source=source,
+                features=features,
+                kind=kind,
+                is_dev=kind == "dev",
+                is_workspace=is_workspace,
+            ))
 
         return deps
 
     async def fetch_latest_async(
         self,
         client: Any,
-        dep: dict[str, Any],
+        dep: Dependency,
+        allow_prerelease: bool = False,
     ) -> str | None:
         """Fetch latest crate version from crates.io.
 
         Args:
             client: httpx.AsyncClient instance
-            dep: Dependency dict with name
+            dep: Dependency object
+            allow_prerelease: Include pre-release versions
 
         Returns:
             Latest version string or None
         """
-        name = dep["name"]
-
         # Skip workspace dependencies
-        if dep.get("is_workspace"):
+        if dep.is_workspace:
             return None
 
         # Rate limit
         limiter = get_rate_limiter("cargo")
         await limiter.acquire()
 
-        url = f"https://crates.io/api/v1/crates/{name}"
+        url = f"https://crates.io/api/v1/crates/{dep.name}"
         headers = {"User-Agent": f"TheAuditor/{__version__} (dependency checker)"}
         response = await client.get(url, headers=headers, timeout=10.0)
 
@@ -163,7 +162,6 @@ class CargoPackageManager(BasePackageManager):
         crate_data = data.get("crate", {})
 
         # Use max_version for stable, newest_version includes pre-releases
-        allow_prerelease = dep.get("allow_prerelease", False)
         if allow_prerelease:
             return crate_data.get("newest_version")
         return crate_data.get("max_version")
@@ -171,7 +169,7 @@ class CargoPackageManager(BasePackageManager):
     async def fetch_docs_async(
         self,
         client: Any,
-        dep: dict[str, Any],
+        dep: Dependency,
         output_path: Path,
         allowlist: list[str],
     ) -> str:
@@ -179,14 +177,14 @@ class CargoPackageManager(BasePackageManager):
 
         Args:
             client: httpx.AsyncClient instance
-            dep: Dependency dict with name
+            dep: Dependency object
             output_path: Directory to write documentation to
             allowlist: List of package names to fetch (empty = all)
 
         Returns:
             Status: 'fetched', 'cached', 'skipped', or 'error'
         """
-        name = dep["name"]
+        name = dep.name
 
         # Check allowlist
         if allowlist and name not in allowlist:
@@ -277,7 +275,7 @@ class CargoPackageManager(BasePackageManager):
         self,
         path: Path,
         latest_info: dict[str, dict[str, Any]],
-        deps: list[dict[str, Any]],
+        deps: list[Dependency],
     ) -> int:
         """Upgrade Cargo.toml to latest versions using regex.
 
@@ -286,7 +284,7 @@ class CargoPackageManager(BasePackageManager):
         Args:
             path: Path to Cargo.toml
             latest_info: Dict mapping dep keys to version info
-            deps: List of dependency dicts
+            deps: List of Dependency objects
 
         Returns:
             Count of dependencies upgraded
@@ -298,21 +296,21 @@ class CargoPackageManager(BasePackageManager):
 
         for dep in deps:
             # Only upgrade deps from this file
-            if dep.get("source") != str(path):
+            if dep.source != str(path):
                 continue
 
             # Skip workspace dependencies
-            if dep.get("is_workspace"):
+            if dep.is_workspace:
                 continue
 
-            key = f"cargo:{dep['name']}:{dep.get('version', '')}"
+            key = f"cargo:{dep.name}:{dep.version}"
             info = latest_info.get(key)
             if not info or not info.get("latest") or not info.get("is_outdated"):
                 continue
 
-            old_version = dep.get("version", "")
+            old_version = dep.version
             new_version = info["latest"]
-            name = dep["name"]
+            name = dep.name
 
             # Pattern 1: simple string version
             # serde = "1.0.0"

@@ -19,7 +19,7 @@ from theauditor import __version__
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
-from .base import BasePackageManager
+from .base import BasePackageManager, Dependency
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -46,14 +46,14 @@ class DockerPackageManager(BasePackageManager):
     def registry_url(self) -> str | None:
         return "https://hub.docker.com/v2/repositories/"
 
-    def parse_manifest(self, path: Path) -> list[dict[str, Any]]:
+    def parse_manifest(self, path: Path) -> list[Dependency]:
         """Parse Docker manifest file (compose or Dockerfile).
 
         Args:
             path: Path to docker-compose.yml or Dockerfile
 
         Returns:
-            List of dependency dicts with name, version, manager, source
+            List of Dependency objects with guaranteed structure.
         """
         file_name = path.name.lower()
 
@@ -64,9 +64,9 @@ class DockerPackageManager(BasePackageManager):
 
         return []
 
-    def _parse_docker_compose(self, path: Path) -> list[dict[str, Any]]:
+    def _parse_docker_compose(self, path: Path) -> list[Dependency]:
         """Parse Docker base images from docker-compose.yml files."""
-        deps = []
+        deps: list[Dependency] = []
 
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f)
@@ -89,20 +89,19 @@ class DockerPackageManager(BasePackageManager):
 
                 name = self._normalize_image_name(name)
 
-                deps.append({
-                    "name": name,
-                    "version": tag,
-                    "manager": "docker",
-                    "files": [],
-                    "source": path.name,
-                })
+                deps.append(Dependency(
+                    name=name,
+                    version=tag,
+                    manager="docker",
+                    source=path.name,
+                ))
 
         return deps
 
-    def _parse_dockerfile(self, path: Path) -> list[dict[str, Any]]:
+    def _parse_dockerfile(self, path: Path) -> list[Dependency]:
         """Parse Docker base images from Dockerfile."""
-        deps = []
-        stages = set()
+        deps: list[Dependency] = []
+        stages: set[str] = set()
 
         with open(path, encoding="utf-8") as f:
             for line in f:
@@ -135,13 +134,12 @@ class DockerPackageManager(BasePackageManager):
                     except ValueError:
                         source = str(path)
 
-                    deps.append({
-                        "name": name,
-                        "version": tag,
-                        "manager": "docker",
-                        "files": [],
-                        "source": source,
-                    })
+                    deps.append(Dependency(
+                        name=name,
+                        version=tag,
+                        manager="docker",
+                        source=source,
+                    ))
 
         return deps
 
@@ -158,20 +156,21 @@ class DockerPackageManager(BasePackageManager):
     async def fetch_latest_async(
         self,
         client: Any,
-        dep: dict[str, Any],
+        dep: Dependency,
+        allow_prerelease: bool = False,
     ) -> str | None:
         """Fetch latest Docker tag from Docker Hub.
 
         Args:
             client: httpx.AsyncClient instance
-            dep: Dependency dict with name and version
+            dep: Dependency object
+            allow_prerelease: Include pre-release versions
 
         Returns:
             Latest tag string or None
         """
-        name = dep["name"]
-        current_tag = dep.get("version", "")
-        allow_prerelease = dep.get("allow_prerelease", False)
+        name = dep.name
+        current_tag = dep.version
 
         if not _validate_docker_name(name):
             return None
@@ -227,7 +226,7 @@ class DockerPackageManager(BasePackageManager):
     async def fetch_docs_async(
         self,
         client: Any,
-        dep: dict[str, Any],
+        dep: Dependency,
         output_path: Path,
         allowlist: list[str],
     ) -> str:
@@ -245,7 +244,7 @@ class DockerPackageManager(BasePackageManager):
         self,
         path: Path,
         latest_info: dict[str, dict[str, Any]],
-        deps: list[dict[str, Any]],
+        deps: list[Dependency],
     ) -> int:
         """Upgrade Docker manifest to latest versions.
 
@@ -254,7 +253,7 @@ class DockerPackageManager(BasePackageManager):
         Args:
             path: Path to manifest file
             latest_info: Dict mapping dep keys to version info
-            deps: List of dependency dicts
+            deps: List of Dependency objects
 
         Returns:
             Count of dependencies upgraded
@@ -272,7 +271,7 @@ class DockerPackageManager(BasePackageManager):
         self,
         path: Path,
         latest_info: dict[str, dict[str, Any]],
-        deps: list[dict[str, Any]],
+        deps: list[Dependency],
     ) -> int:
         """Upgrade docker-compose.yml to latest Docker image versions."""
         with open(path, encoding="utf-8") as f:
@@ -280,9 +279,9 @@ class DockerPackageManager(BasePackageManager):
 
         latest_versions = {}
         for dep in deps:
-            key = f"docker:{dep['name']}:{dep.get('version', '')}"
+            key = f"docker:{dep.name}:{dep.version}"
             if key in latest_info and latest_info[key]["latest"] is not None:
-                latest_versions[dep["name"]] = latest_info[key]["latest"]
+                latest_versions[dep.name] = latest_info[key]["latest"]
 
         updated_lines = []
         count = 0
@@ -349,7 +348,7 @@ class DockerPackageManager(BasePackageManager):
         self,
         path: Path,
         latest_info: dict[str, dict[str, Any]],
-        deps: list[dict[str, Any]],
+        deps: list[Dependency],
     ) -> int:
         """Upgrade Dockerfile to latest Docker base image versions."""
         with open(path, encoding="utf-8") as f:
@@ -357,9 +356,9 @@ class DockerPackageManager(BasePackageManager):
 
         latest_versions = {}
         for dep in deps:
-            key = f"docker:{dep['name']}:{dep.get('version', '')}"
+            key = f"docker:{dep.name}:{dep.version}"
             if key in latest_info and latest_info[key]["latest"] is not None:
-                latest_versions[dep["name"]] = latest_info[key]["latest"]
+                latest_versions[dep.name] = latest_info[key]["latest"]
 
         updated_lines = []
         count = 0

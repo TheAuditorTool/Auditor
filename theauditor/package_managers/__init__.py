@@ -22,6 +22,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .base import Dependency
+
 if TYPE_CHECKING:
     from .base import BasePackageManager
 
@@ -104,4 +106,5 @@ __all__ = [
     "get_all_managers",
     "get_manager_for_file",
     "BasePackageManager",
+    "Dependency",
 ]

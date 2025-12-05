@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from theauditor import __version__
-from theauditor.package_managers import get_manager
+from theauditor.package_managers import get_manager, Dependency
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter
@@ -88,13 +88,13 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
         if debug and docker_compose_files:
             console.print(f"Debug: Found Docker Compose files: {docker_compose_files}", highlight=False)
         for compose_file in docker_compose_files:
-            deps.extend(docker_mgr.parse_manifest(compose_file))
+            deps.extend(d.to_dict() for d in docker_mgr.parse_manifest(compose_file))
 
         dockerfiles = list(root.glob("**/Dockerfile"))
         if debug and dockerfiles:
             console.print(f"Debug: Found Dockerfiles: {dockerfiles}", highlight=False)
         for dockerfile in dockerfiles:
-            deps.extend(docker_mgr.parse_manifest(dockerfile))
+            deps.extend(d.to_dict() for d in docker_mgr.parse_manifest(dockerfile))
 
     cargo_toml = root / "Cargo.toml"
     if cargo_toml.exists():
@@ -109,7 +109,7 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
         if debug and go_mod_files:
             console.print(f"Debug: Found go.mod files: {go_mod_files}", highlight=False)
         for go_mod in go_mod_files:
-            deps.extend(go_mgr.parse_manifest(go_mod))
+            deps.extend(d.to_dict() for d in go_mgr.parse_manifest(go_mod))
 
     if debug:
         console.print(f"Debug: Total dependencies found: {len(deps)}", highlight=False)
@@ -436,8 +436,8 @@ async def _check_latest_batch_async(
                             # Use package_managers module for docker, cargo, and go
                             mgr = get_manager(manager)
                             if mgr:
-                                dep_with_prerelease = {**dep, "allow_prerelease": allow_prerelease}
-                                latest = await mgr.fetch_latest_async(client, dep_with_prerelease)
+                                dep_obj = Dependency.from_dict(dep)
+                                latest = await mgr.fetch_latest_async(client, dep_obj, allow_prerelease)
 
                         return key, latest, None
 
@@ -905,7 +905,8 @@ def upgrade_all_deps(
 
                 if docker_deps:
                     _create_versioned_backup(compose_file)
-                    count = docker_mgr.upgrade_file(compose_file, latest_info, docker_deps)
+                    dep_objs = [Dependency.from_dict(d) for d in docker_deps]
+                    count = docker_mgr.upgrade_file(compose_file, latest_info, dep_objs)
                     upgraded["docker-compose"] += count
 
             dockerfiles = list(root.glob("**/Dockerfile"))
@@ -926,7 +927,8 @@ def upgrade_all_deps(
 
                 if docker_deps:
                     _create_versioned_backup(dockerfile)
-                    count = docker_mgr.upgrade_file(dockerfile, latest_info, docker_deps)
+                    dep_objs = [Dependency.from_dict(d) for d in docker_deps]
+                    count = docker_mgr.upgrade_file(dockerfile, latest_info, dep_objs)
                     upgraded["dockerfile"] += count
 
     # Cargo upgrades using package_managers module
@@ -955,7 +957,8 @@ def upgrade_all_deps(
 
                 if cargo_deps:
                     _create_versioned_backup(cargo_toml)
-                    count = cargo_mgr.upgrade_file(cargo_toml, latest_info, cargo_deps)
+                    dep_objs = [Dependency.from_dict(d) for d in cargo_deps]
+                    count = cargo_mgr.upgrade_file(cargo_toml, latest_info, dep_objs)
                     upgraded["Cargo.toml"] += count
 
     # Go upgrades using package_managers module
@@ -980,7 +983,8 @@ def upgrade_all_deps(
 
                 if go_deps:
                     _create_versioned_backup(go_mod)
-                    count = go_mgr.upgrade_file(go_mod, latest_info, go_deps)
+                    dep_objs = [Dependency.from_dict(d) for d in go_deps]
+                    count = go_mgr.upgrade_file(go_mod, latest_info, dep_objs)
                     upgraded["go.mod"] += count
 
     return upgraded
