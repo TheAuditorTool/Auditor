@@ -9,7 +9,7 @@ import click
 
 from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import err_console, console
-from theauditor.planning import snapshots, verification
+from theauditor.planning import verification
 from theauditor.planning.manager import PlanningManager
 from theauditor.utils.error_handler import handle_exceptions
 
@@ -702,14 +702,13 @@ def verify_task(plan_id, task_number, verbose, auto_update):
             console.print(f"Task status updated: {new_status}", highlight=False)
 
         if total_violations > 0:
-            snapshot = snapshots.create_snapshot(
+            snapshot = manager.create_snapshot(
                 plan_id=plan_id,
                 checkpoint_name=f"verify-task-{task_number}-failed",
-                repo_root=Path.cwd(),
+                project_root=Path.cwd(),
                 task_id=task_id,
-                manager=manager,
             )
-            console.print(f"Snapshot created: {snapshot['git_ref'][:8]}", highlight=False)
+            console.print(f"Snapshot created: {snapshot['shadow_sha'][:8]}", highlight=False)
             if snapshot.get("sequence"):
                 console.print(f"Sequence: {snapshot['sequence']}", highlight=False)
 
@@ -771,11 +770,9 @@ def archive(plan_id, notes):
             return
 
     console.print("Creating final snapshot...")
-    snapshot = snapshots.create_snapshot(
-        plan_id=plan_id, checkpoint_name="archive", repo_root=Path.cwd(), manager=manager
+    snapshot = manager.create_snapshot(
+        plan_id=plan_id, checkpoint_name="archive", project_root=Path.cwd()
     )
-
-    from datetime import UTC
 
     metadata = json.loads(plan["metadata_json"]) if plan["metadata_json"] else {}
     metadata["archived_at"] = datetime.now(UTC).isoformat()
@@ -786,7 +783,7 @@ def archive(plan_id, notes):
     manager.update_plan_status(plan_id, "archived", json.dumps(metadata))
 
     console.print(f"\nPlan {plan_id} archived successfully", highlight=False)
-    console.print(f"Final snapshot: {snapshot['git_ref'][:8]}", highlight=False)
+    console.print(f"Final snapshot: {snapshot['shadow_sha'][:8]}", highlight=False)
     console.print(f"Files affected: {len(snapshot['files_affected'])}", highlight=False)
 
 
@@ -1009,15 +1006,14 @@ def checkpoint(plan_id, task_number, name):
         name = f"edit_{next_seq}"
 
     console.print(f"Creating checkpoint '{name}' for task {task_number}...", highlight=False)
-    snapshot = snapshots.create_snapshot(
+    snapshot = manager.create_snapshot(
         plan_id=plan_id,
         checkpoint_name=name,
-        repo_root=Path.cwd(),
+        project_root=Path.cwd(),
         task_id=task_id,
-        manager=manager,
     )
 
-    console.print(f"Checkpoint created: {snapshot['git_ref'][:8]}", highlight=False)
+    console.print(f"Checkpoint created: {snapshot['shadow_sha'][:8]}", highlight=False)
     if snapshot.get("sequence"):
         console.print(f"Sequence: {snapshot['sequence']}", highlight=False)
     console.print(f"Files affected: {len(snapshot['files_affected'])}", highlight=False)
