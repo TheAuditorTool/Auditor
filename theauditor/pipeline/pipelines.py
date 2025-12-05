@@ -10,7 +10,8 @@ import time
 from pathlib import Path
 from typing import Any
 
-from theauditor.pipeline import PhaseResult, RichRenderer, TaskStatus
+from .renderer import RichRenderer
+from .structures import PhaseResult, TaskStatus
 from theauditor.utils.logging import logger
 
 IS_WINDOWS = platform.system() == "Windows"

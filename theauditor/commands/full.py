@@ -190,7 +190,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
       Uses intelligent caching - second run is 5-10x faster.
       By default, caches (.pf/.cache/, .pf/context/docs/) are preserved.
       Use --wipecache to force complete rebuild if you suspect corruption."""
-    from theauditor.pipelines import run_full_pipeline
+    from theauditor.pipeline import run_full_pipeline
 
     if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
