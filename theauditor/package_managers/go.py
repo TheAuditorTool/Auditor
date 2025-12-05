@@ -19,7 +19,7 @@ from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import get_rate_limiter
 
-from .base import BasePackageManager
+from .base import BasePackageManager, Dependency
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -55,16 +55,16 @@ class GoPackageManager(BasePackageManager):
     def registry_url(self) -> str | None:
         return "https://proxy.golang.org/"
 
-    def parse_manifest(self, path: Path) -> list[dict[str, Any]]:
+    def parse_manifest(self, path: Path) -> list[Dependency]:
         """Parse go.mod file for dependencies.
 
         Args:
             path: Path to go.mod file
 
         Returns:
-            List of dependency dicts with name, version, manager, etc.
+            List of Dependency objects with guaranteed structure.
         """
-        deps = []
+        deps: list[Dependency] = []
         content = path.read_text(encoding="utf-8")
 
         # Extract module path (for reference)
@@ -81,27 +81,28 @@ class GoPackageManager(BasePackageManager):
             for line in require_block_match.group(1).strip().split("\n"):
                 line = line.strip()
                 if line and not line.startswith("//"):
-                    dep = self._parse_require_line(line, str(path))
+                    dep = self._parse_require_line(line, str(path), module_path, go_version)
                     if dep:
                         deps.append(dep)
 
         # Find single-line requires: require module version
         # Exclude block starts (require followed by parenthesis)
         for match in re.finditer(r"^require\s+([a-zA-Z][\S]*)\s+(v[\S]+)", content, re.MULTILINE):
-            deps.append({
-                "name": match.group(1),
-                "version": match.group(2),
-                "manager": "go",
-                "is_indirect": False,
-                "files": [],
-                "source": str(path),
-                "module_path": module_path,
-                "go_version": go_version,
-            })
+            deps.append(Dependency(
+                name=match.group(1),
+                version=match.group(2),
+                manager="go",
+                source=str(path),
+                is_indirect=False,
+                module_path=module_path,
+                go_version=go_version,
+            ))
 
         return deps
 
-    def _parse_require_line(self, line: str, source: str) -> dict[str, Any] | None:
+    def _parse_require_line(
+        self, line: str, source: str, module_path: str, go_version: str
+    ) -> Dependency | None:
         """Parse a single require line from go.mod."""
         # Handle inline comments
         if "//" in line:
@@ -113,35 +114,36 @@ class GoPackageManager(BasePackageManager):
 
         parts = code_part.split()
         if len(parts) >= 2:
-            return {
-                "name": parts[0],
-                "version": parts[1],
-                "manager": "go",
-                "is_indirect": is_indirect,
-                "files": [],
-                "source": source,
-            }
+            return Dependency(
+                name=parts[0],
+                version=parts[1],
+                manager="go",
+                source=source,
+                is_indirect=is_indirect,
+                module_path=module_path,
+                go_version=go_version,
+            )
 
         return None
 
     async def fetch_latest_async(
         self,
         client: Any,
-        dep: dict[str, Any],
+        dep: Dependency,
+        allow_prerelease: bool = False,
     ) -> str | None:
         """Fetch latest Go module version from proxy.golang.org.
 
         Args:
             client: httpx.AsyncClient instance
-            dep: Dependency dict with name
+            dep: Dependency object
+            allow_prerelease: Include pre-release versions (unused for Go)
 
         Returns:
             Latest version string or None
         """
-        module = dep["name"]
-
         # Encode module path for proxy
-        encoded_module = _encode_go_module(module)
+        encoded_module = _encode_go_module(dep.name)
 
         # Rate limit
         limiter = get_rate_limiter("go")
@@ -160,7 +162,7 @@ class GoPackageManager(BasePackageManager):
     async def fetch_docs_async(
         self,
         client: Any,
-        dep: dict[str, Any],
+        dep: Dependency,
         output_path: Path,
         allowlist: list[str],
     ) -> str:
@@ -168,15 +170,15 @@ class GoPackageManager(BasePackageManager):
 
         Args:
             client: httpx.AsyncClient instance
-            dep: Dependency dict with name and version
+            dep: Dependency object
             output_path: Directory to write documentation to
             allowlist: List of module names to fetch (empty = all)
 
         Returns:
             Status: 'fetched', 'cached', 'skipped', or 'error'
         """
-        module = dep["name"]
-        version = dep.get("version", "latest")
+        module = dep.name
+        version = dep.version or "latest"
 
         # Check allowlist
         if allowlist and module not in allowlist:
@@ -272,7 +274,7 @@ class GoPackageManager(BasePackageManager):
         self,
         path: Path,
         latest_info: dict[str, dict[str, Any]],
-        deps: list[dict[str, Any]],
+        deps: list[Dependency],
     ) -> int:
         """Upgrade go.mod to latest versions.
 
@@ -281,7 +283,7 @@ class GoPackageManager(BasePackageManager):
         Args:
             path: Path to go.mod
             latest_info: Dict mapping dep keys to version info
-            deps: List of dependency dicts
+            deps: List of Dependency objects
 
         Returns:
             Count of dependencies upgraded
@@ -293,21 +295,21 @@ class GoPackageManager(BasePackageManager):
 
         for dep in deps:
             # Only upgrade deps from this file
-            if dep.get("source") != str(path):
+            if dep.source != str(path):
                 continue
 
             # Skip indirect dependencies
-            if dep.get("is_indirect"):
+            if dep.is_indirect:
                 continue
 
-            key = f"go:{dep['name']}:{dep.get('version', '')}"
+            key = f"go:{dep.name}:{dep.version}"
             info = latest_info.get(key)
             if not info or not info.get("latest") or not info.get("is_outdated"):
                 continue
 
-            old_version = dep.get("version", "")
+            old_version = dep.version
             new_version = info["latest"]
-            module = dep["name"]
+            module = dep.name
 
             # Escape module path for regex (it contains dots and slashes)
             escaped_module = re.escape(module)
