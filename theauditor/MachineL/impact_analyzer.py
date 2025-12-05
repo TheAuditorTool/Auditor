@@ -352,6 +352,239 @@ def find_downstream_dependencies(
     return downstream
 
 
+def find_upstream_dependencies_batch(
+    cursor: sqlite3.Cursor, symbols: list[tuple[str, str, str]]
+) -> dict[str, list[dict[str, Any]]]:
+    """Batch version: Find all callers for multiple symbols in ONE query.
+
+    Args:
+        cursor: Database cursor
+        symbols: List of (file_path, symbol_name, symbol_type) tuples
+
+    Returns:
+        Dict mapping symbol_name -> list of upstream dependencies
+    """
+    if not symbols:
+        return {}
+
+    # Extract unique symbol names
+    symbol_names = list({s[1] for s in symbols})
+    if not symbol_names:
+        return {}
+
+    placeholders = ",".join("?" * len(symbol_names))
+
+    cursor.execute(
+        f"""
+        SELECT
+            call.name as target_name,
+            call.path as file,
+            call.line as call_line,
+            container.name as symbol,
+            container.type as type,
+            container.line as line
+        FROM symbols call
+        JOIN symbols container ON call.path = container.path
+        WHERE call.name IN ({placeholders})
+          AND call.type = 'call'
+          AND container.type IN ('function', 'class')
+          AND container.name NOT IN ({placeholders})
+          AND container.line = (
+              SELECT MAX(s.line)
+              FROM symbols s
+              WHERE s.path = call.path
+              AND s.type IN ('function', 'class')
+              AND s.line <= call.line
+          )
+        ORDER BY call.name, call.path, call.line
+    """,
+        symbol_names + symbol_names,  # First for call.name IN, second for NOT IN
+    )
+
+    # Group results by target symbol name
+    results: dict[str, dict[tuple[str, str], dict[str, Any]]] = {name: {} for name in symbol_names}
+
+    for row in cursor.fetchall():
+        target_name, f_path, call_line, sym_name, sym_type, sym_line = row
+        if target_name not in results:
+            continue
+
+        key = (f_path, sym_name)
+        if key not in results[target_name]:
+            results[target_name][key] = {
+                "file": f_path,
+                "symbol": sym_name,
+                "type": sym_type,
+                "line": sym_line,
+                "call_line": call_line,
+                "calls": target_name,
+            }
+
+    # Convert to list format
+    return {name: list(deps.values()) for name, deps in results.items()}
+
+
+def find_downstream_dependencies_batch(
+    cursor: sqlite3.Cursor, symbols: list[tuple[str, int, str]]
+) -> dict[str, list[dict[str, Any]]]:
+    """Batch version: Find all calls made by multiple symbols in bulk queries.
+
+    Args:
+        cursor: Database cursor
+        symbols: List of (file_path, start_line, symbol_name) tuples
+
+    Returns:
+        Dict mapping "file_path:symbol_name" -> list of downstream dependencies
+    """
+    if not symbols:
+        return {}
+
+    # Step 1: Get all function/class boundaries for all files in one query
+    file_paths = list({s[0] for s in symbols})
+    placeholders = ",".join("?" * len(file_paths))
+
+    cursor.execute(
+        f"""
+        SELECT path, name, type, line
+        FROM symbols
+        WHERE path IN ({placeholders})
+        AND type IN ('function', 'class')
+        ORDER BY path, line
+    """,
+        file_paths,
+    )
+
+    # Build boundary map: file -> [(line, name, type), ...]
+    file_symbols: dict[str, list[tuple[int, str, str]]] = {}
+    for path, name, sym_type, line in cursor.fetchall():
+        if path not in file_symbols:
+            file_symbols[path] = []
+        file_symbols[path].append((line, name, sym_type))
+
+    # Step 2: For each symbol, determine its end_line
+    symbol_ranges: list[tuple[str, int, int, str]] = []  # (file, start, end, name)
+    for file_path, start_line, symbol_name in symbols:
+        if file_path not in file_symbols:
+            continue
+
+        # Find end_line (next symbol's start or 999999)
+        end_line = 999999
+        found_start = False
+        for line, name, _ in file_symbols[file_path]:
+            if line == start_line:
+                found_start = True
+                continue
+            if found_start and line > start_line:
+                end_line = line
+                break
+
+        symbol_ranges.append((file_path, start_line, end_line, symbol_name))
+
+    if not symbol_ranges:
+        return {}
+
+    # Step 3: Get all calls within all function bodies in one query
+    # Build a complex WHERE clause with ORs
+    where_clauses = []
+    params = []
+    for file_path, start_line, end_line, _ in symbol_ranges:
+        where_clauses.append("(path = ? AND type = 'call' AND line > ? AND line < ?)")
+        params.extend([file_path, start_line, end_line])
+
+    if not where_clauses:
+        return {}
+
+    cursor.execute(
+        f"""
+        SELECT path, name, line
+        FROM symbols
+        WHERE {" OR ".join(where_clauses)}
+        ORDER BY path, line
+    """,
+        params,
+    )
+
+    # Group calls by file_path -> {call_name: first_line}
+    file_calls: dict[str, dict[str, int]] = {}
+    for path, call_name, call_line in cursor.fetchall():
+        if path not in file_calls:
+            file_calls[path] = {}
+        if call_name not in file_calls[path]:
+            file_calls[path][call_name] = call_line
+
+    # Step 4: Collect all unique call names and resolve definitions in one query
+    all_call_names = set()
+    for calls in file_calls.values():
+        all_call_names.update(calls.keys())
+
+    # Remove self-references (symbol names we're analyzing)
+    symbol_names_set = {s[2] for s in symbols}
+    all_call_names -= symbol_names_set
+
+    if not all_call_names:
+        # No external calls, return empty for all
+        return {f"{fp}:{name}": [] for fp, _, name in symbols}
+
+    call_name_list = list(all_call_names)
+    placeholders = ",".join("?" * len(call_name_list))
+
+    cursor.execute(
+        f"""
+        SELECT path, name, type, line
+        FROM symbols
+        WHERE name IN ({placeholders})
+        AND type IN ('function', 'class')
+    """,
+        call_name_list,
+    )
+
+    # Build definitions map: name -> (path, type, line)
+    definitions: dict[str, tuple[str, str, int]] = {}
+    for def_path, def_name, def_type, def_line in cursor.fetchall():
+        if def_name not in definitions:
+            definitions[def_name] = (def_path, def_type, def_line)
+
+    # Step 5: Build results for each symbol
+    results: dict[str, list[dict[str, Any]]] = {}
+
+    for file_path, start_line, end_line, symbol_name in symbol_ranges:
+        key = f"{file_path}:{symbol_name}"
+        downstream = []
+
+        if file_path in file_calls:
+            for call_name, call_line in file_calls[file_path].items():
+                # Skip if call is outside this function's range
+                if call_line <= start_line or call_line >= end_line:
+                    continue
+                # Skip self-references
+                if call_name == symbol_name:
+                    continue
+
+                if call_name in definitions:
+                    def_path, def_type, def_line = definitions[call_name]
+                    downstream.append({
+                        "file": def_path,
+                        "symbol": call_name,
+                        "type": def_type,
+                        "line": def_line,
+                        "called_from_line": call_line,
+                        "called_by": symbol_name,
+                    })
+                else:
+                    downstream.append({
+                        "file": "external",
+                        "symbol": call_name,
+                        "type": "unknown",
+                        "line": 0,
+                        "called_from_line": call_line,
+                        "called_by": symbol_name,
+                    })
+
+        results[key] = downstream
+
+    return results
+
+
 def calculate_transitive_impact(
     cursor: sqlite3.Cursor,
     direct_deps: list[dict[str, Any]],
@@ -476,20 +709,6 @@ def trace_frontend_to_backend(
     )
 
     backend_match = cursor.fetchone()
-
-    if not backend_match:
-        cursor.execute(
-            """
-            SELECT file, line, method, pattern
-            FROM api_endpoints
-            WHERE ? LIKE REPLACE(REPLACE(pattern, ':id', '%'), ':{param}', '%')
-            AND method = ?
-            LIMIT 1
-        """,
-            (url_path, method),
-        )
-
-        backend_match = cursor.fetchone()
 
     if not backend_match:
         return None
