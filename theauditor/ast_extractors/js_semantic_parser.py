@@ -55,7 +55,7 @@ class JSSemanticParser:
 
         global _module_resolver_cache
         if _module_resolver_cache is None:
-            from theauditor.module_resolver import ModuleResolver
+            from .module_resolver import ModuleResolver
 
             _module_resolver_cache = ModuleResolver()
 

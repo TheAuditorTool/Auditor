@@ -123,7 +123,7 @@ def deps(
     Note: Respects proxy settings and npm/pip configurations."""
     import sys
 
-    from theauditor.deps import (
+    from theauditor.package_managers.deps import (
         check_latest_versions,
         generate_grouped_report,
         parse_dependencies,

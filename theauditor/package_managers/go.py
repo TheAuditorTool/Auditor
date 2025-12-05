@@ -223,7 +223,9 @@ class GoPackageManager(BasePackageManager):
     def _extract_go_docs(self, html: str) -> str | None:
         """Extract Go documentation from pkg.go.dev HTML using regex.
 
-        Single code path - no fallbacks.
+        Uses regex for HTML->Markdown conversion. May break if pkg.go.dev
+        changes DOM structure. Acceptable tradeoff: docs fetching is non-critical,
+        re-running 'aud full' fixes stale output.
         """
         # Extract text between Documentation tags
         match = re.search(

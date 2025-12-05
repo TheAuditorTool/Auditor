@@ -205,8 +205,8 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
     'aud docs fetch' after dependency updates to refresh. Offline mode uses cache
     only, enabling air-gapped development after initial fetch.
     """
-    from theauditor.deps import parse_dependencies
-    from theauditor.docs_fetch import DEFAULT_ALLOWLIST, fetch_docs
+    from theauditor.package_managers.deps import parse_dependencies
+    from theauditor.package_managers.docs_fetch import DEFAULT_ALLOWLIST, fetch_docs
 
     try:
         if action == "fetch":

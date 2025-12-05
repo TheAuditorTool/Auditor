@@ -20,6 +20,8 @@ Usage:
 
 from __future__ import annotations
 
+import fnmatch
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from .base import Dependency
@@ -29,6 +31,20 @@ if TYPE_CHECKING:
 
 # Lazy imports to avoid circular dependencies
 _REGISTRY: dict[str, type[BasePackageManager]] | None = None
+
+# Pre-computed file dispatch tables for O(1) lookup
+# Exact matches (most common case)
+_EXACT_FILE_MAP: dict[str, str] = {
+    "cargo.toml": "cargo",
+    "go.mod": "go",
+}
+
+# Glob patterns that require fnmatch (docker variants only)
+_GLOB_PATTERNS: list[tuple[str, str]] = [
+    ("docker-compose*.yml", "docker"),
+    ("docker-compose*.yaml", "docker"),
+    ("dockerfile*", "docker"),
+]
 
 
 def _init_registry() -> dict[str, type[BasePackageManager]]:
@@ -76,27 +92,24 @@ def get_all_managers() -> list[BasePackageManager]:
 def get_manager_for_file(file_path: str) -> BasePackageManager | None:
     """Get the appropriate package manager for a given file.
 
+    Uses O(1) hash lookup for exact matches, O(patterns) for globs.
+
     Args:
         file_path: Path to a manifest file
 
     Returns:
         Package manager instance that handles this file type, or None
     """
-    from pathlib import Path
+    file_name = Path(file_path).name.lower()
 
-    path = Path(file_path)
-    file_name = path.name.lower()
+    # O(1) exact match (cargo.toml, go.mod)
+    if file_name in _EXACT_FILE_MAP:
+        return get_manager(_EXACT_FILE_MAP[file_name])
 
-    for mgr in get_all_managers():
-        for pattern in mgr.file_patterns:
-            # Handle glob patterns
-            if "*" in pattern:
-                import fnmatch
-
-                if fnmatch.fnmatch(file_name, pattern.lower()):
-                    return mgr
-            elif file_name == pattern.lower():
-                return mgr
+    # O(patterns) glob match (docker variants only)
+    for pattern, mgr_name in _GLOB_PATTERNS:
+        if fnmatch.fnmatch(file_name, pattern):
+            return get_manager(mgr_name)
 
     return None
 

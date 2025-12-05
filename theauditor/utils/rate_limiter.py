@@ -14,6 +14,8 @@ RATE_LIMIT_GO = 0.5  # proxy.golang.org: be polite
 RATE_LIMIT_BACKOFF = 10
 
 TIMEOUT_FETCH = 10
+TIMEOUT_CRAWL = 15
+TIMEOUT_PROBE = 5
 
 
 class AsyncRateLimiter:
