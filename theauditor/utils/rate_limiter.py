@@ -11,14 +11,9 @@ RATE_LIMIT_DOCS = 0.2
 RATE_LIMIT_CARGO = 1.0  # crates.io policy: 1 request per second
 RATE_LIMIT_GO = 0.5  # proxy.golang.org: be polite
 
-
 RATE_LIMIT_BACKOFF = 10
-RATE_LIMIT_MAX_RETRIES = 3
 
-
-TIMEOUT_PROBE = 2
 TIMEOUT_FETCH = 10
-TIMEOUT_CRAWL = 5
 
 
 class AsyncRateLimiter:

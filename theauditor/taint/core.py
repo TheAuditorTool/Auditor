@@ -514,7 +514,7 @@ def trace_taint(
 
     if cache is None:
         from theauditor.indexer.schemas.codegen import SchemaCodeGenerator
-        from theauditor.utils.exit_codes import ExitCodes
+        from theauditor.utils.constants import ExitCodes
 
         current_hash = SchemaCodeGenerator.get_schema_hash()
 

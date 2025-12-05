@@ -11,7 +11,7 @@ import yaml
 from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import err_console, console
 from theauditor.utils import handle_exceptions
-from theauditor.utils.exit_codes import ExitCodes
+from theauditor.utils.constants import ExitCodes
 
 
 @click.command(name="rules", cls=RichCommand)

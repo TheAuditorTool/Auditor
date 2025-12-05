@@ -13,7 +13,7 @@ from rich.text import Text
 from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console, print_status_panel
 from theauditor.utils.error_handler import handle_exceptions
-from theauditor.utils.exit_codes import ExitCodes
+from theauditor.utils.constants import ExitCodes
 
 
 def print_audit_complete_panel(

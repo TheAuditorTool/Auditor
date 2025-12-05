@@ -5,6 +5,7 @@ from .constants import (
     DEFAULT_MEMORY_LIMIT_MB,
     ENV_MEMORY_LIMIT,
     ERROR_LOG_FILE,
+    ExitCodes,
     MAX_MEMORY_LIMIT_MB,
     MEMORY_ALLOCATION_RATIO,
     MIN_MEMORY_LIMIT_MB,
@@ -13,8 +14,7 @@ from .constants import (
     RAW_DIR,
 )
 from .error_handler import handle_exceptions
-from .exit_codes import ExitCodes
-from .finding_priority import (
+from .findings import (
     PRIORITY_ORDER,
     SEVERITY_MAPPINGS,
     TOOL_IMPORTANCE,
@@ -25,14 +25,13 @@ from .finding_priority import (
 from .helpers import (
     compute_file_hash,
     count_lines_in_file,
-    extract_data_array,
     get_self_exclusion_patterns,
     load_json_file,
-    save_json_file,
+    normalize_path_for_db,
 )
 from .logging import logger
 from .memory import get_available_memory, get_recommended_memory_limit
-from .temp_manager import TempManager, cleanup_project_temp, get_project_temp_dir
+from .temp_manager import TempManager
 
 __all__ = [
     "PF_DIR",
@@ -48,17 +47,14 @@ __all__ = [
     "handle_exceptions",
     "ExitCodes",
     "compute_file_hash",
-    "load_json_file",
-    "save_json_file",
     "count_lines_in_file",
-    "extract_data_array",
     "get_self_exclusion_patterns",
+    "load_json_file",
+    "normalize_path_for_db",
     "logger",
     "get_recommended_memory_limit",
     "get_available_memory",
     "TempManager",
-    "get_project_temp_dir",
-    "cleanup_project_temp",
     "normalize_severity",
     "get_sort_key",
     "sort_findings",
