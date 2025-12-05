@@ -51,11 +51,89 @@ class TerraformGraphBuilder:
         graphs_db_path = self.db_path.parent / "graphs.db"
         self.store = XGraphStore(db_path=str(graphs_db_path))
 
+    def _bulk_load_all_data(self, cursor) -> dict[str, Any]:
+        """Bulk load ALL Terraform data in 5 queries instead of N*M queries."""
+        # 1. All properties: Map<resource_id, Map<prop_name, prop_value>>
+        cursor.execute("""
+            SELECT resource_id, property_name, property_value
+            FROM terraform_resource_properties
+        """)
+        props_map: dict[str, dict[str, Any]] = {}
+        for row in cursor.fetchall():
+            rid = row["resource_id"]
+            if rid not in props_map:
+                props_map[rid] = {}
+            value = row["property_value"]
+            if value:
+                try:
+                    props_map[rid][row["property_name"]] = json.loads(value)
+                except (json.JSONDecodeError, TypeError):
+                    props_map[rid][row["property_name"]] = value
+            else:
+                props_map[rid][row["property_name"]] = value
+
+        # 2. All sensitive props: Map<resource_id, Set<prop_name>>
+        cursor.execute("""
+            SELECT resource_id, property_name
+            FROM terraform_resource_properties
+            WHERE is_sensitive = 1
+        """)
+        sensitive_map: dict[str, set[str]] = {}
+        for row in cursor.fetchall():
+            rid = row["resource_id"]
+            if rid not in sensitive_map:
+                sensitive_map[rid] = set()
+            sensitive_map[rid].add(row["property_name"])
+
+        # 3. All dependencies: Map<resource_id, List<depends_on_ref>>
+        cursor.execute("""
+            SELECT resource_id, depends_on_ref
+            FROM terraform_resource_deps
+        """)
+        deps_map: dict[str, list[str]] = {}
+        for row in cursor.fetchall():
+            rid = row["resource_id"]
+            if rid not in deps_map:
+                deps_map[rid] = []
+            deps_map[rid].append(row["depends_on_ref"])
+
+        # 4. Variable lookup: Map<var_name, variable_id> (first match wins)
+        cursor.execute("""
+            SELECT variable_id, variable_name
+            FROM terraform_variables
+        """)
+        var_lookup: dict[str, str] = {}
+        for row in cursor.fetchall():
+            var_name = row["variable_name"]
+            if var_name not in var_lookup:
+                var_lookup[var_name] = row["variable_id"]
+
+        # 5. Resource lookup: Map<"type.name", resource_id>
+        cursor.execute("""
+            SELECT resource_id, resource_type, resource_name
+            FROM terraform_resources
+        """)
+        resource_lookup: dict[str, str] = {}
+        for row in cursor.fetchall():
+            key = f"{row['resource_type']}.{row['resource_name']}"
+            resource_lookup[key] = row["resource_id"]
+
+        return {
+            "props": props_map,
+            "sensitive": sensitive_map,
+            "deps": deps_map,
+            "vars": var_lookup,
+            "resources": resource_lookup,
+        }
+
     def build_provisioning_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build provisioning flow graph from Terraform data."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
+
+        # Bulk load: 5 queries for ALL data instead of N*M queries
+        bulk_data = self._bulk_load_all_data(cursor)
 
         nodes: dict[str, ProvisioningNode] = {}
         edges: list[ProvisioningEdge] = []
@@ -96,12 +174,8 @@ class TerraformGraphBuilder:
 
             resource_id = row["resource_id"]
 
-            properties = self._get_resource_properties(cursor, resource_id)
-            sensitive_props = [
-                p
-                for p, v in properties.items()
-                if self._is_property_sensitive(cursor, resource_id, p)
-            ]
+            properties = bulk_data["props"].get(resource_id, {})
+            sensitive_props = list(bulk_data["sensitive"].get(resource_id, set()))
 
             nodes[resource_id] = ProvisioningNode(
                 id=resource_id,
@@ -119,7 +193,8 @@ class TerraformGraphBuilder:
             var_refs = self._extract_variable_references(properties)
 
             for var_name in var_refs:
-                var_id = self._find_variable_id(cursor, var_name, row["file_path"])
+                # O(1) lookup instead of DB query
+                var_id = bulk_data["vars"].get(var_name)
                 if var_id and var_id in nodes:
                     edges.append(
                         ProvisioningEdge(
@@ -135,9 +210,11 @@ class TerraformGraphBuilder:
                     )
                     stats["edges_created"] += 1
 
-            depends_on = self._get_resource_deps(cursor, resource_id)
+            # O(1) lookup instead of DB query
+            depends_on = bulk_data["deps"].get(resource_id, [])
             for dep_ref in depends_on:
-                dep_id = self._resolve_resource_reference(cursor, dep_ref, row["file_path"])
+                # O(1) lookup instead of DB query
+                dep_id = bulk_data["resources"].get(dep_ref)
                 if dep_id and dep_id in nodes:
                     edges.append(
                         ProvisioningEdge(
@@ -174,7 +251,8 @@ class TerraformGraphBuilder:
             if value_json:
                 refs = self._extract_references_from_expression(value_json)
                 for ref in refs:
-                    source_id = self._resolve_reference(cursor, ref, row["file_path"])
+                    # O(1) lookup instead of DB query
+                    source_id = self._resolve_reference_from_bulk(ref, bulk_data)
                     if source_id and source_id in nodes:
                         edges.append(
                             ProvisioningEdge(
@@ -230,6 +308,15 @@ class TerraformGraphBuilder:
 
         scan_value(properties)
         return var_names
+
+    def _resolve_reference_from_bulk(self, ref: str, bulk_data: dict) -> str | None:
+        """Resolve any Terraform reference using preloaded bulk data. O(1)."""
+        if ref.startswith("var."):
+            var_name = ref.split(".", 1)[1]
+            return bulk_data["vars"].get(var_name)
+        else:
+            # Resource reference like "aws_s3_bucket.my_bucket"
+            return bulk_data["resources"].get(ref)
 
     def _find_variable_id(self, cursor, var_name: str, current_file: str) -> str | None:
         """Find variable ID by name (may be in different file)."""
