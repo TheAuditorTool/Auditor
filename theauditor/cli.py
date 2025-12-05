@@ -386,7 +386,6 @@ from theauditor.commands.full import full
 from theauditor.commands.graph import graph
 from theauditor.commands.graphql import graphql
 from theauditor.commands.impact import impact
-from theauditor.commands.index import index
 from theauditor.commands.lint import lint
 from theauditor.commands.manual import manual
 from theauditor.commands.metadata import metadata
@@ -403,8 +402,6 @@ from theauditor.commands.tools import tools
 from theauditor.commands.workflows import workflows
 from theauditor.commands.workset import workset
 
-index.hidden = True
-cli.add_command(index)
 cli.add_command(_archive)
 
 
