@@ -1,151 +1,162 @@
-"""GitHub Actions Script Injection Detection."""
+"""GitHub Actions Script Injection Detection.
+
+Detects command injection via untrusted PR/issue data in run: scripts.
+
+Tables Used:
+- github_steps: Step run scripts
+- github_jobs: Job metadata
+- github_workflows: Workflow triggers
+- github_step_references: Expression references in steps
+
+Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
+"""
 
 import json
-import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
-from theauditor.utils.logging import logger
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="github_actions_script_injection",
     category="injection",
     target_extensions=[".yml", ".yaml"],
     exclude_patterns=[".pf/", "test/", "__tests__/", "node_modules/"],
-    execution_scope="database")
-
-
-PR_SOURCES = frozenset(
-    [
-        "github.event.pull_request.title",
-        "github.event.pull_request.body",
-        "github.event.pull_request.head.ref",
-        "github.event.pull_request.head.label",
-        "github.event.issue.title",
-        "github.event.issue.body",
-        "github.event.comment.body",
-        "github.event.review.body",
-        "github.event.head_commit.message",
-        "github.head_ref",
-    ]
+    execution_scope="database",
+    primary_table="github_steps",
 )
 
 
-GITHUB_SINKS = frozenset(
-    [
-        "run",
-        "shell",
-        "bash",
-    ]
-)
+# Untrusted paths that can be controlled by attacker via PR/issue
+UNTRUSTED_PATHS = frozenset([
+    "github.event.pull_request.title",
+    "github.event.pull_request.body",
+    "github.event.pull_request.head.ref",
+    "github.event.pull_request.head.label",
+    "github.event.issue.title",
+    "github.event.issue.body",
+    "github.event.comment.body",
+    "github.event.review.body",
+    "github.event.head_commit.message",
+    "github.head_ref",
+])
+
+
+# Sinks where command execution occurs
+GITHUB_SINKS = frozenset(["run", "shell", "bash"])
 
 
 def register_taint_patterns(taint_registry):
     """Register GitHub Actions taint patterns for flow analysis."""
-    for source in PR_SOURCES:
+    for source in UNTRUSTED_PATHS:
         taint_registry.register_source(source, "github", "github")
 
     for sink in GITHUB_SINKS:
         taint_registry.register_sink(sink, "command_execution", "github")
 
 
-UNTRUSTED_PATHS = frozenset(
-    [
-        "github.event.pull_request.title",
-        "github.event.pull_request.body",
-        "github.event.pull_request.head.ref",
-        "github.event.pull_request.head.label",
-        "github.event.issue.title",
-        "github.event.issue.body",
-        "github.event.comment.body",
-        "github.event.review.body",
-        "github.event.head_commit.message",
-        "github.head_ref",
-    ]
-)
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect script injection from untrusted PR/issue data.
+
+    Args:
+        context: Standard rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = _find_script_injections(db)
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def find_pull_request_injection(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect script injection from untrusted PR/issue data."""
+    """Legacy entry point - delegates to analyze()."""
+    result = analyze(context)
+    return result.findings
+
+
+# =============================================================================
+# DETECTION LOGIC
+# =============================================================================
+
+
+def _find_script_injections(db: RuleDB) -> list[StandardFinding]:
+    """Core detection logic for script injection."""
     findings: list[StandardFinding] = []
 
-    if not context.db_path:
-        return findings
+    # Get all steps with run scripts (JOIN to get workflow context)
+    sql, params = Q.raw(
+        """
+        SELECT s.step_id, s.step_name, s.run_script,
+               j.workflow_path, j.job_key, w.workflow_name
+        FROM github_steps s
+        JOIN github_jobs j ON s.job_id = j.job_id
+        JOIN github_workflows w ON j.workflow_path = w.workflow_path
+        WHERE s.run_script IS NOT NULL
+        """,
+        [],
+    )
+    step_rows = db.execute(sql, params)
 
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    for step_id, step_name, run_script, workflow_path, job_key, workflow_name in step_rows:
+        # Get references used in this step's run script
+        ref_rows = db.query(
+            Q("github_step_references")
+            .select("reference_path")
+            .where("step_id = ?", step_id)
+            .where("reference_location = ?", "run")
+        )
 
-    try:
-        cursor.execute("""
-            SELECT s.step_id, s.job_id, s.step_name, s.run_script,
-                   j.workflow_path, j.job_key, w.workflow_name
-            FROM github_steps s
-            JOIN github_jobs j ON s.job_id = j.job_id
-            JOIN github_workflows w ON j.workflow_path = w.workflow_path
-            WHERE s.run_script IS NOT NULL
-        """)
+        # Check for untrusted paths in references
+        untrusted_refs = []
+        for (ref_path,) in ref_rows:
+            if any(ref_path.startswith(unsafe) for unsafe in UNTRUSTED_PATHS):
+                untrusted_refs.append(ref_path)
 
-        for row in cursor.fetchall():
-            step_id = row["step_id"]
-            run_script = row["run_script"]
+        if not untrusted_refs:
+            continue
 
-            cursor.execute(
-                """
-                SELECT reference_path, reference_location
-                FROM github_step_references
-                WHERE step_id = ?
-                AND reference_location = 'run'
-            """,
-                (step_id,),
+        # Get workflow triggers to determine severity
+        trigger_rows = db.query(
+            Q("github_workflows")
+            .select("on_triggers")
+            .where("workflow_path = ?", workflow_path)
+        )
+
+        triggers = []
+        if trigger_rows:
+            on_triggers_json = trigger_rows[0][0]
+            if on_triggers_json:
+                try:
+                    triggers = json.loads(on_triggers_json)
+                except json.JSONDecodeError:
+                    pass
+
+        # CRITICAL if pull_request_target (untrusted code runs with write access)
+        has_pr_target = "pull_request_target" in triggers
+        severity = Severity.CRITICAL if has_pr_target else Severity.HIGH
+
+        findings.append(
+            _build_injection_finding(
+                workflow_path=workflow_path,
+                workflow_name=workflow_name,
+                job_key=job_key,
+                step_name=step_name or "Unnamed step",
+                run_script=run_script,
+                untrusted_refs=untrusted_refs,
+                severity=severity,
+                has_pr_target=has_pr_target,
             )
-
-            untrusted_refs = []
-            for ref_row in cursor.fetchall():
-                ref_path = ref_row["reference_path"]
-
-                for unsafe_path in UNTRUSTED_PATHS:
-                    if ref_path.startswith(unsafe_path):
-                        untrusted_refs.append(ref_path)
-                        break
-
-            if untrusted_refs:
-                cursor.execute(
-                    """
-                    SELECT on_triggers FROM github_workflows WHERE workflow_path = ?
-                """,
-                    (row["workflow_path"],),
-                )
-
-                trigger_row = cursor.fetchone()
-                triggers = (
-                    json.loads(trigger_row["on_triggers"])
-                    if trigger_row and trigger_row["on_triggers"]
-                    else []
-                )
-
-                has_pr_target = "pull_request_target" in triggers
-                severity = Severity.CRITICAL if has_pr_target else Severity.HIGH
-
-                findings.append(
-                    _build_injection_finding(
-                        workflow_path=row["workflow_path"],
-                        workflow_name=row["workflow_name"],
-                        job_key=row["job_key"],
-                        step_name=row["step_name"] or "Unnamed step",
-                        run_script=run_script,
-                        untrusted_refs=untrusted_refs,
-                        severity=severity,
-                        has_pr_target=has_pr_target,
-                    )
-                )
-
-    finally:
-        conn.close()
+        )
 
     return findings
 

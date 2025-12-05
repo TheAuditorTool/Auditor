@@ -1,88 +1,124 @@
-"""GitHub Actions Reusable Workflow Security Risks Detection."""
-import sqlite3
+"""GitHub Actions Reusable Workflow Security Risks Detection.
+
+Detects external reusable workflows with mutable versions or secret access.
+
+Tables Used:
+- github_jobs: Job definitions with reusable workflow references
+- github_workflows: Workflow metadata
+- github_step_references: Secret references in steps
+
+Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
+"""
 
 from theauditor.rules.base import (
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
-from theauditor.utils.logging import logger
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="github_actions_reusable_workflow_risks",
     category="supply-chain",
     target_extensions=[".yml", ".yaml"],
     exclude_patterns=[".pf/", "test/", "__tests__/", "node_modules/"],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="github_jobs",
+)
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect external reusable workflows with secret access.
+
+    Args:
+        context: Standard rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = _find_reusable_workflow_risks(db)
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def find_external_reusable_with_secrets(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect external reusable workflows with secret access."""
+    """Legacy entry point - delegates to analyze()."""
+    result = analyze(context)
+    return result.findings
+
+
+# =============================================================================
+# DETECTION LOGIC
+# =============================================================================
+
+# Mutable version references that can change without notice
+MUTABLE_VERSIONS = frozenset({"main", "master", "develop", "v1", "v2", "v3"})
+
+
+def _find_reusable_workflow_risks(db: RuleDB) -> list[StandardFinding]:
+    """Core detection logic for reusable workflow risks."""
     findings: list[StandardFinding] = []
 
-    if not context.db_path:
-        return findings
+    # Get all jobs that use reusable workflows with JOIN to get workflow name
+    sql, params = Q.raw(
+        """
+        SELECT j.job_id, j.workflow_path, j.job_key, j.job_name,
+               j.reusable_workflow_path, w.workflow_name
+        FROM github_jobs j
+        JOIN github_workflows w ON j.workflow_path = w.workflow_path
+        WHERE j.uses_reusable_workflow = 1
+        AND j.reusable_workflow_path IS NOT NULL
+        """,
+        [],
+    )
+    job_rows = db.execute(sql, params)
 
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    for job_id, workflow_path, job_key, job_name, reusable_path, workflow_name in job_rows:
+        # Parse reusable workflow path (e.g., "org/repo/.github/workflows/file.yml@v1")
+        if "@" not in reusable_path:
+            continue
 
-    try:
-        cursor.execute("""
-            SELECT j.job_id, j.workflow_path, j.job_key, j.job_name,
-                   j.uses_reusable_workflow, j.reusable_workflow_path,
-                   w.workflow_name
-            FROM github_jobs j
-            JOIN github_workflows w ON j.workflow_path = w.workflow_path
-            WHERE j.uses_reusable_workflow = 1
-            AND j.reusable_workflow_path IS NOT NULL
-        """)
+        workflow_ref, version = reusable_path.rsplit("@", 1)
 
-        for row in cursor.fetchall():
-            reusable_path = row["reusable_workflow_path"]
+        # Only check external workflows (not local ./)
+        if workflow_ref.startswith("./"):
+            continue
 
-            if "@" not in reusable_path:
-                continue
+        # Check if version is mutable
+        is_mutable = version in MUTABLE_VERSIONS
 
-            workflow_ref, version = reusable_path.rsplit("@", 1)
+        # Count secrets passed to this job
+        secret_rows = db.query(
+            Q("github_step_references")
+            .select("step_id")
+            .where("reference_type = ?", "secrets")
+            .where("step_id IS NOT NULL")
+        )
 
-            is_external = not workflow_ref.startswith("./")
+        job_prefix = f"{job_id}::"
+        secret_count = sum(1 for (step_id,) in secret_rows if step_id.startswith(job_prefix))
 
-            if not is_external:
-                continue
-
-            is_mutable = version in {"main", "master", "develop", "v1", "v2", "v3"}
-
-            cursor.execute("""
-                SELECT step_id
-                FROM github_step_references
-                WHERE reference_type = 'secrets'
-                AND step_id IS NOT NULL
-            """)
-
-            job_prefix = f"{row['job_id']}::"
-            secret_count = sum(
-                1 for (step_id,) in cursor.fetchall() if step_id.startswith(job_prefix)
-            )
-
-            if is_mutable or secret_count > 0:
-                findings.append(
-                    _build_reusable_workflow_finding(
-                        workflow_path=row["workflow_path"],
-                        workflow_name=row["workflow_name"],
-                        job_key=row["job_key"],
-                        job_name=row["job_name"],
-                        reusable_path=reusable_path,
-                        workflow_ref=workflow_ref,
-                        version=version,
-                        is_mutable=is_mutable,
-                        secret_count=secret_count,
-                    )
+        # Flag if mutable version or secrets are passed
+        if is_mutable or secret_count > 0:
+            findings.append(
+                _build_reusable_workflow_finding(
+                    workflow_path=workflow_path,
+                    workflow_name=workflow_name,
+                    job_key=job_key,
+                    job_name=job_name,
+                    reusable_path=reusable_path,
+                    workflow_ref=workflow_ref,
+                    version=version,
+                    is_mutable=is_mutable,
+                    secret_count=secret_count,
                 )
-
-    finally:
-        conn.close()
+            )
 
     return findings
 

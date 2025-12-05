@@ -1,22 +1,35 @@
-"""GitHub Actions Unpinned Actions with Secrets Detection."""
+"""GitHub Actions Unpinned Actions with Secrets Detection.
+
+Detects third-party actions pinned to mutable versions with secret access.
+
+Tables Used:
+- github_steps: Step action usage
+- github_jobs: Job metadata
+- github_step_references: Secret references in steps
+
+Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
+"""
 
 import json
-import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
-from theauditor.utils.logging import logger
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="github_actions_unpinned_actions",
     category="supply-chain",
     target_extensions=[".yml", ".yaml"],
     exclude_patterns=[".pf/", "test/", "__tests__/", "node_modules/"],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="github_steps",
+)
 
 
 MUTABLE_VERSIONS: set[str] = {
@@ -46,69 +59,84 @@ GITHUB_FIRST_PARTY: set[str] = {
 }
 
 
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect unpinned third-party actions with secret access.
+
+    Args:
+        context: Standard rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = _find_unpinned_actions(db)
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
 def find_unpinned_action_with_secrets(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect unpinned third-party actions with secret access."""
+    """Legacy entry point - delegates to analyze()."""
+    result = analyze(context)
+    return result.findings
+
+
+# =============================================================================
+# DETECTION LOGIC
+# =============================================================================
+
+
+def _find_unpinned_actions(db: RuleDB) -> list[StandardFinding]:
+    """Core detection logic for unpinned actions."""
     findings: list[StandardFinding] = []
 
-    if not context.db_path:
-        return findings
+    # Get all steps that use actions with versions
+    sql, params = Q.raw(
+        """
+        SELECT s.step_id, s.step_name, s.uses_action, s.uses_version,
+               s.env, s.with_args, j.workflow_path, j.job_key
+        FROM github_steps s
+        JOIN github_jobs j ON s.job_id = j.job_id
+        WHERE s.uses_action IS NOT NULL
+        AND s.uses_version IS NOT NULL
+        """,
+        [],
+    )
+    step_rows = db.execute(sql, params)
 
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    for step_id, step_name, uses_action, uses_version, step_env, step_with, workflow_path, job_key in step_rows:
+        # Skip first-party GitHub actions (trusted)
+        if uses_action in GITHUB_FIRST_PARTY:
+            continue
 
-    try:
-        cursor.execute("""
-            SELECT s.step_id, s.job_id, s.step_name, s.uses_action, s.uses_version,
-                   s.env, s.with_args, j.workflow_path, j.job_key
-            FROM github_steps s
-            JOIN github_jobs j ON s.job_id = j.job_id
-            WHERE s.uses_action IS NOT NULL
-            AND s.uses_version IS NOT NULL
-        """)
+        # Skip if version is not mutable (e.g., SHA)
+        if uses_version not in MUTABLE_VERSIONS:
+            continue
 
-        for row in cursor.fetchall():
-            uses_action = row["uses_action"]
-            uses_version = row["uses_version"]
+        # Check for secret access
+        secret_refs = _check_secret_access(db, step_id, step_env, step_with)
 
-            if uses_action in GITHUB_FIRST_PARTY:
-                continue
-
-            if uses_version not in MUTABLE_VERSIONS:
-                continue
-
-            has_secrets = _check_secret_access(
-                step_id=row["step_id"],
-                step_env=row["env"],
-                step_with=row["with_args"],
-                job_id=row["job_id"],
-                cursor=cursor,
-            )
-
-            if has_secrets:
-                findings.append(
-                    _build_unpinned_action_finding(
-                        workflow_path=row["workflow_path"],
-                        job_key=row["job_key"],
-                        step_name=row["step_name"] or "Unnamed step",
-                        uses_action=uses_action,
-                        uses_version=uses_version,
-                        secret_refs=has_secrets,
-                    )
+        if secret_refs:
+            findings.append(
+                _build_unpinned_action_finding(
+                    workflow_path=workflow_path,
+                    job_key=job_key,
+                    step_name=step_name or "Unnamed step",
+                    uses_action=uses_action,
+                    uses_version=uses_version,
+                    secret_refs=secret_refs,
                 )
-
-    finally:
-        conn.close()
+            )
 
     return findings
 
 
-def _check_secret_access(
-    step_id: str, step_env: str, step_with: str, job_id: str, cursor
-) -> list[str]:
+def _check_secret_access(db: RuleDB, step_id: str, step_env: str, step_with: str) -> list[str]:
     """Check if step has access to secrets."""
-    secret_refs = []
+    secret_refs: list[str] = []
 
+    # Check env for secrets
     if step_env:
         try:
             env_vars = json.loads(step_env)
@@ -118,6 +146,7 @@ def _check_secret_access(
         except json.JSONDecodeError:
             pass
 
+    # Check with args for secrets
     if step_with:
         try:
             with_args = json.loads(step_with)
@@ -127,18 +156,16 @@ def _check_secret_access(
         except json.JSONDecodeError:
             pass
 
-    cursor.execute(
-        """
-        SELECT reference_path, reference_location
-        FROM github_step_references
-        WHERE step_id = ?
-        AND reference_type = 'secrets'
-    """,
-        (step_id,),
+    # Check step references for secrets
+    ref_rows = db.query(
+        Q("github_step_references")
+        .select("reference_path", "reference_location")
+        .where("step_id = ?", step_id)
+        .where("reference_type = ?", "secrets")
     )
 
-    for ref_row in cursor.fetchall():
-        secret_refs.append(f"{ref_row['reference_location']}.{ref_row['reference_path']}")
+    for ref_path, ref_location in ref_rows:
+        secret_refs.append(f"{ref_location}.{ref_path}")
 
     return secret_refs
 

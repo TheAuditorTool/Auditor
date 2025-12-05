@@ -1,247 +1,265 @@
-"""AWS CDK Encryption Detection - database-first rule."""
-import sqlite3
+"""AWS CDK Encryption Detection - database-first rule.
+
+Detects unencrypted storage resources in AWS CDK code:
+- RDS DatabaseInstance without storage_encrypted=True
+- EBS Volume without encrypted=True
+- DynamoDB Table using default encryption (not customer-managed)
+
+CWE-311: Missing Encryption of Sensitive Data
+"""
 
 from theauditor.rules.base import (
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
-from theauditor.utils.logging import logger
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="aws_cdk_encryption",
     category="deployment",
-    target_extensions=[],
+    target_extensions=[".py", ".ts", ".js"],
     exclude_patterns=[
         "test/",
         "__tests__/",
         ".pf/",
         ".auditor_venv/",
+        "node_modules/",
     ],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="cdk_constructs",
+)
 
 
-def find_cdk_encryption_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect unencrypted storage resources in CDK code."""
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect unencrypted storage resources in CDK code.
+
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
     findings: list[StandardFinding] = []
 
     if not context.db_path:
-        return findings
+        return RuleResult(findings=findings, manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_check_unencrypted_rds(db))
+        findings.extend(_check_unencrypted_ebs(db))
+        findings.extend(_check_dynamodb_encryption(db))
 
-    try:
-        findings.extend(_check_unencrypted_rds(cursor))
-        findings.extend(_check_unencrypted_ebs(cursor))
-        findings.extend(_check_dynamodb_encryption(cursor))
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _check_unencrypted_rds(cursor) -> list[StandardFinding]:
+def _check_unencrypted_rds(db: RuleDB) -> list[StandardFinding]:
     """Detect RDS DatabaseInstance without encryption."""
     findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT c.construct_id, c.file_path, c.line, c.construct_name, c.cdk_class
-        FROM cdk_constructs c
-    """)
+    rows = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+    )
 
-    for row in cursor.fetchall():
-        cdk_class = row["cdk_class"]
+    for construct_id, file_path, line, construct_name, cdk_class in rows:
         if not (
             "DatabaseInstance" in cdk_class
             and ("rds" in cdk_class.lower() or "aws_rds" in cdk_class)
         ):
             continue
-        construct_id = row["construct_id"]
-        construct_name = row["construct_name"] or "UnnamedDB"
 
-        cursor.execute(
-            """
-            SELECT property_value_expr, line
-            FROM cdk_construct_properties
-            WHERE construct_id = ?
-              AND (property_name = 'storage_encrypted' OR property_name = 'storageEncrypted')
-        """,
-            (construct_id,),
+        display_name = construct_name or "UnnamedDB"
+
+        prop_rows = db.query(
+            Q("cdk_construct_properties")
+            .select("property_value_expr", "line")
+            .where("construct_id = ?", construct_id)
+            .where("property_name = ? OR property_name = ?", "storage_encrypted", "storageEncrypted")
         )
 
-        prop_row = cursor.fetchone()
-
-        if not prop_row:
+        if not prop_rows:
             findings.append(
                 StandardFinding(
                     rule_name="aws-cdk-rds-unencrypted",
-                    message=f"RDS instance '{construct_name}' does not have storage encryption enabled",
+                    message=f"RDS instance '{display_name}' does not have storage encryption enabled",
                     severity=Severity.HIGH,
                     confidence="high",
-                    file_path=row["file_path"],
-                    line=row["line"],
-                    snippet=f"rds.DatabaseInstance(self, '{construct_name}', ...)",
+                    file_path=file_path,
+                    line=line,
+                    snippet=f"rds.DatabaseInstance(self, '{display_name}', ...)",
                     category="missing_encryption",
                     cwe_id="CWE-311",
                     additional_info={
                         "construct_id": construct_id,
-                        "construct_name": construct_name,
+                        "construct_name": display_name,
                         "remediation": "Add storage_encrypted=True to enable encryption at rest.",
                     },
                 )
             )
-        elif "false" in prop_row["property_value_expr"].lower():
-            findings.append(
-                StandardFinding(
-                    rule_name="aws-cdk-rds-unencrypted",
-                    message=f"RDS instance '{construct_name}' has storage encryption explicitly disabled",
-                    severity=Severity.HIGH,
-                    confidence="high",
-                    file_path=row["file_path"],
-                    line=prop_row["line"],
-                    snippet="storage_encrypted=False",
-                    category="missing_encryption",
-                    cwe_id="CWE-311",
-                    additional_info={
-                        "construct_id": construct_id,
-                        "construct_name": construct_name,
-                        "remediation": "Change storage_encrypted=False to storage_encrypted=True.",
-                    },
+        else:
+            prop_value, prop_line = prop_rows[0]
+            if "false" in prop_value.lower():
+                findings.append(
+                    StandardFinding(
+                        rule_name="aws-cdk-rds-unencrypted",
+                        message=f"RDS instance '{display_name}' has storage encryption explicitly disabled",
+                        severity=Severity.HIGH,
+                        confidence="high",
+                        file_path=file_path,
+                        line=prop_line,
+                        snippet="storage_encrypted=False",
+                        category="missing_encryption",
+                        cwe_id="CWE-311",
+                        additional_info={
+                            "construct_id": construct_id,
+                            "construct_name": display_name,
+                            "remediation": "Change storage_encrypted=False to storage_encrypted=True.",
+                        },
+                    )
                 )
-            )
 
     return findings
 
 
-def _check_unencrypted_ebs(cursor) -> list[StandardFinding]:
+def _check_unencrypted_ebs(db: RuleDB) -> list[StandardFinding]:
     """Detect EBS Volume without encryption."""
     findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT c.construct_id, c.file_path, c.line, c.construct_name, c.cdk_class
-        FROM cdk_constructs c
-    """)
+    rows = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+    )
 
-    for row in cursor.fetchall():
-        cdk_class = row["cdk_class"]
+    for construct_id, file_path, line, construct_name, cdk_class in rows:
         if not ("Volume" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)):
             continue
-        construct_id = row["construct_id"]
-        construct_name = row["construct_name"] or "UnnamedVolume"
 
-        cursor.execute(
-            """
-            SELECT property_value_expr, line
-            FROM cdk_construct_properties
-            WHERE construct_id = ?
-              AND property_name = 'encrypted'
-        """,
-            (construct_id,),
+        display_name = construct_name or "UnnamedVolume"
+
+        prop_rows = db.query(
+            Q("cdk_construct_properties")
+            .select("property_value_expr", "line")
+            .where("construct_id = ?", construct_id)
+            .where("property_name = ?", "encrypted")
         )
 
-        prop_row = cursor.fetchone()
-
-        if not prop_row or "false" in prop_row["property_value_expr"].lower():
-            line = prop_row["line"] if prop_row else row["line"]
-            snippet = (
-                f"encrypted={prop_row['property_value_expr']}"
-                if prop_row
-                else f"ec2.Volume(self, '{construct_name}', ...)"
-            )
-
+        if not prop_rows:
             findings.append(
                 StandardFinding(
                     rule_name="aws-cdk-ebs-unencrypted",
-                    message=f"EBS volume '{construct_name}' is not encrypted",
+                    message=f"EBS volume '{display_name}' is not encrypted",
                     severity=Severity.HIGH,
                     confidence="high",
-                    file_path=row["file_path"],
+                    file_path=file_path,
                     line=line,
-                    snippet=snippet,
+                    snippet=f"ec2.Volume(self, '{display_name}', ...)",
                     category="missing_encryption",
                     cwe_id="CWE-311",
                     additional_info={
                         "construct_id": construct_id,
-                        "construct_name": construct_name,
+                        "construct_name": display_name,
                         "remediation": "Add encrypted=True to enable EBS volume encryption.",
                     },
                 )
             )
+        else:
+            prop_value, prop_line = prop_rows[0]
+            if "false" in prop_value.lower():
+                findings.append(
+                    StandardFinding(
+                        rule_name="aws-cdk-ebs-unencrypted",
+                        message=f"EBS volume '{display_name}' has encryption explicitly disabled",
+                        severity=Severity.HIGH,
+                        confidence="high",
+                        file_path=file_path,
+                        line=prop_line,
+                        snippet=f"encrypted={prop_value}",
+                        category="missing_encryption",
+                        cwe_id="CWE-311",
+                        additional_info={
+                            "construct_id": construct_id,
+                            "construct_name": display_name,
+                            "remediation": "Change encrypted=False to encrypted=True.",
+                        },
+                    )
+                )
 
     return findings
 
 
-def _check_dynamodb_encryption(cursor) -> list[StandardFinding]:
-    """Detect DynamoDB Table with default encryption (not customer-managed)."""
+def _check_dynamodb_encryption(db: RuleDB) -> list[StandardFinding]:
+    """Detect DynamoDB Table with default encryption (not customer-managed).
+
+    Note: AWS default encryption IS still encrypted (AWS-managed keys).
+    This finding is for compliance/best practice - customer-managed keys
+    provide more control over key rotation and access policies.
+    """
     findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT c.construct_id, c.file_path, c.line, c.construct_name, c.cdk_class
-        FROM cdk_constructs c
-    """)
+    rows = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+    )
 
-    for row in cursor.fetchall():
-        cdk_class = row["cdk_class"]
+    for construct_id, file_path, line, construct_name, cdk_class in rows:
         if not (
             "Table" in cdk_class
             and ("dynamodb" in cdk_class.lower() or "aws_dynamodb" in cdk_class)
         ):
             continue
-        construct_id = row["construct_id"]
-        construct_name = row["construct_name"] or "UnnamedTable"
 
-        cursor.execute(
-            """
-            SELECT property_value_expr, line
-            FROM cdk_construct_properties
-            WHERE construct_id = ?
-              AND property_name = 'encryption'
-        """,
-            (construct_id,),
+        display_name = construct_name or "UnnamedTable"
+
+        prop_rows = db.query(
+            Q("cdk_construct_properties")
+            .select("property_value_expr", "line")
+            .where("construct_id = ?", construct_id)
+            .where("property_name = ?", "encryption")
         )
 
-        prop_row = cursor.fetchone()
-
-        if not prop_row:
+        if not prop_rows:
             findings.append(
                 StandardFinding(
                     rule_name="aws-cdk-dynamodb-default-encryption",
-                    message=f"DynamoDB table '{construct_name}' using default encryption (not customer-managed)",
+                    message=f"DynamoDB table '{display_name}' using default encryption (not customer-managed)",
                     severity=Severity.MEDIUM,
                     confidence="high",
-                    file_path=row["file_path"],
-                    line=row["line"],
-                    snippet=f"dynamodb.Table(self, '{construct_name}', ...)",
+                    file_path=file_path,
+                    line=line,
+                    snippet=f"dynamodb.Table(self, '{display_name}', ...)",
                     category="weak_encryption",
                     cwe_id="CWE-311",
                     additional_info={
                         "construct_id": construct_id,
-                        "construct_name": construct_name,
+                        "construct_name": display_name,
                         "remediation": "Add encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED to use customer-managed keys.",
                     },
                 )
             )
-        elif "DEFAULT" in prop_row["property_value_expr"]:
-            findings.append(
-                StandardFinding(
-                    rule_name="aws-cdk-dynamodb-default-encryption",
-                    message=f"DynamoDB table '{construct_name}' explicitly using default encryption",
-                    severity=Severity.MEDIUM,
-                    confidence="high",
-                    file_path=row["file_path"],
-                    line=prop_row["line"],
-                    snippet=f"encryption={prop_row['property_value_expr']}",
-                    category="weak_encryption",
-                    cwe_id="CWE-311",
-                    additional_info={
-                        "construct_id": construct_id,
-                        "construct_name": construct_name,
-                        "remediation": "Change to encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED.",
-                    },
+        else:
+            prop_value, prop_line = prop_rows[0]
+            if "DEFAULT" in prop_value:
+                findings.append(
+                    StandardFinding(
+                        rule_name="aws-cdk-dynamodb-default-encryption",
+                        message=f"DynamoDB table '{display_name}' explicitly using default encryption",
+                        severity=Severity.MEDIUM,
+                        confidence="high",
+                        file_path=file_path,
+                        line=prop_line,
+                        snippet=f"encryption={prop_value}",
+                        category="weak_encryption",
+                        cwe_id="CWE-311",
+                        additional_info={
+                            "construct_id": construct_id,
+                            "construct_name": display_name,
+                            "remediation": "Change to encryption=dynamodb.TableEncryption.CUSTOMER_MANAGED.",
+                        },
+                    )
                 )
-            )
 
     return findings

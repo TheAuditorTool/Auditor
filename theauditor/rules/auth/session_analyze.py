@@ -1,15 +1,23 @@
-"""Session Management Security Analyzer - Database-First Approach."""
+"""Session Management Security Analyzer - Database-First Approach.
 
-import sqlite3
+Detects session/cookie vulnerabilities including:
+- Missing httpOnly flag on cookies (CWE-1004)
+- Missing secure flag on cookies (CWE-614)
+- Missing or weak SameSite attribute (CWE-352)
+- Session fixation vulnerabilities (CWE-384)
+- Missing session expiration/timeout (CWE-613)
+"""
 
-from theauditor.indexer.schema import build_query
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="session_security",
@@ -25,7 +33,9 @@ METADATA = RuleMetadata(
         "demo/",
         "example/",
     ],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="function_call_args",
+)
 
 
 COOKIE_FUNCTION_KEYWORDS = frozenset([".cookie", "cookies.set", "setcookie"])
@@ -43,45 +53,34 @@ AUTH_VAR_KEYWORDS = frozenset(["user", "userid", "authenticated", "logged", "log
 SESSION_COOKIE_KEYWORDS = frozenset(["session", "auth", "token", "sid"])
 
 
-def find_session_issues(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect session and cookie security vulnerabilities."""
     findings = []
 
     if not context.db_path:
-        return findings
+        return RuleResult(findings=findings, manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_check_missing_httponly(db))
+        findings.extend(_check_missing_secure(db))
+        findings.extend(_check_missing_samesite(db))
+        findings.extend(_check_session_fixation(db))
+        findings.extend(_check_missing_timeout(db))
 
-    try:
-        findings.extend(_check_missing_httponly(cursor))
-
-        findings.extend(_check_missing_secure(cursor))
-
-        findings.extend(_check_missing_samesite(cursor))
-
-        findings.extend(_check_session_fixation(cursor))
-
-        findings.extend(_check_missing_timeout(cursor))
-
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _check_missing_httponly(cursor) -> list[StandardFinding]:
+def _check_missing_httponly(db: RuleDB) -> list[StandardFinding]:
     """Detect cookies set without httpOnly flag."""
     findings = []
 
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "callee_function", "argument_expr"],
-        order_by="file, line",
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
 
         is_cookie_function = any(keyword in func_lower for keyword in COOKIE_FUNCTION_KEYWORDS)
@@ -96,7 +95,7 @@ def _check_missing_httponly(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="session-missing-httponly",
-                    message="Cookie set without httpOnly flag (XSS can steal session)",
+                    message="Cookie set without httpOnly flag (XSS can steal session). Set httpOnly: true to prevent JavaScript access.",
                     file_path=file,
                     line=line,
                     severity=Severity.CRITICAL,
@@ -104,7 +103,6 @@ def _check_missing_httponly(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-1004",
                     confidence=Confidence.HIGH,
                     snippet=f"{func}(...)",
-                    recommendation="Set httpOnly: true in cookie options to prevent JavaScript access",
                 )
             )
 
@@ -112,7 +110,7 @@ def _check_missing_httponly(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="session-httponly-disabled",
-                    message="Cookie httpOnly flag explicitly disabled",
+                    message="Cookie httpOnly flag explicitly disabled. Remove httpOnly: false to enable default protection.",
                     file_path=file,
                     line=line,
                     severity=Severity.CRITICAL,
@@ -120,25 +118,23 @@ def _check_missing_httponly(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-1004",
                     confidence=Confidence.HIGH,
                     snippet=f"{func}(...httpOnly: false...)",
-                    recommendation="Remove httpOnly: false to enable default protection",
                 )
             )
 
     return findings
 
 
-def _check_missing_secure(cursor) -> list[StandardFinding]:
+def _check_missing_secure(db: RuleDB) -> list[StandardFinding]:
     """Detect cookies set without secure flag."""
     findings = []
 
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "callee_function", "argument_expr"],
-        order_by="file, line",
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
 
         is_cookie_function = any(keyword in func_lower for keyword in COOKIE_FUNCTION_KEYWORDS)
@@ -153,7 +149,7 @@ def _check_missing_secure(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="session-missing-secure",
-                    message="Cookie set without secure flag (vulnerable to MITM)",
+                    message="Cookie set without secure flag (vulnerable to MITM). Set secure: true for HTTPS-only cookies.",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
@@ -161,7 +157,6 @@ def _check_missing_secure(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-614",
                     confidence=Confidence.HIGH,
                     snippet=f"{func}(...)",
-                    recommendation="Set secure: true to ensure cookies only sent over HTTPS",
                 )
             )
 
@@ -169,7 +164,7 @@ def _check_missing_secure(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="session-secure-disabled",
-                    message="Cookie secure flag explicitly disabled",
+                    message="Cookie secure flag explicitly disabled. Set secure: true for production environments.",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
@@ -177,25 +172,23 @@ def _check_missing_secure(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-614",
                     confidence=Confidence.HIGH,
                     snippet=f"{func}(...secure: false...)",
-                    recommendation="Set secure: true for production environments",
                 )
             )
 
     return findings
 
 
-def _check_missing_samesite(cursor) -> list[StandardFinding]:
+def _check_missing_samesite(db: RuleDB) -> list[StandardFinding]:
     """Detect cookies set without SameSite attribute."""
     findings = []
 
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "callee_function", "argument_expr"],
-        order_by="file, line",
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
 
         is_cookie_function = any(keyword in func_lower for keyword in COOKIE_FUNCTION_KEYWORDS)
@@ -210,7 +203,7 @@ def _check_missing_samesite(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="session-missing-samesite",
-                    message="Cookie set without SameSite attribute (CSRF risk)",
+                    message='Cookie set without SameSite attribute (CSRF risk). Set sameSite: "strict" or "lax".',
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
@@ -218,7 +211,6 @@ def _check_missing_samesite(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-352",
                     confidence=Confidence.MEDIUM,
                     snippet=f"{func}(...)",
-                    recommendation='Set sameSite: "strict" or "lax" to prevent CSRF attacks',
                 )
             )
 
@@ -226,7 +218,7 @@ def _check_missing_samesite(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="session-samesite-none",
-                    message='Cookie SameSite set to "none" (disables CSRF protection)',
+                    message='Cookie SameSite set to "none" (disables CSRF protection). Use "strict" or "lax" instead.',
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
@@ -234,24 +226,24 @@ def _check_missing_samesite(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-352",
                     confidence=Confidence.HIGH,
                     snippet=f'{func}(...sameSite: "none"...)',
-                    recommendation='Use sameSite: "strict" or "lax" instead of "none"',
                 )
             )
 
     return findings
 
 
-def _check_session_fixation(cursor) -> list[StandardFinding]:
+def _check_session_fixation(db: RuleDB) -> list[StandardFinding]:
     """Detect session fixation vulnerabilities."""
     findings = []
 
-    query = build_query(
-        "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
     session_assignments = []
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in rows:
         var_lower = var.lower()
 
         has_session_prefix = any(pattern in var_lower for pattern in SESSION_VAR_PATTERNS)
@@ -265,13 +257,14 @@ def _check_session_fixation(cursor) -> list[StandardFinding]:
         session_assignments.append((file, line, var, expr))
 
     for file, line, var, expr in session_assignments:
-        query_regenerate = build_query(
-            "function_call_args", ["callee_function", "line"], where="file = ?"
+        regenerate_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function", "line")
+            .where("file = ?", file)
         )
-        cursor.execute(query_regenerate, [file])
 
         has_regenerate = False
-        for callee, call_line in cursor.fetchall():
+        for callee, call_line in regenerate_rows:
             if abs(call_line - line) <= 10 and "session.regenerate" in callee.lower():
                 has_regenerate = True
                 break
@@ -280,36 +273,32 @@ def _check_session_fixation(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="session-fixation",
-                    message=f"Session variable {var} set without session.regenerate() (session fixation risk)",
+                    message=f"Session variable {var} set without session.regenerate() (session fixation risk). Regenerate session before setting auth state.",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
                     category="authentication",
                     cwe_id="CWE-384",
                     confidence=Confidence.MEDIUM,
-                    snippet=f"{var} = {expr[:50]}"
-                    if len(expr) <= 50
-                    else f"{var} = {expr[:50]}...",
-                    recommendation="Call session.regenerate() before setting authentication state",
+                    snippet=f"{var} = {expr[:50]}" if len(expr) <= 50 else f"{var} = {expr[:50]}...",
                 )
             )
 
     return findings
 
 
-def _check_missing_timeout(cursor) -> list[StandardFinding]:
+def _check_missing_timeout(db: RuleDB) -> list[StandardFinding]:
     """Detect session configuration without timeout/expiration."""
     findings = []
 
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "callee_function", "argument_expr"],
-        where="argument_index = 0",
-        order_by="file, line",
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 0")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
 
         is_session_function = any(keyword in func_lower for keyword in SESSION_FUNCTION_KEYWORDS)
@@ -323,7 +312,7 @@ def _check_missing_timeout(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="session-no-timeout",
-                    message="Session configuration missing expiration (maxAge/expires/ttl)",
+                    message="Session configuration missing expiration. Set cookie.maxAge or expires to limit session lifetime.",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
@@ -331,18 +320,16 @@ def _check_missing_timeout(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-613",
                     confidence=Confidence.MEDIUM,
                     snippet=f"{func}(...)",
-                    recommendation="Set cookie.maxAge or expires to limit session lifetime",
                 )
             )
 
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "callee_function", "argument_expr"],
-        order_by="file, line",
+    cookie_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in cookie_rows:
         func_lower = func.lower()
 
         is_cookie_function = any(keyword in func_lower for keyword in COOKIE_FUNCTION_KEYWORDS)
@@ -361,7 +348,7 @@ def _check_missing_timeout(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="session-cookie-no-expiration",
-                    message="Session cookie set without expiration (maxAge/expires)",
+                    message="Session cookie set without expiration. Set maxAge or expires to automatically expire session cookies.",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
@@ -369,7 +356,6 @@ def _check_missing_timeout(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-613",
                     confidence=Confidence.LOW,
                     snippet=f"{func}(...)",
-                    recommendation="Set maxAge or expires to automatically expire session cookies",
                 )
             )
 

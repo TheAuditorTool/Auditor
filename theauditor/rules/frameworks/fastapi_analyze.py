@@ -1,511 +1,608 @@
-"""FastAPI Framework Security Analyzer - Database-First Approach."""
+"""FastAPI Framework Security Analyzer.
 
-import sqlite3
+Detects security misconfigurations and vulnerabilities in FastAPI applications:
+- Sync operations in async routes (blocking event loop)
+- Missing dependency injection for database access
+- Missing CORS/timeout configuration
+- Unauthenticated WebSocket endpoints
+- Debug endpoints exposed in production
+- Path traversal in file upload handlers
+- Missing exception handlers (info leakage)
+"""
 
-from theauditor.indexer.schema import build_query
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="fastapi_security",
     category="frameworks",
     target_extensions=[".py"],
-    exclude_patterns=["test/", "spec.", "__tests__", "migrations/"])
-
-
-SYNC_OPERATIONS = frozenset(
-    [
-        "time.sleep",
-        "requests.get",
-        "requests.post",
-        "requests.put",
-        "requests.delete",
-        "urllib.request.urlopen",
-        "urllib.urlopen",
-        "open",
-        "input",
-        "subprocess.run",
-        "subprocess.call",
-    ]
+    exclude_patterns=["test/", "tests/", "spec.", "__tests__/", "migrations/", ".venv/"],
+    execution_scope="database",
+    primary_table="api_endpoints",
 )
 
+# Blocking sync operations that should not be in async routes
+SYNC_OPERATIONS = frozenset([
+    "time.sleep",
+    "requests.get",
+    "requests.post",
+    "requests.put",
+    "requests.delete",
+    "requests.patch",
+    "requests.head",
+    "requests.options",
+    "urllib.request.urlopen",
+    "urllib.urlopen",
+    "subprocess.run",
+    "subprocess.call",
+    "subprocess.check_output",
+])
 
-DB_OPERATIONS = frozenset(
-    ["query", "execute", "executemany", "commit", "rollback", "fetchone", "fetchall", "fetchmany"]
-)
+# Debug endpoint patterns that should not be in production
+DEBUG_ENDPOINTS = frozenset([
+    "/debug",
+    "/test",
+    "/_debug",
+    "/_test",
+    "/health/full",
+    "/metrics/internal",
+    "/admin/debug",
+    "/dev",
+    "/_dev",
+    "/testing",
+    "/__debug__",
+    "/internal",
+])
+
+# FastAPI response classes
+FASTAPI_RESPONSE_SINKS = frozenset([
+    "JSONResponse",
+    "HTMLResponse",
+    "PlainTextResponse",
+    "StreamingResponse",
+    "FileResponse",
+    "RedirectResponse",
+])
+
+# FastAPI input sources
+FASTAPI_INPUT_SOURCES = frozenset([
+    "Request",
+    "Body",
+    "Query",
+    "Path",
+    "Form",
+    "File",
+    "Header",
+    "Cookie",
+    "Depends",
+    "UploadFile",
+])
 
 
-DEBUG_ENDPOINTS = frozenset(
-    [
-        "/debug",
-        "/test",
-        "/_debug",
-        "/_test",
-        "/health/full",
-        "/metrics/internal",
-        "/admin/debug",
-        "/dev",
-        "/_dev",
-        "/testing",
-    ]
-)
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect FastAPI security vulnerabilities using indexed data.
+
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
+
+        # Check if this is a FastAPI project
+        fastapi_files = _get_fastapi_files(db)
+        if not fastapi_files:
+            return RuleResult(findings=findings, manifest=db.get_manifest())
+
+        # Run all security checks
+        findings.extend(_check_sync_in_async(db))
+        findings.extend(_check_no_dependency_injection(db))
+        findings.extend(_check_missing_cors(db, fastapi_files))
+        findings.extend(_check_blocking_file_ops(db))
+        findings.extend(_check_raw_sql_in_routes(db))
+        findings.extend(_check_background_task_errors(db))
+        findings.extend(_check_websocket_auth(db))
+        findings.extend(_check_debug_endpoints(db))
+        findings.extend(_check_path_traversal(db))
+        findings.extend(_check_missing_timeout(db, fastapi_files))
+        findings.extend(_check_missing_exception_handlers(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-FILE_OPERATIONS = frozenset(
-    ["open", "Path", "os.path.join", "os.mkdir", "shutil.copy", "shutil.move"]
-)
+def _get_fastapi_files(db: RuleDB) -> list[str]:
+    """Get files that import FastAPI."""
+    rows = db.query(
+        Q("refs")
+        .select("src")
+        .where("value IN (?, ?)", "fastapi", "FastAPI")
+    )
+    return list({row[0] for row in rows})
 
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect FastAPI security vulnerabilities using indexed data."""
+def _check_sync_in_async(db: RuleDB) -> list[StandardFinding]:
+    """Check for blocking sync operations in routes."""
     findings = []
 
-    if not context.db_path:
-        return findings
+    sync_ops_list = list(SYNC_OPERATIONS)
+    placeholders = ",".join("?" * len(sync_ops_list))
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
-
-    try:
-        query = build_query("refs", ["src"], where="value IN ('fastapi', 'FastAPI')")
-        cursor.execute(query)
-
-        fastapi_files = list(set(cursor.fetchall()))
-
-        if not fastapi_files:
-            return findings
-
-        sync_ops_list = [
-            "time.sleep",
-            "requests.get",
-            "requests.post",
-            "requests.put",
-            "requests.delete",
-            "urllib.request.urlopen",
-            "urllib.urlopen",
-            "subprocess.run",
-            "subprocess.call",
-        ]
-        placeholders = ",".join("?" * len(sync_ops_list))
-
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "callee_function"],
-            where=f"""callee_function IN ({placeholders})
-                             AND EXISTS (
-                                 SELECT 1 FROM api_endpoints e
-                                 WHERE e.file = function_call_args.file
-                             )""",
-            order_by="file, line",
+    sql, params = Q.raw(
+        f"""
+        SELECT DISTINCT file, line, callee_function
+        FROM function_call_args
+        WHERE callee_function IN ({placeholders})
+        AND EXISTS (
+            SELECT 1 FROM api_endpoints e
+            WHERE e.file = function_call_args.file
         )
-        cursor.execute(query, sync_ops_list)
+        ORDER BY file, line
+        """,
+        sync_ops_list,
+    )
+    rows = db.execute(sql, params)
 
-        seen = set()
-        results = []
-        for row in cursor.fetchall():
-            key = (row[0], row[1], row[2])
-            if key not in seen:
-                seen.add(key)
-                results.append(row)
-
-        for file, line, sync_op in results:
-            func_name = sync_op.split(".")[-1] if "." in sync_op else sync_op
-            if func_name in SYNC_OPERATIONS:
-                findings.append(
-                    StandardFinding(
-                        rule_name="fastapi-potential-sync-in-async",
-                        message=f"Potentially blocking operation {sync_op} in route handler - may block event loop if in async function",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.MEDIUM,
-                        category="performance",
-                        confidence=Confidence.LOW,
-                        cwe_id="CWE-407",
-                    )
-                )
-
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "callee_function"],
-            where="""EXISTS (
-                                 SELECT 1 FROM api_endpoints e
-                                 WHERE e.file = function_call_args.file
-                             )
-                             AND NOT EXISTS (
-                                 SELECT 1 FROM function_call_args f2
-                                 WHERE f2.file = function_call_args.file
-                                   AND f2.callee_function = 'Depends'
-                             )""",
-            order_by="file, line",
-        )
-        cursor.execute(query)
-
-        db_access_results = []
-        seen = set()
-        for file, line, callee in cursor.fetchall():
-            if (
-                ".query" in callee
-                or ".execute" in callee
-                or callee.startswith("db.")
-                or callee.startswith("session.")
-            ):
-                key = (file, line, callee)
-                if key not in seen:
-                    seen.add(key)
-                    db_access_results.append((file, line, callee))
-
-        for file, line, db_call in db_access_results:
-            findings.append(
-                StandardFinding(
-                    rule_name="fastapi-no-dependency-injection",
-                    message=f"Direct database access ({db_call}) without dependency injection",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category="architecture",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-1061",
-                )
+    for file, line, sync_op in rows:
+        findings.append(
+            StandardFinding(
+                rule_name="fastapi-sync-in-async",
+                message=f"Blocking operation {sync_op} in route handler may block event loop",
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category="performance",
+                confidence=Confidence.MEDIUM,
+                snippet=f"Use async alternative for {sync_op}",
+                cwe_id="CWE-400",
             )
-
-        query = build_query("refs", ["value"], where="value = 'CORSMiddleware'")
-        cursor.execute(query)
-        has_cors = cursor.fetchone() is not None
-
-        query2 = build_query(
-            "function_call_args", ["callee_function"], where="callee_function = 'FastAPI'"
         )
-        cursor.execute(query2)
-        has_fastapi_app = cursor.fetchone() is not None
-
-        if has_fastapi_app and not has_cors:
-            findings.append(
-                StandardFinding(
-                    rule_name="fastapi-missing-cors",
-                    message="FastAPI application without CORS middleware configuration",
-                    file_path=fastapi_files[0][0],
-                    line=1,
-                    severity=Severity.MEDIUM,
-                    category="security",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-346",
-                )
-            )
-
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "callee_function"],
-            where="""callee_function = 'open'
-                             AND EXISTS (
-                                 SELECT 1 FROM api_endpoints e
-                                 WHERE e.file = function_call_args.file
-                             )
-                             AND NOT EXISTS (
-                                 SELECT 1 FROM refs r
-                                 WHERE r.src = function_call_args.file AND r.value = 'aiofiles'
-                             )""",
-            order_by="file, line",
-        )
-        cursor.execute(query)
-
-        file_op_results = list(set(cursor.fetchall()))
-
-        for file, line, _ in file_op_results:
-            findings.append(
-                StandardFinding(
-                    rule_name="fastapi-potential-blocking-file-op",
-                    message="File I/O without aiofiles in route file - may block if in async route",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category="performance",
-                    confidence=Confidence.LOW,
-                    cwe_id="CWE-407",
-                )
-            )
-
-        sql_commands = ["SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE"]
-        placeholders = ",".join("?" * len(sql_commands))
-
-        query = build_query(
-            "sql_queries",
-            ["file_path", "line_number", "command"],
-            where=f"""command IN ({placeholders})
-                             AND EXISTS (
-                                 SELECT 1 FROM api_endpoints e
-                                 WHERE e.file = sql_queries.file_path
-                             )""",
-            order_by="file_path, line_number",
-        )
-        cursor.execute(query, sql_commands)
-
-        sql_results = list(set(cursor.fetchall()))
-
-        for file, line, sql_command in sql_results:
-            findings.append(
-                StandardFinding(
-                    rule_name="fastapi-raw-sql-in-route",
-                    message=f"Raw SQL {sql_command} in route handler - use ORM or repository pattern",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="architecture",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-89",
-                )
-            )
-
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "caller_function"],
-            where="callee_function = 'BackgroundTasks.add_task' OR callee_function = 'add_task'",
-            order_by="file, line",
-        )
-        cursor.execute(query)
-
-        background_tasks = cursor.fetchall()
-
-        for file, line, _func in background_tasks:
-            query2 = build_query(
-                "cfg_blocks",
-                ["id"],
-                where="file = ? AND block_type IN ('try', 'except', 'finally') AND start_line BETWEEN ? AND ?",
-            )
-            cursor.execute(query2, (file, line - 20, line + 20))
-
-            has_error_handling = cursor.fetchone() is not None
-
-            if not has_error_handling:
-                findings.append(
-                    StandardFinding(
-                        rule_name="fastapi-background-task-no-error-handling",
-                        message="Background task without exception handling - failures will be silent",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category="error-handling",
-                        confidence=Confidence.MEDIUM,
-                        cwe_id="CWE-248",
-                    )
-                )
-
-        query = build_query("api_endpoints", ["file", "pattern"])
-        cursor.execute(query)
-
-        websocket_results = []
-        seen = set()
-        for file, pattern in cursor.fetchall():
-            pattern_lower = pattern.lower()
-            if "websocket" in pattern_lower or "ws" in pattern_lower:
-                key = (file, pattern)
-                if key not in seen:
-                    seen.add(key)
-                    websocket_results.append((file, pattern))
-
-        for file, pattern in websocket_results:
-            query2 = build_query("function_call_args", ["callee_function"], where="file = ?")
-            cursor.execute(query2, (file,))
-
-            has_auth = False
-            for (callee,) in cursor.fetchall():
-                callee_lower = callee.lower()
-                if (
-                    "auth" in callee_lower
-                    or "verify" in callee_lower
-                    or "current_user" in callee_lower
-                    or "token" in callee_lower
-                ):
-                    has_auth = True
-                    break
-
-            if not has_auth:
-                findings.append(
-                    StandardFinding(
-                        rule_name="fastapi-websocket-no-auth",
-                        message=f"WebSocket endpoint {pattern} without authentication",
-                        file_path=file,
-                        line=1,
-                        severity=Severity.CRITICAL,
-                        category="security",
-                        confidence=Confidence.MEDIUM,
-                        cwe_id="CWE-306",
-                    )
-                )
-
-        debug_patterns_list = list(DEBUG_ENDPOINTS)
-        placeholders = ",".join("?" * len(debug_patterns_list))
-
-        query = build_query(
-            "api_endpoints",
-            ["file", "pattern", "method"],
-            where=f"pattern IN ({placeholders})",
-            order_by="file",
-        )
-        cursor.execute(query, debug_patterns_list)
-
-        for file, pattern, _method in cursor.fetchall():
-            findings.append(
-                StandardFinding(
-                    rule_name="fastapi-debug-endpoint-exposed",
-                    message=f"Debug endpoint {pattern} exposed in production",
-                    file_path=file,
-                    line=1,
-                    severity=Severity.HIGH,
-                    category="security",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-489",
-                )
-            )
-
-        form_funcs = ["Form", "File", "UploadFile"]
-        file_funcs = ["open", "Path", "os.path.join"]
-        form_placeholders = ",".join("?" * len(form_funcs))
-        file_placeholders = ",".join("?" * len(file_funcs))
-
-        query = build_query(
-            "function_call_args",
-            ["file", "line"],
-            where=f"""callee_function IN ({form_placeholders})
-                             AND EXISTS (
-                                 SELECT 1 FROM function_call_args f2
-                                 WHERE f2.file = function_call_args.file
-                                   AND f2.callee_function IN ({file_placeholders})
-                                   AND f2.line > function_call_args.line
-                                   AND f2.line < function_call_args.line + 20
-                             )""",
-            order_by="file, line",
-        )
-        cursor.execute(query, form_funcs + file_funcs)
-
-        form_traversal_results = list(set(cursor.fetchall()))
-
-        for file, line in form_traversal_results:
-            findings.append(
-                StandardFinding(
-                    rule_name="fastapi-form-path-traversal",
-                    message="Form/file data used in file operations - path traversal risk",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category="injection",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-22",
-                )
-            )
-
-        query = build_query(
-            "function_call_args",
-            ["callee_function", "argument_expr"],
-            where="callee_function = 'FastAPI'",
-        )
-        cursor.execute(query)
-
-        has_timeout = False
-        for _callee, arg_expr in cursor.fetchall():
-            if "timeout" in arg_expr:
-                has_timeout = True
-                break
-
-        if has_fastapi_app and not has_timeout:
-            query = build_query(
-                "refs", ["value"], where="value IN ('slowapi', 'timeout_middleware')"
-            )
-            cursor.execute(query)
-            has_timeout_middleware = cursor.fetchone() is not None
-
-            if not has_timeout_middleware:
-                findings.append(
-                    StandardFinding(
-                        rule_name="fastapi-missing-timeout",
-                        message="FastAPI application without request timeout configuration",
-                        file_path=fastapi_files[0][0],
-                        line=1,
-                        severity=Severity.MEDIUM,
-                        category="availability",
-                        confidence=Confidence.MEDIUM,
-                        cwe_id="CWE-400",
-                    )
-                )
-
-        exception_funcs = ["HTTPException", "exception_handler", "add_exception_handler"]
-        exception_placeholders = ",".join("?" * len(exception_funcs))
-
-        query = build_query(
-            "api_endpoints",
-            ["file"],
-            where=f"""NOT EXISTS (
-                                 SELECT 1 FROM function_call_args f
-                                 WHERE f.file = api_endpoints.file
-                                   AND f.callee_function IN ({exception_placeholders})
-                             )""",
-        )
-        cursor.execute(query, exception_funcs)
-
-        exception_results = list(set(cursor.fetchall()))[:5]
-
-        for (file,) in exception_results:
-            findings.append(
-                StandardFinding(
-                    rule_name="fastapi-no-exception-handler",
-                    message="API routes without exception handlers - may leak error details",
-                    file_path=file,
-                    line=1,
-                    severity=Severity.MEDIUM,
-                    category="error-handling",
-                    confidence=Confidence.LOW,
-                    cwe_id="CWE-209",
-                )
-            )
-
-    finally:
-        conn.close()
 
     return findings
 
 
-FASTAPI_RESPONSE_SINKS = frozenset(
-    [
-        "JSONResponse",
-        "HTMLResponse",
-        "PlainTextResponse",
-        "StreamingResponse",
-        "FileResponse",
-        "RedirectResponse",
-    ]
-)
+def _check_no_dependency_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for direct database access without dependency injection."""
+    findings = []
 
-FASTAPI_INPUT_SOURCES = frozenset(
-    [
-        "Request",
-        "Body",
-        "Query",
-        "Path",
-        "Form",
-        "File",
-        "Header",
-        "Cookie",
-        "Depends",
-    ]
-)
+    # Find files with API endpoints but no Depends usage
+    sql, params = Q.raw(
+        """
+        SELECT DISTINCT file, line, callee_function
+        FROM function_call_args
+        WHERE EXISTS (
+            SELECT 1 FROM api_endpoints e
+            WHERE e.file = function_call_args.file
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM function_call_args f2
+            WHERE f2.file = function_call_args.file
+            AND f2.callee_function = 'Depends'
+        )
+        AND (callee_function LIKE '%.query%'
+             OR callee_function LIKE '%.execute%'
+             OR callee_function LIKE 'db.%'
+             OR callee_function LIKE 'session.%')
+        ORDER BY file, line
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
-FASTAPI_SQL_SINKS = frozenset(
-    ["execute", "executemany", "execute_async", "fetch", "fetchone", "fetchall"]
-)
+    seen = set()
+    for file, line, callee in rows:
+        key = (file, line, callee)
+        if key in seen:
+            continue
+        seen.add(key)
+
+        findings.append(
+            StandardFinding(
+                rule_name="fastapi-no-dependency-injection",
+                message=f"Direct database access ({callee}) without dependency injection",
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category="architecture",
+                confidence=Confidence.MEDIUM,
+                snippet="Use Depends() for database session management",
+                cwe_id="CWE-1061",
+            )
+        )
+
+    return findings
 
 
-def register_taint_patterns(taint_registry):
-    """Register FastAPI-specific taint patterns."""
+def _check_missing_cors(db: RuleDB, fastapi_files: list[str]) -> list[StandardFinding]:
+    """Check for missing CORS middleware."""
+    findings = []
 
+    # Check if CORSMiddleware is imported
+    rows = db.query(
+        Q("refs")
+        .select("value")
+        .where("value = ?", "CORSMiddleware")
+        .limit(1)
+    )
+    if list(rows):
+        return findings
+
+    # Check if FastAPI app exists
+    rows = db.query(
+        Q("function_call_args")
+        .select("callee_function")
+        .where("callee_function = ?", "FastAPI")
+        .limit(1)
+    )
+    if not list(rows):
+        return findings
+
+    # No CORS middleware found
+    if fastapi_files:
+        findings.append(
+            StandardFinding(
+                rule_name="fastapi-missing-cors",
+                message="FastAPI application without CORS middleware configuration",
+                file_path=fastapi_files[0],
+                line=1,
+                severity=Severity.MEDIUM,
+                category="security",
+                confidence=Confidence.MEDIUM,
+                snippet="Add CORSMiddleware to handle cross-origin requests",
+                cwe_id="CWE-346",
+            )
+        )
+
+    return findings
+
+
+def _check_blocking_file_ops(db: RuleDB) -> list[StandardFinding]:
+    """Check for blocking file I/O in routes without aiofiles."""
+    findings = []
+
+    sql, params = Q.raw(
+        """
+        SELECT DISTINCT file, line, callee_function
+        FROM function_call_args
+        WHERE callee_function = 'open'
+        AND EXISTS (
+            SELECT 1 FROM api_endpoints e
+            WHERE e.file = function_call_args.file
+        )
+        AND NOT EXISTS (
+            SELECT 1 FROM refs r
+            WHERE r.src = function_call_args.file AND r.value = 'aiofiles'
+        )
+        ORDER BY file, line
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
+
+    for file, line, _ in rows:
+        findings.append(
+            StandardFinding(
+                rule_name="fastapi-blocking-file-io",
+                message="Blocking file I/O without aiofiles may block event loop",
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category="performance",
+                confidence=Confidence.LOW,
+                snippet="Use aiofiles for async file operations",
+                cwe_id="CWE-400",
+            )
+        )
+
+    return findings
+
+
+def _check_raw_sql_in_routes(db: RuleDB) -> list[StandardFinding]:
+    """Check for raw SQL queries in route handlers."""
+    findings = []
+
+    sql_commands = ["SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE"]
+    placeholders = ",".join("?" * len(sql_commands))
+
+    sql, params = Q.raw(
+        f"""
+        SELECT DISTINCT file_path, line_number, command
+        FROM sql_queries
+        WHERE command IN ({placeholders})
+        AND EXISTS (
+            SELECT 1 FROM api_endpoints e
+            WHERE e.file = sql_queries.file_path
+        )
+        ORDER BY file_path, line_number
+        """,
+        sql_commands,
+    )
+    rows = db.execute(sql, params)
+
+    for file, line, sql_command in rows:
+        findings.append(
+            StandardFinding(
+                rule_name="fastapi-raw-sql-in-route",
+                message=f"Raw SQL {sql_command} in route handler - use ORM or repository pattern",
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category="architecture",
+                confidence=Confidence.HIGH,
+                snippet="Move SQL to repository layer with parameterized queries",
+                cwe_id="CWE-1061",
+            )
+        )
+
+    return findings
+
+
+def _check_background_task_errors(db: RuleDB) -> list[StandardFinding]:
+    """Check for background tasks without error handling."""
+    findings = []
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "caller_function")
+        .where("callee_function IN (?, ?)", "BackgroundTasks.add_task", "add_task")
+        .order_by("file, line")
+    )
+
+    for file, line, _func in rows:
+        # Check if there's error handling nearby
+        error_rows = db.query(
+            Q("cfg_blocks")
+            .select("id")
+            .where("file = ? AND block_type IN (?, ?, ?) AND start_line BETWEEN ? AND ?",
+                   file, "try", "except", "finally", line - 20, line + 20)
+            .limit(1)
+        )
+
+        if not list(error_rows):
+            findings.append(
+                StandardFinding(
+                    rule_name="fastapi-background-task-no-error-handling",
+                    message="Background task without exception handling - failures will be silent",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="error-handling",
+                    confidence=Confidence.MEDIUM,
+                    snippet="Wrap background task in try/except with logging",
+                    cwe_id="CWE-248",
+                )
+            )
+
+    return findings
+
+
+def _check_websocket_auth(db: RuleDB) -> list[StandardFinding]:
+    """Check for WebSocket endpoints without authentication."""
+    findings = []
+
+    rows = db.query(
+        Q("api_endpoints")
+        .select("file", "pattern")
+        .where("pattern LIKE ? OR pattern LIKE ?", "%websocket%", "%ws%")
+    )
+
+    for file, pattern in rows:
+        # Check if file has authentication-related calls
+        auth_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("file = ? AND (callee_function LIKE ? OR callee_function LIKE ? OR callee_function LIKE ? OR callee_function LIKE ?)",
+                   file, "%auth%", "%verify%", "%current_user%", "%token%")
+            .limit(1)
+        )
+
+        if not list(auth_rows):
+            findings.append(
+                StandardFinding(
+                    rule_name="fastapi-websocket-no-auth",
+                    message=f"WebSocket endpoint {pattern} without authentication",
+                    file_path=file,
+                    line=1,
+                    severity=Severity.CRITICAL,
+                    category="security",
+                    confidence=Confidence.MEDIUM,
+                    snippet="Add authentication check to WebSocket handler",
+                    cwe_id="CWE-306",
+                )
+            )
+
+    return findings
+
+
+def _check_debug_endpoints(db: RuleDB) -> list[StandardFinding]:
+    """Check for debug endpoints exposed in production."""
+    findings = []
+
+    # Check for exact matches and pattern matches
+    debug_list = list(DEBUG_ENDPOINTS)
+
+    for debug_pattern in debug_list:
+        rows = db.query(
+            Q("api_endpoints")
+            .select("file", "pattern", "method")
+            .where("pattern = ? OR pattern LIKE ?", debug_pattern, f"%{debug_pattern}%")
+        )
+
+        for file, pattern, _method in rows:
+            findings.append(
+                StandardFinding(
+                    rule_name="fastapi-debug-endpoint-exposed",
+                    message=f"Debug endpoint {pattern} exposed - should not be in production",
+                    file_path=file,
+                    line=1,
+                    severity=Severity.HIGH,
+                    category="security",
+                    confidence=Confidence.HIGH,
+                    snippet="Remove or protect debug endpoints in production",
+                    cwe_id="CWE-489",
+                )
+            )
+
+    return findings
+
+
+def _check_path_traversal(db: RuleDB) -> list[StandardFinding]:
+    """Check for path traversal risks in file upload handlers."""
+    findings = []
+
+    form_funcs = ["Form", "File", "UploadFile"]
+    file_funcs = ["open", "Path", "os.path.join"]
+    form_placeholders = ",".join("?" * len(form_funcs))
+    file_placeholders = ",".join("?" * len(file_funcs))
+
+    sql, params = Q.raw(
+        f"""
+        SELECT DISTINCT file, line
+        FROM function_call_args
+        WHERE callee_function IN ({form_placeholders})
+        AND EXISTS (
+            SELECT 1 FROM function_call_args f2
+            WHERE f2.file = function_call_args.file
+            AND f2.callee_function IN ({file_placeholders})
+            AND f2.line > function_call_args.line
+            AND f2.line < function_call_args.line + 20
+        )
+        ORDER BY file, line
+        """,
+        form_funcs + file_funcs,
+    )
+    rows = db.execute(sql, params)
+
+    for file, line in rows:
+        findings.append(
+            StandardFinding(
+                rule_name="fastapi-path-traversal-risk",
+                message="Form/file data used in file operations - validate and sanitize paths",
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category="injection",
+                confidence=Confidence.MEDIUM,
+                snippet="Use secure_filename() and validate upload paths",
+                cwe_id="CWE-22",
+            )
+        )
+
+    return findings
+
+
+def _check_missing_timeout(db: RuleDB, fastapi_files: list[str]) -> list[StandardFinding]:
+    """Check for missing request timeout configuration."""
+    findings = []
+
+    # Check FastAPI constructor for timeout
+    rows = db.query(
+        Q("function_call_args")
+        .select("callee_function", "argument_expr")
+        .where("callee_function = ?", "FastAPI")
+    )
+
+    has_timeout = any("timeout" in (arg_expr or "") for _, arg_expr in rows)
+    if has_timeout:
+        return findings
+
+    # Check for timeout middleware
+    rows = db.query(
+        Q("refs")
+        .select("value")
+        .where("value IN (?, ?)", "slowapi", "timeout_middleware")
+        .limit(1)
+    )
+
+    if not list(rows) and fastapi_files:
+        findings.append(
+            StandardFinding(
+                rule_name="fastapi-missing-timeout",
+                message="FastAPI application without request timeout configuration",
+                file_path=fastapi_files[0],
+                line=1,
+                severity=Severity.MEDIUM,
+                category="availability",
+                confidence=Confidence.MEDIUM,
+                snippet="Add timeout middleware or configure request timeouts",
+                cwe_id="CWE-400",
+            )
+        )
+
+    return findings
+
+
+def _check_missing_exception_handlers(db: RuleDB) -> list[StandardFinding]:
+    """Check for routes without exception handlers."""
+    findings = []
+
+    exception_funcs = ["HTTPException", "exception_handler", "add_exception_handler"]
+    exception_placeholders = ",".join("?" * len(exception_funcs))
+
+    sql, params = Q.raw(
+        f"""
+        SELECT DISTINCT file
+        FROM api_endpoints
+        WHERE NOT EXISTS (
+            SELECT 1 FROM function_call_args f
+            WHERE f.file = api_endpoints.file
+            AND f.callee_function IN ({exception_placeholders})
+        )
+        LIMIT 5
+        """,
+        exception_funcs,
+    )
+    rows = db.execute(sql, params)
+
+    for (file,) in rows:
+        findings.append(
+            StandardFinding(
+                rule_name="fastapi-no-exception-handler",
+                message="API routes without exception handlers - may leak error details",
+                file_path=file,
+                line=1,
+                severity=Severity.MEDIUM,
+                category="error-handling",
+                confidence=Confidence.LOW,
+                snippet="Add exception handlers to prevent info leakage",
+                cwe_id="CWE-209",
+            )
+        )
+
+    return findings
+
+
+# TODO(quality): Missing detection patterns to add in future:
+# - Pydantic model without extra="forbid" (mass assignment)
+# - Insecure deserialization (pickle, yaml.unsafe_load)
+# - SSRF via user-controlled URLs in httpx/requests
+# - JWT vulnerabilities (weak algorithm, no expiry check)
+# - Missing rate limiting on auth endpoints
+# - Response validation disabled (response_model_exclude_unset)
+# - Security headers missing (helmet equivalent for FastAPI)
+
+
+def register_taint_patterns(taint_registry) -> None:
+    """Register FastAPI-specific taint patterns for taint tracking engine.
+
+    Args:
+        taint_registry: The taint pattern registry to register patterns with
+    """
     for pattern in FASTAPI_RESPONSE_SINKS:
         taint_registry.register_sink(pattern, "response", "python")
 
     for pattern in FASTAPI_INPUT_SOURCES:
         taint_registry.register_source(pattern, "user_input", "python")
-
-    for pattern in FASTAPI_SQL_SINKS:
-        taint_registry.register_sink(pattern, "sql", "python")

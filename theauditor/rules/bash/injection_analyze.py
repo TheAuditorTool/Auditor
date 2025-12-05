@@ -19,6 +19,7 @@ METADATA = RuleMetadata(
     target_extensions=[".sh", ".bash"],
     exclude_patterns=["node_modules/", "vendor/", ".git/"],
     execution_scope="database",
+    primary_table="bash_commands",
 )
 
 
@@ -205,10 +206,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
             )
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
-
-
-# Alias for backwards compatibility
-analyze = find_bash_injection_issues
 
 
 # =============================================================================

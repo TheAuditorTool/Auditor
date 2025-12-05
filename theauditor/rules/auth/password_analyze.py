@@ -1,22 +1,32 @@
-"""Password Security Analyzer - Database-First Approach."""
+"""Password Security Analyzer - Database-First Approach.
 
-import sqlite3
+Detects password vulnerabilities including:
+- Weak hash algorithms (MD5/SHA1) for passwords (CWE-327)
+- Hardcoded passwords in source code (CWE-259)
+- Weak/default passwords (CWE-521)
+- Insufficient password complexity requirements (CWE-521)
+- Password exposure in URL parameters (CWE-598)
+"""
 
-from theauditor.indexer.schema import build_query
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="password_security",
     category="auth",
     target_extensions=[".py", ".js", ".ts", ".mjs", ".cjs"],
     exclude_patterns=["test/", "spec.", ".test.", "__tests__", "demo/", "example/"],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="function_call_args",
+)
 
 
 WEAK_HASH_KEYWORDS = frozenset(["md5", "sha1", "sha", "createhash"])
@@ -28,87 +38,73 @@ STRONG_HASH_ALGORITHMS = frozenset(["bcrypt", "scrypt", "argon2", "pbkdf2"])
 PASSWORD_KEYWORDS = frozenset(["password", "passwd", "pwd", "passphrase", "pass"])
 
 
-WEAK_PASSWORDS = frozenset(
-    [
-        "password",
-        "admin",
-        "123456",
-        "changeme",
-        "default",
-        "test",
-        "demo",
-        "sample",
-        "password123",
-        "admin123",
-        "root",
-        "toor",
-        "secret",
-        "qwerty",
-        "letmein",
-    ]
-)
+WEAK_PASSWORDS = frozenset([
+    "password",
+    "admin",
+    "123456",
+    "changeme",
+    "default",
+    "test",
+    "demo",
+    "sample",
+    "password123",
+    "admin123",
+    "root",
+    "toor",
+    "secret",
+    "qwerty",
+    "letmein",
+])
 
 
-PASSWORD_PLACEHOLDERS = frozenset(
-    [
-        "your_password_here",
-        "your_password",
-        "password_here",
-        "change_me",
-        "changeme",
-        "placeholder",
-        "<password>",
-        "${password}",
-        "{{password}}",
-    ]
-)
+PASSWORD_PLACEHOLDERS = frozenset([
+    "your_password_here",
+    "your_password",
+    "password_here",
+    "change_me",
+    "changeme",
+    "placeholder",
+    "<password>",
+    "${password}",
+    "{{password}}",
+])
 
 
-ENV_PATTERNS = frozenset(
-    ["process.env", "import.meta.env", "os.environ", "getenv", "config", "process.argv"]
-)
+ENV_PATTERNS = frozenset([
+    "process.env", "import.meta.env", "os.environ", "getenv", "config", "process.argv"
+])
 
 
 URL_FUNCTION_KEYWORDS = frozenset(["url", "uri", "query", "querystring"])
 
 
-def find_password_issues(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect password security vulnerabilities."""
     findings = []
 
     if not context.db_path:
-        return findings
+        return RuleResult(findings=findings, manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_check_weak_password_hashing(db))
+        findings.extend(_check_hardcoded_passwords(db))
+        findings.extend(_check_weak_complexity(db))
+        findings.extend(_check_password_in_url(db))
 
-    try:
-        findings.extend(_check_weak_password_hashing(cursor))
-
-        findings.extend(_check_hardcoded_passwords(cursor))
-
-        findings.extend(_check_weak_complexity(cursor))
-
-        findings.extend(_check_password_in_url(cursor))
-
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _check_weak_password_hashing(cursor) -> list[StandardFinding]:
+def _check_weak_password_hashing(db: RuleDB) -> list[StandardFinding]:
     """Detect weak hash algorithms used for passwords."""
     findings = []
 
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "callee_function", "argument_expr"],
-        order_by="file, line",
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         func_lower = func.lower()
 
         is_weak_hash = any(keyword in func_lower for keyword in WEAK_HASH_KEYWORDS)
@@ -125,7 +121,7 @@ def _check_weak_password_hashing(cursor) -> list[StandardFinding]:
         findings.append(
             StandardFinding(
                 rule_name="password-weak-hashing",
-                message=f"Weak hash algorithm {algo} used for passwords",
+                message=f"Weak hash algorithm {algo} used for passwords. Use bcrypt, scrypt, or argon2 instead.",
                 file_path=file,
                 line=line,
                 severity=Severity.CRITICAL,
@@ -133,18 +129,16 @@ def _check_weak_password_hashing(cursor) -> list[StandardFinding]:
                 cwe_id="CWE-327",
                 confidence=Confidence.HIGH,
                 snippet=f"{func}({args[:40]})" if len(args) <= 40 else f"{func}({args[:40]}...)",
-                recommendation="Use bcrypt, scrypt, or argon2 for password hashing",
             )
         )
 
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "callee_function", "argument_expr"],
-        order_by="file, line",
+    createhash_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in createhash_rows:
         if "createhash" not in func.lower():
             continue
 
@@ -155,13 +149,14 @@ def _check_weak_password_hashing(cursor) -> list[StandardFinding]:
 
         algo = "MD5" if "md5" in args_lower else "SHA1"
 
-        query_nearby = build_query(
-            "assignments", ["target_var", "source_expr", "line"], where="file = ?"
+        nearby_rows = db.query(
+            Q("assignments")
+            .select("target_var", "source_expr", "line")
+            .where("file = ?", file)
         )
-        cursor.execute(query_nearby, [file])
 
         nearby_password = False
-        for target, source, assign_line in cursor.fetchall():
+        for target, source, assign_line in nearby_rows:
             if abs(assign_line - line) > 5:
                 continue
 
@@ -176,7 +171,7 @@ def _check_weak_password_hashing(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="password-weak-hashing-createhash",
-                    message=f'crypto.createHash("{algo.lower()}") used in password context',
+                    message=f'crypto.createHash("{algo.lower()}") used in password context. Use bcrypt, scrypt, or argon2 instead.',
                     file_path=file,
                     line=line,
                     severity=Severity.CRITICAL,
@@ -184,23 +179,23 @@ def _check_weak_password_hashing(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-327",
                     confidence=Confidence.HIGH,
                     snippet=f'{func}("{algo.lower()}")',
-                    recommendation="Use bcrypt, scrypt, or argon2 for password hashing",
                 )
             )
 
     return findings
 
 
-def _check_hardcoded_passwords(cursor) -> list[StandardFinding]:
+def _check_hardcoded_passwords(db: RuleDB) -> list[StandardFinding]:
     """Detect hardcoded passwords in source code."""
     findings = []
 
-    query = build_query(
-        "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in rows:
         var_lower = var.lower()
         has_password_keyword = any(keyword in var_lower for keyword in PASSWORD_KEYWORDS)
         if not has_password_keyword:
@@ -229,7 +224,7 @@ def _check_hardcoded_passwords(cursor) -> list[StandardFinding]:
                 findings.append(
                     StandardFinding(
                         rule_name="password-weak-default",
-                        message=f'Weak/default password "{expr_clean}" in variable "{var}"',
+                        message=f'Weak/default password "{expr_clean}" in variable "{var}". Use strong, randomly generated passwords.',
                         file_path=file,
                         line=line,
                         severity=Severity.CRITICAL,
@@ -237,7 +232,6 @@ def _check_hardcoded_passwords(cursor) -> list[StandardFinding]:
                         cwe_id="CWE-521",
                         confidence=Confidence.HIGH,
                         snippet=f'{var} = "{expr_clean}"',
-                        recommendation="Use strong, randomly generated passwords",
                     )
                 )
 
@@ -245,7 +239,7 @@ def _check_hardcoded_passwords(cursor) -> list[StandardFinding]:
                 findings.append(
                     StandardFinding(
                         rule_name="password-hardcoded",
-                        message=f'Hardcoded password in variable "{var}"',
+                        message=f'Hardcoded password in variable "{var}". Store in environment variables or secure secret management.',
                         file_path=file,
                         line=line,
                         severity=Severity.CRITICAL,
@@ -253,25 +247,23 @@ def _check_hardcoded_passwords(cursor) -> list[StandardFinding]:
                         cwe_id="CWE-259",
                         confidence=Confidence.HIGH,
                         snippet=f'{var} = "***REDACTED***"',
-                        recommendation="Store passwords in environment variables or secure secret management systems",
                     )
                 )
 
     return findings
 
 
-def _check_weak_complexity(cursor) -> list[StandardFinding]:
+def _check_weak_complexity(db: RuleDB) -> list[StandardFinding]:
     """Detect lack of password complexity enforcement."""
     findings = []
 
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "caller_function", "argument_expr", "callee_function"],
-        order_by="file, line",
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "caller_function", "argument_expr", "callee_function")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, _caller, args, callee in cursor.fetchall():
+    for file, line, _caller, args, callee in rows:
         args_lower = (args or "").lower()
 
         has_password = any(kw in args_lower for kw in PASSWORD_KEYWORDS)
@@ -291,7 +283,7 @@ def _check_weak_complexity(cursor) -> list[StandardFinding]:
                 findings.append(
                     StandardFinding(
                         rule_name="password-weak-length-requirement",
-                        message="Weak password length requirement (< 12 characters)",
+                        message="Weak password length requirement (< 12 characters). Enforce minimum 12+ characters.",
                         file_path=file,
                         line=line,
                         severity=Severity.MEDIUM,
@@ -299,16 +291,16 @@ def _check_weak_complexity(cursor) -> list[StandardFinding]:
                         cwe_id="CWE-521",
                         confidence=Confidence.MEDIUM,
                         snippet=args[:60] if len(args) <= 60 else args[:60] + "...",
-                        recommendation="Enforce minimum password length of 12+ characters",
                     )
                 )
 
-    query = build_query(
-        "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
+    assign_rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, _var, expr in cursor.fetchall():
+    for file, line, _var, expr in assign_rows:
         expr_lower = expr.lower()
 
         has_password_length = any(
@@ -322,7 +314,7 @@ def _check_weak_complexity(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="password-weak-validation",
-                    message="Password validation only checks length (no complexity requirements)",
+                    message="Password validation only checks length. Enforce complexity: length, uppercase, lowercase, numbers, symbols.",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
@@ -330,30 +322,30 @@ def _check_weak_complexity(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-521",
                     confidence=Confidence.MEDIUM,
                     snippet=expr[:60] if len(expr) <= 60 else expr[:60] + "...",
-                    recommendation="Enforce password complexity: length, uppercase, lowercase, numbers, symbols",
                 )
             )
 
     return findings
 
 
-def _check_password_in_url(cursor) -> list[StandardFinding]:
+def _check_password_in_url(db: RuleDB) -> list[StandardFinding]:
     """Detect passwords in GET request parameters."""
     findings = []
 
-    query = build_query(
-        "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
     url_param_patterns = ["?password=", "&password=", "?passwd=", "&passwd=", "?pwd=", "&pwd="]
 
-    for file, line, _var, expr in cursor.fetchall():
+    for file, line, _var, expr in rows:
         if any(pattern in expr for pattern in url_param_patterns):
             findings.append(
                 StandardFinding(
                     rule_name="password-in-url",
-                    message="Password transmitted in URL query parameter",
+                    message="Password transmitted in URL query parameter. Use POST with password in request body.",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
@@ -361,18 +353,16 @@ def _check_password_in_url(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-598",
                     confidence=Confidence.HIGH,
                     snippet=expr[:60] if len(expr) <= 60 else expr[:60] + "...",
-                    recommendation="Use POST requests with password in request body, never in URL",
                 )
             )
 
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "callee_function", "argument_expr"],
-        order_by="file, line",
+    func_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
     )
-    cursor.execute(query)
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in func_rows:
         func_lower = func.lower()
 
         is_url_function = any(kw in func_lower for kw in URL_FUNCTION_KEYWORDS)
@@ -388,7 +378,7 @@ def _check_password_in_url(cursor) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="password-in-url-construction",
-                    message=f"Password used in URL construction via {func}",
+                    message=f"Password used in URL construction via {func}. Never include passwords in URLs.",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
@@ -396,7 +386,6 @@ def _check_password_in_url(cursor) -> list[StandardFinding]:
                     cwe_id="CWE-598",
                     confidence=Confidence.MEDIUM,
                     snippet=f"{func}(...password...)",
-                    recommendation="Never include passwords in URLs - use POST with body payload",
                 )
             )
 

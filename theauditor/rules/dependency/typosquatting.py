@@ -1,105 +1,183 @@
-"""Detect potential typosquatting in package names."""
+"""Detect potential typosquatting in package names.
 
-import json
-import sqlite3
+Typosquatting is a supply chain attack where malicious packages use names
+that are slight misspellings of popular packages, hoping developers will
+accidentally install them. This rule checks both declared dependencies
+and actual imports against a known list of typosquat patterns.
 
-from theauditor.indexer.schema import build_query
-from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+CWE-1357: Reliance on Insufficiently Trustworthy Component
+"""
+
+from theauditor.rules.base import (
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 from .config import TYPOSQUATTING_MAP
 
 METADATA = RuleMetadata(
     name="typosquatting",
     category="dependency",
-    target_extensions=[".py", ".js", ".ts", ".json", ".txt"],
-    exclude_patterns=["node_modules/", ".venv/", "test/"],
-    execution_scope="database")
+    target_extensions=[".py", ".js", ".ts", ".json", ".txt", ".toml"],
+    exclude_patterns=["node_modules/", ".venv/", "test/", "__pycache__/"],
+    execution_scope="database",
+    primary_table="import_styles",
+)
 
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect potential typosquatting in package names."""
-    findings = []
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect potential typosquatting in package names.
+
+    Checks both declared dependencies (from package manifests) and actual
+    imports in source code against known typosquat patterns.
+
+    Args:
+        context: Standard rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
-        return findings
+        return RuleResult(findings=findings, manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        # Check declared JavaScript dependencies
+        findings.extend(_check_js_declared_packages(db))
 
-    try:
-        findings.extend(_check_declared_packages(cursor))
+        # Check declared Python dependencies
+        findings.extend(_check_python_declared_packages(db))
 
-        findings.extend(_check_imported_packages(cursor))
+        # Check actual imports in source code
+        findings.extend(_check_imported_packages(db))
 
-    finally:
-        conn.close()
-
-    return findings
-
-
-def _check_declared_packages(cursor) -> list[StandardFinding]:
-    """Check declared dependencies for typosquatting."""
-    findings = []
-    seen = set()
-
-    query = build_query("package_configs", ["file_path", "dependencies", "dev_dependencies"])
-    cursor.execute(query)
-
-    for file_path, deps, dev_deps in cursor.fetchall():
-        for deps_json in [deps, dev_deps]:
-            if not deps_json:
-                continue
-
-            try:
-                deps_dict = json.loads(deps_json)
-                if not isinstance(deps_dict, dict):
-                    continue
-
-                for package in deps_dict:
-                    package_lower = package.lower()
-
-                    if package_lower in seen:
-                        continue
-
-                    if package_lower in TYPOSQUATTING_MAP:
-                        correct_name = TYPOSQUATTING_MAP[package_lower]
-                        seen.add(package_lower)
-
-                        findings.append(
-                            StandardFinding(
-                                rule_name="typosquatting",
-                                message=f"Potential typosquatting: '{package}' (did you mean '{correct_name}'?)",
-                                file_path=file_path,
-                                line=1,
-                                severity=Severity.CRITICAL,
-                                category="dependency",
-                                snippet=f"Declared: {package}, Expected: {correct_name}",
-                                cwe_id="CWE-1357",
-                            )
-                        )
-
-            except json.JSONDecodeError:
-                continue
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _check_imported_packages(cursor) -> list[StandardFinding]:
-    """Check imported packages for typosquatting."""
-    findings = []
-    seen = set()
+def _check_js_declared_packages(db: RuleDB) -> list[StandardFinding]:
+    """Check declared JavaScript dependencies for typosquatting.
 
-    query = build_query(
-        "import_styles", ["file", "line", "package"], order_by="package, file, line"
+    Args:
+        db: RuleDB instance
+
+    Returns:
+        List of findings for typosquatted JS dependencies
+    """
+    findings: list[StandardFinding] = []
+    seen: set[str] = set()
+
+    rows = db.query(
+        Q("package_dependencies")
+        .select("file_path", "name", "is_dev")
+        .order_by("file_path, name")
     )
-    cursor.execute(query)
 
-    for file, line, package in cursor.fetchall():
+    for file_path, pkg_name, is_dev in rows:
+        if not pkg_name:
+            continue
+
+        pkg_lower = pkg_name.lower()
+        if pkg_lower in seen:
+            continue
+
+        if pkg_lower in TYPOSQUATTING_MAP:
+            correct_name = TYPOSQUATTING_MAP[pkg_lower]
+            seen.add(pkg_lower)
+            dep_type = "dev dependency" if is_dev else "dependency"
+
+            findings.append(
+                StandardFinding(
+                    rule_name=METADATA.name,
+                    message=f"Potential typosquatting: {dep_type} '{pkg_name}' may be a typosquat of '{correct_name}'",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.CRITICAL,
+                    category=METADATA.category,
+                    snippet=f'"{pkg_name}": "..." (expected: {correct_name})',
+                    cwe_id="CWE-1357",
+                )
+            )
+
+    return findings
+
+
+def _check_python_declared_packages(db: RuleDB) -> list[StandardFinding]:
+    """Check declared Python dependencies for typosquatting.
+
+    Args:
+        db: RuleDB instance
+
+    Returns:
+        List of findings for typosquatted Python dependencies
+    """
+    findings: list[StandardFinding] = []
+    seen: set[str] = set()
+
+    rows = db.query(
+        Q("python_package_dependencies")
+        .select("file_path", "name", "is_dev")
+        .order_by("file_path, name")
+    )
+
+    for file_path, pkg_name, is_dev in rows:
+        if not pkg_name:
+            continue
+
+        pkg_lower = pkg_name.lower()
+        if pkg_lower in seen:
+            continue
+
+        if pkg_lower in TYPOSQUATTING_MAP:
+            correct_name = TYPOSQUATTING_MAP[pkg_lower]
+            seen.add(pkg_lower)
+            dep_type = "dev dependency" if is_dev else "dependency"
+
+            findings.append(
+                StandardFinding(
+                    rule_name=METADATA.name,
+                    message=f"Potential typosquatting: Python {dep_type} '{pkg_name}' may be a typosquat of '{correct_name}'",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.CRITICAL,
+                    category=METADATA.category,
+                    snippet=f"{pkg_name} (expected: {correct_name})",
+                    cwe_id="CWE-1357",
+                )
+            )
+
+    return findings
+
+
+def _check_imported_packages(db: RuleDB) -> list[StandardFinding]:
+    """Check imported packages in source code for typosquatting.
+
+    Args:
+        db: RuleDB instance
+
+    Returns:
+        List of findings for typosquatted imports
+    """
+    findings: list[StandardFinding] = []
+    seen: set[str] = set()
+
+    rows = db.query(
+        Q("import_styles")
+        .select("file", "line", "package")
+        .order_by("package, file, line")
+    )
+
+    for file_path, line, package in rows:
         if not package:
             continue
 
-        base_package = package.split("/")[0].split(".")[0].lower()
-
+        # Normalize to base package name
+        base_package = _get_base_package(package)
         if base_package in seen:
             continue
 
@@ -109,15 +187,36 @@ def _check_imported_packages(cursor) -> list[StandardFinding]:
 
             findings.append(
                 StandardFinding(
-                    rule_name="typosquatting-import",
-                    message=f"Importing potentially typosquatted package: '{base_package}' (did you mean '{correct_name}'?)",
-                    file_path=file,
+                    rule_name=METADATA.name,
+                    message=f"Importing potentially typosquatted package: '{base_package}' may be a typosquat of '{correct_name}'",
+                    file_path=file_path,
                     line=line,
                     severity=Severity.CRITICAL,
-                    category="dependency",
+                    category=METADATA.category,
                     snippet=f"import {package}",
                     cwe_id="CWE-1357",
                 )
             )
 
     return findings
+
+
+def _get_base_package(package: str) -> str:
+    """Extract base package name from import path.
+
+    Args:
+        package: Full import path (e.g., "lodash/merge")
+
+    Returns:
+        Base package name in lowercase (e.g., "lodash")
+    """
+    # Handle scoped packages (@org/pkg)
+    if package.startswith("@"):
+        parts = package.split("/", 2)
+        if len(parts) >= 2:
+            return "/".join(parts[:2]).lower()
+        return package.lower()
+
+    # Get base package (before / or .)
+    base = package.split("/")[0].split(".")[0]
+    return base.lower()

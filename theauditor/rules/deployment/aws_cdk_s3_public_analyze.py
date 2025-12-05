@@ -1,4 +1,11 @@
-"""AWS CDK S3 Public Access Detection - database-first rule."""
+"""AWS CDK S3 Public Access Detection - database-first rule.
+
+Detects S3 buckets with public access in CDK code:
+- Explicit public_read_access=True
+- Missing block_public_access configuration
+
+CWE-732: Incorrect Permission Assignment for Critical Resource
+"""
 
 from theauditor.rules.base import (
     RuleMetadata,
@@ -13,20 +20,28 @@ from theauditor.rules.query import Q
 METADATA = RuleMetadata(
     name="aws_cdk_s3_public",
     category="deployment",
-    target_extensions=[],
+    target_extensions=[".py", ".ts", ".js"],
     exclude_patterns=[
         "test/",
         "__tests__/",
         ".pf/",
         ".auditor_venv/",
+        "node_modules/",
     ],
     execution_scope="database",
     primary_table="cdk_constructs",
 )
 
 
-def find_cdk_s3_issues(context: StandardRuleContext) -> RuleResult:
-    """Detect S3 buckets with public access enabled in CDK code."""
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect S3 buckets with public access enabled in CDK code.
+
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
     findings: list[StandardFinding] = []
 
     if not context.db_path:
@@ -44,9 +59,8 @@ def _check_public_read_access(db: RuleDB) -> list[StandardFinding]:
 
     O(1) query replacing N+1 loop pattern.
     """
-    findings = []
+    findings: list[StandardFinding] = []
 
-    # Single JOIN query: constructs + properties filtered in SQL
     rows = db.query(
         Q("cdk_constructs")
         .select(
@@ -71,11 +85,11 @@ def _check_public_read_access(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, construct_name, line in rows:
-        name = construct_name or "UnnamedBucket"
+        display_name = construct_name or "UnnamedBucket"
         findings.append(
             StandardFinding(
                 rule_name="aws-cdk-s3-public-read",
-                message=f"S3 bucket '{name}' has public read access enabled",
+                message=f"S3 bucket '{display_name}' has public read access enabled",
                 severity=Severity.CRITICAL,
                 confidence="high",
                 file_path=file_path,
@@ -85,7 +99,7 @@ def _check_public_read_access(db: RuleDB) -> list[StandardFinding]:
                 cwe_id="CWE-732",
                 additional_info={
                     "construct_id": construct_id,
-                    "construct_name": name,
+                    "construct_name": display_name,
                     "remediation": "Remove public_read_access=True or set to False. Use bucket policies with specific principals instead.",
                 },
             )
@@ -101,9 +115,8 @@ def _check_missing_block_public_access(db: RuleDB) -> list[StandardFinding]:
     Query 2: Constructs with block_public_access property
     Result: Buckets - Configured = Vulnerable
     """
-    findings = []
+    findings: list[StandardFinding] = []
 
-    # Query 1: Get ALL S3 Buckets
     all_buckets = db.query(
         Q("cdk_constructs")
         .select("construct_id", "file_path", "line", "construct_name")
@@ -118,7 +131,6 @@ def _check_missing_block_public_access(db: RuleDB) -> list[StandardFinding]:
     if not all_buckets:
         return []
 
-    # Query 2: Get construct_ids that HAVE block_public_access property
     configured_rows = db.query(
         Q("cdk_construct_properties")
         .select("construct_id")
@@ -129,29 +141,27 @@ def _check_missing_block_public_access(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    # O(1) lookup set
     configured_ids = {row[0] for row in configured_rows}
 
-    # Set difference: Buckets without block_public_access
     for construct_id, file_path, line, construct_name in all_buckets:
         if construct_id in configured_ids:
             continue
 
-        name = construct_name or "UnnamedBucket"
+        display_name = construct_name or "UnnamedBucket"
         findings.append(
             StandardFinding(
                 rule_name="aws-cdk-s3-missing-block-public-access",
-                message=f"S3 bucket '{name}' missing block_public_access configuration",
+                message=f"S3 bucket '{display_name}' missing block_public_access configuration",
                 severity=Severity.HIGH,
                 confidence="high",
                 file_path=file_path,
                 line=line,
-                snippet=f"s3.Bucket(self, '{name}', ...)",
+                snippet=f"s3.Bucket(self, '{display_name}', ...)",
                 category="missing_security_control",
                 cwe_id="CWE-732",
                 additional_info={
                     "construct_id": construct_id,
-                    "construct_name": name,
+                    "construct_name": display_name,
                     "remediation": "Add block_public_access=s3.BlockPublicAccess.BLOCK_ALL to prevent accidental public exposure.",
                 },
             )

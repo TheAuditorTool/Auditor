@@ -1,126 +1,155 @@
-"""Vue.js Framework Security Analyzer - Database-First Approach."""
+"""Vue.js Framework Security Analyzer.
 
-import sqlite3
+Detects security vulnerabilities in Vue.js applications including:
+- v-html and innerHTML binding XSS (CWE-79)
+- eval() in Vue components (CWE-95)
+- Exposed API keys (CWE-200)
+- Unescaped interpolation in Vue 1.x (CWE-79)
+- Dynamic component injection (CWE-470)
+- Unsafe target="_blank" links (CWE-1022)
+- Direct DOM manipulation via $refs (CWE-79)
+- Sensitive data in localStorage/sessionStorage (CWE-922)
 
-from theauditor.indexer.schema import build_query
+# TODO(quality): Add Vue 3 Composition API security checks
+# TODO(quality): Add Pinia/Vuex state exposure detection
+# TODO(quality): Add Vue Router navigation guards bypass detection
+# TODO(quality): Add Nuxt SSR-specific vulnerability checks
+# TODO(quality): Add custom directive security analysis
+"""
+
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="vue_security",
     category="frameworks",
     target_extensions=[".vue", ".js", ".ts"],
-    exclude_patterns=["node_modules/", "test/", "spec.", "__tests__"])
-
-
-VUE_XSS_DIRECTIVES = frozenset(
-    ["v-html", ":innerHTML", "v-bind:innerHTML", "v-bind:outerHTML", ":outerHTML"]
+    exclude_patterns=["node_modules/", "test/", "spec.", "__tests__/"],
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
+# XSS-prone directives in Vue
+VUE_XSS_DIRECTIVES = frozenset([
+    "v-html",
+    ":innerHTML",
+    "v-bind:innerHTML",
+    "v-bind:outerHTML",
+    ":outerHTML",
+])
 
-SENSITIVE_PATTERNS = frozenset(
-    ["KEY", "TOKEN", "SECRET", "PASSWORD", "PRIVATE", "API_KEY", "CREDENTIAL", "AUTH"]
-)
+# Sensitive data patterns
+SENSITIVE_PATTERNS = frozenset([
+    "KEY",
+    "TOKEN",
+    "SECRET",
+    "PASSWORD",
+    "PRIVATE",
+    "API_KEY",
+    "CREDENTIAL",
+    "AUTH",
+])
+
+# Vue environment variable prefixes (exposed to client)
+VUE_ENV_PREFIXES = frozenset([
+    "VUE_APP_",
+    "VITE_",
+    "NUXT_ENV_",
+])
+
+# Dangerous functions
+DANGEROUS_FUNCTIONS = frozenset([
+    "eval",
+    "Function",
+    "setTimeout",
+    "setInterval",
+    "document.write",
+    "document.writeln",
+])
+
+# DOM manipulation methods (anti-patterns in Vue)
+DOM_MANIPULATION = frozenset([
+    "innerHTML",
+    "outerHTML",
+    "insertAdjacentHTML",
+    "document.getElementById",
+    "document.querySelector",
+    "document.getElementsByClassName",
+    "document.getElementsByTagName",
+])
+
+# User input sources in Vue
+VUE_INPUT_SOURCES = frozenset([
+    "$route.params",
+    "$route.query",
+    "this.$route",
+    "props.",
+    "v-model",
+    "$emit",
+    "$attrs",
+    "$listeners",
+])
+
+# Additional XSS sinks in Vue
+VUE_ADDITIONAL_SINKS = frozenset([
+    "$refs.innerHTML",
+    "$refs.outerHTML",
+    "this.$refs",
+    "vm.$refs",
+])
 
 
-VUE_ENV_PREFIXES = frozenset(["VUE_APP_", "VITE_", "NUXT_ENV_"])
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Vue.js security vulnerabilities using indexed data.
+
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = []
+
+        findings.extend(_check_v_html_xss(db))
+        findings.extend(_check_eval_injection(db))
+        findings.extend(_check_exposed_api_keys(db))
+        findings.extend(_check_unescaped_interpolation(db))
+        findings.extend(_check_dynamic_component_injection(db))
+        findings.extend(_check_unsafe_target_blank(db))
+        findings.extend(_check_refs_dom_manipulation(db))
+        findings.extend(_check_direct_dom_access(db))
+        findings.extend(_check_insecure_storage(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-VUE_COMPONENT_MARKERS = frozenset(
-    [
-        "mounted",
-        "created",
-        "beforeCreate",
-        "beforeMount",
-        "updated",
-        "beforeUpdate",
-        "destroyed",
-        "beforeDestroy",
-        "activated",
-        "deactivated",
-        "errorCaptured",
-        "setup",
-        "data",
-        "methods",
-        "computed",
-        "watch",
-        "props",
-        "defineComponent",
-        "createApp",
-    ]
-)
-
-
-DANGEROUS_FUNCTIONS = frozenset(
-    ["eval", "Function", "setTimeout", "setInterval", "document.write", "document.writeln"]
-)
-
-
-DOM_MANIPULATION = frozenset(
-    [
-        "innerHTML",
-        "outerHTML",
-        "insertAdjacentHTML",
-        "document.getElementById",
-        "document.querySelector",
-        "document.getElementsByClassName",
-        "document.getElementsByTagName",
-    ]
-)
-
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Vue.js security vulnerabilities using indexed data."""
+def _check_v_html_xss(db: RuleDB) -> list[StandardFinding]:
+    """Check for v-html and innerHTML binding - primary XSS vector in Vue."""
     findings = []
 
-    if not context.db_path:
-        return findings
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    for file, line, _target, html_content in rows:
+        if not html_content:
+            continue
 
-    try:
-        cursor.execute("""
-            SELECT DISTINCT src FROM refs
-            WHERE value IN ('vue', 'Vue', '@vue/composition-api', 'vuex', 'vue-router')
-            LIMIT 1
-        """)
-        is_vue = cursor.fetchone() is not None
-
-        if not is_vue:
-            query = build_query("files", ["path"], where="ext = '.vue'") + " LIMIT 1"
-            cursor.execute(query)
-            is_vue = cursor.fetchone() is not None
-
-        if not is_vue:
-            vue_markers_list = list(VUE_COMPONENT_MARKERS)
-            placeholders = ",".join("?" * len(vue_markers_list))
-            cursor.execute(
-                f"""
-                SELECT DISTINCT path FROM symbols
-                WHERE name IN ({placeholders})
-                LIMIT 1
-            """,
-                vue_markers_list,
-            )
-            is_vue = cursor.fetchone() is not None
-
-        if not is_vue:
-            return findings
-
-        query = build_query(
-            "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
-        )
-        cursor.execute(query)
-
-        for file, line, _target, html_content in cursor.fetchall():
-            if not any(pattern in html_content for pattern in VUE_XSS_DIRECTIVES):
-                continue
+        if any(pattern in html_content for pattern in VUE_XSS_DIRECTIVES):
             findings.append(
                 StandardFinding(
                     rule_name="vue-v-html-xss",
@@ -131,118 +160,169 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                     category="xss",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-79",
+                    snippet=html_content[:80] if len(html_content) > 80 else html_content,
                 )
             )
 
-        cursor.execute("""
-            SELECT DISTINCT file, line, argument_expr FROM function_call_args
-            WHERE callee_function = 'eval'
-            ORDER BY file, line
-        """)
+    return findings
 
-        eval_usages = cursor.fetchall()
 
-        for file, line, _eval_content in eval_usages:
-            cursor.execute(
-                """
-                SELECT src FROM refs
-                WHERE src = ? AND value IN ('vue', 'Vue')
-                LIMIT 1
-            """,
-                (file,),
-            )
-            is_vue_file = cursor.fetchone() is not None
+def _check_eval_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for eval() usage in Vue components."""
+    findings = []
 
-            if not is_vue_file and file.endswith(".vue"):
-                is_vue_file = True
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "argument_expr")
+        .where("callee_function = ?", "eval")
+        .order_by("file, line")
+    )
 
-            if not is_vue_file:
-                cursor.execute(
-                    """
-                    SELECT path FROM symbols
-                    WHERE path = ? AND name IN ('mounted', 'created', 'methods', 'computed')
-                    LIMIT 1
-                """,
-                    (file,),
-                )
-                is_vue_file = cursor.fetchone() is not None
-
-            if is_vue_file:
-                findings.append(
-                    StandardFinding(
-                        rule_name="vue-eval-injection",
-                        message="Using eval() in Vue component - code injection risk",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        category="injection",
-                        confidence=Confidence.HIGH,
-                        cwe_id="CWE-95",
-                    )
-                )
-
-        query = build_query(
-            "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
-        )
-        cursor.execute(query)
-
-        for file, line, var_name, value in cursor.fetchall():
-            if not any(var_name.startswith(prefix) for prefix in VUE_ENV_PREFIXES):
-                continue
-
-            var_upper = var_name.upper()
-            if not any(pattern in var_upper for pattern in SENSITIVE_PATTERNS):
-                continue
-
-            if "process.env" in value or "import.meta.env" in value:
-                continue
+    for file, line, eval_content in rows:
+        # Flag eval in .vue files directly
+        if file.endswith(".vue"):
             findings.append(
                 StandardFinding(
-                    rule_name="vue-exposed-api-key",
-                    message=f"API key/secret {var_name} hardcoded in Vue component",
+                    rule_name="vue-eval-injection",
+                    message="Using eval() in Vue component - code injection risk",
                     file_path=file,
                     line=line,
-                    severity=Severity.HIGH,
-                    category="security",
+                    severity=Severity.CRITICAL,
+                    category="injection",
                     confidence=Confidence.HIGH,
-                    cwe_id="CWE-200",
+                    cwe_id="CWE-95",
+                    snippet=eval_content[:80] if eval_content and len(eval_content) > 80 else eval_content,
+                )
+            )
+            continue
+
+        # Check if JS file imports Vue
+        vue_refs = db.query(
+            Q("refs")
+            .select("src")
+            .where("src = ? AND value IN (?, ?)", file, "vue", "Vue")
+            .limit(1)
+        )
+
+        if vue_refs:
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-eval-injection",
+                    message="Using eval() in Vue component - code injection risk",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-95",
+                    snippet=eval_content[:80] if eval_content and len(eval_content) > 80 else eval_content,
                 )
             )
 
-        query = build_query(
-            "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
-        )
-        cursor.execute(query)
+    return findings
 
-        for file, line, _target, interpolation in cursor.fetchall():
-            if "{{{" not in interpolation or "}}}" not in interpolation:
-                continue
+
+def _check_exposed_api_keys(db: RuleDB) -> list[StandardFinding]:
+    """Check for exposed API keys in Vue components."""
+    findings = []
+
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, var_name, value in rows:
+        if not var_name:
+            continue
+
+        # Check for Vue env prefixes
+        has_vue_prefix = any(var_name.startswith(prefix) for prefix in VUE_ENV_PREFIXES)
+        if not has_vue_prefix:
+            continue
+
+        # Check for sensitive patterns
+        var_upper = var_name.upper()
+        if not any(pattern in var_upper for pattern in SENSITIVE_PATTERNS):
+            continue
+
+        # Skip actual env references (not hardcoded)
+        if value and ("process.env" in value or "import.meta.env" in value):
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="vue-exposed-api-key",
+                message=f"API key/secret {var_name} hardcoded in Vue component",
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category="security",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-200",
+                snippet=f"{var_name} = {value[:40]}..." if value and len(value) > 40 else f"{var_name} = {value}",
+            )
+        )
+
+    return findings
+
+
+def _check_unescaped_interpolation(db: RuleDB) -> list[StandardFinding]:
+    """Check for triple mustache unescaped interpolation (Vue 1.x legacy)."""
+    findings = []
+
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, _target, interpolation in rows:
+        if not interpolation:
+            continue
+
+        # Triple mustache {{{ }}} is Vue 1.x unescaped interpolation
+        # Removed in Vue 2+ but check for legacy codebases
+        if "{{{" in interpolation and "}}}" in interpolation:
             findings.append(
                 StandardFinding(
                     rule_name="vue-unescaped-interpolation",
-                    message="Triple mustache {{{ }}} unescaped interpolation - XSS risk",
+                    message="Triple mustache {{{ }}} unescaped interpolation - XSS risk (Vue 1.x legacy)",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
                     category="xss",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-79",
+                    snippet=interpolation[:60] if len(interpolation) > 60 else interpolation,
                 )
             )
 
-        user_input_sources = ["$route", "params", "query", "user", "input", "data"]
+    return findings
 
-        query = build_query(
-            "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
-        )
-        cursor.execute(query)
 
-        for file, line, _target, component_code in cursor.fetchall():
-            if "<component" not in component_code or ":is" not in component_code:
-                continue
+def _check_dynamic_component_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for dynamic component with user-controlled input."""
+    findings = []
 
-            if not any(src in component_code for src in user_input_sources):
-                continue
+    user_input_sources = ["$route", "params", "query", "user", "input", "data"]
+
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, _target, component_code in rows:
+        if not component_code:
+            continue
+
+        # Check for dynamic component pattern
+        if "<component" not in component_code or ":is" not in component_code:
+            continue
+
+        # Check for user input in dynamic component
+        if any(src in component_code for src in user_input_sources):
             findings.append(
                 StandardFinding(
                     rule_name="vue-dynamic-component-injection",
@@ -253,130 +333,164 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                     category="injection",
                     confidence=Confidence.MEDIUM,
                     cwe_id="CWE-470",
+                    snippet=component_code[:80] if len(component_code) > 80 else component_code,
                 )
             )
 
-        query = build_query(
-            "assignments", ["file", "line", "target_var", "source_expr"], order_by="file, line"
+    return findings
+
+
+def _check_unsafe_target_blank(db: RuleDB) -> list[StandardFinding]:
+    """Check for unsafe target='_blank' without rel='noopener'."""
+    findings = []
+
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, _target, link_code in rows:
+        if not link_code:
+            continue
+
+        # Check for target="_blank"
+        if 'target="_blank"' not in link_code and "target='_blank'" not in link_code:
+            continue
+
+        # Check for noopener/noreferrer
+        if "noopener" in link_code or "noreferrer" in link_code:
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="vue-unsafe-target-blank",
+                message='External link without rel="noopener" - reverse tabnabbing vulnerability',
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category="security",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-1022",
+                snippet=link_code[:80] if len(link_code) > 80 else link_code,
+            )
         )
-        cursor.execute(query)
 
-        for file, line, _target, link_code in cursor.fetchall():
-            if not ('target="_blank"' in link_code or "target='_blank'" in link_code):
-                continue
+    return findings
 
-            if "noopener" in link_code or "noreferrer" in link_code:
-                continue
+
+def _check_refs_dom_manipulation(db: RuleDB) -> list[StandardFinding]:
+    """Check for direct DOM manipulation via $refs."""
+    findings = []
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        if not func:
+            continue
+
+        # Check for $refs usage
+        if "$refs" not in func and "this.$refs" not in func:
+            continue
+
+        # Check for dangerous DOM manipulation
+        if args and any(danger in args for danger in ["innerHTML", "outerHTML"]):
             findings.append(
                 StandardFinding(
-                    rule_name="vue-unsafe-target-blank",
-                    message='External link without rel="noopener" - reverse tabnabbing vulnerability',
+                    rule_name="vue-direct-dom-manipulation",
+                    message="Direct DOM manipulation via $refs bypassing Vue security",
                     file_path=file,
                     line=line,
-                    severity=Severity.MEDIUM,
-                    category="security",
+                    severity=Severity.HIGH,
+                    category="xss",
                     confidence=Confidence.HIGH,
-                    cwe_id="CWE-1022",
+                    cwe_id="CWE-79",
+                    snippet=f"{func}({args[:50]})" if args and len(args) > 50 else f"{func}({args})",
                 )
             )
 
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "callee_function", "argument_expr"],
-            order_by="file, line",
-        )
-        cursor.execute(query)
+    return findings
 
-        for file, line, func, args in cursor.fetchall():
-            if "$refs" not in func and "this.$refs" not in func:
-                continue
 
-            if args and any(danger in args for danger in ["innerHTML", "outerHTML"]):
-                findings.append(
-                    StandardFinding(
-                        rule_name="vue-direct-dom-manipulation",
-                        message="Direct DOM manipulation via $refs bypassing Vue security",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category="xss",
-                        confidence=Confidence.HIGH,
-                        cwe_id="CWE-79",
-                    )
-                )
+def _check_direct_dom_access(db: RuleDB) -> list[StandardFinding]:
+    """Check for direct DOM access anti-pattern in Vue components."""
+    findings = []
 
-        dom_methods = list(DOM_MANIPULATION)
-        placeholders = ",".join("?" * len(dom_methods))
-
-        cursor.execute(
-            f"""
-            SELECT DISTINCT file, line, callee_function FROM function_call_args
-            WHERE callee_function IN ({placeholders})
-            ORDER BY file, line
-        """,
-            dom_methods,
+    for dom_method in DOM_MANIPULATION:
+        rows = db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function")
+            .where("callee_function = ?", dom_method)
+            .order_by("file, line")
         )
 
-        dom_manipulations = cursor.fetchall()
-
-        for file, line, dom_method in dom_manipulations:
-            cursor.execute(
-                """
-                SELECT path FROM symbols
-                WHERE path = ? AND name IN ('mounted', 'created', 'methods', 'computed')
-                LIMIT 1
-            """,
-                (file,),
-            )
-
-            if cursor.fetchone() or file.endswith(".vue"):
+        for file, line, callee in rows:
+            # Only flag in .vue files or files with Vue imports
+            if file.endswith(".vue"):
                 findings.append(
                     StandardFinding(
                         rule_name="vue-anti-pattern-dom",
-                        message=f"Direct DOM access with {dom_method} - anti-pattern in Vue",
+                        message=f"Direct DOM access with {callee} - anti-pattern in Vue",
                         file_path=file,
                         line=line,
                         severity=Severity.MEDIUM,
                         category="best-practice",
                         confidence=Confidence.MEDIUM,
-                        cwe_id="CWE-1061",
+                    )
+                )
+                continue
+
+            # Check for Vue import
+            vue_refs = db.query(
+                Q("refs")
+                .select("src")
+                .where("src = ? AND value IN (?, ?)", file, "vue", "Vue")
+                .limit(1)
+            )
+
+            if vue_refs:
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-anti-pattern-dom",
+                        message=f"Direct DOM access with {callee} - anti-pattern in Vue",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="best-practice",
+                        confidence=Confidence.MEDIUM,
                     )
                 )
 
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "callee_function", "argument_expr"],
-            where="callee_function IN ('localStorage.setItem', 'sessionStorage.setItem')",
-            order_by="file, line",
+    return findings
+
+
+def _check_insecure_storage(db: RuleDB) -> list[StandardFinding]:
+    """Check for sensitive data stored in localStorage/sessionStorage."""
+    findings = []
+
+    for storage_method in ["localStorage.setItem", "sessionStorage.setItem"]:
+        rows = db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("callee_function = ?", storage_method)
+            .order_by("file, line")
         )
-        cursor.execute(query)
 
-        storage_operations = []
-        for file, line, storage_method, data in cursor.fetchall():
+        for file, line, callee, data in rows:
+            if not data:
+                continue
+
             data_lower = data.lower()
-            if any(
-                sensitive in data_lower
-                for sensitive in ["token", "password", "secret", "jwt", "key"]
-            ):
-                storage_operations.append((file, line, storage_method, data))
+            if not any(sens in data_lower for sens in ["token", "password", "secret", "jwt", "key"]):
+                continue
 
-        for file, line, storage_method, _data in storage_operations:
-            is_vue_file = file.endswith(".vue")
-            if not is_vue_file:
-                cursor.execute(
-                    """
-                    SELECT src FROM refs
-                    WHERE src = ? AND value IN ('vue', 'Vue')
-                    LIMIT 1
-                """,
-                    (file,),
-                )
-                is_vue_file = cursor.fetchone() is not None
-
-            if is_vue_file:
-                storage_type = (
-                    "localStorage" if "localStorage" in storage_method else "sessionStorage"
-                )
+            # Only flag in Vue files
+            if file.endswith(".vue"):
+                storage_type = "localStorage" if "localStorage" in callee else "sessionStorage"
                 findings.append(
                     StandardFinding(
                         rule_name="vue-insecure-storage",
@@ -387,34 +501,40 @@ def analyze(context: StandardRuleContext) -> list[StandardFinding]:
                         category="security",
                         confidence=Confidence.HIGH,
                         cwe_id="CWE-922",
+                        snippet=data[:60] if len(data) > 60 else data,
                     )
                 )
+                continue
 
-    finally:
-        conn.close()
+            # Check for Vue import in JS files
+            vue_refs = db.query(
+                Q("refs")
+                .select("src")
+                .where("src = ? AND value IN (?, ?)", file, "vue", "Vue")
+                .limit(1)
+            )
+
+            if vue_refs:
+                storage_type = "localStorage" if "localStorage" in callee else "sessionStorage"
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-insecure-storage",
+                        message=f"Sensitive data in {storage_type} - accessible to XSS attacks",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="security",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-922",
+                        snippet=data[:60] if len(data) > 60 else data,
+                    )
+                )
 
     return findings
 
 
-VUE_ADDITIONAL_SINKS = frozenset(["$refs.innerHTML", "$refs.outerHTML", "this.$refs", "vm.$refs"])
-
-VUE_INPUT_SOURCES = frozenset(
-    [
-        "$route.params",
-        "$route.query",
-        "this.$route",
-        "props.",
-        "v-model",
-        "$emit",
-        "$attrs",
-        "$listeners",
-    ]
-)
-
-
-def register_taint_patterns(taint_registry):
-    """Register Vue.js-specific taint patterns."""
-
+def register_taint_patterns(taint_registry) -> None:
+    """Register Vue.js-specific taint patterns for dataflow analysis."""
     for pattern in VUE_XSS_DIRECTIVES:
         taint_registry.register_sink(pattern, "xss", "javascript")
 

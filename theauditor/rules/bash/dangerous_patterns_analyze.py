@@ -17,6 +17,7 @@ METADATA = RuleMetadata(
     target_extensions=[".sh", ".bash"],
     exclude_patterns=["node_modules/", "vendor/", ".git/"],
     execution_scope="database",
+    primary_table="bash_commands",
 )
 
 # Credential variable name patterns
@@ -544,7 +545,3 @@ def _check_dangerous_environment_vars(db: RuleDB, add_finding) -> None:
             confidence=Confidence.MEDIUM,
             cwe_id="CWE-426",
         )
-
-
-# Alias for backwards compatibility
-analyze = find_bash_dangerous_patterns
