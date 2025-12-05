@@ -1,32 +1,32 @@
-"""Rust Memory Safety Analyzer - Database-First Approach.
+"""Rust Memory Safety Analyzer - Fidelity-Compliant.
 
 Detects dangerous memory operations that may lead to undefined behavior:
 - std::mem::transmute usage
 - Box::leak and similar memory leaks
 - ManuallyDrop misuse
 - Raw pointer dereferencing patterns
-"""
 
-import sqlite3
+Uses RuleDB for fidelity tracking. Rust-specific tables use db.execute()
+since they may not be in Q class schema.
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
 
 METADATA = RuleMetadata(
     name="rust_memory_safety",
     category="memory_safety",
     target_extensions=[".rs"],
-    exclude_patterns=[
-        "test/",
-        "tests/",
-        "benches/",
-    ],
-    execution_scope="database")
+    exclude_patterns=["test/", "tests/", "benches/"],
+    execution_scope="database",
+)
 
 
 DANGEROUS_IMPORTS = {
@@ -43,6 +43,11 @@ DANGEROUS_IMPORTS = {
     "std::mem::forget": {
         "severity": "medium",
         "message": "mem::forget may leak resources",
+        "cwe": "CWE-401",
+    },
+    "std::mem::ManuallyDrop": {
+        "severity": "medium",
+        "message": "ManuallyDrop requires manual drop() call - memory leak risk",
         "cwe": "CWE-401",
     },
     "std::mem::zeroed": {
@@ -119,141 +124,149 @@ DANGEROUS_METHODS = {
         "message": "as_mut_ptr creates mutable raw pointer",
         "cwe": "CWE-119",
     },
+    # ManuallyDrop methods - critical for memory safety
+    "ManuallyDrop::new": {
+        "severity": "medium",
+        "message": "ManuallyDrop::new disables automatic drop - ensure manual cleanup",
+        "cwe": "CWE-401",
+    },
+    "ManuallyDrop::into_inner": {
+        "severity": "high",
+        "message": "ManuallyDrop::into_inner - safety critical, may cause double-free",
+        "cwe": "CWE-415",
+    },
+    "ManuallyDrop::drop": {
+        "severity": "high",
+        "message": "ManuallyDrop::drop - ensure value not used after drop",
+        "cwe": "CWE-416",
+    },
+    "ManuallyDrop::take": {
+        "severity": "high",
+        "message": "ManuallyDrop::take - unsafe, leaves ManuallyDrop in invalid state",
+        "cwe": "CWE-416",
+    },
+}
+
+SEVERITY_MAP = {
+    "critical": Severity.CRITICAL,
+    "high": Severity.HIGH,
+    "medium": Severity.MEDIUM,
+    "low": Severity.LOW,
 }
 
 
-class MemorySafetyAnalyzer:
-    """Analyzer for Rust memory safety issues."""
+def _table_exists(db: RuleDB, table_name: str) -> bool:
+    """Check if a table exists in the database."""
+    rows = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [table_name],
+    )
+    return len(rows) > 0
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context."""
-        self.context = context
-        self.findings = []
 
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
+def _check_dangerous_imports(db: RuleDB) -> list[StandardFinding]:
+    """Flag imports of dangerous memory functions."""
+    findings = []
 
-        conn = sqlite3.connect(self.context.db_path)
-        conn.row_factory = sqlite3.Row
-        self.cursor = conn.cursor()
+    rows = db.execute("""
+        SELECT file_path, line, import_path, local_name
+        FROM rust_use_statements
+    """)
 
-        try:
-            self.cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='rust_use_statements'
-            """)
-            if not self.cursor.fetchone():
-                return []
+    for row in rows:
+        file_path, line, import_path, local_name = row
+        import_path = import_path or ""
 
-            self._check_dangerous_imports()
-            self._check_unsafe_blocks_for_patterns()
+        for dangerous_path, info in DANGEROUS_IMPORTS.items():
+            if dangerous_path in import_path or import_path.endswith(
+                dangerous_path.split("::")[-1]
+            ):
+                severity = SEVERITY_MAP.get(info["severity"], Severity.MEDIUM)
 
-        finally:
-            conn.close()
-
-        return self.findings
-
-    def _check_dangerous_imports(self):
-        """Flag imports of dangerous memory functions."""
-        self.cursor.execute("""
-            SELECT file_path, line, import_path, local_name
-            FROM rust_use_statements
-        """)
-
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
-            line = row["line"]
-            import_path = row["import_path"] or ""
-            local_name = row["local_name"]
-
-            for dangerous_path, info in DANGEROUS_IMPORTS.items():
-                if dangerous_path in import_path or import_path.endswith(
-                    dangerous_path.split("::")[-1]
-                ):
-                    severity_map = {
-                        "critical": Severity.CRITICAL,
-                        "high": Severity.HIGH,
-                        "medium": Severity.MEDIUM,
-                        "low": Severity.LOW,
-                    }
-                    severity = severity_map.get(info["severity"], Severity.MEDIUM)
-
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name="rust-dangerous-import",
-                            message=f"Import of {import_path}: {info['message']}",
-                            file_path=file_path,
-                            line=line,
-                            severity=severity,
-                            category="memory_safety",
-                            confidence=Confidence.HIGH,
-                            cwe_id=info["cwe"],
-                            additional_info={
-                                "import": import_path,
-                                "local_name": local_name,
-                                "recommendation": "Ensure proper safety documentation and review",
-                            },
-                        )
+                findings.append(
+                    StandardFinding(
+                        rule_name="rust-dangerous-import",
+                        message=f"Import of {import_path}: {info['message']}",
+                        file_path=file_path,
+                        line=line,
+                        severity=severity,
+                        category="memory_safety",
+                        confidence=Confidence.HIGH,
+                        cwe_id=info["cwe"],
+                        additional_info={
+                            "import": import_path,
+                            "local_name": local_name,
+                            "recommendation": "Ensure proper safety documentation and review",
+                        },
                     )
+                )
 
-    def _check_unsafe_blocks_for_patterns(self):
-        """Check unsafe blocks for dangerous patterns."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='rust_unsafe_blocks'
-        """)
-        if not self.cursor.fetchone():
-            return
+    return findings
 
-        self.cursor.execute("""
-            SELECT
-                file_path, line_start, line_end,
-                containing_function, operations_json
-            FROM rust_unsafe_blocks
-            WHERE operations_json IS NOT NULL
-        """)
 
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
-            line = row["line_start"]
-            containing_fn = row["containing_function"] or "unknown"
-            operations = row["operations_json"] or ""
+def _check_unsafe_blocks_for_patterns(db: RuleDB) -> list[StandardFinding]:
+    """Check unsafe blocks for dangerous patterns."""
+    findings = []
 
-            for method, info in DANGEROUS_METHODS.items():
-                if method in operations.lower():
-                    severity_map = {
-                        "critical": Severity.CRITICAL,
-                        "high": Severity.HIGH,
-                        "medium": Severity.MEDIUM,
-                        "low": Severity.LOW,
-                    }
-                    severity = severity_map.get(info["severity"], Severity.MEDIUM)
+    rows = db.execute("""
+        SELECT
+            file_path, line_start, line_end,
+            containing_function, operations_json
+        FROM rust_unsafe_blocks
+        WHERE operations_json IS NOT NULL
+    """)
 
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name=f"rust-unsafe-{method.replace('_', '-')}",
-                            message=f"{method}() in unsafe block: {info['message']}",
-                            file_path=file_path,
-                            line=line,
-                            severity=severity,
-                            category="memory_safety",
-                            confidence=Confidence.MEDIUM,
-                            cwe_id=info["cwe"],
-                            additional_info={
-                                "function": containing_fn,
-                                "operation": method,
-                                "recommendation": "Review memory management carefully",
-                            },
-                        )
+    for row in rows:
+        file_path, line, _, containing_fn, operations = row
+        containing_fn = containing_fn or "unknown"
+        operations = operations or ""
+
+        for method, info in DANGEROUS_METHODS.items():
+            if method in operations.lower():
+                severity = SEVERITY_MAP.get(info["severity"], Severity.MEDIUM)
+
+                findings.append(
+                    StandardFinding(
+                        rule_name=f"rust-unsafe-{method.replace('_', '-').replace('::', '-')}",
+                        message=f"{method}() in unsafe block: {info['message']}",
+                        file_path=file_path,
+                        line=line,
+                        severity=severity,
+                        category="memory_safety",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id=info["cwe"],
+                        additional_info={
+                            "function": containing_fn,
+                            "operation": method,
+                            "recommendation": "Review memory management carefully",
+                        },
                     )
+                )
+
+    return findings
 
 
-def find_memory_safety_issues(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Rust memory safety issues.
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
+    findings = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        if _table_exists(db, "rust_use_statements"):
+            findings.extend(_check_dangerous_imports(db))
+
+        if _table_exists(db, "rust_unsafe_blocks"):
+            findings.extend(_check_unsafe_blocks_for_patterns(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+# Legacy alias for orchestrator discovery
+def find_memory_safety_issues(context: StandardRuleContext) -> RuleResult:
     """Detect Rust memory safety issues."""
-    analyzer = MemorySafetyAnalyzer(context)
-    return analyzer.analyze()
-
-
-analyze = find_memory_safety_issues
+    return analyze(context)

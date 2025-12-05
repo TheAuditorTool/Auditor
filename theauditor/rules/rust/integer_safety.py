@@ -1,210 +1,197 @@
-"""Rust Integer Safety Analyzer - Database-First Approach.
+"""Rust Integer Safety Analyzer - Fidelity-Compliant.
 
 Detects integer-related vulnerabilities:
 - Unchecked arithmetic operations
 - Truncating `as` casts
 - Integer overflow risks
 - Missing overflow checks in crypto/financial code
+
+Uses RuleDB for fidelity tracking. Rust-specific tables use db.execute()
+since they may not be in Q class schema.
 """
 
-import sqlite3
+import re
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
 
 METADATA = RuleMetadata(
     name="rust_integer_safety",
     category="integer_safety",
     target_extensions=[".rs"],
-    exclude_patterns=[
-        "test/",
-        "tests/",
-        "benches/",
-    ],
-    execution_scope="database")
+    exclude_patterns=["test/", "tests/", "benches/"],
+    execution_scope="database",
+)
 
 
-DANGEROUS_CAST_PATTERNS = [
-    " as u8",
-    " as i8",
-    " as u16",
-    " as i16",
-    " as u32",
-    " as i32",
-    " as usize",
-    " as isize",
-]
+# Regex patterns for truncating casts - handles variable whitespace
+TRUNCATING_CAST_TYPES = ["u8", "i8", "u16", "i16", "u32", "i32", "usize", "isize"]
+
+# Compiled regex for efficient matching - handles "x as u8", "x  as  u8", "(x)as u8" etc.
+CAST_PATTERN = re.compile(
+    r"\bas\s+(" + "|".join(TRUNCATING_CAST_TYPES) + r")\b", re.IGNORECASE
+)
 
 
 HIGH_RISK_FUNCTIONS = [
-    "transfer",
-    "withdraw",
-    "deposit",
-    "balance",
-    "amount",
-    "price",
-    "fee",
-    "reward",
-    "stake",
-    "mint",
-    "burn",
+    "transfer", "withdraw", "deposit", "balance",
+    "amount", "price", "fee", "reward", "stake", "mint", "burn",
 ]
 
 
-WRAPPING_IMPORTS = [
-    "std::num::Wrapping",
-    "num::Wrapping",
-    "std::num::Saturating",
-]
+def _table_exists(db: RuleDB, table_name: str) -> bool:
+    """Check if a table exists in the database."""
+    rows = db.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        [table_name],
+    )
+    return len(rows) > 0
 
 
-class IntegerSafetyAnalyzer:
-    """Analyzer for Rust integer safety issues."""
+def _check_high_risk_functions(db: RuleDB) -> list[StandardFinding]:
+    """Flag functions with financial/crypto names that don't use checked math."""
+    findings = []
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context."""
-        self.context = context
-        self.findings = []
+    rows = db.execute("""
+        SELECT file_path, line, name, visibility
+        FROM rust_functions
+        WHERE visibility = 'pub'
+    """)
 
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
+    for row in rows:
+        file_path, line, fn_name, _ = row
+        fn_name_lower = fn_name.lower()
 
-        conn = sqlite3.connect(self.context.db_path)
-        conn.row_factory = sqlite3.Row
-        self.cursor = conn.cursor()
-
-        try:
-            self.cursor.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='rust_functions'
-            """)
-            if not self.cursor.fetchone():
-                return []
-
-            self._check_high_risk_functions()
-            self._check_macro_casts()
-            self._check_wrapping_usage()
-
-        finally:
-            conn.close()
-
-        return self.findings
-
-    def _check_high_risk_functions(self):
-        """Flag functions with financial/crypto names that don't use checked math."""
-        self.cursor.execute("""
-            SELECT file_path, line, name, visibility
-            FROM rust_functions
-            WHERE visibility = 'pub'
-        """)
-
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
-            line = row["line"]
-            fn_name = row["name"].lower()
-
-            for risk_pattern in HIGH_RISK_FUNCTIONS:
-                if risk_pattern in fn_name:
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name="rust-integer-high-risk-function",
-                            message=f"Function {row['name']}() handles values - verify overflow protection",
-                            file_path=file_path,
-                            line=line,
-                            severity=Severity.MEDIUM,
-                            category="integer_safety",
-                            confidence=Confidence.LOW,
-                            cwe_id="CWE-190",
-                            additional_info={
-                                "function": row["name"],
-                                "risk_pattern": risk_pattern,
-                                "recommendation": "Use checked_add/checked_sub or saturating arithmetic",
-                            },
-                        )
+        for risk_pattern in HIGH_RISK_FUNCTIONS:
+            if risk_pattern in fn_name_lower:
+                findings.append(
+                    StandardFinding(
+                        rule_name="rust-integer-high-risk-function",
+                        message=f"Function {fn_name}() handles values - verify overflow protection",
+                        file_path=file_path,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="integer_safety",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-190",
+                        additional_info={
+                            "function": fn_name,
+                            "risk_pattern": risk_pattern,
+                            "recommendation": "Use checked_add/checked_sub or saturating arithmetic",
+                        },
                     )
-                    break
+                )
+                break
 
-    def _check_macro_casts(self):
-        """Check for truncating casts in macro invocations."""
-        self.cursor.execute("""
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='rust_macro_invocations'
-        """)
-        if not self.cursor.fetchone():
-            return
+    return findings
 
-        self.cursor.execute("""
-            SELECT file_path, line, macro_name, containing_function, args_sample
-            FROM rust_macro_invocations
-            WHERE args_sample IS NOT NULL
-        """)
 
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
-            line = row["line"]
-            args = row["args_sample"] or ""
-            containing_fn = row["containing_function"] or "unknown"
+def _check_macro_casts(db: RuleDB) -> list[StandardFinding]:
+    """Check for truncating casts in macro invocations.
 
-            for cast_pattern in DANGEROUS_CAST_PATTERNS:
-                if cast_pattern in args:
-                    self.findings.append(
-                        StandardFinding(
-                            rule_name="rust-truncating-cast",
-                            message=f"Truncating cast '{cast_pattern.strip()}' in {row['macro_name']}!() may lose data",
-                            file_path=file_path,
-                            line=line,
-                            severity=Severity.MEDIUM,
-                            category="integer_safety",
-                            confidence=Confidence.MEDIUM,
-                            cwe_id="CWE-681",
-                            additional_info={
-                                "function": containing_fn,
-                                "macro": row["macro_name"],
-                                "cast_pattern": cast_pattern.strip(),
-                                "recommendation": "Use TryFrom/TryInto for safe conversion",
-                            },
-                        )
-                    )
-                    break
+    Uses regex to handle variable whitespace: "x as u8", "x  as  u8", "(x)as u8".
+    """
+    findings = []
 
-    def _check_wrapping_usage(self):
-        """Check for explicit wrapping arithmetic usage (informational)."""
-        self.cursor.execute("""
-            SELECT file_path, line, import_path
-            FROM rust_use_statements
-            WHERE import_path LIKE '%Wrapping%'
-               OR import_path LIKE '%Saturating%'
-        """)
+    rows = db.execute("""
+        SELECT file_path, line, macro_name, containing_function, args_sample
+        FROM rust_macro_invocations
+        WHERE args_sample IS NOT NULL
+    """)
 
-        for row in self.cursor.fetchall():
-            self.findings.append(
+    for row in rows:
+        file_path, line, macro_name, containing_fn, args = row
+        containing_fn = containing_fn or "unknown"
+        args = args or ""
+
+        match = CAST_PATTERN.search(args)
+        if match:
+            cast_type = match.group(1)
+            findings.append(
                 StandardFinding(
-                    rule_name="rust-wrapping-arithmetic-used",
-                    message="Explicit wrapping/saturating arithmetic imported",
-                    file_path=row["file_path"],
-                    line=row["line"],
-                    severity=Severity.INFO,
+                    rule_name="rust-truncating-cast",
+                    message=f"Truncating cast 'as {cast_type}' in {macro_name}!() may lose data",
+                    file_path=file_path,
+                    line=line,
+                    severity=Severity.MEDIUM,
                     category="integer_safety",
-                    confidence=Confidence.HIGH,
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-681",
                     additional_info={
-                        "import": row["import_path"],
-                        "note": "Good practice - explicit overflow handling",
+                        "function": containing_fn,
+                        "macro": macro_name,
+                        "cast_type": cast_type,
+                        "recommendation": "Use TryFrom/TryInto for safe conversion",
                     },
                 )
             )
 
+    return findings
 
-def find_integer_safety_issues(context: StandardRuleContext) -> list[StandardFinding]:
+
+def _check_wrapping_usage(db: RuleDB) -> list[StandardFinding]:
+    """Check for explicit wrapping arithmetic usage (informational)."""
+    findings = []
+
+    rows = db.execute("""
+        SELECT file_path, line, import_path
+        FROM rust_use_statements
+        WHERE import_path LIKE '%Wrapping%'
+           OR import_path LIKE '%Saturating%'
+    """)
+
+    for row in rows:
+        file_path, line, import_path = row
+        findings.append(
+            StandardFinding(
+                rule_name="rust-wrapping-arithmetic-used",
+                message="Explicit wrapping/saturating arithmetic imported",
+                file_path=file_path,
+                line=line,
+                severity=Severity.INFO,
+                category="integer_safety",
+                confidence=Confidence.HIGH,
+                additional_info={
+                    "import": import_path,
+                    "note": "Good practice - explicit overflow handling",
+                },
+            )
+        )
+
+    return findings
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Rust integer safety issues.
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
+    findings = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        if _table_exists(db, "rust_functions"):
+            findings.extend(_check_high_risk_functions(db))
+
+        if _table_exists(db, "rust_macro_invocations"):
+            findings.extend(_check_macro_casts(db))
+
+        if _table_exists(db, "rust_use_statements"):
+            findings.extend(_check_wrapping_usage(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+# Legacy alias for orchestrator discovery
+def find_integer_safety_issues(context: StandardRuleContext) -> RuleResult:
     """Detect Rust integer safety issues."""
-    analyzer = IntegerSafetyAnalyzer(context)
-    return analyzer.analyze()
-
-
-analyze = find_integer_safety_issues
+    return analyze(context)
