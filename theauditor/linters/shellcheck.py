@@ -6,8 +6,9 @@ was previously missing from TheAuditor.
 """
 
 import json
+import time
 
-from theauditor.linters.base import BaseLinter, Finding
+from theauditor.linters.base import BaseLinter, Finding, LinterResult
 from theauditor.utils.logging import logger
 
 
@@ -23,23 +24,24 @@ class ShellcheckLinter(BaseLinter):
     def name(self) -> str:
         return "shellcheck"
 
-    async def run(self, files: list[str]) -> list[Finding]:
+    async def run(self, files: list[str]) -> LinterResult:
         """Run shellcheck on Bash/shell files.
 
         Args:
             files: List of shell script paths relative to project root
 
         Returns:
-            List of Finding objects from shellcheck analysis
+            LinterResult with status and findings
         """
         if not files:
-            return []
+            return LinterResult.success(self.name, [], 0.0)
 
         # Optional tool - silently skip if not found
         shellcheck_bin = self.toolbox.get_shellcheck(required=False)
         if not shellcheck_bin:
-            logger.debug(f"[{self.name}] Not found - skipping Bash linting")
-            return []
+            return LinterResult.skipped(self.name, "shellcheck not found")
+
+        start_time = time.perf_counter()
 
         # shellcheck accepts multiple files
         cmd = [
@@ -52,23 +54,23 @@ class ShellcheckLinter(BaseLinter):
         try:
             returncode, stdout, stderr = await self._run_command(cmd)
         except TimeoutError:
-            logger.error(f"[{self.name}] Timed out")
-            return []
+            return LinterResult.failed(self.name, "Timed out", time.perf_counter() - start_time)
 
         if not stdout.strip():
+            duration = time.perf_counter() - start_time
             logger.debug(f"[{self.name}] No issues found")
-            return []
+            return LinterResult.success(self.name, [], duration)
 
         # shellcheck may return empty array "[]" for no issues
         if stdout.strip() == "[]":
+            duration = time.perf_counter() - start_time
             logger.debug(f"[{self.name}] No issues found")
-            return []
+            return LinterResult.success(self.name, [], duration)
 
         try:
             issues = json.loads(stdout)
         except json.JSONDecodeError as e:
-            logger.error(f"[{self.name}] Invalid JSON output: {e}")
-            return []
+            return LinterResult.failed(self.name, f"Invalid JSON output: {e}", time.perf_counter() - start_time)
 
         findings = []
         for issue in issues:
@@ -76,8 +78,9 @@ class ShellcheckLinter(BaseLinter):
             if finding:
                 findings.append(finding)
 
-        logger.info(f"[{self.name}] Found {len(findings)} issues in {len(files)} files")
-        return findings
+        duration = time.perf_counter() - start_time
+        logger.info(f"[{self.name}] Found {len(findings)} issues in {len(files)} files ({duration:.2f}s)")
+        return LinterResult.success(self.name, findings, duration)
 
     def _parse_issue(self, issue: dict) -> Finding | None:
         """Parse a shellcheck issue into a Finding.

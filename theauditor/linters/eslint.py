@@ -9,7 +9,9 @@ import asyncio
 import json
 from pathlib import Path
 
-from theauditor.linters.base import LINTER_TIMEOUT, BaseLinter, Finding
+import time
+
+from theauditor.linters.base import LINTER_TIMEOUT, BaseLinter, Finding, LinterResult
 from theauditor.utils.logging import logger
 
 # ESLint severity constants
@@ -19,51 +21,66 @@ ESLINT_SEVERITY_WARNING = 1
 # Windows command line limit
 MAX_CMD_LENGTH = 8000  # Leave margin below 8191
 
+# Concurrency limit for parallel batch execution
+MAX_CONCURRENT_BATCHES = 4
+
 
 class EslintLinter(BaseLinter):
     """ESLint linter for JavaScript/TypeScript files.
 
     Uses dynamic batching to avoid Windows command line length limits.
-    Each batch is processed sequentially to avoid overwhelming Node.js.
+    Batches run in parallel with limited concurrency (MAX_CONCURRENT_BATCHES).
     """
 
     @property
     def name(self) -> str:
         return "eslint"
 
-    async def run(self, files: list[str]) -> list[Finding]:
+    async def run(self, files: list[str]) -> LinterResult:
         """Run ESLint on JavaScript/TypeScript files.
 
         Args:
             files: List of JS/TS file paths relative to project root
 
         Returns:
-            List of Finding objects from ESLint analysis
+            LinterResult with status and findings
         """
         if not files:
-            return []
+            return LinterResult.success(self.name, [], 0.0)
 
         eslint_bin = self.toolbox.get_eslint(required=False)
         if not eslint_bin:
-            logger.warning("ESLint not found - skipping JS/TS linting")
-            return []
+            return LinterResult.skipped(self.name, "ESLint not found")
 
         config_path = self.toolbox.get_eslint_config()
         if not config_path.exists():
-            logger.error(f"ESLint config not found: {config_path}")
-            return []
+            return LinterResult.skipped(self.name, f"ESLint config not found: {config_path}")
+
+        start_time = time.perf_counter()
 
         # Dynamic batching based on command length
         batches = self._create_batches(files, eslint_bin, config_path)
         logger.debug(f"[{self.name}] Split {len(files)} files into {len(batches)} batches")
 
-        all_findings = []
-        for batch_num, batch in enumerate(batches, 1):
-            findings = await self._run_batch(batch, eslint_bin, config_path, batch_num)
-            all_findings.extend(findings)
+        # Run batches in parallel with limited concurrency
+        semaphore = asyncio.Semaphore(MAX_CONCURRENT_BATCHES)
 
-        logger.info(f"[{self.name}] Found {len(all_findings)} issues in {len(files)} files")
-        return all_findings
+        async def run_with_limit(batch: list[str], batch_num: int) -> list[Finding]:
+            async with semaphore:
+                return await self._run_batch(batch, eslint_bin, config_path, batch_num)
+
+        tasks = [
+            run_with_limit(batch, batch_num)
+            for batch_num, batch in enumerate(batches, 1)
+        ]
+        results = await asyncio.gather(*tasks)
+
+        # Flatten results from all batches
+        all_findings = [finding for batch_findings in results for finding in batch_findings]
+
+        duration = time.perf_counter() - start_time
+        logger.info(f"[{self.name}] Found {len(all_findings)} issues in {len(files)} files ({duration:.2f}s)")
+        return LinterResult.success(self.name, all_findings, duration)
 
     def _create_batches(
         self, files: list[str], eslint_bin: Path, config_path: Path
