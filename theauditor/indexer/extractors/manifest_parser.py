@@ -14,45 +14,45 @@ from theauditor.utils.logging import logger
 class ManifestParser:
     """Universal parser for all manifest file types."""
 
-    def parse_toml(self, path: Path) -> dict:
-        """Parse TOML file."""
+    def parse_toml(self, path: Path) -> dict | None:
+        """Parse TOML file. Returns None on failure."""
         try:
             with open(path, "rb") as f:
                 return tomllib.load(f)
         except Exception as e:
             logger.warning(f"Failed to parse TOML {path}: {e}")
-            return {}
+            return None
 
-    def parse_json(self, path: Path) -> dict:
-        """Parse JSON safely."""
+    def parse_json(self, path: Path) -> dict | None:
+        """Parse JSON safely. Returns None on failure."""
         try:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Failed to parse JSON {path}: {e}")
-            return {}
+            return None
 
-    def parse_yaml(self, path: Path) -> dict:
-        """Parse YAML safely."""
+    def parse_yaml(self, path: Path) -> dict | None:
+        """Parse YAML safely. Returns None on failure."""
         try:
             with open(path, encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
         except (yaml.YAMLError, OSError) as e:
             logger.warning(f"Failed to parse YAML {path}: {e}")
-            return {}
+            return None
 
-    def parse_ini(self, path: Path) -> dict:
-        """Parse INI/CFG files."""
+    def parse_ini(self, path: Path) -> dict | None:
+        """Parse INI/CFG files. Returns None on failure."""
         try:
             config = configparser.ConfigParser()
             config.read(path)
             return {s: dict(config[s]) for s in config.sections()}
         except Exception as e:
             logger.warning(f"Failed to parse INI/CFG {path}: {e}")
-            return {}
+            return None
 
-    def parse_requirements_txt(self, path: Path) -> list[str]:
-        """Parse requirements.txt format, returns list of package specs."""
+    def parse_requirements_txt(self, path: Path) -> list[str] | None:
+        """Parse requirements.txt format. Returns None on failure."""
         try:
             with open(path, encoding="utf-8") as f:
                 lines = []
@@ -72,7 +72,7 @@ class ManifestParser:
                 return lines
         except OSError as e:
             logger.warning(f"Failed to parse requirements.txt {path}: {e}")
-            return []
+            return None
 
     def extract_nested_value(self, data: dict | list, key_path: list[str]) -> Any:
         """Navigate nested dict with key path."""
@@ -174,11 +174,11 @@ class ManifestParser:
 
         return None
 
-    def parse_cargo_toml(self, path: Path) -> dict:
-        """Parse Cargo.toml for Rust dependencies and workspace info."""
+    def parse_cargo_toml(self, path: Path) -> dict | None:
+        """Parse Cargo.toml for Rust dependencies and workspace info. Returns None on failure."""
         data = self.parse_toml(path)
         if not data:
-            return {}
+            return None
 
         result = {
             "dependencies": {},
