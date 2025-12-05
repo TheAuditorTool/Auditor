@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import os
 from typing import Any
 
 from graphql import DefinitionNode, parse
@@ -101,15 +100,10 @@ class GraphQLExtractor(BaseExtractor):
             "graphql_field_args": graphql_field_args,
         }
 
-        if os.environ.get("THEAUDITOR_DEBUG") == "1":
-            logger.debug(f"GraphQL Extractor Output for {file_path}:")
-            logger.error(f"  Schemas: {len(graphql_schemas)}")
-            logger.error(f"  Types: {len(graphql_types)}")
-            logger.error(f"  Fields: {len(graphql_fields)}")
-            logger.error(f"  Args: {len(graphql_field_args)}")
-            if graphql_types:
-                logger.error(f"  First type keys: {list(graphql_types[0].keys())}")
-                logger.error(f"  First type data: {graphql_types[0]}")
+        logger.debug(
+            f"GraphQL extraction: {file_path} - "
+            f"{len(graphql_types)} types, {len(graphql_fields)} fields, {len(graphql_field_args)} args"
+        )
 
         return FidelityToken.attach_manifest(result)
 
