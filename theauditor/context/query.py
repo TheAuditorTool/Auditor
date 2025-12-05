@@ -75,8 +75,9 @@ class CodeQueryEngine:
 
     def __init__(self, root: Path):
         """Initialize with project root."""
-        self.root = root
-        pf_dir = root / ".pf"
+        # Force absolute path resolution for consistent DB path matching
+        self.root = Path(root).resolve()
+        pf_dir = self.root / ".pf"
 
         repo_db_path = pf_dir / "repo_index.db"
         if not repo_db_path.exists():
