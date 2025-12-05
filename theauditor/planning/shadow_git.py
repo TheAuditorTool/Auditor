@@ -138,3 +138,25 @@ class ShadowRepoManager:
             "deletions": stats.deletions,
             "files": files,
         }
+
+    def detect_dirty_files(self, project_root: Path) -> list[str]:
+        """Detect files with uncommitted changes using pygit2.
+
+        Replaces legacy subprocess 'git status' parsing.
+        Returns relative paths as strings.
+        """
+        repo = pygit2.Repository(str(project_root))
+        status = repo.status()
+
+        dirty_files = []
+        for filepath, flags in status.items():
+            # Include: index new/modified, worktree new/modified
+            if flags & (
+                pygit2.GIT_STATUS_INDEX_NEW
+                | pygit2.GIT_STATUS_INDEX_MODIFIED
+                | pygit2.GIT_STATUS_WT_NEW
+                | pygit2.GIT_STATUS_WT_MODIFIED
+            ):
+                dirty_files.append(filepath)
+
+        return dirty_files

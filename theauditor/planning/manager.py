@@ -15,6 +15,9 @@ class PlanningManager:
 
     def __init__(self, db_path: Path):
         """Initialize planning database connection."""
+        if not db_path.is_absolute():
+            raise ValueError(f"db_path must be absolute, got: {db_path}")
+
         if not db_path.exists():
             raise FileNotFoundError(
                 f"Planning database not found: {db_path}\nRun 'aud planning init' first."
@@ -23,7 +26,7 @@ class PlanningManager:
         self.db_path = db_path
         self.conn = sqlite3.connect(str(db_path))
         self.conn.row_factory = sqlite3.Row
-        self._ensure_schema_compliance()
+        self._validate_schema_integrity()
 
     @classmethod
     def init_database(cls, db_path: Path) -> PlanningManager:
@@ -70,16 +73,20 @@ class PlanningManager:
 
         self.conn.commit()
 
-    def _ensure_schema_compliance(self):
-        """Self-healing: Ensures the existing physical DB matches code expectations."""
+    def _validate_schema_integrity(self):
+        """Validate DB schema exists. Hard fail if corrupt or unmigrated.
+
+        ZERO FALLBACK: Do not attempt to fix schema at runtime.
+        If this fails, the DB is corrupt or needs migration.
+        """
         cursor = self.conn.cursor()
-
-        cursor.execute("PRAGMA table_info(code_snapshots)")
-        existing_cols = {row["name"] for row in cursor.fetchall()}
-
-        if "shadow_sha" not in existing_cols:
-            cursor.execute("ALTER TABLE code_snapshots ADD COLUMN shadow_sha TEXT")
-            self.conn.commit()
+        try:
+            cursor.execute("SELECT shadow_sha FROM code_snapshots LIMIT 1")
+        except sqlite3.OperationalError as e:
+            raise RuntimeError(
+                "Planning DB schema mismatch! Column 'shadow_sha' missing in code_snapshots. "
+                "Delete .pf/planning.db and run 'aud planning init' to recreate."
+            ) from e
 
     def create_plan(self, name: str, description: str = "", metadata: dict = None) -> int:
         """Create new plan and return plan ID."""
@@ -187,12 +194,27 @@ class PlanningManager:
         plan_id: int,
         checkpoint_name: str,
         project_root: Path,
-        files_affected: list[str],
+        files_affected: list[str] | None = None,
         task_id: int | None = None,
-    ) -> tuple[int, str]:
-        """Create code snapshot using shadow git repository."""
+    ) -> dict:
+        """Create code snapshot using shadow git repository.
 
+        Args:
+            plan_id: Plan ID to associate snapshot with
+            checkpoint_name: Human-readable checkpoint name
+            project_root: Path to the project root
+            files_affected: List of files to snapshot. If None, auto-detects dirty files.
+            task_id: Optional task ID to associate snapshot with
+
+        Returns:
+            dict with: snapshot_id, shadow_sha, checkpoint_name, timestamp, files_affected, sequence
+        """
         shadow = ShadowRepoManager(self.db_path.parent)
+
+        # Auto-detect dirty files if not provided
+        if files_affected is None:
+            files_affected = shadow.detect_dirty_files(project_root)
+
         shadow_sha = shadow.create_snapshot(
             project_root,
             files_affected,
@@ -223,33 +245,14 @@ class PlanningManager:
         snapshot_id = cursor.lastrowid
         self.conn.commit()
 
-        return snapshot_id, shadow_sha
-
-    def create_snapshot_legacy(
-        self,
-        plan_id: int,
-        checkpoint_name: str,
-        task_id: int | None = None,
-        git_ref: str | None = None,
-        files_json: str | None = None,
-    ) -> int:
-        """DEPRECATED: Legacy snapshot creation without shadow git."""
-        cursor = self.conn.cursor()
-        cursor.execute(
-            """INSERT INTO code_snapshots
-               (plan_id, task_id, checkpoint_name, timestamp, git_ref, files_json)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (
-                plan_id,
-                task_id,
-                checkpoint_name,
-                datetime.now(UTC).isoformat(),
-                git_ref,
-                files_json or "[]",
-            ),
-        )
-        self.conn.commit()
-        return cursor.lastrowid
+        return {
+            "snapshot_id": snapshot_id,
+            "shadow_sha": shadow_sha,
+            "checkpoint_name": checkpoint_name,
+            "timestamp": timestamp,
+            "files_affected": files_affected,
+            "sequence": sequence,
+        }
 
     def add_diff(
         self, snapshot_id: int, file_path: str, diff_text: str, added_lines: int, removed_lines: int
