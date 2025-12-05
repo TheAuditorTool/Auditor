@@ -2,6 +2,8 @@
 
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 
 def extract_all_bash_data(tree: Any, content: str, file_path: str) -> dict[str, Any]:
     """Extract all Bash constructs from a tree-sitter parse tree.
@@ -75,7 +77,21 @@ class BashExtractor:
     def extract(self) -> dict[str, Any]:
         """Walk the tree and extract all constructs."""
         self._walk(self.tree.root_node)
+
+        # Build language-agnostic data for DFG and taint analysis
+        assignments = self._map_variables_to_assignments()
+        function_calls = self._map_commands_to_function_call_args()
+        func_params = self._extract_positional_params()
+
+        logger.debug(
+            f"Bash: {self.file_path} - "
+            f"{len(assignments)} assignments, "
+            f"{len(function_calls)} function_calls, "
+            f"{len(func_params)} params"
+        )
+
         return {
+            # Bash-specific tables (existing)
             "bash_functions": self.functions,
             "bash_variables": self.variables,
             "bash_sources": self.sources,
@@ -90,6 +106,11 @@ class BashExtractor:
                 "has_errexit": self.has_errexit,
                 "has_nounset": self.has_nounset,
             },
+            # Language-agnostic tables (NEW - for DFG and taint)
+            # NOTE: "function_calls" key -> handler stores to "function_call_args" table
+            "assignments": assignments,
+            "function_calls": function_calls,
+            "func_params": func_params,
         }
 
     def _walk(self, node: Any) -> None:
@@ -820,3 +841,222 @@ class BashExtractor:
             "containing_function": self.current_function,
         }
         self.set_options.append(set_rec)
+
+    # =========================================================================
+    # Language-Agnostic Mapping Methods (for DFG and Taint Analysis)
+    # =========================================================================
+
+    def _map_variables_to_assignments(self) -> list[dict]:
+        """Map bash_variables to language-agnostic assignments format.
+
+        Schema: theauditor/indexer/schemas/core_schema.py:92-113
+        Columns: file, line, col, target_var, source_expr, in_function, property_path
+
+        Also handles `read` commands as stdin assignments.
+        """
+        assignments = []
+
+        # Map regular variable assignments
+        for var in self.variables:
+            name = var.get("name", "")
+            if not name:  # Skip empty names (schema constraint)
+                continue
+            assignments.append({
+                "file": self.file_path,
+                "line": var.get("line", 0),
+                "col": 0,
+                "target_var": name,
+                "source_expr": var.get("value_expr") or "",
+                "in_function": var.get("containing_function") or "global",
+                "property_path": None,  # Bash has no property access syntax
+            })
+
+        # Handle `read` commands as stdin assignments
+        for cmd in self.commands:
+            if cmd.get("command_name") != "read":
+                continue
+            args = cmd.get("args", [])
+            line = cmd.get("line", 0)
+            func = cmd.get("containing_function") or "global"
+            for arg in args:
+                arg_val = arg.get("value", "")
+                # Skip flags like -r, -p, etc.
+                if arg_val.startswith("-"):
+                    continue
+                if not arg_val:
+                    continue
+                assignments.append({
+                    "file": self.file_path,
+                    "line": line,
+                    "col": 0,
+                    "target_var": arg_val,
+                    "source_expr": "stdin",
+                    "in_function": func,
+                    "property_path": None,
+                })
+
+        return assignments
+
+    def _map_commands_to_function_call_args(self) -> list[dict]:
+        """Map bash_commands to language-agnostic function_call_args format.
+
+        Schema: theauditor/indexer/schemas/core_schema.py:138-162
+        Columns: file, line, caller_function, callee_function, argument_index,
+                 argument_expr, param_name, callee_file_path
+
+        NOTE: Skips 'read' command - handled specially in _map_variables_to_assignments.
+        """
+        call_args = []
+
+        for cmd in self.commands:
+            cmd_name = cmd.get("command_name", "")
+
+            # Skip empty command names (schema CHECK constraint: callee_function != '')
+            if not cmd_name:
+                continue
+
+            # Skip 'read' - handled as assignment source (Lead Auditor refinement #1)
+            if cmd_name == "read":
+                continue
+
+            caller = cmd.get("containing_function") or "global"
+            line = cmd.get("line", 0)
+
+            args = cmd.get("args", [])
+            if not args:
+                # Command with no args still needs a record (for callee tracking)
+                call_args.append({
+                    "file": self.file_path,
+                    "line": line,
+                    "caller_function": caller,
+                    "callee_function": cmd_name,
+                    "argument_index": None,
+                    "argument_expr": None,
+                    "param_name": None,
+                    "callee_file_path": None,  # External commands - no file path
+                })
+            else:
+                for idx, arg in enumerate(args):
+                    call_args.append({
+                        "file": self.file_path,
+                        "line": line,
+                        "caller_function": caller,
+                        "callee_function": cmd_name,
+                        "argument_index": idx,
+                        "argument_expr": arg.get("value", ""),
+                        "param_name": None,  # Bash commands don't have named params
+                        "callee_file_path": None,
+                    })
+
+        return call_args
+
+    def _extract_positional_params(self) -> list[dict]:
+        """Extract positional parameter usage from function bodies.
+
+        Schema: theauditor/indexer/schemas/node_schema.py:847-862
+        Columns: file, function_line, function_name, param_index, param_name, param_type
+
+        Scans for $1, $2, ..., $9, $@, $* via tree-sitter simple_expansion nodes.
+        Uses -1 for variadic params ($@, $*).
+        """
+        params = []
+        seen: set[tuple[str, str]] = set()  # (function_name, param_name) to dedupe
+
+        # Build function line lookup from self.functions
+        func_lines = {f["name"]: f["line"] for f in self.functions}
+
+        def walk_for_params(node: Any, current_func: str | None) -> None:
+            """Recursively walk looking for positional parameter expansions."""
+            if node.type == "simple_expansion":
+                var_text = self._node_text(node)  # e.g., "$1" or "$@"
+                if var_text.startswith("$"):
+                    suffix = var_text[1:]
+                    # Check if it's a positional param ($1-$9) or variadic ($@, $*)
+                    is_positional = suffix.isdigit() and 1 <= int(suffix) <= 9
+                    is_variadic = suffix in ("@", "*")
+
+                    if is_positional or is_variadic:
+                        func_name = current_func or "global"
+                        key = (func_name, var_text)
+
+                        if key not in seen:
+                            seen.add(key)
+
+                            # Determine param index
+                            if is_variadic:
+                                idx = -1  # Variadic marker
+                            else:
+                                idx = int(suffix) - 1  # $1 -> 0, $2 -> 1, etc.
+
+                            # Get function definition line (0 for script-level)
+                            func_line = func_lines.get(func_name, 0)
+
+                            params.append({
+                                "file": self.file_path,
+                                "function_line": func_line,
+                                "function_name": func_name,
+                                "param_index": idx,
+                                "param_name": var_text,
+                                "param_type": None,  # Bash is untyped
+                            })
+
+            # Also check expansion nodes (${1}, ${@}, etc.)
+            elif node.type == "expansion":
+                # Check children for variable_name or special_variable_name
+                for child in node.children:
+                    if child.type in ("variable_name", "special_variable_name"):
+                        var_name = self._node_text(child)
+                        is_positional = var_name.isdigit() and 1 <= int(var_name) <= 9
+                        is_variadic = var_name in ("@", "*")
+
+                        if is_positional or is_variadic:
+                            func_name = current_func or "global"
+                            param_text = f"${var_name}"
+                            key = (func_name, param_text)
+
+                            if key not in seen:
+                                seen.add(key)
+
+                                if is_variadic:
+                                    idx = -1
+                                else:
+                                    idx = int(var_name) - 1
+
+                                func_line = func_lines.get(func_name, 0)
+
+                                params.append({
+                                    "file": self.file_path,
+                                    "function_line": func_line,
+                                    "function_name": func_name,
+                                    "param_index": idx,
+                                    "param_name": param_text,
+                                    "param_type": None,
+                                })
+
+            # Recurse into children
+            for child in node.children:
+                walk_for_params(child, current_func)
+
+        # Walk the entire tree, tracking current function context
+        def walk_with_func_context(node: Any, current_func: str | None) -> None:
+            """Walk tree, updating function context for nested structures."""
+            if node.type == "function_definition":
+                # Find function name
+                func_name = None
+                for child in node.children:
+                    if child.type == "word":
+                        func_name = self._node_text(child)
+                        break
+
+                # Walk function body with updated context
+                for child in node.children:
+                    if child.type == "compound_statement":
+                        walk_for_params(child, func_name)
+                        walk_with_func_context(child, func_name)
+            else:
+                walk_for_params(node, current_func)
+                for child in node.children:
+                    walk_with_func_context(child, current_func)
+
+        walk_with_func_context(self.tree.root_node, None)
+        return params

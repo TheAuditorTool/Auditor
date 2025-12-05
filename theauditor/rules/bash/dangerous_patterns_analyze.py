@@ -1,21 +1,23 @@
 """Bash Dangerous Patterns Analyzer - Detects security anti-patterns in shell scripts."""
 
-import sqlite3
-
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="bash_dangerous_patterns",
     category="security",
     target_extensions=[".sh", ".bash"],
     exclude_patterns=["node_modules/", "vendor/", ".git/"],
-    execution_scope="database")
+    execution_scope="database",
+)
 
 # Credential variable name patterns
 CREDENTIAL_PATTERNS = (
@@ -41,43 +43,28 @@ NETWORK_COMMANDS = frozenset(["curl", "wget", "nc", "netcat", "fetch"])
 # Shell execution commands (pipe targets)
 SHELL_COMMANDS = frozenset(["bash", "sh", "zsh", "ksh", "dash", "eval", "source"])
 
+# Security-sensitive commands that should use absolute paths
+SENSITIVE_COMMANDS = (
+    "rm", "chmod", "chown", "kill", "pkill", "mount", "umount",
+    "iptables", "ip6tables", "systemctl", "service", "dd",
+)
 
-class BashDangerousPatternsAnalyzer:
-    """Analyzer for dangerous Bash patterns."""
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context."""
-        self.context = context
-        self.findings: list[StandardFinding] = []
-        self.seen: set[str] = set()
+def find_bash_dangerous_patterns(context: StandardRuleContext) -> RuleResult:
+    """Detect dangerous Bash patterns.
 
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
+    Named find_* for orchestrator discovery.
 
-        conn = sqlite3.connect(self.context.db_path)
-        conn.row_factory = sqlite3.Row
-        self.cursor = conn.cursor()
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    findings: list[StandardFinding] = []
+    seen: set[str] = set()
 
-        self._check_curl_pipe_bash()
-        self._check_hardcoded_credentials()
-        self._check_unsafe_temp_files()
-        self._check_missing_safety_flags()
-        self._check_sudo_abuse()
-        self._check_chmod_777()
-        self._check_weak_crypto()
-        self._check_path_manipulation()
-        self._check_ifs_manipulation()  # Task 3.3.6 DRAGON
-        self._check_relative_command_paths()  # Task 3.5.1
-        self._check_security_sensitive_commands()  # Task 3.5.3
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
 
-        conn.close()
-
-        return self.findings
-
-    def _add_finding(
-        self,
+    def add_finding(
         file: str,
         line: int,
         rule_name: str,
@@ -88,11 +75,11 @@ class BashDangerousPatternsAnalyzer:
     ) -> None:
         """Add a finding if not already seen."""
         key = f"{file}:{line}:{rule_name}"
-        if key in self.seen:
+        if key in seen:
             return
-        self.seen.add(key)
+        seen.add(key)
 
-        self.findings.append(
+        findings.append(
             StandardFinding(
                 rule_name=rule_name,
                 message=message,
@@ -105,182 +92,220 @@ class BashDangerousPatternsAnalyzer:
             )
         )
 
-    def _check_curl_pipe_bash(self) -> None:
-        """Detect curl/wget piped directly to bash - critical security risk."""
-        network_list = ", ".join(f"'{cmd}'" for cmd in NETWORK_COMMANDS)
-        shell_list = ", ".join(f"'{cmd}'" for cmd in SHELL_COMMANDS)
+    with RuleDB(context.db_path, METADATA.name) as db:
+        # Check curl/wget piped to bash
+        _check_curl_pipe_bash(db, add_finding)
 
-        self.cursor.execute(f"""
-            SELECT
-                p1.file,
-                p1.line,
-                p1.pipeline_id,
-                p1.command_text as source_cmd,
-                p2.command_text as sink_cmd
-            FROM bash_pipes p1
-            JOIN bash_pipes p2
-                ON p1.file = p2.file
-                AND p1.pipeline_id = p2.pipeline_id
-                AND p1.position < p2.position
-            JOIN bash_commands c1
-                ON p1.file = c1.file AND p1.line = c1.line
-            JOIN bash_commands c2
-                ON p2.file = c2.file AND p2.line = c2.line
-            WHERE c1.command_name IN ({network_list})
-              AND c2.command_name IN ({shell_list})
-        """)
+        # Check hardcoded credentials
+        _check_hardcoded_credentials(db, add_finding)
 
-        for row in self.cursor.fetchall():
-            self._add_finding(
-                file=row["file"],
-                line=row["line"],
-                rule_name="bash-curl-pipe-bash",
-                message="Remote code execution: piping network data to shell",
-                severity=Severity.CRITICAL,
-                confidence=Confidence.HIGH,
-                cwe_id="CWE-94",
-            )
+        # Check unsafe temp files
+        _check_unsafe_temp_files(db, add_finding)
 
-    def _check_hardcoded_credentials(self) -> None:
-        """Detect hardcoded credentials in variable assignments."""
-        # Build LIKE conditions for credential patterns
-        like_conditions = " OR ".join(
-            f"UPPER(name) LIKE '%{pattern}%'" for pattern in CREDENTIAL_PATTERNS
+        # Check missing safety flags
+        _check_missing_safety_flags(db, add_finding)
+
+        # Check sudo with variable expansion
+        _check_sudo_abuse(db, add_finding)
+
+        # Check chmod 777
+        _check_chmod_777(db, add_finding)
+
+        # Check weak crypto
+        _check_weak_crypto(db, add_finding)
+
+        # Check PATH manipulation
+        _check_path_manipulation(db, add_finding)
+
+        # Check IFS manipulation
+        _check_ifs_manipulation(db, add_finding)
+
+        # Check relative command paths
+        _check_relative_command_paths(db, add_finding)
+
+        # Check security-sensitive commands
+        _check_security_sensitive_commands(db, add_finding)
+
+        # Check dangerous environment variable manipulation (LD_PRELOAD, etc.)
+        _check_dangerous_environment_vars(db, add_finding)
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+def _check_curl_pipe_bash(db: RuleDB, add_finding) -> None:
+    """Detect curl/wget piped directly to bash - critical security risk."""
+    # Get all pipe connections where network command feeds shell command
+    network_list = ", ".join(f"'{cmd}'" for cmd in NETWORK_COMMANDS)
+    shell_list = ", ".join(f"'{cmd}'" for cmd in SHELL_COMMANDS)
+
+    # Use raw SQL for complex join with pipeline logic
+    sql, params = Q.raw(
+        f"""
+        SELECT
+            p1.file,
+            p1.line,
+            p1.pipeline_id,
+            p1.command_text as source_cmd,
+            p2.command_text as sink_cmd
+        FROM bash_pipes p1
+        JOIN bash_pipes p2
+            ON p1.file = p2.file
+            AND p1.pipeline_id = p2.pipeline_id
+            AND p1.position < p2.position
+        JOIN bash_commands c1
+            ON p1.file = c1.file AND p1.line = c1.line
+        JOIN bash_commands c2
+            ON p2.file = c2.file AND p2.line = c2.line
+        WHERE c1.command_name IN ({network_list})
+          AND c2.command_name IN ({shell_list})
+        """,
+        [],
+    )
+
+    for row in db.execute(sql, params):
+        add_finding(
+            file=row[0],
+            line=row[1],
+            rule_name="bash-curl-pipe-bash",
+            message="Remote code execution: piping network data to shell",
+            severity=Severity.CRITICAL,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-94",
         )
 
-        self.cursor.execute(f"""
-            SELECT file, line, name, value_expr, scope
-            FROM bash_variables
-            WHERE ({like_conditions})
-              AND value_expr IS NOT NULL
-              AND value_expr != ''
-              AND value_expr NOT LIKE '$%'
-        """)
 
-        for row in self.cursor.fetchall():
-            value = row["value_expr"] or ""
-            # Skip environment variable references
-            if value.startswith("$") or value.startswith("${"):
-                continue
-            # Skip empty quoted strings
-            if value in ('""', "''"):
-                continue
+def _check_hardcoded_credentials(db: RuleDB, add_finding) -> None:
+    """Detect hardcoded credentials in variable assignments."""
+    # Build LIKE conditions for credential patterns
+    like_conditions = " OR ".join(
+        f"UPPER(name) LIKE '%{pattern}%'" for pattern in CREDENTIAL_PATTERNS
+    )
 
-            self._add_finding(
-                file=row["file"],
-                line=row["line"],
-                rule_name="bash-hardcoded-credential",
-                message=f"Potential hardcoded credential: {row['name']}",
-                severity=Severity.HIGH,
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, name, value_expr, scope
+        FROM bash_variables
+        WHERE ({like_conditions})
+          AND value_expr IS NOT NULL
+          AND value_expr != ''
+          AND value_expr NOT LIKE '$%'
+        """,
+        [],
+    )
+
+    for row in db.execute(sql, params):
+        file, line, name, value_expr, scope = row
+        value = value_expr or ""
+        # Skip environment variable references
+        if value.startswith("$") or value.startswith("${"):
+            continue
+        # Skip empty quoted strings
+        if value in ('""', "''"):
+            continue
+
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="bash-hardcoded-credential",
+            message=f"Potential hardcoded credential: {name}",
+            severity=Severity.HIGH,
+            confidence=Confidence.MEDIUM,
+            cwe_id="CWE-798",
+        )
+
+
+def _check_unsafe_temp_files(db: RuleDB, add_finding) -> None:
+    """Detect predictable temp file usage without mktemp."""
+    rows = db.query(
+        Q("bash_redirections")
+        .select("file", "line", "target", "direction")
+        .where("target LIKE ?", "/tmp/%")
+    )
+
+    for file, line, target, direction in rows:
+        # Check if it's a predictable name (no random component)
+        if "$$" not in target and "$RANDOM" not in target and "mktemp" not in target.lower():
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-unsafe-temp",
+                message=f"Predictable temp file: {target}",
+                severity=Severity.MEDIUM,
                 confidence=Confidence.MEDIUM,
-                cwe_id="CWE-798",
+                cwe_id="CWE-377",
             )
 
-    def _check_unsafe_temp_files(self) -> None:
-        """Detect predictable temp file usage without mktemp."""
-        self.cursor.execute("""
-            SELECT file, line, target, direction
-            FROM bash_redirections
-            WHERE target LIKE '/tmp/%'
-              AND target NOT LIKE '%$$%'
-              AND target NOT LIKE '%$RANDOM%'
-        """)
 
-        for row in self.cursor.fetchall():
-            target = row["target"]
-            # Check if it's a predictable name (no random component)
-            if "mktemp" not in target.lower():
-                self._add_finding(
-                    file=row["file"],
-                    line=row["line"],
-                    rule_name="bash-unsafe-temp",
-                    message=f"Predictable temp file: {target}",
-                    severity=Severity.MEDIUM,
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-377",
-                )
+def _check_missing_safety_flags(db: RuleDB, add_finding) -> None:
+    """Check if script has set -e, set -u, set -o pipefail."""
+    # Get all unique files with bash content
+    rows = db.query(
+        Q("bash_commands")
+        .select("file")
+    )
 
-    def _check_missing_safety_flags(self) -> None:
-        """Check if script has set -e, set -u, set -o pipefail."""
-        # Get all unique files with bash content
-        self.cursor.execute("""
-            SELECT DISTINCT file FROM bash_commands
-        """)
+    files = set(file for (file,) in rows)
 
-        files = [row["file"] for row in self.cursor.fetchall()]
+    for file in files:
+        # Check for safety set commands via set options
+        set_rows = db.query(
+            Q("bash_set_options")
+            .select("options")
+            .where("file = ?", file)
+        )
 
-        for file in files:
-            # Check for safety set commands
-            self.cursor.execute(
-                """
-                SELECT command_name, GROUP_CONCAT(a.arg_value, ' ') as args
-                FROM bash_commands c
-                LEFT JOIN bash_command_args a
-                    ON c.file = a.file
-                    AND c.line = a.command_line
-                    AND c.pipeline_position IS a.command_pipeline_position
-                WHERE c.file = ?
-                  AND c.command_name = 'set'
-                GROUP BY c.file, c.line
-            """,
-                (file,),
+        has_set_e = False
+        has_set_u = False
+
+        for (options,) in set_rows:
+            opts = options or ""
+            if "-e" in opts or "errexit" in opts:
+                has_set_e = True
+            if "-u" in opts or "nounset" in opts:
+                has_set_u = True
+
+        if not has_set_e:
+            add_finding(
+                file=file,
+                line=1,
+                rule_name="bash-missing-set-e",
+                message="Script lacks 'set -e' - errors may go unnoticed",
+                severity=Severity.LOW,
+                confidence=Confidence.HIGH,
             )
 
-            has_set_e = False
-            has_set_u = False
-            has_pipefail = False
+        if not has_set_u:
+            add_finding(
+                file=file,
+                line=1,
+                rule_name="bash-missing-set-u",
+                message="Script lacks 'set -u' - undefined variables allowed",
+                severity=Severity.LOW,
+                confidence=Confidence.HIGH,
+            )
 
-            for row in self.cursor.fetchall():
-                args = row["args"] or ""
-                if "-e" in args or "-o errexit" in args:
-                    has_set_e = True
-                if "-u" in args or "-o nounset" in args:
-                    has_set_u = True
-                if "pipefail" in args:
-                    has_pipefail = True
 
-            if not has_set_e:
-                self._add_finding(
-                    file=file,
-                    line=1,
-                    rule_name="bash-missing-set-e",
-                    message="Script lacks 'set -e' - errors may go unnoticed",
-                    severity=Severity.LOW,
-                    confidence=Confidence.HIGH,
-                )
+def _check_sudo_abuse(db: RuleDB, add_finding) -> None:
+    """Detect sudo with variable arguments."""
+    rows = db.query(
+        Q("bash_commands")
+        .select("file", "line")
+        .where("command_name = ?", "sudo")
+    )
 
-            if not has_set_u:
-                self._add_finding(
-                    file=file,
-                    line=1,
-                    rule_name="bash-missing-set-u",
-                    message="Script lacks 'set -u' - undefined variables allowed",
-                    severity=Severity.LOW,
-                    confidence=Confidence.HIGH,
-                )
+    for file, line in rows:
+        arg_rows = db.query(
+            Q("bash_command_args")
+            .select("has_expansion")
+            .where("file = ? AND command_line = ?", file, line)
+        )
 
-    def _check_sudo_abuse(self) -> None:
-        """Detect sudo with variable arguments."""
-        self.cursor.execute("""
-            SELECT
-                c.file,
-                c.line,
-                GROUP_CONCAT(a.arg_value, ' ') as args,
-                a.has_expansion
-            FROM bash_commands c
-            LEFT JOIN bash_command_args a
-                ON c.file = a.file
-                AND c.line = a.command_line
-                AND c.pipeline_position IS a.command_pipeline_position
-            WHERE c.command_name = 'sudo'
-            GROUP BY c.file, c.line
-            HAVING SUM(CASE WHEN a.has_expansion = 1 THEN 1 ELSE 0 END) > 0
-        """)
+        has_expansion = any(has_exp for (has_exp,) in arg_rows if has_exp)
 
-        for row in self.cursor.fetchall():
-            self._add_finding(
-                file=row["file"],
-                line=row["line"],
+        if has_expansion:
+            add_finding(
+                file=file,
+                line=line,
                 rule_name="bash-sudo-variable",
                 message="sudo with variable expansion - privilege escalation risk",
                 severity=Severity.HIGH,
@@ -288,35 +313,37 @@ class BashDangerousPatternsAnalyzer:
                 cwe_id="CWE-269",
             )
 
-    def _check_chmod_777(self) -> None:
-        """Detect chmod 777 and other overly permissive modes."""
-        self.cursor.execute("""
-            SELECT c.file, c.line, a.arg_value
-            FROM bash_commands c
-            JOIN bash_command_args a
-                ON c.file = a.file
-                AND c.line = a.command_line
-                AND c.pipeline_position IS a.command_pipeline_position
-            WHERE c.command_name = 'chmod'
-              AND (a.arg_value = '777' OR a.arg_value = '666' OR a.arg_value = '+x')
-        """)
 
-        for row in self.cursor.fetchall():
-            mode = row["arg_value"]
-            if mode == "777":
-                self._add_finding(
-                    file=row["file"],
-                    line=row["line"],
+def _check_chmod_777(db: RuleDB, add_finding) -> None:
+    """Detect chmod 777 and other overly permissive modes."""
+    rows = db.query(
+        Q("bash_commands")
+        .select("file", "line")
+        .where("command_name = ?", "chmod")
+    )
+
+    for file, line in rows:
+        arg_rows = db.query(
+            Q("bash_command_args")
+            .select("arg_value")
+            .where("file = ? AND command_line = ?", file, line)
+        )
+
+        for (arg_value,) in arg_rows:
+            if arg_value == "777":
+                add_finding(
+                    file=file,
+                    line=line,
                     rule_name="bash-chmod-777",
                     message="chmod 777 creates world-writable file",
                     severity=Severity.HIGH,
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-732",
                 )
-            elif mode == "666":
-                self._add_finding(
-                    file=row["file"],
-                    line=row["line"],
+            elif arg_value == "666":
+                add_finding(
+                    file=file,
+                    line=line,
                     rule_name="bash-chmod-666",
                     message="chmod 666 creates world-writable file",
                     severity=Severity.MEDIUM,
@@ -324,185 +351,200 @@ class BashDangerousPatternsAnalyzer:
                     cwe_id="CWE-732",
                 )
 
-    def _check_weak_crypto(self) -> None:
-        """Detect usage of weak cryptographic tools."""
-        self.cursor.execute("""
-            SELECT file, line, command_name
-            FROM bash_commands
-            WHERE command_name IN ('md5sum', 'md5', 'sha1sum', 'sha1')
-        """)
 
-        for row in self.cursor.fetchall():
-            self._add_finding(
-                file=row["file"],
-                line=row["line"],
-                rule_name="bash-weak-crypto",
-                message=f"Weak hash algorithm: {row['command_name']}",
-                severity=Severity.MEDIUM,
-                confidence=Confidence.MEDIUM,
-                cwe_id="CWE-328",
-            )
+def _check_weak_crypto(db: RuleDB, add_finding) -> None:
+    """Detect usage of weak cryptographic tools.
 
-    def _check_path_manipulation(self) -> None:
-        """Detect PATH variable manipulation."""
-        self.cursor.execute("""
-            SELECT file, line, name, value_expr, scope
-            FROM bash_variables
-            WHERE name = 'PATH'
-        """)
+    Note: In shell scripts, md5sum/sha1sum are typically used for file integrity
+    checks rather than password hashing. Downgraded to LOW severity.
+    """
+    rows = db.query(
+        Q("bash_commands")
+        .select("file", "line", "command_name")
+        .where("command_name IN (?, ?, ?, ?)", "md5sum", "md5", "sha1sum", "sha1")
+    )
 
-        for row in self.cursor.fetchall():
-            value = row["value_expr"] or ""
-            # Check for prepending to PATH (can hijack commands)
-            if value.startswith(".") or value.startswith("$PWD"):
-                self._add_finding(
-                    file=row["file"],
-                    line=row["line"],
-                    rule_name="bash-path-injection",
-                    message="PATH prepended with relative/current directory",
-                    severity=Severity.HIGH,
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-426",
-                )
-            elif "PATH" in value:
-                # Just informational for other PATH modifications
-                self._add_finding(
-                    file=row["file"],
-                    line=row["line"],
-                    rule_name="bash-path-modification",
-                    message="PATH environment variable modified",
-                    severity=Severity.LOW,
-                    confidence=Confidence.HIGH,
-                )
-
-    def _check_ifs_manipulation(self) -> None:
-        """Detect IFS variable manipulation (Task 3.3.6 DRAGON).
-
-        IFS (Internal Field Separator) manipulation can alter word splitting
-        behavior, potentially bypassing unquoted variable protections.
-        """
-        self.cursor.execute("""
-            SELECT file, line, name, value_expr, scope, containing_function
-            FROM bash_variables
-            WHERE name = 'IFS'
-        """)
-
-        for row in self.cursor.fetchall():
-            value = row["value_expr"] or ""
-            containing_func = row["containing_function"]
-
-            # Any IFS modification requires manual review
-            if value == '""' or value == "''":
-                # IFS='' disables word splitting entirely
-                self._add_finding(
-                    file=row["file"],
-                    line=row["line"],
-                    rule_name="bash-ifs-empty",
-                    message="IFS set to empty - word splitting disabled",
-                    severity=Severity.MEDIUM,
-                    confidence=Confidence.HIGH,
-                )
-            elif value:
-                self._add_finding(
-                    file=row["file"],
-                    line=row["line"],
-                    rule_name="bash-ifs-modified",
-                    message=f"IFS modified - manual review required{' (in ' + containing_func + ')' if containing_func else ''}",
-                    severity=Severity.MEDIUM,
-                    confidence=Confidence.MEDIUM,
-                )
-
-    def _check_relative_command_paths(self) -> None:
-        """Detect commands invoked without absolute paths (Task 3.5.1).
-
-        Security-sensitive commands should use absolute paths to prevent
-        PATH-based command hijacking attacks.
-        """
-        # Security-sensitive commands that should use absolute paths
-        sensitive_commands = (
-            "rm",
-            "chmod",
-            "chown",
-            "kill",
-            "pkill",
-            "mount",
-            "umount",
-            "iptables",
-            "ip6tables",
-            "systemctl",
-            "service",
-            "dd",
+    for file, line, command_name in rows:
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="bash-weak-crypto",
+            message=f"Weak hash algorithm: {command_name} (verify not used for security)",
+            severity=Severity.LOW,  # Downgraded: usually integrity checks, not security
+            confidence=Confidence.MEDIUM,
+            cwe_id="CWE-328",
         )
-        sensitive_list = ", ".join(f"'{cmd}'" for cmd in sensitive_commands)
 
-        self.cursor.execute(f"""
-            SELECT file, line, command_name, containing_function
-            FROM bash_commands
-            WHERE command_name IN ({sensitive_list})
-              AND command_name NOT LIKE '/%'
-              AND command_name NOT LIKE './%'
-        """)
 
-        for row in self.cursor.fetchall():
-            self._add_finding(
-                file=row["file"],
-                line=row["line"],
-                rule_name="bash-relative-sensitive-cmd",
-                message=f"Security-sensitive command '{row['command_name']}' uses relative path",
-                severity=Severity.MEDIUM,
-                confidence=Confidence.MEDIUM,
+def _check_path_manipulation(db: RuleDB, add_finding) -> None:
+    """Detect PATH variable manipulation."""
+    rows = db.query(
+        Q("bash_variables")
+        .select("file", "line", "name", "value_expr", "scope")
+        .where("name = ?", "PATH")
+    )
+
+    for file, line, name, value_expr, scope in rows:
+        value = value_expr or ""
+        # Check for prepending to PATH (can hijack commands)
+        if value.startswith(".") or value.startswith("$PWD"):
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-path-injection",
+                message="PATH prepended with relative/current directory",
+                severity=Severity.HIGH,
+                confidence=Confidence.HIGH,
                 cwe_id="CWE-426",
             )
-
-    def _check_security_sensitive_commands(self) -> None:
-        """Flag security-sensitive commands that need careful review (Task 3.5.3)."""
-        # Commands that should be reviewed for security implications
-        high_risk_commands = {
-            "eval": "Dynamic code execution",
-            "source": "Script injection possible",
-            ".": "Script injection possible",
-            "exec": "Process replacement",
-        }
-
-        # Commands with variable arguments (detected via wrapped_command)
-        self.cursor.execute("""
-            SELECT file, line, command_name, wrapped_command
-            FROM bash_commands
-            WHERE wrapped_command IS NOT NULL
-              AND wrapped_command LIKE '$%'
-        """)
-
-        for row in self.cursor.fetchall():
-            self._add_finding(
-                file=row["file"],
-                line=row["line"],
-                rule_name="bash-wrapper-variable-cmd",
-                message=f"Wrapper '{row['command_name']}' executes variable command",
-                severity=Severity.HIGH,
+        elif "PATH" in value:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-path-modification",
+                message="PATH environment variable modified",
+                severity=Severity.LOW,
                 confidence=Confidence.HIGH,
-                cwe_id="CWE-78",
-            )
-
-        # Check for commands that execute variable names (command name starts with $)
-        self.cursor.execute("""
-            SELECT file, line, command_name
-            FROM bash_commands
-            WHERE command_name LIKE '$%'
-        """)
-
-        for row in self.cursor.fetchall():
-            self._add_finding(
-                file=row["file"],
-                line=row["line"],
-                rule_name="bash-variable-command",
-                message=f"Variable used as command: {row['command_name']}",
-                severity=Severity.HIGH,
-                confidence=Confidence.HIGH,
-                cwe_id="CWE-78",
             )
 
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect dangerous Bash patterns."""
-    analyzer = BashDangerousPatternsAnalyzer(context)
-    return analyzer.analyze()
+def _check_ifs_manipulation(db: RuleDB, add_finding) -> None:
+    """Detect IFS variable manipulation.
+
+    IFS (Internal Field Separator) manipulation can alter word splitting
+    behavior, potentially bypassing unquoted variable protections.
+    """
+    rows = db.query(
+        Q("bash_variables")
+        .select("file", "line", "name", "value_expr", "scope", "containing_function")
+        .where("name = ?", "IFS")
+    )
+
+    for file, line, name, value_expr, scope, containing_func in rows:
+        value = value_expr or ""
+
+        if value == '""' or value == "''":
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-ifs-empty",
+                message="IFS set to empty - word splitting disabled",
+                severity=Severity.MEDIUM,
+                confidence=Confidence.HIGH,
+            )
+        elif value:
+            func_note = f" (in {containing_func})" if containing_func else ""
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-ifs-modified",
+                message=f"IFS modified - manual review required{func_note}",
+                severity=Severity.MEDIUM,
+                confidence=Confidence.MEDIUM,
+            )
+
+
+def _check_relative_command_paths(db: RuleDB, add_finding) -> None:
+    """Detect commands invoked without absolute paths.
+
+    Security-sensitive commands should use absolute paths to prevent
+    PATH-based command hijacking attacks.
+    """
+    sensitive_list = ", ".join(f"'{cmd}'" for cmd in SENSITIVE_COMMANDS)
+
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, command_name, containing_function
+        FROM bash_commands
+        WHERE command_name IN ({sensitive_list})
+          AND command_name NOT LIKE '/%'
+          AND command_name NOT LIKE './%'
+        """,
+        [],
+    )
+
+    for row in db.execute(sql, params):
+        file, line, command_name, containing_func = row
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="bash-relative-sensitive-cmd",
+            message=f"Security-sensitive command '{command_name}' uses relative path",
+            severity=Severity.MEDIUM,
+            confidence=Confidence.MEDIUM,
+            cwe_id="CWE-426",
+        )
+
+
+def _check_security_sensitive_commands(db: RuleDB, add_finding) -> None:
+    """Flag security-sensitive commands that need careful review."""
+    # Commands with variable arguments (detected via wrapped_command)
+    rows = db.query(
+        Q("bash_commands")
+        .select("file", "line", "command_name", "wrapped_command")
+        .where("wrapped_command IS NOT NULL AND wrapped_command LIKE ?", "$%")
+    )
+
+    for file, line, command_name, wrapped_command in rows:
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="bash-wrapper-variable-cmd",
+            message=f"Wrapper '{command_name}' executes variable command",
+            severity=Severity.HIGH,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-78",
+        )
+
+    # Check for commands that execute variable names
+    rows = db.query(
+        Q("bash_commands")
+        .select("file", "line", "command_name")
+        .where("command_name LIKE ?", "$%")
+    )
+
+    for file, line, command_name in rows:
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="bash-variable-command",
+            message=f"Variable used as command: {command_name}",
+            severity=Severity.HIGH,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-78",
+        )
+
+
+def _check_dangerous_environment_vars(db: RuleDB, add_finding) -> None:
+    """Detect dangerous environment variables that can hijack execution.
+
+    LD_PRELOAD, LD_LIBRARY_PATH, PYTHONPATH, PERL5LIB can be used to inject
+    malicious libraries or modules into child processes.
+    """
+    DANGEROUS_VARS = ("LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PERL5LIB", "NODE_PATH")
+
+    placeholders = ", ".join(["?"] * len(DANGEROUS_VARS))
+    sql, params = Q.raw(
+        f"""
+        SELECT file, line, name
+        FROM bash_variables
+        WHERE name IN ({placeholders})
+        """,
+        list(DANGEROUS_VARS),
+    )
+
+    for row in db.execute(sql, params):
+        file, line, name = row
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="bash-environment-injection",
+            message=f"Setting dangerous environment variable: {name}",
+            severity=Severity.HIGH,
+            confidence=Confidence.MEDIUM,
+            cwe_id="CWE-426",
+        )
+
+
+# Alias for backwards compatibility
+analyze = find_bash_dangerous_patterns
