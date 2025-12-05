@@ -3,6 +3,7 @@
 import click
 from rich.panel import Panel
 from rich.syntax import Syntax
+from rich.table import Table
 from rich.text import Text
 
 from theauditor.cli import RichCommand
@@ -293,8 +294,49 @@ def manual(concept, list_concepts):
         return
 
     if not concept:
-        console.print("Please specify a concept to explain or use --list to see available topics.")
-        console.print("\nExample: aud manual taint")
+        # Styled welcome page like aud --help
+        console.print()
+        console.print(Panel.fit(
+            "[bold cyan]TheAuditor Manual[/bold cyan]\n"
+            "[dim]Interactive documentation for security analysis concepts[/dim]",
+            border_style="cyan"
+        ))
+        console.print()
+
+        # Topic categories
+        categories = {
+            "SECURITY ANALYSIS": [
+                ("taint", "Data flow from sources to sinks"),
+                ("patterns", "Vulnerability pattern detection"),
+                ("boundaries", "Entry point to control distance"),
+                ("fce", "Multi-vector correlation engine"),
+            ],
+            "ARCHITECTURE": [
+                ("blueprint", "Codebase structure overview"),
+                ("graph", "Import and call graph analysis"),
+                ("callgraph", "Function call relationships"),
+                ("dependencies", "Package dependency analysis"),
+            ],
+            "WORKFLOWS": [
+                ("pipeline", "20-phase execution pipeline"),
+                ("workset", "Targeted file subsets"),
+                ("severity", "Finding classification levels"),
+                ("rules", "Detection rule inventory"),
+            ],
+        }
+
+        for cat_name, topics in categories.items():
+            table = Table(show_header=False, box=None, padding=(0, 2))
+            table.add_column("Topic", style="green", width=14)
+            table.add_column("Description", style="dim")
+            for topic, desc in topics:
+                table.add_row(topic, desc)
+            console.print(Panel(table, title=f"[bold]{cat_name}[/bold]", border_style="blue"))
+
+        console.print()
+        console.print("[dim]Usage:[/dim]  aud manual <topic>     [dim]Example:[/dim] aud manual taint")
+        console.print("[dim]List all:[/dim] aud manual --list")
+        console.print()
         return
 
     concept = concept.lower().strip()

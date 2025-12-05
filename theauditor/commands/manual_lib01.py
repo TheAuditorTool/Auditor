@@ -5,479 +5,641 @@ EXPLANATIONS_01: dict[str, dict[str, str]] = {
         "title": "Taint Analysis",
         "summary": "Tracks untrusted data flow from sources to dangerous sinks",
         "explanation": """
-Taint analysis is a security technique that tracks how untrusted data (tainted data)
-flows through a program to potentially dangerous operations (sinks).
+WHAT IT IS:
+Taint analysis finds where user input reaches dangerous functions without
+sanitization - the root cause of injection vulnerabilities (SQL injection,
+XSS, command injection, path traversal).
 
-CONCEPTS:
-- Source: Where untrusted data enters (user input, network, files)
-- Sink: Dangerous operations (SQL queries, system commands, file writes)
-- Taint: The property of being untrusted/contaminated
-- Propagation: How taint spreads through assignments and function calls
+WHEN TO USE IT:
+- Security audit before deployment or release
+- Investigating a reported vulnerability
+- PR review for security-sensitive code changes
+- After running aud full, to understand data flow paths
+- When you need to trace how user input propagates through the codebase
 
-HOW IT WORKS:
-1. Read database tables: function_call_args, assignments from repo_index.db
-2. Build call graph for inter-procedural analysis across functions
-3. Identify sources: Match against 140+ taint source patterns
-4. Propagate taint: Follow data flow through assignments and calls
-5. Detect sinks: Match against 200+ security sink patterns
-6. Classify severity: Critical (no sanitization) to Low (partial)
-7. Output JSON with taint paths showing source -> sink with line numbers
+HOW TO USE IT:
 
-EXAMPLE VULNERABILITY:
-    user_input = request.body.get('name')  # SOURCE: User input is tainted
-    query = f"SELECT * FROM users WHERE name = '{user_input}'"  # Taint propagates
-    db.execute(query)  # SINK: SQL injection vulnerability!
+PREREQUISITES:
+    aud full                           # Build database first (required)
 
-WHAT THEAUDITOR DETECTS:
+STEPS:
+1. Run taint analysis:
+    aud taint                          # Full analysis with defaults
+    aud taint --severity critical      # Only critical findings
+    aud taint --verbose                # Show full taint paths
+
+2. Review findings in .pf/raw/taint_analysis.json
+
+3. For each finding, verify:
+   - Is the source actually user-controlled?
+   - Is there sanitization the tool missed?
+   - Is this a true positive requiring a fix?
+
+EXAMPLE - Finding SQL Injection:
+    aud full && aud taint --severity high
+    # Output shows paths from request.body to db.execute()
+    # Each path shows: source variable, propagation steps, sink function
+
+WHAT IT DETECTS:
 - SQL Injection: tainted data flows to cursor.execute(), db.query()
 - Command Injection: tainted data flows to os.system(), subprocess.call()
 - XSS: tainted data flows to render without escaping
 - Path Traversal: tainted data flows to open(), Path operations
 - LDAP/NoSQL Injection: tainted data flows to ldap/mongo queries
 
-COMMAND OPTIONS (verified from source):
-- --db: Path to SQLite database (default: .pf/repo_index.db)
-- --output: Output path (default: .pf/raw/taint_analysis.json)
-- --max-depth: Maximum inter-procedural depth (default: 5)
-- --json: Output raw JSON instead of formatted report
-- --verbose: Show detailed path information
-- --severity: Filter by severity (all, critical, high, medium, low)
-- --rules/--no-rules: Enable/disable rule-based detection (default: on)
-- --memory/--no-memory: In-memory caching for 5-10x speed (default: on)
-- --memory-limit: Cache limit in MB (auto-detected if not set)
-- --mode: backward (IFDS), forward (entry->exit), complete (all flows)
+COMBINING WITH OTHER TOOLS:
+- After taint: run aud fce to correlate with other findings
+- Use aud explain <function> to understand context around a finding
+- Use aud boundaries to check validation distance from entry points
+- Use aud blueprint --taint to see taint summary without re-running analysis
 
-PREREQUISITES:
-- Run 'aud full' first to build repo_index.db with call graph data
+AGENT WORKFLOW:
+When using the security agent (/theauditor:security), taint analysis is
+Phase 2 of the workflow. The agent queries existing taint results with:
+    aud blueprint --taint
+This reads from database (fast) instead of re-running analysis (slow).
 
-EXAMPLES:
-    aud taint                      # Full analysis with defaults
-    aud taint --severity critical  # Only critical findings
-    aud taint --verbose            # Show full taint paths
-    aud taint --json               # Raw JSON output
-    aud taint --mode forward       # Forward flow analysis
-    aud taint --memory-limit 512   # Limit cache to 512MB
+KEY OPTIONS:
+- --severity: Filter by severity (critical, high, medium, low, all)
+- --mode: backward (IFDS, default), forward (faster), complete (thorough)
+- --verbose: Show full taint propagation paths
+- --json: Machine-readable output for scripting
+- --memory-limit N: Limit cache to N MB on memory-constrained systems
+
+COMMON MISTAKES:
+- Running taint before aud full: No database = no analysis
+- Ignoring MEDIUM findings: They often combine to CRITICAL via FCE
+- Not checking .pf/raw/taint_analysis.json: Terminal output is summary only
+- Using --mode forward for security audits: Less accurate, use backward
 
 EXIT CODES:
 - 0: Success, no vulnerabilities found
 - 1: High severity vulnerabilities detected
 - 2: Critical security vulnerabilities found
 
-OUTPUT:
-- .pf/raw/taint.json: All taint paths with source/sink details
-- Findings also written to repo_index.db findings table for FCE
+RELATED:
+Commands: aud taint, aud fce, aud boundaries, aud blueprint --taint
+Topics: aud manual fce, aud manual boundaries, aud manual patterns
 """,
     },
     "workset": {
         "title": "Workset",
         "summary": "A focused subset of files for targeted analysis",
         "explanation": """
-A workset is TheAuditor's mechanism for focusing analysis on specific files
-rather than the entire codebase. This dramatically improves performance and
-relevance when working on specific features or reviewing changes.
+WHAT IT IS:
+A workset is a focused file list for targeted analysis. Instead of analyzing
+your entire codebase, you define which files matter (changed files, specific
+directories, or patterns) and TheAuditor expands to include their dependencies.
+Result: 10x-100x faster analysis focused on what actually matters.
+
+WHEN TO USE IT:
+- PR reviews: Analyze only files changed in the pull request
+- Incremental CI: Check changed code without full rebuild
+- Feature work: Focus on specific modules during development
+- Performance: Large codebase but only care about a subset
+- Post-commit hooks: Quick lint of just-changed files
+
+HOW TO USE IT:
+PREREQUISITES:
+    aud full                              # Build database for dependency expansion
+
+STEPS:
+    1. Create workset from your use case:
+       aud workset --diff main..HEAD      # PR changes
+       aud workset --diff HEAD~1          # Last commit
+       aud workset --files src/auth.py    # Specific file
+
+    2. Run targeted analysis:
+       aud lint --workset                 # Lint only workset files
+       aud cfg analyze --workset          # Complexity check
+
+    3. Review results (only affected files shown)
+
+EXAMPLE - PR Review Workflow:
+    aud full                              # Ensure database is current
+    aud workset --diff main..HEAD         # What changed in PR?
+    aud lint --workset                    # Lint only those files
+    aud cfg analyze --workset             # Check complexity
+
+COMBINING WITH OTHER TOOLS:
+- Before workset: Run aud full to enable dependency expansion
+- After workset: Commands with --workset flag use the file list
+- With git: Use --diff for automatic change detection
+- In CI/CD: Chain workset -> lint for fast incremental checks
+
+COMMANDS THAT SUPPORT --workset:
+    aud lint --workset                    # Code quality
+    aud cfg analyze --workset             # Complexity analysis
+    aud graph build --workset             # Build partial graph
+    aud graph analyze --workset           # Analyze dependencies
+    aud workflows analyze --workset       # GitHub Actions
+    aud terraform provision --workset     # IaC analysis
 
 WHAT IT CONTAINS:
-- Seed files: Directly changed or selected files
-- Expanded files: Dependencies that could be affected
-- Transitive dependencies: Multi-hop relationships (up to --max-depth)
+- Seed files: Your specified files (from --diff, --files, or --include)
+- Expanded files: Files that import the seed files
+- Transitive deps: Multi-hop dependents (up to --max-depth)
 
-WHY USE WORKSETS:
-1. Performance: Analyze 10 files instead of 1000 (100x faster)
-2. Relevance: Focus on what actually changed
-3. CI/CD: Only check modified code in pull requests
-4. Incremental: Build on previous analysis
+COMMAND OPTIONS:
+    aud workset --diff main..HEAD         # Git diff range
+    aud workset --diff HEAD~1             # Last commit
+    aud workset --files auth.py api.py    # Explicit files
+    aud workset --include "*/api/*"       # Glob pattern
+    aud workset --exclude "test/*"        # Skip patterns
+    aud workset --max-depth 3             # Limit expansion
+    aud workset --all                     # All source files
+    aud workset --print-stats             # Show summary
 
-COMMAND OPTIONS (verified from source):
-- --root: Root directory (default: current directory)
-- --db: Input SQLite database path
-- --all: Include all source files
-- --diff: Git diff range (e.g., main..HEAD)
-- --files: Explicit file list (can specify multiple)
-- --include: Include glob patterns (can specify multiple)
-- --exclude: Exclude glob patterns (can specify multiple)
-- --max-depth: Maximum dependency expansion depth (default: 10)
-- --out: Output workset file path (default: .pf/workset.json)
-- --print-stats: Print summary statistics
+RELATED:
+Commands: aud workset, aud lint, aud cfg analyze, aud graph build
+Topics: aud manual lint, aud manual cfg, aud manual graph
 
-HOW IT WORKS:
-1. Identify seed files (from git diff, patterns, or explicit list)
-2. Query refs table for files importing seed files
-3. Expand importers recursively up to --max-depth hops
-4. Apply --exclude patterns and deduplicate
-5. Save to .pf/workset.json for other commands
+COMMON MISTAKES:
+- Using --workset without creating workset first: Command fails silently
+  -> Always run aud workset before commands with --workset flag
+- Skipping aud full before workset: Dependency expansion needs database
+  -> Run aud full to populate refs table for accurate expansion
+- Forgetting --exclude for tests: Workset includes test file dependents
+  -> Add --exclude "test/*" if you only want production code
+- Max-depth too high: Includes too many files, losing benefit
+  -> Use --max-depth 2-3 for focused analysis
 
-COMMANDS THAT SUPPORT --workset (verified):
-- aud lint --workset
-- aud cfg analyze --workset
-- aud graph build --workset
-- aud graph analyze --workset
-- aud workflows analyze --workset
-- aud terraform provision --workset
-
-EXAMPLE WORKFLOW:
-    aud workset --diff HEAD~1          # What changed in last commit?
-    aud lint --workset                 # Lint only those files
-
-EXAMPLES:
-    aud workset --diff main..feature   # PR changes
-    aud workset --files auth.py api.py # Explicit files
-    aud workset --include "*/api/*"    # Pattern match
-    aud workset --all                  # All source files
-    aud workset --diff HEAD --exclude "test/*"  # Skip tests
+OUTPUT:
+- Writes .pf/workset.json with file list
+- Other commands read this file when --workset flag is used
 """,
     },
     "fce": {
         "title": "Factual Correlation Engine",
         "summary": "Correlates findings from multiple tools to detect compound vulnerabilities",
         "explanation": """
-The Factual Correlation Engine (FCE) is TheAuditor's advanced analysis system
-that identifies when multiple seemingly minor issues combine to create serious
-vulnerabilities. It's like a security expert who sees the bigger picture.
+WHAT IT IS:
+FCE identifies where multiple independent analysis signals converge on the
+same code location. When static analysis, taint tracking, complexity metrics,
+and churn data all flag the same file, that's a high-confidence hot spot.
 
-THE PROBLEM FCE SOLVES:
-Individual tools often miss complex vulnerabilities because they analyze in
-isolation. For example:
-- Tool A finds: "User input not validated"
-- Tool B finds: "SQL query uses string concatenation"
-- Tool C finds: "No prepared statements"
-Each finding alone might be "low severity", but together they indicate
-a critical SQL injection vulnerability.
+WHEN TO USE IT:
+- After aud full, to see where findings cluster
+- Identifying high-priority files to review
+- Finding compound vulnerabilities (multiple low = one critical)
+- Reducing false positives through cross-validation
 
-HOW FCE WORKS:
-1. Loads findings from all analysis tools
-2. Applies 26 correlation rules
-3. Identifies matching patterns across tools
-4. Elevates severity when patterns combine
-5. Provides evidence chain for each finding
+HOW TO USE IT:
 
-EXAMPLE CORRELATION:
-    Rule: "Authentication Bypass"
-    Evidence Required:
-    - Missing authentication check (from patterns)
-    - Exposed endpoint (from graph analysis)
-    - No rate limiting (from lint)
-    Result: Critical vulnerability - unrestricted access to protected resources
+PREREQUISITES:
+    aud full                           # Populates all analysis vectors
 
-CORRELATION CATEGORIES:
-- Authentication & Authorization (missing auth + exposed endpoints)
-- Injection Attacks (user input + dangerous operations)
-- Data Exposure (debug mode + sensitive data)
-- Infrastructure (misconfigurations + known CVEs)
-- Code Quality (high complexity + no tests = hidden bugs)
+STEPS:
+1. Run FCE:
+    aud fce                            # Text report, min 2 vectors
+    aud fce --min-vectors 3            # Only 3+ vector convergence
+    aud fce --format json              # Machine-readable output
 
-VALUE OF FCE:
-- Finds vulnerabilities that single tools miss
-- Reduces false positives through cross-validation
-- Provides complete evidence for each finding
-- Prioritizes real risks over theoretical issues
+2. Interpret output:
+    [3/4] [SF-T] src/auth/login.py
+      |     |    |
+      |     |    +-- File path
+      |     +------- Vectors: S=Static, F=Flow, P=Process, T=Structural
+      +------------- Density: 3 of 4 vectors present
+
+3. Investigate high-density files:
+    aud explain src/auth/login.py      # Get full context
+
+EXAMPLE - Finding Hot Spots:
+    aud full && aud fce --min-vectors 3
+    # Shows files where 3+ independent signals converge
+    # These are your highest-priority review targets
+
+THE FOUR VECTORS:
+- S (Static): Linter findings (ruff, eslint, patterns)
+- F (Flow): Taint analysis findings
+- P (Process): Churn analysis (high change frequency)
+- T (Structural): Complexity metrics (CFG analysis)
+
+WHY VECTOR COUNT MATTERS:
+Multiple linters flagging same syntax error = 1 vector (all Static)
+Ruff + Taint + Churn + Complexity on same file = 4 vectors (independent signals)
+
+COMBINING WITH OTHER TOOLS:
+- Run after aud full to use all analysis data
+- Use aud explain on flagged files for detailed context
+- Use aud taint for data flow details on F-vector findings
+- Write report: aud fce --write saves to .pf/raw/fce.json
+
+AGENT WORKFLOW:
+The security agent runs FCE after taint and patterns to identify
+convergence points. Results guide which files to investigate deeper.
+
+KEY OPTIONS:
+- --min-vectors N: Require N vectors (1-4, default 2)
+- --format: text (human) or json (machine)
+- --detailed: Include facts in text output
+- --write: Save JSON to .pf/raw/fce.json
+
+COMMON MISTAKES:
+- Running fce before aud full: No data = no correlations
+- Using --min-vectors 1: Shows everything, not useful
+- Ignoring 2-vector files: Still worth reviewing
+- Not using --detailed: Misses the evidence chain
+
+EXIT CODES:
+- 0: Success
+
+RELATED:
+Commands: aud fce, aud full, aud taint, aud detect-patterns
+Topics: aud manual taint, aud manual patterns, aud manual severity
 """,
     },
     "cfg": {
         "title": "Control Flow Graph",
         "summary": "Maps all possible execution paths through functions",
         "explanation": """
-A Control Flow Graph (CFG) represents all possible paths that program execution
-might take through a function. It's essential for understanding code complexity
-and finding bugs.
+WHAT IT IS:
+Control Flow Graph (CFG) analysis maps all possible execution paths through
+functions to measure complexity, find unreachable code, and identify functions
+that are too complex to test reliably.
 
-WHAT IS A CFG:
-- Nodes: Basic blocks (sequences of instructions without branches)
-- Edges: Possible transitions between blocks
-- Entry: Where function execution starts
-- Exit: Where function returns
+WHEN TO USE IT:
+- Code review: Find overly complex functions that need refactoring
+- Testing: Calculate how many paths need test coverage
+- Security audit: Complex functions hide vulnerabilities
+- Refactoring: Identify candidates for simplification
+- Dead code: Find unreachable code blocks
 
-WHY CFG MATTERS:
-1. Complexity Analysis: More paths = harder to test and understand
-2. Dead Code Detection: Blocks with no incoming edges
-3. Security Analysis: Complex functions hide vulnerabilities
-4. Test Coverage: Ensures all paths are tested
+HOW TO USE IT:
 
-CYCLOMATIC COMPLEXITY:
-The number of independent paths through a function.
-Formula: M = E - N + 2P (Edges - Nodes + 2*Components)
+PREREQUISITES:
+    aud full                                  # Build the database first
 
-Complexity Guidelines:
-  1-10:  Simple, easy to test
-  11-20: Moderate complexity, needs careful testing
-  21-50: High complexity, should be refactored
-  50+:   Very high risk, almost impossible to test fully
+STEPS:
+1. Run complexity analysis to find problematic functions:
+    aud cfg analyze                           # All functions
+    aud cfg analyze --complexity-threshold 15 # Only high complexity
 
-EXAMPLE CFG:
-    def process(x):
-        if x > 0:        # Branch node
-            x = x * 2    # Block 1
-        else:
-            x = -x       # Block 2
-        return x         # Merge node
+2. Find unreachable code blocks:
+    aud cfg analyze --find-dead-code
 
-This creates 2 independent paths with complexity of 2.
+3. Analyze a specific file:
+    aud cfg analyze --file src/auth.py
 
-THEAUDITOR'S CFG ANALYSIS:
-    aud cfg analyze                           # Find complex functions
-    aud cfg analyze --find-dead-code          # Find unreachable code
-    aud cfg viz --function process            # Visualize CFG
+4. Visualize a specific function (requires --file AND --function):
+    aud cfg viz --file src/auth.py --function validate_token
+    aud cfg viz --file src/auth.py --function validate_token --format svg
 
-USE CASES:
-- Code review: Identify overly complex functions
-- Testing: Calculate paths to cover
-- Refactoring: Find functions to simplify
-- Security: Complex code hides bugs
+CYCLOMATIC COMPLEXITY GUIDE:
+- 1-10: Simple, easy to test (good)
+- 11-20: Moderate complexity, needs careful testing
+- 21-50: High complexity, should be refactored
+- 50+: Very high risk, almost impossible to test fully
+
+EXAMPLE WORKFLOW - Finding Complex Functions:
+    aud full                                  # Index codebase
+    aud cfg analyze --complexity-threshold 20 # Find complex functions
+    aud cfg viz --file src/api.py --function handle_request --format svg
+
+COMBINING WITH OTHER TOOLS:
+- After cfg analyze: Use aud deadcode to find unused functions
+- For security: High complexity + security-sensitive = priority review
+- With refactor: Complex functions are refactoring candidates
+- For planning: Use aud impact before splitting complex functions
+
+AGENT WORKFLOW:
+The dataflow agent (/theauditor:dataflow) uses CFG analysis as part of
+Phase 2 to understand execution paths. Query complexity with:
+    aud cfg analyze --file <target>
+
+COMMON MISTAKES:
+- Running cfg without aud full first: No data to analyze
+- Using aud cfg viz without --file: Command requires both --file AND --function
+- Setting complexity threshold too low: Get flooded with false positives (use 15+)
+
+RELATED:
+Commands: aud cfg analyze, aud cfg viz, aud deadcode, aud graph analyze
+Topics: aud manual deadcode, aud manual graph, aud manual architecture
 """,
     },
     "impact": {
         "title": "Impact Analysis",
         "summary": "Measures the blast radius of code changes",
         "explanation": """
-Impact analysis determines what parts of your codebase would be affected if
-you change a specific function or class. It's like asking "what breaks if I
-change this?"
+WHAT IT IS:
+Impact analysis measures the blast radius of changing a function or class by
+tracing upstream (who calls this) and downstream (what this calls) dependencies.
+It answers: "What breaks if I change this?"
 
-IMPACT DIMENSIONS:
-1. Upstream Impact: Who depends on this code?
-   - Direct callers
-   - Indirect callers (transitive)
-   - Test files that test this code
+WHEN TO USE IT:
+- Before refactoring: Understand scope before making changes
+- API changes: See who uses an endpoint before modifying it
+- Planning: Assess risk level for change proposals
+- Dead code: If upstream is empty, code might be unused
+- Architecture: Identify highly coupled code (coupling score)
 
-2. Downstream Impact: What does this code depend on?
-   - Direct dependencies
-   - Indirect dependencies (transitive)
-   - External libraries
+HOW TO USE IT:
 
-3. Total Blast Radius: All affected files
+PREREQUISITES:
+    aud full                                  # Build the database first
 
-HOW IT WORKS:
-1. Identify target symbol at specified line
-2. Query symbol database for relationships
-3. Traverse dependency graph in both directions
-4. Calculate transitive closure
-5. Assess risk level
+STEPS:
+1. Query by symbol name (RECOMMENDED):
+    aud impact --symbol AuthManager           # Exact match
+    aud impact --symbol "process_*"           # Pattern match
 
-RISK ASSESSMENT:
-- Low Impact: < 5 files affected (safe to change)
-- Medium Impact: 5-20 files (review carefully)
-- High Impact: > 20 files (dangerous change, extensive testing needed)
+2. Query with planning context (for refactoring):
+    aud impact --symbol AuthManager --planning-context
 
-EXAMPLE ANALYSIS:
-    aud impact --file auth.py --line 42
+3. Query by file and line (if symbol name unknown):
+    aud impact --file src/auth.py --line 42
 
-    Results:
-    - Target: authenticate_user() function
-    - Upstream: 15 files call this function
-    - Downstream: Function uses 8 dependencies
-    - Total Impact: 23 files
-    - Risk: HIGH - extensive testing required
+4. Cross-stack tracing (frontend to backend):
+    aud impact --file src/api.js --line 50 --trace-to-backend
 
-USE CASES:
-1. Before Refactoring: Understand scope of changes
-2. API Changes: See who uses the endpoint
-3. Bug Fixes: Find all affected code paths
-4. Dead Code: If upstream is empty, code might be unused
-5. Architecture: Identify highly coupled code
+RISK LEVELS AND COUPLING SCORES:
+- Low: <10 files, coupling <30 (safe to change)
+- Medium: 10-30 files, coupling 30-70 (review callers, consider phased rollout)
+- High: >30 files, coupling >70 (extract interface before refactoring)
 
-CROSS-STACK ANALYSIS:
-With --trace-to-backend, TheAuditor can trace:
-- Frontend API calls to backend endpoints
-- Database queries to their users
-- Message queue producers to consumers
+Exit code 1 is returned for high impact changes (useful for CI gates).
+
+EXAMPLE WORKFLOW - Pre-Refactor Assessment:
+    aud full                                  # Index codebase
+    aud impact --symbol UserService --planning-context
+    aud deadcode | grep user_service.py       # Check for dead code first
+
+COMBINING WITH OTHER TOOLS:
+- Before refactor: Always run impact first to know blast radius
+- With deadcode: If upstream is empty, code is likely unused
+- With planning: Use --planning-context for agent-friendly output
+- With graph: Impact uses the call graph, ensure aud graph build ran
+
+AGENT WORKFLOW:
+The planning agent (/theauditor:planning) uses impact analysis in Phase 2
+(T2.6) to establish impact baseline before planning changes:
+    aud impact --symbol <target> --planning-context
+
+Coupling score interpretation:
+- <30: LOW coupling - safe to change with minimal coordination
+- 30-70: MEDIUM coupling - review callers, consider phased rollout
+- >70: HIGH coupling - extract interface before refactoring
+
+COMMON MISTAKES:
+- Using --file without --line: Analyzes first symbol in file (may not be target)
+- Missing --planning-context: Omits coupling score needed for planning
+- Not running aud full first: No symbol data to analyze
+
+RELATED:
+Commands: aud impact, aud graph query, aud deadcode, aud query --show-callers
+Topics: aud manual graph, aud manual callgraph, aud manual refactor
 """,
     },
     "pipeline": {
         "title": "Analysis Pipeline",
-        "summary": "TheAuditor's 4-stage optimized execution pipeline",
+        "summary": "TheAuditor's 20-phase execution pipeline with intelligent parallelization",
         "explanation": """
-The pipeline is TheAuditor's orchestrated execution system that runs multiple
-analysis tools in an optimized sequence with intelligent parallelization.
+WHAT IT IS:
+The pipeline is TheAuditor's orchestration system that runs 20 analysis phases
+in optimized sequence. It builds databases, runs security scans, and correlates
+findings - all from a single command.
 
-THE 4-STAGE PIPELINE:
+WHEN TO USE IT:
+- First time setup on any codebase
+- After pulling new code changes
+- Before submitting a pull request for review
+- In CI/CD pipelines for automated security gates
+- When you need comprehensive analysis (not just one tool)
 
-STAGE 1: FOUNDATION (Sequential)
-Must complete first to provide data for other stages:
-- index: Build symbol database (all tools need this)
-- detect-frameworks: Identify Django, Flask, React, etc.
+HOW TO USE IT:
 
-STAGE 2: DATA PREPARATION (Sequential)
-Prepares data structures for parallel analysis:
-- workset: Identify target files
-- graph build: Construct dependency graphs
-- cfg: Extract control flow graphs
+PREREQUISITES:
+    None - the pipeline creates everything it needs
 
-STAGE 3: HEAVY ANALYSIS (3 Parallel Tracks)
-Track A: Taint Analysis (isolated for performance)
-  - Runs in separate process/memory space
-  - Most memory-intensive operation
+STEPS:
+    1. Run the full pipeline:
+       aud full                    # Complete 20-phase analysis
 
-Track B: Static Analysis
-  - lint: Run code quality checks
-  - detect-patterns: Security pattern matching
-  - graph analyze: Find cycles and hotspots
+    2. Check the output directory:
+       .pf/repo_index.db           # Symbol database (query with aud query)
+       .pf/graphs.db               # Call and import graphs
+       .pf/raw/*.json              # All analysis artifacts
+       .pf/pipeline.log            # Detailed execution trace
 
-Track C: Network I/O (skippable with --offline)
-  - deps: Check dependencies
-  - docs: Fetch documentation
+    3. Review findings:
+       aud blueprint --structure   # Architecture overview
+       aud blueprint --taint       # Security findings summary
 
-STAGE 4: AGGREGATION (Sequential)
-Combines findings from all previous stages:
-- fce: Correlate findings across tools
-- report: Generate final output
+EXAMPLE - First Time Analysis:
+    aud full                       # Creates .pf/ and runs all 20 phases
+    aud blueprint                  # See what was found
 
-WHY THIS DESIGN:
-1. Dependencies: Each stage needs data from previous stages
-2. Performance: Parallel tracks reduce total time by 3x
-3. Memory: Taint analysis isolated to prevent OOM
-4. Flexibility: Can skip stages with flags
+PIPELINE STAGES (4 Stages, 20 Phases):
 
-PERFORMANCE CHARACTERISTICS:
-Small project (<5K LOC):      ~2 minutes
-Medium project (20K LOC):     ~10 minutes
-Large monorepo (100K+ LOC):   ~30-60 minutes
+STAGE 1 - FOUNDATION (Sequential):
+- index: Build symbol database from AST parsing
+- detect-frameworks: Identify Django, Flask, React, Express, etc.
 
-CACHING:
-Second run is 5-10x faster due to:
-- AST cache (.pf/.ast_cache/)
-- Symbol database (repo_index.db)
-- Incremental analysis with worksets
+STAGE 2 - DATA PREPARATION (Sequential):
+- workset: Identify target files for analysis
+- graph build: Construct import and call graphs
+- cfg: Extract control flow graphs for complexity
+
+STAGE 3 - HEAVY ANALYSIS (3 Parallel Tracks):
+- Track A: Taint analysis (isolated for memory)
+- Track B: Static analysis (lint, patterns, graph analyze)
+- Track C: Network I/O (deps, docs - skip with --offline)
+
+STAGE 4 - AGGREGATION (Sequential):
+- fce: Correlate findings across all tools
+- report: Generate final output files
+
+COMMAND OPTIONS:
+    aud full                       # Complete analysis with network
+    aud full --index               # Fast reindex only (Stage 1+2)
+    aud full --offline             # No network operations (faster)
+    aud full --quiet               # Minimal output for CI/CD
+    aud full --wipecache           # Force fresh start (cache issues)
+
+PERFORMANCE:
+- Small project (<5K LOC): 2-3 minutes
+- Medium project (20K LOC): 5-10 minutes
+- Large monorepo (100K+ LOC): 15-20 minutes
+- Second run (cached): 5-10x faster
+
+COMBINING WITH OTHER TOOLS:
+- After aud full: Use aud query, aud explain, aud blueprint
+- For incremental work: aud workset --diff HEAD~1 then specific commands
+- For security focus: aud taint --severity critical after full
+
+RELATED:
+- Commands: aud full, aud workset, aud blueprint
+- Topics: aud manual overview, aud manual database, aud manual exit-codes
+
+COMMON MISTAKES:
+- Running analysis commands before aud full: No database means no results
+- Using aud full when aud full --index suffices: Wastes time on network ops
+- Ignoring pipeline.log: Contains detailed error information for debugging
+- Not using --offline in CI/CD: Network operations slow down pipelines
 """,
     },
     "severity": {
         "title": "Severity Levels",
         "summary": "How TheAuditor classifies finding importance",
         "explanation": """
-TheAuditor uses a 4-level severity system aligned with industry standards
-like CVSS and CWE to prioritize security findings and code issues.
+WHAT IT IS:
+A 4-level classification (CRITICAL, HIGH, MEDIUM, LOW) that prioritizes
+findings by exploitability and impact. Aligned with CVSS and CWE standards.
+
+WHEN TO USE IT:
+- Filtering command output to focus on urgent issues
+- Understanding exit codes from commands
+- Prioritizing which findings to fix first
+- Setting CI/CD pipeline fail thresholds
+
+HOW TO USE IT:
+
+FILTERING BY SEVERITY:
+    aud taint --severity critical      # Only critical findings
+    aud taint --severity high          # High and critical
+    aud detect-patterns --severity medium  # Medium and above
+    aud boundaries --severity critical # Critical boundary violations
+
+EXIT CODES:
+Commands return severity-based exit codes for CI/CD integration:
+- 0: Success (no findings, or only LOW/MEDIUM)
+- 1: HIGH severity findings detected
+- 2: CRITICAL severity findings detected
+
+EXAMPLE - CI/CD Pipeline:
+    aud full && aud taint --severity high || exit 1
+    # Fails pipeline if HIGH or CRITICAL findings exist
 
 SEVERITY LEVELS:
 
-CRITICAL (Exit Code 2)
-Immediate security risk requiring emergency response:
+CRITICAL (Exit Code 2):
 - Remote Code Execution (RCE)
 - SQL Injection with user input
 - Authentication bypass
-- Hardcoded secrets in code
+- Hardcoded secrets in production code
 - Command injection vulnerabilities
-Action: Block deployment, fix immediately
 
-HIGH (Exit Code 1)
-Serious vulnerabilities requiring prompt attention:
+HIGH (Exit Code 1):
 - Cross-Site Scripting (XSS)
 - Path traversal attacks
-- Weak cryptography
-- Missing authentication
+- Weak cryptography (MD5, SHA1)
+- Missing authentication on sensitive endpoints
 - Insecure deserialization
-Action: Fix before next release
 
-MEDIUM (Exit Code 0, but reported)
-Potential issues requiring investigation:
+MEDIUM (Exit Code 0):
 - Missing input validation
 - Information disclosure
 - Weak password policies
 - Missing security headers
 - Resource exhaustion risks
-Action: Schedule for next sprint
 
-LOW (Exit Code 0)
-Code quality and minor security concerns:
+LOW (Exit Code 0):
 - Code complexity issues
 - Missing error handling
-- Deprecated functions
+- Deprecated function usage
 - Performance problems
 - Style violations
-Action: Fix during refactoring
-
-HOW SEVERITY IS DETERMINED:
-1. Exploitability: How easy to exploit?
-2. Impact: What's the damage potential?
-3. Confidence: How certain is the finding?
-4. Context: Framework-specific considerations
 
 SEVERITY ESCALATION:
-The FCE can escalate severity when patterns combine:
-- Low + Low can become High
-- Medium + Medium can become Critical
+FCE (Factual Correlation Engine) can promote severity when findings combine:
+- Low + Low = may become High (multiple small issues = larger problem)
+- Medium + Medium = may become Critical (compound vulnerability)
 
-Example: "Debug mode" (low) + "Exposes secrets" (medium) = Critical
+Example: "Debug mode enabled" (low) + "Exposes database credentials" (medium)
+         = CRITICAL (production secret exposure via debug endpoint)
 
-FILTERING BY SEVERITY:
-    aud taint --severity critical   # Only critical issues
-    aud full --quiet                       # Exit code indicates severity
+COMBINING WITH OTHER TOOLS:
+- Use --severity flag on any analysis command
+- Check exit codes in scripts: $? or $LASTEXITCODE
+- Use aud fce to see escalated severities from combined findings
+
+COMMON MISTAKES:
+- Ignoring MEDIUM findings: They often combine to CRITICAL via FCE
+- Only checking exit codes: MEDIUM findings return 0 but still need review
+- Not using --severity in CI/CD: Slower pipelines processing all findings
+
+RELATED:
+Commands: aud taint, aud detect-patterns, aud boundaries, aud fce
+Topics: aud manual fce, aud manual patterns, aud manual taint
 """,
     },
     "patterns": {
         "title": "Pattern Detection",
         "summary": "Security vulnerability patterns TheAuditor can detect",
         "explanation": """
-Pattern detection is TheAuditor's rule-based system for finding security
-vulnerabilities and code quality issues using both regex patterns and
-Abstract Syntax Tree (AST) analysis.
+WHAT IT IS:
+Pattern detection finds security vulnerabilities by matching code against
+known-bad patterns. Uses both fast regex (secrets, hardcoded values) and
+accurate AST analysis (injection, misconfigurations).
 
-DETECTION METHODS:
+WHEN TO USE IT:
+- Quick security scan without full database build
+- Finding hardcoded secrets before commit
+- Detecting known vulnerability patterns (OWASP Top 10)
+- After aud full, patterns are already run - use aud fce to see results
 
-1. REGEX PATTERNS (Fast)
-   Simple text matching for obvious issues:
-   - Hardcoded passwords: password = "admin123"
-   - API keys: api_key = "sk_live_..."
-   - Debug flags: DEBUG = True
+HOW TO USE IT:
 
-2. AST PATTERNS (Accurate)
-   Semantic understanding of code structure:
-   - SQL injection in string concatenation
-   - Unsafe deserialization
-   - Missing authentication decorators
+PREREQUISITES:
+    # None for standalone scan
+    # OR after aud full, patterns are already in database
 
-PATTERN CATEGORIES:
+STEPS:
+1. Run pattern detection:
+    aud detect-patterns                    # Full scan with AST
+    aud detect-patterns --no-ast           # Fast regex-only scan
+    aud detect-patterns --patterns auth_issues  # Specific category
 
-Authentication & Authorization:
-- Hardcoded credentials
-- Weak password validation
-- Missing authentication checks
-- Insecure session management
-- JWT vulnerabilities
+2. Review findings in terminal or .pf/raw/patterns.json
 
-Injection Attacks:
-- SQL injection patterns
-- Command injection risks
-- XSS vulnerabilities
-- Template injection
-- LDAP/NoSQL injection
+3. Use --file-filter for targeted scans:
+    aud detect-patterns --file-filter "*.py"   # Python only
+    aud detect-patterns --file-filter "src/*"  # Specific directory
 
-Data Security:
-- Exposed sensitive data
-- Weak cryptography (MD5, SHA1)
-- Insecure random generation
-- Missing encryption
-- Data leakage in logs
+EXAMPLE - Finding Hardcoded Secrets:
+    aud detect-patterns --patterns auth_issues
+    # Output shows hardcoded passwords, API keys, tokens
+    # Each finding has file, line, severity, CWE reference
 
-Infrastructure:
-- Debug mode enabled
-- CORS misconfiguration
-- Missing security headers
-- Exposed admin panels
-- Insecure file uploads
+WHAT IT DETECTS:
+- Hardcoded credentials: passwords, API keys, tokens in source
+- Injection patterns: SQL, command, XSS, template injection
+- Weak crypto: MD5, SHA1, insecure random
+- Misconfigurations: debug mode, CORS issues, missing headers
+- Code quality: empty catch, race conditions, resource leaks
 
-Code Quality:
-- Empty catch blocks
-- Infinite loops
-- Race conditions
-- Resource leaks
-- Dead code
+COMBINING WITH OTHER TOOLS:
+- After patterns: run aud fce to correlate with taint findings
+- Use aud taint for data-flow based detection (complements patterns)
+- Use aud rules --summary to see all available pattern categories
+- Patterns run automatically in aud full pipeline
 
-PATTERN FILES:
-Located in theauditor/patterns/*.yaml
-Each pattern includes:
-- pattern: Regex or AST pattern
-- message: What was found
-- severity: critical/high/medium/low
-- cwe: Common Weakness Enumeration ID
+AGENT WORKFLOW:
+The security agent uses patterns as Phase 3 (Pattern Analysis).
+Results are read from database via aud blueprint --security.
+No need to re-run detect-patterns after aud full.
 
-CUSTOM PATTERNS:
-You can add custom patterns for your organization:
-1. Create YAML file in patterns/
-2. Define pattern, severity, message
-3. Run detect-patterns to use
+KEY OPTIONS:
+- --patterns: Specific category (auth_issues, db_issues, runtime_issues)
+- --file-filter: Glob pattern to limit scope
+- --no-ast: Regex-only mode (faster, less accurate)
+- --with-frameworks: Include framework-specific patterns
+- --exclude-self: Skip TheAuditor's own files
 
-PERFORMANCE:
-- Regex only: Very fast (<30 seconds)
-- With AST: 2-3x slower but more accurate
-- Default: Both methods for comprehensive analysis
+COMMON MISTAKES:
+- Running detect-patterns after aud full: Duplicates work already done
+- Using --no-ast for security audits: Misses semantic issues
+- Ignoring CWE references: They link to detailed vulnerability info
+- Not using --file-filter on large codebases: Slow and noisy
+
+EXIT CODES:
+- 0: Success (findings may still exist - check output)
+- 1: Error during analysis
+
+RELATED:
+Commands: aud detect-patterns, aud rules --summary, aud fce
+Topics: aud manual rules, aud manual severity, aud manual taint
 """,
     },
     "insights": {
@@ -564,36 +726,84 @@ It only reports what IS. The insights layer adds what it MEANS.
         "title": "TheAuditor Overview",
         "summary": "What TheAuditor is and how it works",
         "explanation": """
-TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing)
-platform. It provides ground truth about your codebase through comprehensive security
-analysis, taint tracking, and quality auditing.
+WHAT IT IS:
+TheAuditor is an offline-first, AI-centric static analysis platform. It extracts
+ground truth from codebases: symbols, calls, data flows, security patterns. All
+data goes into queryable SQLite databases for immediate, offline access.
 
-PURPOSE:
-  Designed for both human developers and AI assistants to detect:
-  - Security vulnerabilities (SQL injection, XSS, command injection)
-  - Incomplete refactorings (broken imports, orphan code)
-  - Architectural issues (circular dependencies, hotspots)
+WHEN TO USE IT:
+- Security auditing: Find vulnerabilities before deployment
+- Code review: Analyze PRs for risk and blast radius
+- Refactoring: Detect broken imports, dead code, inconsistencies
+- Architecture: Map dependencies, find hotspots, trace data flow
+- AI augmentation: Give AI assistants factual codebase knowledge
+
+HOW TO USE IT:
+
+PREREQUISITES:
+    Python 3.11+ (no external dependencies for core analysis)
+
+STEPS:
+    1. Run initial analysis:
+       aud full                        # Creates .pf/ directory with all data
+
+    2. Query the results:
+       aud blueprint --structure       # Architecture overview
+       aud query --symbol main         # Find symbol definitions
+       aud taint                       # Security vulnerability report
+
+    3. Get detailed explanations:
+       aud manual <topic>              # Learn any concept
+
+EXAMPLE - Complete Workflow:
+    aud full                           # Index and analyze
+    aud blueprint                      # See what was found
+    aud taint --severity high          # Focus on critical issues
+    aud query --symbol validate        # Investigate specific code
+
+KEY CONCEPTS:
+
+DATABASE-FIRST:
+    All analysis stores results in SQLite databases:
+    - .pf/repo_index.db: Symbols, calls, assignments, imports
+    - .pf/graphs.db: Import and call graphs
+
+POLYGLOT:
+    Supports Python, JavaScript/TypeScript, Go, Rust, Bash.
+    Single database schema across all languages.
+
+OFFLINE-FIRST:
+    No network required for core analysis.
+    Use aud full --offline for air-gapped environments.
 
 PHILOSOPHY:
-  TheAuditor is a Truth Courier, Not a Mind Reader:
-  - Finds where code doesn't match itself (inconsistencies)
-  - Does NOT try to understand business logic
-  - Reports FACTS, not interpretations
+TheAuditor reports FACTS, not interpretations:
+- "Function X calls function Y" - FACT
+- "Function X is dangerous" - INTERPRETATION (your job to decide)
 
 OUTPUT STRUCTURE:
-  .pf/
-  |-- raw/                    # Immutable tool outputs (ground truth)
-  |-- repo_index.db           # SQLite database with all code symbols
-  |-- graphs.db               # Graph database (query with 'aud graph')
-  +-- pipeline.log            # Detailed execution trace
+    .pf/
+    |-- repo_index.db           # All code symbols and relationships
+    |-- graphs.db               # Call and import graphs
+    |-- raw/*.json              # Raw analysis artifacts
+    +-- pipeline.log            # Execution trace
 
-USE THE COMMANDS:
-    aud full                          # Complete security audit
-    aud manual workflows              # See common workflows
-    aud manual exit-codes             # Understand exit codes
+COMBINING WITH OTHER TOOLS:
+- AI assistants: Query database for accurate context
+- CI/CD: Run aud full --quiet --offline for fast gates
+- IDE: Use aud explain for context bundles
+
+RELATED:
+- Commands: aud full, aud blueprint, aud query, aud explain
+- Topics: aud manual pipeline, aud manual database, aud manual workflows
+
+COMMON MISTAKES:
+- Skipping aud full: No database means all queries fail
+- Not reading pipeline.log: Contains detailed error info
+- Using network in CI: aud full --offline is faster and more reliable
 """,
     },
-    "workflows": {
+    "gitflows": {
         "title": "Common Workflows",
         "summary": "Typical usage patterns for TheAuditor",
         "explanation": """
@@ -641,197 +851,354 @@ Only these commands support --workset flag:
         "title": "Exit Codes",
         "summary": "What TheAuditor's exit codes mean",
         "explanation": """
-TheAuditor uses standardized exit codes for CI/CD automation:
+WHAT IT IS:
+TheAuditor uses standardized exit codes to communicate analysis results to
+CI/CD systems and scripts. These codes tell you what was found without
+parsing output text.
 
-EXIT CODES:
-    0 = Success, no critical or high severity issues found
-    1 = High severity findings detected (needs attention)
-    2 = Critical security vulnerabilities found (block deployment)
-    3 = Analysis incomplete or pipeline failed
+WHEN TO USE IT:
+- CI/CD pipelines: Gate deployments based on severity
+- Scripts: Automate responses to different finding levels
+- Pre-commit hooks: Block commits with critical issues
+- Monitoring: Track security trends over time
 
-USAGE IN CI/CD:
-    # Fail pipeline on any issues
+HOW TO USE IT:
+
+PREREQUISITES:
+    None - exit codes work automatically
+
+EXIT CODE MEANINGS:
+    0: Success - No critical or high severity issues found
+    1: High severity - Findings need attention before deployment
+    2: Critical - Security vulnerabilities that must be fixed immediately
+    3: Error - Analysis incomplete or pipeline failed
+
+STEPS:
+    1. Run analysis and capture exit code:
+       aud full --quiet
+       EXIT_CODE=$?
+
+    2. Respond based on severity:
+       if [ $EXIT_CODE -eq 0 ]; then
+           echo "All clear"
+       elif [ $EXIT_CODE -eq 1 ]; then
+           echo "High severity issues found"
+       elif [ $EXIT_CODE -eq 2 ]; then
+           echo "CRITICAL vulnerabilities - blocking"
+           exit 1
+       fi
+
+EXAMPLE - GitHub Actions:
+    - name: Security Audit
+      run: |
+        aud full --quiet --offline
+        if [ $? -eq 2 ]; then
+          echo "Critical vulnerabilities found"
+          exit 1
+        fi
+
+EXAMPLE - Block on Any Finding:
     aud full --quiet || exit $?
 
-    # Fail only on critical
-    aud full --quiet
-    if [ $? -eq 2 ]; then
-        echo "CRITICAL vulnerabilities found!"
-        exit 1
-    fi
-
-    # Continue with warnings
+EXAMPLE - Warn on High, Block on Critical:
     aud full --quiet
     EXIT_CODE=$?
     if [ $EXIT_CODE -eq 2 ]; then
-        exit 1  # Block on critical
+        exit 1
     elif [ $EXIT_CODE -eq 1 ]; then
-        echo "Warning: High severity issues found"
+        echo "::warning::High severity issues found"
     fi
+
+COMBINING WITH OTHER TOOLS:
+- Use with --quiet for minimal output in pipelines
+- Use with --offline to skip network operations
+- Parse .pf/raw/*.json for detailed findings if needed
+
+RELATED:
+- Commands: aud full, aud taint, aud detect-patterns
+- Topics: aud manual pipeline, aud manual severity
+
+COMMON MISTAKES:
+- Checking exit code after piping: Use PIPESTATUS or separate commands
+- Ignoring exit code 3: Pipeline errors should be investigated
+- Not using --quiet: Verbose output can break CI log parsing
 """,
     },
     "env-vars": {
         "title": "Environment Variables",
         "summary": "Configuration options via environment variables",
         "explanation": """
-TheAuditor can be configured via environment variables:
+WHAT IT IS:
+TheAuditor reads environment variables to adjust limits, timeouts, and
+performance settings. These override defaults without modifying config files.
+
+WHEN TO USE IT:
+- Large codebases timing out during analysis
+- Files being skipped due to size limits
+- CI/CD environments with specific constraints
+- Performance tuning for different hardware
+
+HOW TO USE IT:
+
+PREREQUISITES:
+    Set variables before running aud commands
+
+STEPS:
+    1. Export the variable:
+       export THEAUDITOR_TIMEOUT_SECONDS=3600
+
+    2. Run the command:
+       aud full
+
+    3. Or combine in one line:
+       THEAUDITOR_TIMEOUT_SECONDS=3600 aud full
+
+AVAILABLE VARIABLES:
 
 FILE SIZE LIMITS:
-    THEAUDITOR_LIMITS_MAX_FILE_SIZE=2097152   # Max file size in bytes (default: 2MB)
-    THEAUDITOR_LIMITS_MAX_CHUNK_SIZE=65536    # Max chunk size (default: 65KB)
+- THEAUDITOR_LIMITS_MAX_FILE_SIZE: Max file size in bytes (default: 2097152 = 2MB)
+- THEAUDITOR_LIMITS_MAX_CHUNK_SIZE: Max chunk for processing (default: 65536 = 64KB)
 
 TIMEOUTS:
-    THEAUDITOR_TIMEOUT_SECONDS=1800           # Default timeout (default: 30 min)
-    THEAUDITOR_TIMEOUT_TAINT_SECONDS=600      # Taint analysis timeout
-    THEAUDITOR_TIMEOUT_LINT_SECONDS=300       # Linting timeout
+- THEAUDITOR_TIMEOUT_SECONDS: Overall analysis timeout (default: 1800 = 30 min)
+- THEAUDITOR_TIMEOUT_TAINT_SECONDS: Taint analysis timeout (default: 600 = 10 min)
+- THEAUDITOR_TIMEOUT_LINT_SECONDS: Linting timeout (default: 300 = 5 min)
 
 PERFORMANCE:
-    THEAUDITOR_DB_BATCH_SIZE=200              # Database batch insert size
+- THEAUDITOR_DB_BATCH_SIZE: Database batch insert size (default: 200)
 
-EXAMPLES:
-    # Increase file size limit for large files
-    export THEAUDITOR_LIMITS_MAX_FILE_SIZE=5242880  # 5MB
+EXAMPLE - Large Codebase (100K+ LOC):
+    export THEAUDITOR_TIMEOUT_SECONDS=3600      # 1 hour
+    export THEAUDITOR_TIMEOUT_TAINT_SECONDS=1200 # 20 min for taint
+    export THEAUDITOR_DB_BATCH_SIZE=500          # Larger batches for SSD
     aud full
 
-    # Increase timeout for large codebase
-    export THEAUDITOR_TIMEOUT_SECONDS=3600  # 1 hour
+EXAMPLE - Big Files (>2MB):
+    export THEAUDITOR_LIMITS_MAX_FILE_SIZE=10485760  # 10MB
     aud full
 
-    # Optimize for SSD with larger batches
-    export THEAUDITOR_DB_BATCH_SIZE=500
-    aud full
+EXAMPLE - CI/CD with Tight Timeouts:
+    export THEAUDITOR_TIMEOUT_SECONDS=300  # 5 min max
+    aud full --offline --quiet || true     # Don't fail pipeline on timeout
+
+COMBINING WITH OTHER TOOLS:
+- Set in shell profile for persistent configuration
+- Use in CI/CD environment blocks
+- Combine with --offline for predictable timing
+
+RELATED:
+- Commands: aud full
+- Topics: aud manual pipeline, aud manual troubleshooting
+
+COMMON MISTAKES:
+- Setting bytes as MB: THEAUDITOR_LIMITS_MAX_FILE_SIZE is bytes, not MB
+- Forgetting export: Variable must be exported for child processes
+- Timeout too short: Large codebases need 30+ minutes
 """,
     },
     "database": {
         "title": "Database Schema Reference",
         "summary": "Tables, indexes, and manual SQL queries for repo_index.db",
         "explanation": """
-TheAuditor stores all indexed data in SQLite databases that you can query
-directly using Python's sqlite3 module.
+WHAT IT IS:
+TheAuditor stores all analysis data in SQLite databases. These are the ground
+truth for every query, command, and report. You can query them directly for
+custom analysis beyond what built-in commands provide.
 
-DATABASE LOCATIONS:
-    .pf/repo_index.db     - Main code index (250+ tables, 200k+ rows)
-    .pf/graphs.db         - Import/call graph (optional)
+WHEN TO USE IT:
+- Custom queries not covered by aud query or aud explain
+- Bulk data export for external tools
+- Debugging why a command returns unexpected results
+- Building custom reports or integrations
+- Understanding what data TheAuditor extracts
 
-KEY TABLES:
+HOW TO USE IT:
 
-    symbols (33k rows)
-        - Function/class/variable definitions
-        - Columns: name, type, file, line, end_line, scope
-        - Index: symbols.name for O(log n) lookup
+PREREQUISITES:
+    Run aud full first to create the databases
 
-    function_call_args (13k rows)
-        - Every function call with arguments
-        - Columns: caller_function, callee_function, file, line, arguments
-        - Index: callee_function for caller lookup
+STEPS:
+    1. Connect to the database using Python:
+       import sqlite3
+       conn = sqlite3.connect('.pf/repo_index.db')
+       cursor = conn.cursor()
 
-    assignments (42k rows)
-        - Variable assignments with source expressions
-        - Columns: target_var, source_expr, file, line, in_function
-        - Used for data flow analysis
+    2. Query the data:
+       cursor.execute('SELECT name, file, line FROM symbols WHERE type = ?', ('function',))
+       for row in cursor.fetchall():
+           print(row)
 
-    api_endpoints (185 rows)
-        - REST API routes
-        - Columns: method, path, handler_function, file, line
-        - Tracks auth controls via api_endpoint_controls junction
+    3. Close the connection:
+       conn.close()
 
-    imports (7k rows)
-        - Import statements
-        - Columns: file, module_name, style, line
-        - Used for dependency tracking
-
-JUNCTION TABLES (for normalized queries):
-    assignment_sources        - Which vars are read in assignments
-    function_return_sources   - Which vars are returned from functions
-    api_endpoint_controls     - Which auth controls protect endpoints
-    import_style_names        - Which symbols are imported
-
-MANUAL QUERIES (Python):
-
+EXAMPLE - Find All Callers of a Function:
     import sqlite3
     conn = sqlite3.connect('.pf/repo_index.db')
     cursor = conn.cursor()
+    cursor.execute('''
+        SELECT caller_function, file, line
+        FROM function_call_args
+        WHERE callee_function = 'authenticate'
+    ''')
+    for caller, file, line in cursor.fetchall():
+        print(f'{file}:{line} - {caller}')
+    conn.close()
 
-    # Find all functions in a file
+DATABASE LOCATIONS:
+- .pf/repo_index.db: Main code index (symbols, calls, imports, 200k+ rows)
+- .pf/graphs.db: Import and call graphs (for aud graph commands)
+
+KEY TABLES:
+
+SYMBOLS TABLE:
+- Purpose: All function, class, variable definitions
+- Columns: name, type, file, line, end_line, scope
+- Index: name for fast lookups
+
+FUNCTION_CALL_ARGS TABLE:
+- Purpose: Every function call with arguments
+- Columns: caller_function, callee_function, file, line, arguments
+- Index: callee_function for caller lookup
+
+ASSIGNMENTS TABLE:
+- Purpose: Variable assignments for data flow
+- Columns: target_var, source_expr, file, line, in_function
+
+IMPORTS TABLE:
+- Purpose: Import statements for dependency tracking
+- Columns: file, module_name, style, line
+
+API_ENDPOINTS TABLE:
+- Purpose: REST API routes
+- Columns: method, path, handler_function, file, line
+
+USEFUL QUERIES:
+
+Find functions in a file:
     cursor.execute('''
         SELECT name, line FROM symbols
         WHERE file LIKE '%auth.py%' AND type = 'function'
         ORDER BY line
     ''')
 
-    # Find callers of a function
-    cursor.execute('''
-        SELECT caller_function, file, line
-        FROM function_call_args
-        WHERE callee_function = 'validateUser'
-    ''')
-
-    # Find all API endpoints
+Find all API endpoints:
     cursor.execute('''
         SELECT method, path, handler_function, file
-        FROM api_endpoints
-        ORDER BY path
+        FROM api_endpoints ORDER BY path
     ''')
 
-    conn.close()
+Count symbols by type:
+    cursor.execute('''
+        SELECT type, COUNT(*) FROM symbols GROUP BY type
+    ''')
 
-SCHEMA DOCUMENTATION:
-    See: theauditor/indexer/schema.py for complete table definitions
-    Each table includes column types, indexes, and constraints.
+COMBINING WITH OTHER TOOLS:
+- Use aud query for common lookups (faster than manual SQL)
+- Use aud explain for comprehensive context bundles
+- Manual queries for custom analysis not covered by commands
+
+RELATED:
+- Commands: aud query, aud explain, aud blueprint
+- Topics: aud manual overview, aud manual pipeline
+
+COMMON MISTAKES:
+- Using sqlite3 command line: NOT installed on Windows, use Python sqlite3 module
+- Querying before aud full: Database does not exist yet
+- Not closing connections: Can cause database locks
+- Hardcoding row counts: Numbers vary by codebase size
 """,
     },
     "troubleshooting": {
         "title": "Troubleshooting Guide",
         "summary": "Common errors and solutions for TheAuditor",
         "explanation": """
-COMMON ERRORS AND SOLUTIONS:
+WHAT IT IS:
+A reference for diagnosing and fixing common TheAuditor issues. Each problem
+includes the error message or symptom, cause, and specific fix.
+
+WHEN TO USE IT:
+- Commands failing with error messages
+- Getting unexpected empty results
+- Performance problems (slow or hanging)
+- Output formatting issues
+
+HOW TO USE IT:
+
+PREREQUISITES:
+    None - use this when things go wrong
+
+STEPS:
+    1. Identify the error message or symptom
+    2. Find the matching section below
+    3. Apply the fix
+    4. If problem persists, check pipeline.log for details
+
+ERROR REFERENCE:
 
 ERROR: "No .pf directory found"
-    CAUSE: Haven't run aud full yet
-    FIX: Run 'aud full' to create .pf/ and build index
-    NOTE: All query commands require indexed data
+- CAUSE: Database not created yet
+- FIX: Run aud full to create .pf/ directory
+- VERIFY: ls .pf/ shows repo_index.db
 
 ERROR: "Graph database not found"
-    CAUSE: graphs.db not built (only for dependency queries)
-    FIX: Run 'aud graph build'
-    NOTE: Only needed for --show-dependencies/--show-dependents
+- CAUSE: graphs.db not built
+- FIX: Run aud graph build (or aud full which includes it)
+- VERIFY: ls .pf/ shows graphs.db
 
-SYMPTOM: Empty results but symbol exists in code
-    CAUSE 1: Typo in symbol name (case-sensitive)
-    FIX: Run 'aud query --symbol foo' to see exact name
+ERROR: "Symbol not found"
+- CAUSE 1: Typo (names are case-sensitive)
+- FIX: Run aud query --symbol partial_name to find exact spelling
+- CAUSE 2: Database stale (code changed)
+- FIX: Run aud full --index to rebuild
+- CAUSE 3: Method needs class prefix
+- FIX: Use ClassName.methodName format
 
-    CAUSE 2: Database stale (code changed since last index)
-    FIX: Re-run 'aud full' to rebuild index
+SYMPTOM REFERENCE:
 
-    CAUSE 3: Unqualified method name
-    FIX: Methods stored as ClassName.methodName
-         Run 'aud query --symbol bar' to find canonical name
-         Then use exact name: 'aud query --symbol Foo.bar'
+SYMPTOM: Empty results but code exists
+- CHECK: aud query --file <file> --list all to verify indexing
+- FIX: If empty, run aud full --index
+- NOTE: Dynamic calls (obj[var]()) cannot be statically resolved
 
 SYMPTOM: Slow queries (>50ms)
-    CAUSE: Large project + high --depth
-    FIX: Reduce --depth to 1-2
-    NOTE: depth=5 can traverse 10k+ nodes
+- CAUSE: High --depth value traversing too many nodes
+- FIX: Reduce --depth to 1-2
+- NOTE: depth=5 can traverse 10000+ nodes
 
-SYMPTOM: Missing expected results
-    CAUSE: Dynamic calls (obj[variable]()) not indexed
-    FIX: Use taint analysis for dynamic dispatch
-    NOTE: Static analysis cannot resolve all dynamic behavior
+SYMPTOM: Command hangs
+- CAUSE: Large file or complex analysis
+- FIX: Set THEAUDITOR_TIMEOUT_SECONDS=600
+- DEBUG: Check .pf/pipeline.log for progress
 
-SYMPTOM: Unicode/emoji errors on Windows
-    CAUSE: CP1252 encoding cannot handle emojis
-    FIX: TheAuditor uses ASCII-only output
-    NOTE: If you see encoding errors, report the bug
+SYMPTOM: Unicode/encoding errors on Windows
+- CAUSE: CP1252 encoding cannot handle emojis
+- FIX: TheAuditor uses ASCII-only output
+- REPORT: If you see encoding errors, this is a bug
 
-SYMPTOM: Command hangs during analysis
-    CAUSE: Large file or infinite loop in code
-    FIX: Set timeout: THEAUDITOR_TIMEOUT_SECONDS=600
-    NOTE: Check pipeline.log for progress
+SYMPTOM: Cache corruption
+- CAUSE: Interrupted analysis, disk issues
+- FIX: aud full --wipecache for fresh start
 
 GETTING HELP:
-    aud manual <concept>     - Learn about specific concepts
-    aud manual --list        - See all available topics
-    aud <command> --help     - Command-specific help
+    aud manual <topic>       # Learn about specific concepts
+    aud manual --list        # See all available topics
+    aud <command> --help     # Command-specific help
+    .pf/pipeline.log         # Detailed execution trace
+
+COMBINING WITH OTHER TOOLS:
+- Use aud manual database to understand schema
+- Use aud blueprint --structure to verify indexing
+- Check .pf/raw/*.json for raw analysis output
+
+RELATED:
+- Commands: aud full, aud query, aud explain
+- Topics: aud manual pipeline, aud manual database, aud manual env-vars
+
+COMMON MISTAKES:
+- Not running aud full first: Most errors stem from missing database
+- Ignoring pipeline.log: Contains detailed error information
+- Case sensitivity: Symbol names must match exactly
+- Stale database: Re-index after code changes
 """,
     },
     "rust": {
@@ -841,6 +1208,17 @@ GETTING HELP:
 TheAuditor provides comprehensive Rust support with 20 dedicated tables for
 extracting and analyzing Rust codebases. This includes module resolution,
 trait implementations, unsafe code detection, and lifetime analysis.
+
+WHEN TO USE IT:
+- Analyzing Rust projects for security vulnerabilities
+- Auditing unsafe code blocks for potential memory safety issues
+- Understanding module structure and trait implementations
+- Tracing data flow through Rust functions
+
+PREREQUISITES:
+- Run 'aud full' first to index Rust files
+- Rust source files must have .rs extension
+- Cargo.toml for dependency analysis
 
 RUST TABLES (20 total):
 
@@ -904,6 +1282,19 @@ The rust_unsafe_blocks table catalogs unsafe operations:
     FROM rust_unsafe_blocks
     WHERE operations_json LIKE '%ptr_deref%'
 
+COMBINING WITH OTHER TOOLS:
+  Rust + Taint Analysis:
+    aud full                              # Index all including Rust
+    aud taint --verbose                   # Trace tainted data through Rust
+
+  Rust + Dependency Analysis:
+    aud deps --check-latest               # Check Cargo.toml for updates
+    aud deps --vuln-scan                  # Scan Rust crates for CVEs
+
+  Rust + Graph Analysis:
+    aud graph build                       # Build call graph with Rust
+    aud graph analyze                     # Find cycles including Rust modules
+
 EXAMPLE QUERIES (Python):
 
     import sqlite3
@@ -950,7 +1341,7 @@ EXAMPLE QUERIES (Python):
     conn.close()
 
 USE THE COMMANDS:
-    aud full --index              # Index Rust files (*.rs)
+    aud full                      # Index Rust files (*.rs)
     aud query --file src/main.rs  # Query specific file
     aud graph build               # Build call graph including Rust
 
@@ -971,6 +1362,12 @@ TheAuditor parses Cargo.toml for dependency analysis:
     FROM rust_crate_dependencies
     WHERE is_dev = 0
 
+COMMON MISTAKES:
+- Querying before running 'aud full' (tables will be empty)
+- Using 'aud full --index' instead of 'aud full' (both work, but full is standard)
+- Expecting taint to track through raw pointer derefs (unsafe blocks are opaque)
+- Not checking rust_unsafe_blocks for security-critical code
+
 CROSS-LANGUAGE ANALYSIS:
 Rust modules integrate with TheAuditor's full-stack analysis:
     - Import graph includes Rust use statements
@@ -982,497 +1379,410 @@ Rust modules integrate with TheAuditor's full-stack analysis:
         "title": "Call Graph Analysis",
         "summary": "Function-level call relationships for execution path tracing",
         "explanation": """
-A call graph maps which functions call which other functions. Unlike the import
-graph (file-level), the call graph operates at function granularity, enabling
-precise execution path analysis and security tracing.
+WHAT IT IS:
+A call graph maps which functions call which other functions at function-level
+granularity. Unlike the import graph (file-level), call graphs enable precise
+execution path analysis for taint tracking and security auditing.
 
-WHY CALL GRAPHS MATTER:
+WHEN TO USE IT:
+- Taint analysis: Track user input through function calls to sinks
+- Dead code: Functions with no incoming edges may be unused
+- Impact analysis: Find all callers before changing a function
+- Security audit: Find all paths to dangerous functions (exec, query, etc.)
+- Understanding: See the execution flow of the codebase
 
-Taint Analysis:
-  - Track how user input flows through function calls
-  - Find paths from sources (input) to sinks (SQL, exec, etc.)
-  - Identify intermediate functions that transform data
+HOW TO USE IT:
 
-Dead Code Detection:
-  - Functions with no incoming edges are potentially unused
-  - Entry points are exceptions (main, handlers, callbacks)
+PREREQUISITES:
+    aud full                                  # Build the database first
+    aud graph build                           # Build the call graph
 
-Impact Analysis:
-  - Change a function? Call graph shows all callers
-  - Recursive impact: callers of callers, etc.
+STEPS:
+1. Build the call graph:
+    aud graph build                           # Full codebase
+    aud graph build --langs python            # Python only
 
-Security Auditing:
-  - Find all paths to dangerous functions
-  - Verify authentication checks on all call chains
-  - Identify functions that bypass security layers
+2. Query who calls a function:
+    aud graph query --uses authenticate_user  # Who calls this?
+
+3. Query what a function calls:
+    aud graph query --calls process_payment   # What does it call?
+
+4. Visualize the call graph:
+    aud graph viz --graph-type call           # Full call graph
+    aud graph viz --view hotspots --graph-type call  # Most connected
 
 CALL GRAPH STRUCTURE:
+- Nodes: Functions and methods (file, line, name, type)
+- Edges: Call relationships (caller to callee with call site)
+- Methods stored as: ClassName.methodName
 
-Nodes: Functions and methods
-  - Stored with: file, line, name, type (function/method)
-  - Methods include: ClassName.methodName
+STATIC VS DYNAMIC:
+Static calls (tracked): foo(), obj.method(), Class.static_method()
+Dynamic calls (NOT tracked): obj[var](), getattr(obj, name)(), eval()
 
-Edges: Call relationships
-  - Direction: caller -> callee
-  - Stored with: call site (file, line)
-  - Multiple edges possible (same caller calls same callee multiple places)
+TheAuditor only tracks static calls resolvable from source code.
 
-STATIC VS DYNAMIC CALLS:
+EXAMPLE WORKFLOW - Security Audit:
+    aud full                                  # Index codebase
+    aud graph build                           # Build call graph
+    aud graph query --uses db_execute         # Who calls db_execute?
+    aud taint --sink db_execute               # Find taint paths to sink
 
-Static Calls (tracked):
-  - foo()
-  - obj.method()
-  - Class.static_method()
+DATABASE ACCESS:
+Call graph is stored in .pf/graphs.db with graph_type='call':
+- nodes table: Functions with id, file, type, graph_type
+- edges table: Call relationships with source, target, file, line
 
-Dynamic Calls (NOT tracked):
-  - obj[variable]()
-  - getattr(obj, name)()
-  - eval('function()')
+Query with Python sqlite3 (per CLAUDE.md - no sqlite3 CLI):
+    .venv/Scripts/python.exe -c "import sqlite3; ..."
 
-TheAuditor only tracks static calls that can be resolved from source code.
-Dynamic dispatch requires runtime tracing.
+COMBINING WITH OTHER TOOLS:
+- With taint: Call graph powers taint path tracing
+- With impact: Impact analysis uses caller/callee relationships
+- With deadcode: Identify functions with no callers
+- With graph viz: Visualize complex call chains
 
-EXAMPLE QUERIES (Python):
+AGENT WORKFLOW:
+The dataflow agent (/theauditor:dataflow) uses call graph queries in Phase 4
+to build complete source-to-sink chains:
+    aud graph query --uses <source>           # Find callers
+    aud graph query --calls <sink>            # Find callees
 
-    import sqlite3
-    conn = sqlite3.connect('.pf/graphs.db')
-    cursor = conn.cursor()
+COMMON MISTAKES:
+- Querying before aud graph build: No call graph data exists
+- Expecting dynamic calls: Only static calls are tracked
+- Confusing with import graph: Call graph is function-level, not file-level
 
-    # Find all callers of authenticate_user
-    cursor.execute('''
-        SELECT e.source, e.file, e.line
-        FROM edges e
-        WHERE e.target LIKE '%authenticate_user%'
-        AND e.graph_type = 'call'
-    ''')
-
-    # Find all call graph nodes (functions)
-    cursor.execute('''
-        SELECT id, file, type
-        FROM nodes
-        WHERE graph_type = 'call'
-    ''')
-
-    # Find functions that call a specific target
-    cursor.execute('''
-        SELECT DISTINCT e.source
-        FROM edges e
-        WHERE e.target LIKE '%db.execute%'
-        AND e.graph_type = 'call'
-    ''')
-
-USE THE COMMANDS:
-    aud graph build       # Build call graph (and import graph)
-    aud graph query --calls func    # What does func call?
-    aud graph query --uses func     # Who calls func?
-    aud graph viz --graph-type call # Visualize call graph
-
-RELATED CONCEPTS:
-    aud manual graph         # Import graph (file-level)
-    aud manual dependencies  # Package-level dependencies
-    aud manual taint         # Uses call graph for taint tracking
+RELATED:
+Commands: aud graph build, aud graph query, aud graph viz, aud taint
+Topics: aud manual graph, aud manual dependencies, aud manual taint
 """,
     },
     "dependencies": {
         "title": "Dependency Analysis",
         "summary": "Package dependencies, version checking, and vulnerability scanning",
         "explanation": """
-Dependency analysis covers multiple levels: file imports (import graph),
-function calls (call graph), and package dependencies (npm, pip, cargo).
-This entry focuses on PACKAGE dependencies - third-party libraries your
-project depends on.
+WHAT IT IS:
+Package dependency analysis tracks third-party libraries your project depends
+on (npm, pip, cargo, etc.), checks for updates, and scans for vulnerabilities.
+This is distinct from the import/call graphs which track YOUR code relationships.
 
-THREE DEPENDENCY LEVELS:
+WHEN TO USE IT:
+- Security audit: Scan for known vulnerabilities in dependencies
+- Maintenance: Find outdated packages that need updating
+- Supply chain: Understand transitive dependency exposure
+- Onboarding: Get inventory of external libraries in use
+- CI/CD: Gate deployments on vulnerability scans
 
-1. File Dependencies (Import Graph):
-   - src/auth.py imports src/utils.py
-   - Tracked by: aud graph build
-   - Query with: aud graph query --uses file.py
+HOW TO USE IT:
 
-2. Function Dependencies (Call Graph):
-   - authenticate() calls hash_password()
-   - Tracked by: aud graph build
-   - Query with: aud graph query --calls func
+PREREQUISITES:
+    aud full                                  # Build the database first
 
-3. Package Dependencies (This Entry):
-   - Your project depends on flask==2.0.1
-   - Tracked by: aud deps
-   - Vulnerability scan: aud deps --vuln-scan
+STEPS:
+1. List all dependencies:
+    aud deps                                  # Full inventory
 
-PACKAGE DEPENDENCY SOURCES:
+2. Check for outdated packages:
+    aud deps --check-latest                   # Compare to latest versions
 
-Python:
-  - requirements.txt, requirements-*.txt
-  - pyproject.toml (Poetry, setuptools)
-  - setup.py (legacy)
+3. Scan for vulnerabilities:
+    aud deps --vuln-scan                      # Security scan (npm audit + OSV)
 
-JavaScript/TypeScript:
-  - package.json
-  - package-lock.json (exact versions)
-  - yarn.lock
+4. View dependency summary in architecture context:
+    aud blueprint --deps                      # Architecture view
 
-Rust:
-  - Cargo.toml
-  - Cargo.lock
+SUPPORTED MANIFEST FILES:
+- Python: requirements.txt, pyproject.toml, setup.py
+- JavaScript/TypeScript: package.json, package-lock.json, yarn.lock
+- Rust: Cargo.toml, Cargo.lock
+- Go: go.mod, go.sum
 
-Go:
-  - go.mod
-  - go.sum
+DEPENDENCY LEVELS (THREE TYPES):
+1. Package deps (this topic): External libraries from manifest files
+2. Import graph: YOUR files importing each other (aud graph build)
+3. Call graph: YOUR functions calling each other (aud graph build)
 
-DEPENDENCY ANALYSIS MODES:
+EXAMPLE WORKFLOW - Security Audit:
+    aud full                                  # Index codebase
+    aud deps --vuln-scan                      # Find vulnerabilities
+    aud blueprint --deps                      # See dependency landscape
 
-Inventory (default):
-  aud deps
-  Lists all dependencies with versions, sources, types
-
-Version Checking:
-  aud deps --check-latest
-  Compares installed vs latest available versions
-
-Vulnerability Scanning:
-  aud deps --vuln-scan
-  Runs npm audit + OSV-Scanner for security issues
-  Exit code 2 if critical vulnerabilities found
-
-DEPENDENCY GRAPH VS PACKAGE DEPS:
-
-Import/Call Graphs:
-  - YOUR code relationships
-  - Internal architecture
-  - Built from source analysis
-
-Package Dependencies:
-  - EXTERNAL library relationships
-  - Third-party code you consume
-  - Parsed from manifest files
-
-Both are "dependencies" but at different abstraction levels.
+COMBINING WITH OTHER TOOLS:
+- With blueprint: aud blueprint --deps shows dependency summary
+- With graph: Import graph shows internal dependencies, deps shows external
+- For security: Combine deps vuln-scan with taint analysis for full picture
 
 SECURITY IMPLICATIONS:
+- Direct deps: Libraries you explicitly install (your responsibility)
+- Transitive deps: Dependencies of dependencies (often 10x more, supply chain risk)
+- CVE exposure: Known vulnerabilities in specific versions
+- Exit code 2: Returned when critical vulnerabilities found (useful for CI)
 
-Direct Dependencies:
-  - Libraries you explicitly install
-  - You chose them, you're responsible
+COMMON MISTAKES:
+- Confusing deps with graph: deps = external packages, graph = your code
+- Not running aud full first: Dependency parsing happens during indexing
+- Ignoring transitive deps: Most vulnerabilities are in indirect dependencies
 
-Transitive Dependencies:
-  - Libraries your dependencies depend on
-  - Often 10x more than direct deps
-  - Supply chain attack vector
-
-Vulnerability Classes:
-  - Known CVEs in specific versions
-  - Deprecated packages (no longer maintained)
-  - Typosquatting (malicious package names)
-
-TYPICAL WORKFLOW:
-    # 1. Build index (includes dependency parsing)
-    aud full
-
-    # 2. Check for outdated packages
-    aud deps --check-latest
-
-    # 3. Scan for vulnerabilities
-    aud deps --vuln-scan
-
-    # 4. View dependency summary
-    aud blueprint --deps
-
-USE THE COMMANDS:
-    aud deps                    # List all dependencies
-    aud deps --check-latest     # Check for updates
-    aud deps --vuln-scan        # Security scan
-    aud blueprint --deps        # Architecture view
-
-RELATED CONCEPTS:
-    aud manual graph      # File-level import graph
-    aud manual callgraph  # Function-level call graph
-    aud manual frameworks # Framework detection
+RELATED:
+Commands: aud deps, aud blueprint --deps, aud graph build
+Topics: aud manual graph, aud manual callgraph, aud manual blueprint
 """,
     },
     "graph": {
         "title": "Dependency and Call Graph Analysis",
         "summary": "Build and analyze import/call graphs for architecture understanding",
         "explanation": """
-Dependency and call graph analysis maps relationships between code components
-to understand architecture, detect issues, and measure change impact.
+WHAT IT IS:
+Graph analysis builds and analyzes import graphs (file-level) and call graphs
+(function-level) to understand architecture, detect circular dependencies,
+find hotspots, and measure change impact.
 
-TWO TYPES OF GRAPHS:
+WHEN TO USE IT:
+- Architecture understanding: Map how files and functions relate
+- Circular dependency detection: Find import cycles breaking modularity
+- Hotspot identification: Find highly-coupled modules needing refactoring
+- Change impact: Understand blast radius before making changes
+- Visualization: Generate architecture diagrams for documentation
 
-Import Graph (File-level):
-  - Nodes: Files and modules
-  - Edges: Import relationships (who imports what)
-  - Use: Understand module structure, find circular imports
+HOW TO USE IT:
 
-Call Graph (Function-level):
-  - Nodes: Functions and methods
-  - Edges: Call relationships (who calls what)
-  - Use: Trace execution paths, find unused functions
+PREREQUISITES:
+    aud full                                  # Build the database first
+
+STEPS:
+1. Build the graphs:
+    aud graph build                           # Build import + call graphs
+    aud graph build --langs python            # Python only
+
+2. Analyze for issues:
+    aud graph analyze                         # Find cycles, hotspots
+
+3. Query relationships:
+    aud graph query --uses auth.py            # Who imports auth.py?
+    aud graph query --calls send_email        # What does send_email call?
+
+4. Visualize the architecture:
+    aud graph viz --view full                 # Complete graph
+    aud graph viz --view cycles               # Only circular dependencies
+    aud graph viz --view hotspots             # Top connected nodes
+    aud graph viz --view impact --impact-target src/auth.py  # Impact radius
+
+TWO GRAPH TYPES:
+- Import Graph (file-level): Files as nodes, imports as edges
+- Call Graph (function-level): Functions as nodes, calls as edges
 
 WHAT GRAPHS REVEAL:
+- Circular dependencies: A imports B, B imports C, C imports A (breaks modularity)
+- Hotspots: Modules with >20 deps (high coupling, refactor candidates)
+- Hidden coupling: A->B->C creates coupling even without direct import
 
-Circular Dependencies:
-  - Import cycles that break modular design
-  - Example: A imports B, B imports C, C imports A
-  - Impact: Harder to test, refactor, and understand
-
-Architectural Hotspots:
-  - Modules with >20 dependencies (high coupling)
-  - Single points of failure
-  - Candidates for refactoring
-
-Change Impact (Blast Radius):
-  - Upstream: Who depends on this? (callers, importers)
-  - Downstream: What does this depend on? (callees, imports)
-  - Total affected files for a code change
-
-Hidden Coupling:
-  - Indirect dependencies through intermediaries
-  - A doesn't import C directly, but A->B->C creates coupling
+EXAMPLE WORKFLOW - Architecture Review:
+    aud full                                  # Index codebase
+    aud graph build                           # Build graphs
+    aud graph analyze                         # Find issues
+    aud graph viz --view cycles --format svg  # Visualize cycles
+    aud graph viz --view hotspots --top-hotspots 10  # Top 10 hotspots
 
 DATABASE STRUCTURE:
-The graph database (.pf/graphs.db) uses unified tables with graph_type column:
+Graphs stored in .pf/graphs.db (separate from repo_index.db):
+- nodes: id, file, lang, type, graph_type ('import'|'call'|'data_flow')
+- edges: source, target, type, file, line, graph_type
+- analysis_results: Cycle and hotspot analysis results
 
-  nodes table:
-    - id, file, lang, loc, churn, type, graph_type, metadata
-    - graph_type: 'import' | 'call' | 'data_flow' | 'terraform_provisioning'
+COMBINING WITH OTHER TOOLS:
+- With impact: aud impact uses graph data for blast radius
+- With blueprint: aud blueprint --graph shows graph summary
+- With taint: Data flow graph enables taint path tracing
+- With deadcode: Graph helps find unreferenced nodes
 
-  edges table:
-    - source, target, type, file, line, graph_type, metadata
-    - graph_type: 'import' | 'call' | 'data_flow'
+AGENT WORKFLOW:
+The dataflow agent (/theauditor:dataflow) uses graph queries in Phase 4:
+    aud graph query --uses <source>           # Find who imports
+    aud graph query --calls <function>        # Find call relationships
 
-  analysis_results table:
-    - Stores cycle detection and hotspot analysis results
+COMMON MISTAKES:
+- Running graph commands before aud full: No source data to build from
+- Running viz before analyze: No cycle/hotspot data to visualize
+- Forgetting --format svg: DOT files need Graphviz or online viewer
 
-Query by graph_type to filter:
-    SELECT * FROM nodes WHERE graph_type = 'call'
-    SELECT * FROM edges WHERE graph_type = 'import'
-
-Note: Graphs stored separately from repo_index.db for query optimization.
-
-TYPICAL WORKFLOW:
-    aud full                              # Build code index
-    aud graph build                       # Construct graphs
-    aud graph analyze                     # Find issues
-    aud graph query --uses auth.py        # Who uses auth?
-    aud graph viz --view cycles           # Visualize cycles
-
-USE THE COMMANDS:
-    aud graph build       # Build import and call graphs
-    aud graph build-dfg   # Build data flow graph
-    aud graph analyze     # Detect cycles, hotspots
-    aud graph query       # Query relationships
-    aud graph viz         # Generate visualizations
-
-VISUALIZATION MODES:
-    --view full      Complete graph
-    --view cycles    Only circular dependencies
-    --view hotspots  Top connected nodes
-    --view layers    Architectural layers
-    --view impact    Change impact radius
-
-RELATED CONCEPTS:
-    aud manual impact     # Change impact analysis
-    aud manual cfg        # Control flow graphs
+RELATED:
+Commands: aud graph build, aud graph analyze, aud graph query, aud graph viz
+Topics: aud manual callgraph, aud manual impact, aud manual architecture
 """,
     },
     "architecture": {
         "title": "System Architecture",
         "summary": "How TheAuditor's analysis pipeline and query engine work",
         "explanation": """
+WHAT IT IS:
+This topic explains TheAuditor's internal architecture: how code is parsed,
+indexed, and queried. Understanding this helps you use the tool effectively
+and troubleshoot when things go wrong.
+
+WHEN TO USE THIS:
+- Troubleshooting: Understanding why queries return unexpected results
+- Performance: Knowing how indexing and queries work
+- Custom queries: Writing direct SQL against the database
+- Contributing: Understanding the codebase structure
+
 EXTRACTION PIPELINE:
-    Source Code
-        |
-        v
-    tree-sitter (AST parsing)
-        |
-        v
-    Language Extractors (Python, JS/TS, etc.)
-        |
-        v
-    Database Manager
-        |
-        v
-    repo_index.db (SQLite)
+Source Code -> tree-sitter (AST) -> Language Extractors -> Database Manager -> repo_index.db
 
-SCHEMA NORMALIZATION (v1.2+):
-    OLD: JSON TEXT columns with LIKE queries (slow)
-         assignments.source_vars = '["x", "y", "z"]'
-
-    NEW: Junction tables with JOIN queries (fast)
-         assignment_sources table:
-           (file, line, target_var, source_var_name='x')
-           (file, line, target_var, source_var_name='y')
-           (file, line, target_var, source_var_name='z')
-
-    Benefits:
-    - 10x faster queries (indexed lookups vs JSON parsing)
-    - Standard SQL JOINs work correctly
-    - Type-safe queries (no JSON parsing errors)
-
-QUERY ENGINE ARCHITECTURE:
-    User Request
-        |
-        v
-    CLI (commands/query.py)
-        |
-        v
-    CodeQueryEngine (context/query.py)
-        |
-        v
-    Direct SQL SELECT (no ORM overhead)
-        |
-        v
-    SQLite (repo_index.db)
-        |
-        v
-    Formatters (text/json/tree)
-        |
-        v
-    Output
+The pipeline parses code with tree-sitter, extracts facts (symbols, calls,
+imports), and stores them in SQLite for fast querying.
 
 TWO-DATABASE DESIGN:
-    repo_index.db (181MB):
-        - Raw extracted facts from AST parsing
-        - Regenerated on every 'aud full'
-        - Used by: rules, taint, FCE, context queries
+- repo_index.db: Raw extracted facts from AST parsing
+  - Regenerated on every 'aud full'
+  - Used by: rules, taint, FCE, context queries
+- graphs.db: Pre-computed graph structures
+  - Built from repo_index.db via 'aud graph build'
+  - Used by: 'aud graph' commands only
 
-    graphs.db (126MB):
-        - Pre-computed graph structures
-        - Built from repo_index.db
-        - Used by: 'aud graph' commands only
+KEY PRINCIPLE:
+Database is REGENERATED on every 'aud full' (no migrations).
+Code changes -> re-run 'aud full' -> database updated.
+Database is the TRUTH SOURCE for all queries.
 
-INDEX MAINTENANCE:
-    - Database is REGENERATED on every 'aud full'
-    - NO migrations (fresh build every time)
-    - Code changes -> re-run 'aud full' -> database updated
-    - Database is TRUTH SOURCE (not code files)
+QUERY ENGINE:
+CLI -> CodeQueryEngine -> Direct SQL SELECT -> SQLite -> Formatters -> Output
 
-PERFORMANCE CHARACTERISTICS:
-    Query time: <10ms (indexed lookups)
-    Database size: 20-50MB typical project
-    Memory usage: <50MB for query engine
-    BFS traversal: O(n) where n = nodes visited
-    JOIN queries: O(log n) with proper indexes
+No ORM overhead. Direct indexed lookups for <10ms query times.
 
-JUNCTION TABLE PATTERN:
-    Parent Table <-> Junction Table <-> (values)
-    assignments  <-> assignment_sources <-> (source variables)
+PERFORMANCE:
+- Query time: <10ms (indexed lookups)
+- Database size: 20-50MB typical project
+- Memory usage: <50MB for query engine
 
-    Composite key: file + line + target_var
-    Enables: Many-to-many relationships, fast lookups
+HOW TO INSPECT:
+    aud blueprint --structure                 # See what's indexed
+    aud query --file src/auth.py --list all   # Query specific file
+
+COMBINING WITH OTHER TOOLS:
+- aud blueprint shows high-level architecture summary
+- aud query provides direct database access
+- aud explain combines multiple queries for context
+
+AGENT WORKFLOW:
+The planning agent (/theauditor:planning) relies on this architecture:
+- Phase 1: Run aud blueprint --structure (database query)
+- Phase 2: Run aud query commands (direct SQL)
+- All recommendations cite database evidence
+
+COMMON MISTAKES:
+- Expecting incremental updates: Database is fully regenerated each time
+- Querying stale database: Re-run aud full after code changes
+- Confusing the two databases: repo_index.db vs graphs.db
+
+RELATED:
+Commands: aud full, aud blueprint, aud query, aud explain
+Topics: aud manual pipeline, aud manual database, aud manual blueprint
 """,
     },
     "context": {
         "title": "Semantic Context Classification",
         "summary": "Apply business logic rules to classify findings during migrations and refactoring",
         "explanation": """
-Semantic context classification lets you interpret analysis findings based on your
-project's business context, refactoring state, or migration phase. Instead of treating
-all findings equally, you define YAML rules that classify issues as obsolete, current,
-or transitional based on your organization's situation.
+WHAT IT IS:
+Semantic context classification interprets analysis findings based on your
+project's business state. During migrations, old patterns exist alongside new
+ones by design - context rules let you classify what's obsolete (must fix),
+current (correct pattern), or transitional (acceptable during migration).
 
-THE PROBLEM IT SOLVES:
-During migrations and refactorings, your codebase is temporarily inconsistent:
-- Old patterns exist alongside new ones (by design)
-- Security tools flag the old patterns as issues
-- But you KNOW those patterns are being replaced
-- You need a way to track what's intentional vs actual problems
+WHEN TO USE IT:
+- During migrations: OAuth replaces JWT, old patterns flagged but intentional
+- API deprecation: v1 endpoints still exist during transition period
+- Framework upgrades: Old patterns exist until migration complete
+- Database refactoring: Old table references acceptable during migration
+- Any time you need to distinguish "intentional tech debt" from "bugs"
+
+HOW TO USE IT:
+PREREQUISITES:
+    aud full                              # Run analysis first
+    # Create YAML rules file defining your context
+
+STEPS:
+    1. Create a YAML file with classification rules:
+       # oauth_migration.yaml
+       refactor_context:
+         name: "OAuth2 Migration"
+         rules:
+           - pattern: "jwt.sign"
+             state: "obsolete"
+             reason: "Use OAuth2 instead"
+           - pattern: "oauth2.authorize"
+             state: "current"
+
+    2. Run context classification:
+       aud context --file oauth_migration.yaml
+
+    3. Review output:
+       # Shows: 15 obsolete, 120 current, 8 transitional
+
+    4. Act on results:
+       # Fix OBSOLETE immediately
+       # TRANSITIONAL acceptable during migration window
+
+EXAMPLE - OAuth Migration:
+    aud full
+    aud context --file oauth_migration.yaml --verbose
+    # Output: 15 files using JWT (obsolete), 8 using legacy API keys (transitional)
+    # Action: Prioritize the 15 JWT files for immediate migration
+
+COMBINING WITH OTHER TOOLS:
+- Before context: Run aud full to generate findings to classify
+- With refactor: Use context to track migration progress
+- With deadcode: After migration, use deadcode to find orphaned code
+- In CI/CD: Fail on obsolete count > 0, warn on transitional
+
+AGENT WORKFLOW:
+The refactor agent (/theauditor:refactor) uses context classification in
+its verification phase to track migration progress. After completing changes,
+it runs aud context to verify obsolete patterns were removed and new patterns
+are classified as current.
 
 CLASSIFICATION STATES:
-
-1. OBSOLETE (Must Fix):
-   Code using deprecated patterns that need immediate attention.
-   Example: JWT authentication in files that should use OAuth2
-
-2. CURRENT (Correct):
-   Code following current standards - the right pattern.
-   Example: OAuth2 calls in the new auth system
-
-3. TRANSITIONAL (Acceptable Temporarily):
-   Old patterns that are acceptable during a migration window.
-   Example: Legacy API endpoints during 30-day deprecation period
-
-HOW IT WORKS:
-1. You create a YAML file defining classification rules
-2. Rules match findings by pattern, file path, or finding type
-3. Run 'aud context --file rules.yaml' after analysis
-4. Findings are classified and grouped by state
-5. Report shows what needs fixing vs what's acceptable
+- OBSOLETE: Must fix immediately - deprecated patterns
+- CURRENT: Correct pattern - the target state
+- TRANSITIONAL: Acceptable temporarily - during migration window
 
 YAML RULE FORMAT:
     refactor_context:
-      name: "OAuth2 Migration"
+      name: "Migration Name"
       rules:
-        - pattern: "jwt.sign"
+        - pattern: "old_function"
           state: "obsolete"
-          reason: "JWT auth deprecated, use OAuth2"
-          files: ["api/auth/*.py"]
+          reason: "Replaced by new_function"
+          files: ["src/*.py"]       # Optional: limit scope
 
-        - pattern: "oauth2.authorize"
+        - pattern: "new_function"
           state: "current"
-          reason: "New OAuth2 standard"
+          reason: "New standard"
 
-        - pattern: "legacy_api_key"
-          state: "transitional"
-          reason: "Allowed during 30-day migration"
-
-USE CASES:
-
-Authentication Migration:
-    Mark old auth patterns obsolete, new patterns current
-    Track which files still need migration
-
-API Versioning:
-    v1 endpoints transitional during deprecation
-    v2 endpoints current
-
-Framework Upgrade:
-    Old framework patterns obsolete
-    New framework patterns current
-
-Database Migration:
-    Old table references obsolete
-    New schema references current
-
-EXAMPLE WORKFLOW:
-    # 1. Run analysis
-    aud full
-
-    # 2. Classify findings with your business rules
-    aud context --file oauth_migration.yaml
-
-    # 3. Review classification report
-    # Shows: 15 obsolete, 120 current, 8 transitional
-
-    # 4. Focus on obsolete findings first
-    # Transitional findings are acceptable (for now)
-
-OUTPUT FORMAT:
-    .pf/raw/semantic_context_<name>.json
-    {
-      "context_name": "OAuth2 Migration",
-      "classified_findings": {
-        "obsolete": [...],
-        "current": [...],
-        "transitional": [...]
-      },
-      "summary": {
-        "obsolete_count": 15,
-        "current_count": 120,
-        "transitional_count": 8
-      }
-    }
-
-IMPORTANT DISTINCTION:
-Context classification is for WORKFLOW MANAGEMENT, not security bypass.
-- "Transitional" findings are still real issues
-- They just have a documented exception for a limited time
-- You're tracking technical debt, not ignoring it
-
-USE THE COMMAND:
+COMMAND OPTIONS:
     aud context --file rules.yaml            # Classify findings
-    aud context --file rules.yaml --verbose  # Show all classified findings
-    aud context --file rules.yaml -o out.json # Custom output path
+    aud context --file rules.yaml --verbose  # Show all matches
+    aud context --file rules.yaml -o out.json # Custom output
+
+RELATED:
+Commands: aud context, aud full, aud refactor, aud deadcode
+Topics: aud manual refactor, aud manual deadcode
+
+COMMON MISTAKES:
+- Running before aud full: No findings to classify
+  -> Always run aud full first to generate findings
+- Leaving transitional indefinitely: Tech debt accumulates
+  -> Set migration end dates, fail CI after deadline
+- Using context to hide real bugs: Classification is for workflow, not bypass
+  -> Transitional is "acceptable temporarily", not "ignore forever"
+- Overly broad patterns: Catches more than intended
+  -> Use files: [] to scope patterns to specific directories
+
+OUTPUT:
+- .pf/raw/semantic_context_<name>.json with classified findings
+- Summary counts: obsolete_count, current_count, transitional_count
 """,
     },
 }

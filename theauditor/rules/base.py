@@ -139,6 +139,10 @@ class RuleMetadata:
 
     execution_scope: Literal["database", "file"] | None = None
 
+    # Fidelity: Primary table for silent failure detection.
+    # If set, orchestrator checks that rule scanned rows when table has data.
+    primary_table: str | None = None
+
 
 def convert_old_context(old_context, project_path: Path = None) -> StandardRuleContext:
     """Convert old RuleContext to StandardRuleContext."""
