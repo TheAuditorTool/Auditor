@@ -32,8 +32,11 @@ METADATA = RuleMetadata(
     target_extensions=[".py", ".js", ".ts"],
     # Exclude patterns (paths containing these are skipped)
     exclude_patterns=["node_modules/", ".venv/", "test/", "__pycache__/"],
-    # JSX handling - set True only if rule needs preserved JSX data
-    execution_scope="database")
+    execution_scope="database",
+    # Fidelity: Primary table for silent failure detection.
+    # Orchestrator verifies rule scanned rows when this table has data.
+    primary_table="function_call_args",
+)
 
 
 # =============================================================================
