@@ -11,6 +11,58 @@ This is a 10-terminal parallel migration with 2 waves. Each terminal gets explic
 
 ---
 
+## MANDATORY READS BEFORE ANY WORK
+
+**STOP. Read these files FIRST. No exceptions.**
+
+| Priority | File | Why |
+|----------|------|-----|
+| 1 | `CLAUDE.md` | ALL sections - ZERO FALLBACK, environment rules, forbidden patterns |
+| 2 | `theauditor/rules/RULES_HANDOFF.md` | Fidelity system philosophy, Q class cheat sheet, common gotchas |
+| 3 | `theauditor/rules/TEMPLATE_FIDELITY_RULE.py` | THE canonical template - copy this structure EXACTLY |
+| 4 | `theauditor/rules/base.py` | StandardFinding, StandardRuleContext, RuleMetadata definitions |
+| 5 | `theauditor/indexer/schema.py` | TABLES dict - know what tables/columns exist |
+| 6 | This file's Schema Reference section | Quick reference for common tables |
+
+**If you skip RULES_HANDOFF.md and TEMPLATE_FIDELITY_RULE.py, you WILL write rules incorrectly.**
+
+---
+
+## QUALITY MANDATE - THIS IS NOT JUST PLUMBING
+
+**Rules are the billion-dollar valuation.** This migration is the ONLY time we comprehensively touch all 95 rules. Every terminal MUST evaluate rule quality, not just convert syntax.
+
+### Per-Rule Quality Checklist
+
+For EACH rule file, you MUST evaluate:
+
+| Check | Question to Answer |
+|-------|-------------------|
+| **Detection Logic** | Does this rule catch REAL vulnerabilities? Is the logic sound? |
+| **False Positives** | Will it flag safe patterns (logging, testing, comments, disabled code)? |
+| **Coverage Gaps** | What attack patterns SHOULD this rule catch but doesn't? |
+| **CWE Mapping** | Is the CWE-ID correct for what the rule actually detects? |
+| **Severity Rating** | Is CRITICAL/HIGH/MEDIUM/LOW appropriate for the actual impact? |
+| **Modern Compat** | Does rule work on modern frameworks (Next.js 14, React 19, etc.)? |
+| **Template Match** | Does structure match TEMPLATE_FIDELITY_RULE.py? |
+
+### What To Do With Quality Findings
+
+1. **Fixable inline** - Fix it now (simple pattern additions, severity adjustments)
+2. **Needs research** - Add `# TODO(quality): <description>` comment
+3. **Major rework needed** - Document in terminal's completion report
+
+### Minimum Quality Gate
+
+Rule is NOT complete until:
+- [ ] Detection logic evaluated (not just read, EVALUATED)
+- [ ] False positive patterns identified (at least: logging, testing, dead code)
+- [ ] Missing patterns documented as TODO if not fixed
+- [ ] CWE verified against actual detection
+- [ ] Structure matches TEMPLATE_FIDELITY_RULE.py
+
+---
+
 ## Schema Reference (EMBEDDED - Do NOT Hunt)
 
 ### TABLES Dict
@@ -357,11 +409,35 @@ print('Infrastructure imports OK')
 Read the entire file. No skipping. Understand:
 - What tables it queries
 - What SQL patterns it uses
-- What issues exist
+- What the rule is trying to detect
+- How effective the detection logic is
 
-### Step 2: Identify Issues
+### Step 2: Evaluate Detection Quality
 
-Look for these CLAUDE.md violations:
+**THIS IS NOT OPTIONAL.** For each rule, answer:
+
+1. **What vulnerability does this rule detect?** - Can you explain it in one sentence?
+2. **Is the detection logic sound?** - Does it actually catch the vulnerability?
+3. **What are the obvious false positives?**
+   - Logging statements (`console.log`, `logger.info`)
+   - Test files (`*.test.js`, `*_test.py`)
+   - Comments and documentation
+   - Disabled/dead code
+4. **What patterns are MISSING?**
+   - Modern framework variants
+   - Alternative syntax patterns
+   - Edge cases
+5. **Is CWE-ID correct?** - Look it up if unsure
+6. **Is severity appropriate?** - CRITICAL for RCE, HIGH for data breach, etc.
+
+Document findings as:
+- Inline fixes (do it now)
+- TODO comments (`# TODO(quality): Missing pattern for X`)
+- Completion report notes (major rework needed)
+
+### Step 3: Identify CLAUDE.md Violations
+
+Look for these violations:
 
 1. **ZERO FALLBACK violations** - Any `if not result: try_alternative()` pattern
 2. **Raw SQL hardcoding** - `cursor.execute("SELECT ...")` without Q class
@@ -370,7 +446,7 @@ Look for these CLAUDE.md violations:
 5. **Table existence checks** - `if 'table' in existing_tables`
 6. **Try-except fallbacks** - `except: use_alternative()`
 
-### Step 3: Convert to Q Class
+### Step 4: Convert to Q Class
 
 **BEFORE:**
 ```python
@@ -403,7 +479,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest=db.get_manifest())
 ```
 
-### Step 4: Handle Complex Cases
+### Step 5: Handle Complex Cases
 
 **For CTEs (like sql_injection_analyze.py:164-180):**
 ```python
@@ -431,7 +507,7 @@ sql, params = Q.raw("""
 rows = db.execute(sql, params)
 ```
 
-### Step 5: Validate
+### Step 6: Validate
 
 After modifying each file:
 ```bash
@@ -504,6 +580,7 @@ with RuleDB(context.db_path, "rule_name") as db:
 
 Each terminal must verify for EACH file:
 
+### Mechanical Checks
 - [ ] File imports `from theauditor.rules.query import Q`
 - [ ] File imports `from theauditor.rules.fidelity import RuleDB, RuleResult`
 - [ ] Main function returns `RuleResult` (not bare list)
@@ -512,6 +589,15 @@ Each terminal must verify for EACH file:
 - [ ] No CLAUDE.md violations
 - [ ] File passes import test
 - [ ] METADATA present and complete
+- [ ] Structure matches TEMPLATE_FIDELITY_RULE.py
+
+### Quality Checks (MANDATORY)
+- [ ] Detection logic evaluated - does it catch real vulnerabilities?
+- [ ] False positive patterns identified (logging, testing, comments, dead code)
+- [ ] Missing patterns documented as TODO if not fixed inline
+- [ ] CWE-ID verified against actual detection logic
+- [ ] Severity rating appropriate for impact
+- [ ] Any quality issues documented (TODO comments or completion report)
 
 ---
 
