@@ -65,44 +65,39 @@ class GoPackageManager(BasePackageManager):
             List of dependency dicts with name, version, manager, etc.
         """
         deps = []
+        content = path.read_text(encoding="utf-8")
 
-        try:
-            content = path.read_text(encoding="utf-8")
+        # Extract module path (for reference)
+        module_match = re.search(r"^module\s+(\S+)", content, re.MULTILINE)
+        module_path = module_match.group(1) if module_match else ""
 
-            # Extract module path (for reference)
-            module_match = re.search(r"^module\s+(\S+)", content, re.MULTILINE)
-            module_path = module_match.group(1) if module_match else ""
+        # Extract go version
+        go_version_match = re.search(r"^go\s+(\d+\.\d+)", content, re.MULTILINE)
+        go_version = go_version_match.group(1) if go_version_match else ""
 
-            # Extract go version
-            go_version_match = re.search(r"^go\s+(\d+\.\d+)", content, re.MULTILINE)
-            go_version = go_version_match.group(1) if go_version_match else ""
+        # Find require block: require ( ... )
+        require_block_match = re.search(r"require\s*\((.*?)\)", content, re.DOTALL)
+        if require_block_match:
+            for line in require_block_match.group(1).strip().split("\n"):
+                line = line.strip()
+                if line and not line.startswith("//"):
+                    dep = self._parse_require_line(line, str(path))
+                    if dep:
+                        deps.append(dep)
 
-            # Find require block: require ( ... )
-            require_block_match = re.search(r"require\s*\((.*?)\)", content, re.DOTALL)
-            if require_block_match:
-                for line in require_block_match.group(1).strip().split("\n"):
-                    line = line.strip()
-                    if line and not line.startswith("//"):
-                        dep = self._parse_require_line(line, str(path))
-                        if dep:
-                            deps.append(dep)
-
-            # Find single-line requires: require module version
-            # Exclude block starts (require followed by parenthesis)
-            for match in re.finditer(r"^require\s+([a-zA-Z][\S]*)\s+(v[\S]+)", content, re.MULTILINE):
-                deps.append({
-                    "name": match.group(1),
-                    "version": match.group(2),
-                    "manager": "go",
-                    "is_indirect": False,
-                    "files": [],
-                    "source": str(path),
-                    "module_path": module_path,
-                    "go_version": go_version,
-                })
-
-        except Exception as e:
-            logger.error(f"Could not parse {path}: {e}")
+        # Find single-line requires: require module version
+        # Exclude block starts (require followed by parenthesis)
+        for match in re.finditer(r"^require\s+([a-zA-Z][\S]*)\s+(v[\S]+)", content, re.MULTILINE):
+            deps.append({
+                "name": match.group(1),
+                "version": match.group(2),
+                "manager": "go",
+                "is_indirect": False,
+                "files": [],
+                "source": str(path),
+                "module_path": module_path,
+                "go_version": go_version,
+            })
 
         return deps
 
@@ -152,21 +147,15 @@ class GoPackageManager(BasePackageManager):
         limiter = get_rate_limiter("go")
         await limiter.acquire()
 
-        try:
-            url = f"https://proxy.golang.org/{encoded_module}/@latest"
-            headers = {"User-Agent": f"TheAuditor/{__version__} (dependency checker)"}
-            response = await client.get(url, headers=headers, timeout=10.0)
+        url = f"https://proxy.golang.org/{encoded_module}/@latest"
+        headers = {"User-Agent": f"TheAuditor/{__version__} (dependency checker)"}
+        response = await client.get(url, headers=headers, timeout=10.0)
 
-            if response.status_code != 200:
-                return None
+        if response.status_code != 200:
+            return None
 
-            data = response.json()
-            return data.get("Version")
-
-        except Exception:
-            pass
-
-        return None
+        data = response.json()
+        return data.get("Version")
 
     async def fetch_docs_async(
         self,
