@@ -187,9 +187,9 @@ def build_feature_matrix(
 
     intelligent_features = intelligent_features or {}
 
-    # OPTIMIZED: Pre-allocate numpy array (52 base features + 50 text features = 102 total)
+    # OPTIMIZED: Pre-allocate numpy array (59 base features + 50 text features = 109 total)
     n_files = len(file_paths)
-    n_features = 102
+    n_features = 109
     features = np.zeros((n_files, n_features), dtype=np.float32)
 
     for i, file_path in enumerate(file_paths):
