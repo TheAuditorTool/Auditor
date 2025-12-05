@@ -874,7 +874,7 @@ def trace_taint(
         if "no such table" in str(e):
             return {
                 "success": False,
-                "error": "Database is corrupted or incomplete. Run 'aud index' to rebuild the repository index.",
+                "error": "Database is corrupted or incomplete. Run 'aud full --index' to rebuild the repository index.",
                 "taint_paths": [],
                 "vulnerabilities": [],
                 "paths": [],
