@@ -98,6 +98,18 @@ class CodeQueryEngine:
         """Normalize file path for database queries."""
         return normalize_path_for_db(file_path, self.root)
 
+    def _require_graph_db(self) -> None:
+        """Enforce Architecture Law: No Graph DB = Hard Stop.
+
+        Zero Fallback Policy: If graph_db is required but missing, CRASH.
+        Do not return {"error": ...} - raise RuntimeError instead.
+        """
+        if not self.graph_db:
+            raise RuntimeError(
+                "Graph database required for this operation.\n"
+                "Fix: Run 'aud full' (or 'aud graph build') to generate it."
+            )
+
     def _find_similar_symbols(self, input_name: str, limit: int = 5) -> list[str]:
         """Find symbols similar to input for helpful 'Did you mean?' suggestions."""
         cursor = self.repo_db.cursor()
@@ -121,107 +133,85 @@ class CodeQueryEngine:
         return list(suggestions)[:limit]
 
     def _resolve_symbol(self, input_name: str) -> tuple[list[str], str | None]:
-        """Resolve user input to qualified symbol name(s)."""
+        """Resolve user input to qualified symbol name(s).
+
+        Uses unified UNION query to resolve symbols in O(1) queries instead of O(12-18).
+        Priority: exact matches first, then suffix matches.
+        """
         cursor = self.repo_db.cursor()
-        found_symbols = set()
 
+        # Build suffix pattern for fuzzy matching
+        suffix_pattern = f"%.{input_name}"
+
+        # Handle dotted names (e.g., "module.function" -> also match "function")
+        last_segment_pattern = None
+        if "." in input_name:
+            last_segment = input_name.split(".")[-1]
+            last_segment_pattern = f"%.{last_segment}"
+
+        # Build the unified UNION query
+        # Priority 1 = exact match, Priority 2 = suffix match
+        query_parts = []
+        params = []
+
+        # Symbol definitions (symbols, symbols_jsx, react_components)
         for table in ["symbols", "symbols_jsx"]:
-            cursor.execute(
-                f"""
-                SELECT DISTINCT name FROM {table} WHERE name = ?
-            """,
-                (input_name,),
-            )
-            for row in cursor.fetchall():
-                found_symbols.add(row["name"])
+            # Exact match - priority 1
+            query_parts.append(f"SELECT DISTINCT name, 1 AS priority FROM {table} WHERE name = ?")
+            params.append(input_name)
+            # Suffix match - priority 2
+            query_parts.append(f"SELECT DISTINCT name, 2 AS priority FROM {table} WHERE name LIKE ?")
+            params.append(suffix_pattern)
+            # Last segment match (if applicable)
+            if last_segment_pattern:
+                query_parts.append(f"SELECT DISTINCT name, 2 AS priority FROM {table} WHERE name LIKE ?")
+                params.append(last_segment_pattern)
 
-            cursor.execute(
-                f"""
-                SELECT DISTINCT name FROM {table} WHERE name LIKE ?
-            """,
-                (f"%.{input_name}",),
-            )
-            for row in cursor.fetchall():
-                found_symbols.add(row["name"])
+        # React components - exact match only
+        query_parts.append("SELECT DISTINCT name, 1 AS priority FROM react_components WHERE name = ?")
+        params.append(input_name)
 
-            if "." in input_name:
-                last_segment = input_name.split(".")[-1]
-                cursor.execute(
-                    f"""
-                    SELECT DISTINCT name FROM {table} WHERE name LIKE ?
-                """,
-                    (f"%.{last_segment}",),
-                )
-                for row in cursor.fetchall():
-                    found_symbols.add(row["name"])
+        # Function calls (callee_function from function_call_args, function_call_args_jsx)
+        for table in ["function_call_args", "function_call_args_jsx"]:
+            # Exact match - priority 1
+            query_parts.append(f"SELECT DISTINCT callee_function AS name, 1 AS priority FROM {table} WHERE callee_function = ?")
+            params.append(input_name)
+            # Suffix match - priority 2
+            query_parts.append(f"SELECT DISTINCT callee_function AS name, 2 AS priority FROM {table} WHERE callee_function LIKE ?")
+            params.append(suffix_pattern)
+            # Last segment match (if applicable)
+            if last_segment_pattern:
+                query_parts.append(f"SELECT DISTINCT callee_function AS name, 2 AS priority FROM {table} WHERE callee_function LIKE ?")
+                params.append(last_segment_pattern)
 
-        cursor.execute(
-            """
-            SELECT DISTINCT name FROM react_components WHERE name = ?
-        """,
-            (input_name,),
-        )
+        # Execute the unified query
+        query = " UNION ".join(query_parts) + " ORDER BY priority, name"
+        cursor.execute(query, params)
+
+        found_symbols = set()
         for row in cursor.fetchall():
             found_symbols.add(row["name"])
 
+        # Argument expressions require Python-side filtering (operators check)
+        # This is separate because we need to filter out expressions like "a + b"
+        operator_chars = {"+", "-", "*", "/", "(", ")", " "}
         for table in ["function_call_args", "function_call_args_jsx"]:
-            cursor.execute(
-                f"""
-                SELECT DISTINCT callee_function FROM {table} WHERE callee_function = ?
-            """,
-                (input_name,),
-            )
-            for row in cursor.fetchall():
-                found_symbols.add(row["callee_function"])
-
-            cursor.execute(
-                f"""
-                SELECT DISTINCT callee_function FROM {table} WHERE callee_function LIKE ?
-            """,
-                (f"%.{input_name}",),
-            )
-            for row in cursor.fetchall():
-                found_symbols.add(row["callee_function"])
-
-            if "." in input_name:
-                last_segment = input_name.split(".")[-1]
-                cursor.execute(
-                    f"""
-                    SELECT DISTINCT callee_function FROM {table} WHERE callee_function LIKE ?
-                """,
-                    (f"%.{last_segment}",),
-                )
-                for row in cursor.fetchall():
-                    found_symbols.add(row["callee_function"])
-
-        for table in ["function_call_args", "function_call_args_jsx"]:
-            cursor.execute(
-                f"""
+            arg_query = f"""
                 SELECT DISTINCT argument_expr FROM {table}
                 WHERE argument_expr = ? OR argument_expr LIKE ?
-            """,
-                (input_name, f"%.{input_name}"),
-            )
+            """
+            arg_params = [input_name, suffix_pattern]
 
+            if last_segment_pattern:
+                arg_query += " OR argument_expr LIKE ?"
+                arg_params.append(last_segment_pattern)
+
+            cursor.execute(arg_query, arg_params)
             for row in cursor.fetchall():
                 expr = row["argument_expr"]
-
-                if expr and not any(c in expr for c in ["+", "-", "*", "/", "(", ")", " "]):
+                # Filter out complex expressions (containing operators/spaces)
+                if expr and not any(c in expr for c in operator_chars):
                     found_symbols.add(expr)
-
-            if "." in input_name:
-                last_segment = input_name.split(".")[-1]
-                cursor.execute(
-                    f"""
-                    SELECT DISTINCT argument_expr FROM {table}
-                    WHERE argument_expr LIKE ?
-                """,
-                    (f"%.{last_segment}",),
-                )
-                for row in cursor.fetchall():
-                    expr = row["argument_expr"]
-                    if expr and not any(c in expr for c in ["+", "-", "*", "/", "(", ")", " "]):
-                        found_symbols.add(expr)
 
         if not found_symbols:
             suggestions = self._find_similar_symbols(input_name)
@@ -305,7 +295,11 @@ class CodeQueryEngine:
         return results
 
     def get_callers(self, symbol_name: str, depth: int = 1) -> list[CallSite] | dict:
-        """Find who calls a symbol (with optional transitive search)."""
+        """Find who calls a symbol (with optional transitive search).
+
+        Uses Recursive CTE to push graph traversal to SQLite instead of Python BFS loop.
+        Performance: O(1) queries instead of O(depth * symbols) queries.
+        """
         if depth < 1 or depth > 5:
             raise ValueError("Depth must be between 1 and 5")
 
@@ -318,55 +312,75 @@ class CodeQueryEngine:
             }
 
         cursor = self.repo_db.cursor()
-        all_callers = []
+
+        # Build placeholders for initial symbols
+        target_symbols = resolved_names
+        placeholders = ",".join("?" * len(target_symbols))
+
+        # Recursive CTE: Find callers transitively up to depth
+        # Base case: Direct callers of target symbol(s)
+        # Recursive step: Callers of those callers
+        query = f"""
+            WITH RECURSIVE
+            -- Combine both call tables into unified view
+            all_calls AS (
+                SELECT file, line, caller_function, callee_function, argument_expr
+                FROM function_call_args
+                UNION ALL
+                SELECT file, line, caller_function, callee_function, argument_expr
+                FROM function_call_args_jsx
+            ),
+            -- Recursive traversal
+            caller_graph(file, line, caller_function, callee_function, argument_expr, depth, visited_path) AS (
+                -- BASE CASE: Direct callers of target symbol(s)
+                SELECT
+                    file, line, caller_function, callee_function, argument_expr,
+                    1 AS depth,
+                    caller_function AS visited_path
+                FROM all_calls
+                WHERE callee_function IN ({placeholders})
+                   OR argument_expr IN ({placeholders})
+
+                UNION ALL
+
+                -- RECURSIVE STEP: Callers of callers
+                SELECT
+                    ac.file, ac.line, ac.caller_function, ac.callee_function, ac.argument_expr,
+                    cg.depth + 1,
+                    cg.visited_path || '>' || ac.caller_function
+                FROM all_calls ac
+                JOIN caller_graph cg ON ac.callee_function = cg.caller_function
+                WHERE cg.depth < ?
+                  AND cg.caller_function IS NOT NULL
+                  -- Cycle detection: don't revisit same caller in this path
+                  AND cg.visited_path NOT LIKE '%' || ac.caller_function || '%'
+            )
+            SELECT DISTINCT file, line, caller_function, callee_function, argument_expr, depth
+            FROM caller_graph
+            ORDER BY depth, file, line
+        """
+
+        # Params: target symbols twice (for callee_function and argument_expr), then depth limit
+        params = tuple(target_symbols) + tuple(target_symbols) + (depth,)
+        cursor.execute(query, params)
+
+        # Deduplicate by (caller_function, file, line) - same as old logic
         visited = set()
+        all_callers = []
 
-        symbols_to_query = resolved_names
-
-        queue = deque([(name, 0) for name in symbols_to_query])
-
-        while queue:
-            current_symbol, current_depth = queue.popleft()
-
-            if current_depth >= depth:
-                continue
-
-            for table in ["function_call_args", "function_call_args_jsx"]:
-                query = f"""
-                    SELECT DISTINCT
-                        file, line, caller_function, callee_function, argument_expr
-                    FROM {table}
-                    WHERE callee_function = ?
-                       OR argument_expr = ?
-                       OR argument_expr LIKE ?
-                    ORDER BY file, line
-                """
-
-                params = (current_symbol, current_symbol, f"%.{current_symbol}")
-
-                cursor.execute(query, params)
-
-                for row in cursor.fetchall():
-                    call_site = CallSite(
+        for row in cursor.fetchall():
+            caller_key = (row["caller_function"], row["file"], row["line"])
+            if caller_key not in visited:
+                visited.add(caller_key)
+                all_callers.append(
+                    CallSite(
                         caller_file=row["file"],
                         caller_line=row["line"],
                         caller_function=row["caller_function"],
                         callee_function=row["callee_function"],
                         arguments=[row["argument_expr"]] if row["argument_expr"] else [],
                     )
-
-                    caller_key = (
-                        call_site.caller_function,
-                        call_site.caller_file,
-                        call_site.caller_line,
-                    )
-
-                    if caller_key not in visited:
-                        visited.add(caller_key)
-                        all_callers.append(call_site)
-
-                        if current_depth + 1 < depth and call_site.caller_function:
-                            queue.append((call_site.caller_function, current_depth + 1))
+                )
 
         return all_callers
 
@@ -403,8 +417,7 @@ class CodeQueryEngine:
         self, file_path: str, direction: str = "both"
     ) -> dict[str, list[Dependency]]:
         """Get import dependencies for a file."""
-        if not self.graph_db:
-            return {"error": "Graph database not found. Run: aud graph build"}
+        self._require_graph_db()
 
         cursor = self.graph_db.cursor()
         result = {}
@@ -1149,8 +1162,7 @@ class CodeQueryEngine:
 
     def get_file_importers(self, file_path: str, limit: int = 50) -> list[dict]:
         """Get files that import this file."""
-        if not self.graph_db:
-            return []
+        self._require_graph_db()
 
         cursor = self.graph_db.cursor()
 
