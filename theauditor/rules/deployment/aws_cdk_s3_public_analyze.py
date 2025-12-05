@@ -3,6 +3,9 @@
 Detects S3 buckets with public access in CDK code:
 - Explicit public_read_access=True
 - Missing block_public_access configuration
+- Weak block_public_access settings (not BLOCK_ALL)
+- Website hosting enabled (inherently public)
+- Public ACL settings (PUBLIC_READ, PUBLIC_READ_WRITE)
 
 CWE-732: Incorrect Permission Assignment for Critical Resource
 """
@@ -32,6 +35,12 @@ METADATA = RuleMetadata(
     primary_table="cdk_constructs",
 )
 
+PUBLIC_ACLS = frozenset([
+    "PUBLIC_READ",
+    "PUBLIC_READ_WRITE",
+    "AUTHENTICATED_READ",
+])
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect S3 buckets with public access enabled in CDK code.
@@ -50,6 +59,9 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings.extend(_check_public_read_access(db))
         findings.extend(_check_missing_block_public_access(db))
+        findings.extend(_check_weak_block_public_access(db))
+        findings.extend(_check_website_hosting(db))
+        findings.extend(_check_public_acl(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -166,5 +178,186 @@ def _check_missing_block_public_access(db: RuleDB) -> list[StandardFinding]:
                 },
             )
         )
+
+    return findings
+
+
+def _check_weak_block_public_access(db: RuleDB) -> list[StandardFinding]:
+    """Detect S3 buckets with block_public_access that isn't BLOCK_ALL.
+
+    Some configurations only partially block public access, leaving gaps.
+    BLOCK_ALL is the only fully secure option.
+    """
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("cdk_constructs")
+        .select(
+            "cdk_constructs.construct_id",
+            "cdk_constructs.file_path",
+            "cdk_constructs.construct_name",
+            "cdk_construct_properties.property_value_expr",
+            "cdk_construct_properties.line",
+        )
+        .join("cdk_construct_properties", on=[("construct_id", "construct_id")])
+        .where(
+            "cdk_constructs.cdk_class LIKE ? AND (cdk_constructs.cdk_class LIKE ? OR cdk_constructs.cdk_class LIKE ?)",
+            "%Bucket%",
+            "%s3%",
+            "%aws_s3%",
+        )
+        .where(
+            "cdk_construct_properties.property_name IN (?, ?)",
+            "block_public_access",
+            "blockPublicAccess",
+        )
+    )
+
+    for construct_id, file_path, construct_name, prop_value, line in rows:
+        if "BLOCK_ALL" in prop_value:
+            continue
+
+        display_name = construct_name or "UnnamedBucket"
+        findings.append(
+            StandardFinding(
+                rule_name="aws-cdk-s3-weak-block-public-access",
+                message=f"S3 bucket '{display_name}' has block_public_access but not BLOCK_ALL",
+                severity=Severity.MEDIUM,
+                confidence="high",
+                file_path=file_path,
+                line=line,
+                snippet=f"block_public_access={prop_value}",
+                category="weak_security_control",
+                cwe_id="CWE-732",
+                additional_info={
+                    "construct_id": construct_id,
+                    "construct_name": display_name,
+                    "current_setting": prop_value,
+                    "remediation": "Use block_public_access=s3.BlockPublicAccess.BLOCK_ALL for complete protection.",
+                },
+            )
+        )
+
+    return findings
+
+
+def _check_website_hosting(db: RuleDB) -> list[StandardFinding]:
+    """Detect S3 buckets configured for static website hosting.
+
+    Website hosting makes bucket contents publicly accessible by design.
+    This is often intentional, but should be flagged for review.
+    """
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("cdk_constructs")
+        .select(
+            "cdk_constructs.construct_id",
+            "cdk_constructs.file_path",
+            "cdk_constructs.construct_name",
+            "cdk_construct_properties.line",
+        )
+        .join("cdk_construct_properties", on=[("construct_id", "construct_id")])
+        .where(
+            "cdk_constructs.cdk_class LIKE ? AND (cdk_constructs.cdk_class LIKE ? OR cdk_constructs.cdk_class LIKE ?)",
+            "%Bucket%",
+            "%s3%",
+            "%aws_s3%",
+        )
+        .where(
+            "cdk_construct_properties.property_name IN (?, ?, ?, ?)",
+            "website_index_document",
+            "websiteIndexDocument",
+            "website_redirect",
+            "websiteRedirect",
+        )
+    )
+
+    seen_constructs = set()
+
+    for construct_id, file_path, construct_name, line in rows:
+        if construct_id in seen_constructs:
+            continue
+        seen_constructs.add(construct_id)
+
+        display_name = construct_name or "UnnamedBucket"
+        findings.append(
+            StandardFinding(
+                rule_name="aws-cdk-s3-website-hosting",
+                message=f"S3 bucket '{display_name}' configured for static website hosting (publicly accessible)",
+                severity=Severity.MEDIUM,
+                confidence="high",
+                file_path=file_path,
+                line=line,
+                snippet=f"website_index_document or website_redirect configured",
+                category="public_exposure",
+                cwe_id="CWE-732",
+                additional_info={
+                    "construct_id": construct_id,
+                    "construct_name": display_name,
+                    "remediation": "If public access is intentional, ensure no sensitive data is stored. Consider using CloudFront with OAI/OAC for better access control.",
+                },
+            )
+        )
+
+    return findings
+
+
+def _check_public_acl(db: RuleDB) -> list[StandardFinding]:
+    """Detect S3 buckets with public ACL settings.
+
+    PUBLIC_READ, PUBLIC_READ_WRITE, and AUTHENTICATED_READ ACLs
+    make bucket contents accessible to unauthorized users.
+    """
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("cdk_constructs")
+        .select(
+            "cdk_constructs.construct_id",
+            "cdk_constructs.file_path",
+            "cdk_constructs.construct_name",
+            "cdk_construct_properties.property_value_expr",
+            "cdk_construct_properties.line",
+        )
+        .join("cdk_construct_properties", on=[("construct_id", "construct_id")])
+        .where(
+            "cdk_constructs.cdk_class LIKE ? AND (cdk_constructs.cdk_class LIKE ? OR cdk_constructs.cdk_class LIKE ?)",
+            "%Bucket%",
+            "%s3%",
+            "%aws_s3%",
+        )
+        .where(
+            "cdk_construct_properties.property_name IN (?, ?)",
+            "access_control",
+            "accessControl",
+        )
+    )
+
+    for construct_id, file_path, construct_name, prop_value, line in rows:
+        for acl in PUBLIC_ACLS:
+            if acl in prop_value:
+                display_name = construct_name or "UnnamedBucket"
+                severity = Severity.CRITICAL if "WRITE" in acl else Severity.HIGH
+                findings.append(
+                    StandardFinding(
+                        rule_name="aws-cdk-s3-public-acl",
+                        message=f"S3 bucket '{display_name}' has public ACL: {acl}",
+                        severity=severity,
+                        confidence="high",
+                        file_path=file_path,
+                        line=line,
+                        snippet=f"access_control={prop_value}",
+                        category="public_exposure",
+                        cwe_id="CWE-732",
+                        additional_info={
+                            "construct_id": construct_id,
+                            "construct_name": display_name,
+                            "acl_setting": acl,
+                            "remediation": "Use access_control=s3.BucketAccessControl.PRIVATE and implement bucket policies for controlled access.",
+                        },
+                    )
+                )
+                break
 
     return findings

@@ -3,11 +3,14 @@
 Detects security misconfigurations in Dockerfiles:
 - Root user execution (CWE-250)
 - Hardcoded secrets in ENV/ARG (CWE-798)
+- Private keys in environment variables (CWE-321)
 - Weak passwords (CWE-521)
 - Vulnerable/EOL base images (CWE-937)
 - Unpinned image versions (CWE-494)
 - Missing HEALTHCHECK (CWE-1272)
 - Sensitive ports exposed (CWE-749)
+- Docker API ports exposed (CWE-749) - CRITICAL
+- Secret patterns (GitHub PAT, AWS keys, JWT, Stripe, etc.)
 """
 
 import math
@@ -86,9 +89,30 @@ VULNERABLE_BASE_IMAGES = frozenset([
 SECRET_VALUE_PATTERNS = [
     re.compile(r"^ghp_[A-Za-z0-9]{36}$"),  # GitHub PAT
     re.compile(r"^ghs_[A-Za-z0-9]{36}$"),  # GitHub Server PAT
+    re.compile(r"^gho_[A-Za-z0-9]{36}$"),  # GitHub OAuth
+    re.compile(r"^ghu_[A-Za-z0-9]{36}$"),  # GitHub User-to-server
     re.compile(r"^sk-[A-Za-z0-9]{48}$"),   # OpenAI API key
     re.compile(r"^xox[baprs]-[A-Za-z0-9-]+$"),  # Slack tokens
     re.compile(r"^AKIA[A-Z0-9]{16}$"),     # AWS Access Key ID
+    re.compile(r"^ASIA[A-Z0-9]{16}$"),     # AWS Temporary Access Key
+    re.compile(r"^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$"),  # JWT token
+    re.compile(r"^sk_live_[A-Za-z0-9]{24,}$"),  # Stripe live key
+    re.compile(r"^sk_test_[A-Za-z0-9]{24,}$"),  # Stripe test key
+    re.compile(r"^rk_live_[A-Za-z0-9]{24,}$"),  # Stripe restricted key
+    re.compile(r"^AC[a-f0-9]{32}$"),       # Twilio Account SID
+    re.compile(r"^SK[a-f0-9]{32}$"),       # Twilio API Key
+    re.compile(r"^np_[A-Za-z0-9_-]{30,}$"),  # npm token
+    re.compile(r"^pypi-[A-Za-z0-9_-]{30,}$"),  # PyPI token
+    re.compile(r"^glpat-[A-Za-z0-9_-]{20,}$"),  # GitLab PAT
+]
+
+# Patterns that indicate private key material (substring match, not full value)
+PRIVATE_KEY_INDICATORS = [
+    "-----BEGIN RSA PRIVATE KEY-----",
+    "-----BEGIN EC PRIVATE KEY-----",
+    "-----BEGIN PRIVATE KEY-----",
+    "-----BEGIN OPENSSH PRIVATE KEY-----",
+    "-----BEGIN DSA PRIVATE KEY-----",
 ]
 
 SENSITIVE_PORTS = {
@@ -97,13 +121,22 @@ SENSITIVE_PORTS = {
     135: "Windows RPC",
     139: "NetBIOS",
     445: "SMB",
+    2375: "Docker API (unencrypted)",  # CRITICAL - unauthenticated container access
+    2376: "Docker API (TLS)",          # Still sensitive - container management
     3389: "RDP",
     3306: "MySQL",
     5432: "PostgreSQL",
+    5671: "RabbitMQ (AMQP TLS)",
+    5672: "RabbitMQ (AMQP)",
     6379: "Redis",
+    11211: "Memcached",
     27017: "MongoDB",
     9200: "Elasticsearch",
+    9300: "Elasticsearch (transport)",
 }
+
+# Ports that are CRITICAL severity (not just HIGH)
+CRITICAL_PORTS = {2375, 2376}  # Docker API = full container escape
 
 OFFICIAL_BASE_IMAGES = frozenset([
     "alpine", "ubuntu", "debian", "centos", "fedora", "busybox", "scratch"
@@ -210,21 +243,31 @@ def _check_root_user(file_path: str, image_data: dict) -> list[StandardFinding]:
     findings = []
     user = image_data.get("user")
 
-    # Root if: no USER set, or explicitly set to root/0
-    if user is None or user.lower() in ("root", "0"):
-        severity = Severity.HIGH if user is None else Severity.CRITICAL
-        msg_suffix = "not set" if user is None else "set to root"
-        user_display = user if user else "[not set]"
-
+    # Explicit root is CRITICAL, no user specified is MEDIUM
+    # (many base images already run as non-root by default)
+    if user and user.lower() in ("root", "0"):
         findings.append(
             StandardFinding(
                 rule_name="dockerfile-root-user",
-                message=f"Container runs as root user (USER instruction {msg_suffix})",
+                message="Container explicitly runs as root user",
                 file_path=file_path,
                 line=1,
-                severity=severity,
+                severity=Severity.CRITICAL,
                 category="deployment",
-                snippet=f"USER {user_display}",
+                snippet=f"USER {user}",
+                cwe_id="CWE-250",
+            )
+        )
+    elif user is None:
+        findings.append(
+            StandardFinding(
+                rule_name="dockerfile-no-user",
+                message="No USER instruction - container may run as root depending on base image",
+                file_path=file_path,
+                line=1,
+                severity=Severity.MEDIUM,
+                category="deployment",
+                snippet="# USER instruction not found",
                 cwe_id="CWE-250",
             )
         )
@@ -286,6 +329,23 @@ def _check_exposed_secrets(file_path: str, env_vars: dict) -> list[StandardFindi
                         category="deployment",
                         snippet=f"ENV {key}=[REDACTED]",
                         cwe_id="CWE-798",
+                    )
+                )
+                break
+
+        # Check for private key material
+        for indicator in PRIVATE_KEY_INDICATORS:
+            if indicator in value:
+                findings.append(
+                    StandardFinding(
+                        rule_name="dockerfile-private-key",
+                        message=f"Private key embedded in ENV {key} - CRITICAL exposure",
+                        file_path=file_path,
+                        line=1,
+                        severity=Severity.CRITICAL,
+                        category="deployment",
+                        snippet=f"ENV {key}=[PRIVATE KEY REDACTED]",
+                        cwe_id="CWE-321",
                     )
                 )
                 break
@@ -427,13 +487,20 @@ def _check_sensitive_ports(file_path: str, ports: list[dict]) -> list[StandardFi
 
         if port_num in SENSITIVE_PORTS:
             service_name = SENSITIVE_PORTS[port_num]
+            # Docker API ports are CRITICAL - they allow full container escape
+            severity = Severity.CRITICAL if port_num in CRITICAL_PORTS else Severity.HIGH
+            message = (
+                f"Container exposes Docker API port {port_num} - FULL CONTAINER ESCAPE POSSIBLE"
+                if port_num in CRITICAL_PORTS
+                else f"Container exposes sensitive port {port_num} ({service_name}) - should be behind VPN/bastion"
+            )
             findings.append(
                 StandardFinding(
                     rule_name="dockerfile-sensitive-port-exposed",
-                    message=f"Container exposes sensitive port {port_num} ({service_name}) - should be behind VPN/bastion",
+                    message=message,
                     file_path=file_path,
                     line=1,
-                    severity=Severity.HIGH,
+                    severity=severity,
                     category="deployment",
                     snippet=f"EXPOSE {port_num}/{protocol}",
                     cwe_id="CWE-749",

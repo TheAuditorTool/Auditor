@@ -65,6 +65,12 @@ def find_artifact_poisoning_risk(context: StandardRuleContext) -> list[StandardF
 # =============================================================================
 
 
+# Triggers where artifact poisoning is possible
+# - pull_request_target: Runs in target repo context but can checkout PR code
+# - workflow_run: Can download artifacts from untrusted PR workflows
+UNTRUSTED_ARTIFACT_TRIGGERS = frozenset(["pull_request_target", "workflow_run"])
+
+
 def _find_artifact_poisoning(db: RuleDB) -> list[StandardFinding]:
     """Core detection logic for artifact poisoning."""
     findings: list[StandardFinding] = []
@@ -79,8 +85,9 @@ def _find_artifact_poisoning(db: RuleDB) -> list[StandardFinding]:
     for workflow_path, workflow_name, on_triggers in workflow_rows:
         on_triggers = on_triggers or ""
 
-        # Only check pull_request_target workflows (untrusted context)
-        if "pull_request_target" not in on_triggers:
+        # Check for untrusted artifact contexts (pull_request_target OR workflow_run)
+        detected_triggers = [t for t in UNTRUSTED_ARTIFACT_TRIGGERS if t in on_triggers]
+        if not detected_triggers:
             continue
 
         # Find jobs that upload artifacts
@@ -112,6 +119,7 @@ def _find_artifact_poisoning(db: RuleDB) -> list[StandardFinding]:
                         dangerous_ops=dangerous_ops,
                         permissions=permissions,
                         has_dependency=has_dependency,
+                        untrusted_triggers=detected_triggers,
                     )
                 )
 
@@ -172,10 +180,55 @@ def _check_dangerous_operations(db: RuleDB, job_id: str) -> list[str]:
         .where("run_script IS NOT NULL")
     )
 
+    # Comprehensive dangerous operation patterns
+    # Each category represents operations that could be exploited via poisoned artifacts
     dangerous_patterns = {
-        "deploy": ["aws s3 sync", "kubectl apply", "terraform apply", "gcloud", "az deployment"],
-        "sign": ["cosign sign", "gpg --sign", "signtool", "codesign"],
-        "publish": ["npm publish", "pip upload", "docker push", "gh release create"],
+        "deploy": [
+            # Cloud providers
+            "aws s3 sync", "aws s3 cp", "aws cloudformation deploy",
+            "kubectl apply", "kubectl create", "kubectl replace",
+            "helm install", "helm upgrade",
+            "terraform apply", "terraform plan -out", "tofu apply",
+            "gcloud app deploy", "gcloud run deploy", "gcloud functions deploy",
+            "az deployment", "az webapp deploy", "az functionapp deploy",
+            # Platform deployments
+            "vercel deploy", "vercel --prod",
+            "netlify deploy",
+            "firebase deploy",
+            "fly deploy",
+            "heroku container:push", "heroku deploy",
+            "railway up",
+            # File-based deployment
+            "rsync", "scp ",  # space after scp to avoid false matches
+        ],
+        "sign": [
+            "cosign sign", "cosign attest",
+            "gpg --sign", "gpg --detach-sign", "gpg -s",
+            "signtool sign",
+            "codesign -s",
+            "jarsigner",
+            "apksigner sign",
+        ],
+        "publish": [
+            # JavaScript/Node
+            "npm publish", "yarn publish", "pnpm publish",
+            # Python
+            "twine upload", "pip upload", "flit publish", "poetry publish",
+            # Docker
+            "docker push", "docker buildx build --push", "podman push",
+            # GitHub
+            "gh release create", "gh release upload",
+            # Rust
+            "cargo publish",
+            # Ruby
+            "gem push",
+            # .NET
+            "nuget push", "dotnet nuget push",
+            # Java
+            "mvn deploy", "gradle publish", "./gradlew publish",
+            # Go
+            "go-release",
+        ],
     }
 
     dangerous_ops: list[str] = []
@@ -209,6 +262,7 @@ def _build_artifact_poisoning_finding(
     dangerous_ops: list[str],
     permissions: dict,
     has_dependency: bool,
+    untrusted_triggers: list[str],
 ) -> StandardFinding:
     """Build finding for artifact poisoning vulnerability."""
 
@@ -229,16 +283,21 @@ def _build_artifact_poisoning_finding(
     if len(upload_jobs) > 3:
         upload_str += f" (+{len(upload_jobs) - 3} more)"
 
+    trigger_str = ", ".join(untrusted_triggers)
+
     message = (
         f"Workflow '{workflow_name}' job '{download_job_key}' downloads artifacts from "
         f"untrusted build job(s) [{upload_str}] and performs dangerous operations: {ops_str}. "
-        f"Attacker can poison artifacts in pull_request_target context."
+        f"Attacker can poison artifacts via {trigger_str} trigger."
     )
+
+    # Use the first detected trigger for the snippet
+    primary_trigger = untrusted_triggers[0] if untrusted_triggers else "pull_request_target"
 
     code_snippet = f"""
 # Vulnerable Pattern:
 on:
-  pull_request_target:  # VULN: Untrusted context
+  {primary_trigger}:  # VULN: Untrusted context
 
 jobs:
   {upload_jobs[0] if upload_jobs else "build"}:
@@ -248,12 +307,12 @@ jobs:
         with:
           ref: ${{{{ github.event.pull_request.head.sha }}}}
       - run: npm run build  # Attacker controls this
-      - uses: actions/upload-artifact@v3  # Uploads poisoned artifact
+      - uses: actions/upload-artifact@v4  # Uploads poisoned artifact
 
   {download_job_key}:
     needs: [{upload_str}]
     steps:
-      - uses: actions/download-artifact@v3  # Downloads poisoned artifact
+      - uses: actions/download-artifact@v4  # Downloads poisoned artifact
       - run: |
           # VULN: Deploys/signs without validation
           {ops_str}
@@ -267,9 +326,10 @@ jobs:
         "dangerous_operations": dangerous_ops,
         "permissions": permissions,
         "has_direct_dependency": has_dependency,
+        "untrusted_triggers": untrusted_triggers,
         "mitigation": (
             "1. Validate artifact integrity before deployment (checksums, signatures), or "
-            "2. Build artifacts in trusted context (push trigger, not pull_request_target), or "
+            "2. Build artifacts in trusted context (push trigger, not pull_request_target/workflow_run), or "
             "3. Require manual approval before deploying PR artifacts, or "
             "4. Use separate workflows: PR for testing, push for deployment"
         ),

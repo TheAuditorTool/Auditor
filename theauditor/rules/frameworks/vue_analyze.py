@@ -9,12 +9,6 @@ Detects security vulnerabilities in Vue.js applications including:
 - Unsafe target="_blank" links (CWE-1022)
 - Direct DOM manipulation via $refs (CWE-79)
 - Sensitive data in localStorage/sessionStorage (CWE-922)
-
-# TODO(quality): Add Vue 3 Composition API security checks
-# TODO(quality): Add Pinia/Vuex state exposure detection
-# TODO(quality): Add Vue Router navigation guards bypass detection
-# TODO(quality): Add Nuxt SSR-specific vulnerability checks
-# TODO(quality): Add custom directive security analysis
 """
 
 from theauditor.rules.base import (

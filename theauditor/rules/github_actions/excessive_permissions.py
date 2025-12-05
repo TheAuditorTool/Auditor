@@ -32,19 +32,33 @@ METADATA = RuleMetadata(
 )
 
 
-UNTRUSTED_TRIGGERS: set[str] = {
-    "pull_request_target",
-    "issue_comment",
-    "workflow_run",
-}
+# Triggers where untrusted external actors can influence workflow execution
+UNTRUSTED_TRIGGERS = frozenset([
+    "pull_request_target",  # Runs with write access but can checkout PR code
+    "issue_comment",        # Anyone who can comment can trigger
+    "workflow_run",         # Can be triggered by untrusted PR workflows
+    "discussion_comment",   # Similar to issue_comment
+])
 
 
-DANGEROUS_WRITE_PERMISSIONS: set[str] = {
-    "contents",
-    "packages",
-    "id-token",
-    "deployments",
-}
+# Permissions that are dangerous in untrusted contexts
+# Organized by severity - all are dangerous but some more than others
+DANGEROUS_WRITE_PERMISSIONS = frozenset([
+    # CRITICAL - Can modify code or bypass security
+    "contents",        # Can push code, create releases
+    "actions",         # Can modify workflows (self-propagating attacks)
+    "id-token",        # OIDC token for cloud access (AWS, GCP, Azure)
+    "security-events", # Can dismiss security alerts
+
+    # HIGH - Can affect deployment or bypass checks
+    "packages",        # Can publish packages (supply chain)
+    "deployments",     # Can trigger deployments
+    "statuses",        # Can mark commits as passing (bypass branch protection)
+    "checks",          # Can create/modify check runs (bypass CI)
+
+    # MEDIUM - Can affect repository state
+    "pull-requests",   # Can approve/merge PRs
+])
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -172,6 +186,11 @@ def _check_dangerous_permissions(permissions: dict) -> list[str]:
     return dangerous
 
 
+# Permissions categorized by severity
+CRITICAL_PERMISSIONS = frozenset(["write-all", "contents", "actions", "id-token", "security-events"])
+HIGH_PERMISSIONS = frozenset(["packages", "deployments", "statuses", "checks"])
+
+
 def _build_permission_finding(
     workflow_path: str,
     workflow_name: str,
@@ -183,9 +202,11 @@ def _build_permission_finding(
 ) -> StandardFinding:
     """Build finding for excessive permissions vulnerability."""
 
-    if "write-all" in dangerous_perms or "id-token" in dangerous_perms:
+    # Determine severity based on most dangerous permission
+    perms_set = set(dangerous_perms)
+    if perms_set & CRITICAL_PERMISSIONS:
         severity = Severity.CRITICAL
-    elif "contents" in dangerous_perms or "packages" in dangerous_perms:
+    elif perms_set & HIGH_PERMISSIONS:
         severity = Severity.HIGH
     else:
         severity = Severity.MEDIUM

@@ -141,6 +141,12 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_cors_wildcard(db))
         findings.extend(_check_missing_csrf(db, imports, endpoints))
         findings.extend(_check_session_security(db))
+        findings.extend(_check_prototype_pollution(db))
+        findings.extend(_check_nosql_injection(db))
+        findings.extend(_check_path_traversal(db))
+        findings.extend(_check_header_injection(db))
+        findings.extend(_check_ssrf(db))
+        findings.extend(_check_trust_proxy(db, express_files))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -362,7 +368,6 @@ def _check_xss_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
 
 def _check_open_redirect(db: RuleDB) -> list[StandardFinding]:
     """Check for open redirect vulnerabilities."""
-    # TODO(quality): Enhance with taint tracking from user input to redirect sink
     findings = []
 
     # Get redirect calls
@@ -663,15 +668,285 @@ def _check_session_security(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
-# TODO(quality): Missing detection patterns to add in future:
-# - Prototype pollution in req.body (Express < 4.16 or with body-parser)
-# - HTTP parameter pollution
-# - Path traversal in express.static
-# - NoSQL injection in req.query/req.body
-# - ReDoS in route patterns
-# - Header injection via res.set/res.header
-# - SSRF via proxy middleware
-# - Trust proxy misconfiguration (req.ip spoofing)
+def _check_prototype_pollution(db: RuleDB) -> list[StandardFinding]:
+    """Check for prototype pollution vulnerabilities via object merge/extend."""
+    findings = []
+
+    # Dangerous merge/extend functions that can cause prototype pollution
+    merge_funcs = (
+        "Object.assign", "_.merge", "_.extend", "_.defaultsDeep",
+        "merge", "extend", "deepMerge", "deepExtend", "$.extend",
+    )
+    placeholders = ",".join("?" * len(merge_funcs))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *merge_funcs)
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        # Check if user input flows into merge operation
+        if any(source in arg_expr for source in USER_INPUT_SOURCES):
+            findings.append(
+                StandardFinding(
+                    rule_name="express-prototype-pollution",
+                    message=f"Prototype pollution risk - {callee} with user input",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                    cwe_id="CWE-1321",
+                )
+            )
+
+    return findings
+
+
+def _check_nosql_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for NoSQL injection vulnerabilities in MongoDB queries."""
+    findings = []
+
+    # MongoDB query methods
+    mongo_methods = (
+        "find", "findOne", "findById", "findOneAndUpdate", "findOneAndDelete",
+        "updateOne", "updateMany", "deleteOne", "deleteMany", "aggregate",
+        "where", "elemMatch",
+    )
+    placeholders = ",".join("?" * len(mongo_methods))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders}) OR callee_function LIKE ?",
+               *mongo_methods, "%.find%")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        # Check if user input is used directly in query without sanitization
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                # Check for dangerous operators that could be injected
+                if "$" in arg_expr or "where" in callee.lower():
+                    findings.append(
+                        StandardFinding(
+                            rule_name="express-nosql-injection",
+                            message=f"NoSQL injection risk - {source} in MongoDB query",
+                            file_path=file,
+                            line=line,
+                            severity=Severity.CRITICAL,
+                            category="injection",
+                            confidence=Confidence.HIGH,
+                            snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                            cwe_id="CWE-943",
+                        )
+                    )
+                else:
+                    # User input in query but no obvious operator injection
+                    findings.append(
+                        StandardFinding(
+                            rule_name="express-nosql-injection-risk",
+                            message=f"Potential NoSQL injection - {source} in query without sanitization",
+                            file_path=file,
+                            line=line,
+                            severity=Severity.HIGH,
+                            category="injection",
+                            confidence=Confidence.MEDIUM,
+                            snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                            cwe_id="CWE-943",
+                        )
+                    )
+                break
+
+    return findings
+
+
+def _check_path_traversal(db: RuleDB) -> list[StandardFinding]:
+    """Check for path traversal in express.static and file operations."""
+    findings = []
+
+    # Check express.static with user-controlled paths
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN (?, ?, ?, ?, ?)",
+               "express.static", "res.sendFile", "res.download", "path.join", "path.resolve")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                findings.append(
+                    StandardFinding(
+                        rule_name="express-path-traversal",
+                        message=f"Path traversal risk - {source} in {callee}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="injection",
+                        confidence=Confidence.HIGH,
+                        snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                        cwe_id="CWE-22",
+                    )
+                )
+                break
+
+    return findings
+
+
+def _check_header_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for HTTP header injection vulnerabilities."""
+    findings = []
+
+    # Header setting methods
+    header_methods = ("res.set", "res.header", "res.setHeader", "response.set", "response.header")
+    placeholders = ",".join("?" * len(header_methods))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *header_methods)
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                findings.append(
+                    StandardFinding(
+                        rule_name="express-header-injection",
+                        message=f"HTTP header injection - {source} in {callee}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="injection",
+                        confidence=Confidence.HIGH,
+                        snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                        cwe_id="CWE-113",
+                    )
+                )
+                break
+
+    return findings
+
+
+def _check_ssrf(db: RuleDB) -> list[StandardFinding]:
+    """Check for Server-Side Request Forgery vulnerabilities."""
+    findings = []
+
+    # HTTP request functions that could be SSRF vectors
+    http_funcs = (
+        "axios", "axios.get", "axios.post", "axios.put", "axios.delete",
+        "fetch", "request", "request.get", "request.post",
+        "http.get", "http.request", "https.get", "https.request",
+        "got", "got.get", "got.post", "superagent", "needle",
+    )
+    placeholders = ",".join("?" * len(http_funcs))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *http_funcs)
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                findings.append(
+                    StandardFinding(
+                        rule_name="express-ssrf",
+                        message=f"SSRF vulnerability - {source} controls URL in {callee}",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="injection",
+                        confidence=Confidence.HIGH,
+                        snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                        cwe_id="CWE-918",
+                    )
+                )
+                break
+
+    return findings
+
+
+def _check_trust_proxy(db: RuleDB, express_files: list[str]) -> list[StandardFinding]:
+    """Check for trust proxy misconfiguration allowing IP spoofing."""
+    findings = []
+
+    # Check for trust proxy set to true (trusts all proxies)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function LIKE ? AND argument_expr LIKE ?",
+               "%set%", "%trust proxy%")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        # Check for dangerous trust proxy values
+        if "true" in arg_expr.lower() or "'*'" in arg_expr or '"*"' in arg_expr:
+            findings.append(
+                StandardFinding(
+                    rule_name="express-trust-proxy-all",
+                    message="trust proxy set to true - trusts all proxies, enables IP spoofing",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="security",
+                    confidence=Confidence.HIGH,
+                    snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                    cwe_id="CWE-348",
+                )
+            )
+
+    # Check if req.ip is used but trust proxy may not be configured
+    ip_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "argument_expr")
+        .where("argument_expr LIKE ?", "%req.ip%")
+        .order_by("file, line")
+    )
+
+    files_using_req_ip = {row[0] for row in ip_rows}
+
+    # Check if trust proxy is configured in those files
+    for ip_file in files_using_req_ip:
+        proxy_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("file = ? AND argument_expr LIKE ?", ip_file, "%trust proxy%")
+            .limit(1)
+        )
+        if not list(proxy_rows):
+            # Using req.ip without trust proxy configuration
+            findings.append(
+                StandardFinding(
+                    rule_name="express-req-ip-no-trust-proxy",
+                    message="req.ip used without trust proxy configuration - may return wrong IP behind proxy",
+                    file_path=ip_file,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="security",
+                    confidence=Confidence.MEDIUM,
+                    snippet="Configure trust proxy if behind reverse proxy",
+                    cwe_id="CWE-348",
+                )
+            )
+
+    return findings
 
 
 def register_taint_patterns(taint_registry) -> None:

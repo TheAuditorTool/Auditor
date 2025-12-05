@@ -1,12 +1,13 @@
 """Detect excessive dependencies (dependency bloat).
 
 Flags projects with too many production or dev dependencies, which increases
-attack surface, maintenance burden, and security risk.
+attack surface, maintenance burden, and security risk. Also detects:
+- Dev-only packages incorrectly in production dependencies
+- Duplicate dependencies (same package in prod and dev)
+- Python and JavaScript dependency bloat
 
-CWE: CWE-1104 (Use of Unmaintained Third Party Components) - tangentially related
+CWE: CWE-1104 (Use of Unmaintained Third Party Components)
 """
-
-import json
 
 from theauditor.rules.base import (
     RuleMetadata,
@@ -17,22 +18,21 @@ from theauditor.rules.base import (
 )
 from theauditor.rules.fidelity import RuleDB
 from theauditor.rules.query import Q
-from theauditor.utils.logging import logger
 
-from .config import DependencyThresholds
+from .config import DEV_ONLY_PACKAGES, DependencyThresholds
 
 METADATA = RuleMetadata(
     name="dependency_bloat",
     category="dependency",
     target_extensions=[".json", ".txt", ".toml"],
-    exclude_patterns=["node_modules/", ".venv/", "test/"],
+    exclude_patterns=["node_modules/", ".venv/", "test/", "__pycache__/"],
     execution_scope="database",
-    primary_table="package_configs",
+    primary_table="package_dependencies",
 )
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
-    """Detect excessive dependency counts in package files.
+    """Detect excessive dependency counts and misplaced packages.
 
     Args:
         context: Provides db_path, file_path, content, language, project_path
@@ -46,93 +46,204 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        rows = db.query(
-            Q("package_configs")
-            .select("file_path", "dependencies", "dev_dependencies")
-        )
+        # Check JavaScript/Node package dependencies
+        findings.extend(_check_js_dependency_bloat(db))
 
-        for file_path, deps, dev_deps in rows:
-            findings.extend(_check_dependency_counts(file_path, deps, dev_deps))
+        # Check Python package dependencies
+        findings.extend(_check_python_dependency_bloat(db))
+
+        # Check for dev-only packages in production
+        findings.extend(_check_misplaced_dev_packages(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _check_dependency_counts(
-    file_path: str,
-    deps: str | None,
-    dev_deps: str | None,
-) -> list[StandardFinding]:
-    """Check dependency counts against thresholds."""
+def _check_js_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
+    """Check JavaScript package dependency counts."""
     findings = []
 
-    prod_count = _count_dependencies(deps, file_path, "dependencies")
-    dev_count = _count_dependencies(dev_deps, file_path, "dev_dependencies")
+    # Get counts per file
+    rows = db.query(
+        Q("package_dependencies")
+        .select("file_path", "is_dev", "COUNT(*) as count")
+        .group_by("file_path", "is_dev")
+    )
 
-    # Check production dependencies
-    if prod_count > DependencyThresholds.MAX_DIRECT_DEPS:
-        findings.append(
-            StandardFinding(
-                rule_name="dependency-bloat-production",
-                message=f"Excessive production dependencies: {prod_count} (threshold: {DependencyThresholds.MAX_DIRECT_DEPS})",
-                file_path=file_path,
-                line=1,
-                severity=Severity.MEDIUM,
-                category="dependency",
-                snippet=f"{prod_count} production dependencies declared",
-                cwe_id="CWE-1104",
-            )
-        )
-    elif prod_count > DependencyThresholds.WARN_PRODUCTION_DEPS:
-        findings.append(
-            StandardFinding(
-                rule_name="dependency-bloat-warn",
-                message=f"High production dependency count: {prod_count} (warning threshold: {DependencyThresholds.WARN_PRODUCTION_DEPS})",
-                file_path=file_path,
-                line=1,
-                severity=Severity.LOW,
-                category="dependency",
-                snippet=f"{prod_count} production dependencies",
-                cwe_id="CWE-1104",
-            )
-        )
+    # Aggregate counts by file
+    file_counts: dict[str, dict[str, int]] = {}
+    for file_path, is_dev, count in rows:
+        if file_path not in file_counts:
+            file_counts[file_path] = {"prod": 0, "dev": 0}
+        if is_dev:
+            file_counts[file_path]["dev"] = count
+        else:
+            file_counts[file_path]["prod"] = count
 
-    # Check dev dependencies
-    if dev_count > DependencyThresholds.MAX_DEV_DEPS:
-        findings.append(
-            StandardFinding(
-                rule_name="dependency-bloat-dev",
-                message=f"Excessive dev dependencies: {dev_count} (threshold: {DependencyThresholds.MAX_DEV_DEPS})",
-                file_path=file_path,
-                line=1,
-                severity=Severity.LOW,
-                category="dependency",
-                snippet=f"{dev_count} dev dependencies declared",
-                cwe_id="CWE-1104",
+    for file_path, counts in file_counts.items():
+        prod_count = counts["prod"]
+        dev_count = counts["dev"]
+        total_count = prod_count + dev_count
+
+        # Check production dependencies
+        if prod_count > DependencyThresholds.MAX_DIRECT_DEPS:
+            findings.append(
+                StandardFinding(
+                    rule_name="dependency-bloat-production",
+                    message=f"Excessive production dependencies: {prod_count} (threshold: {DependencyThresholds.MAX_DIRECT_DEPS}). High attack surface.",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="dependency",
+                    snippet=f"{prod_count} production + {dev_count} dev = {total_count} total",
+                    cwe_id="CWE-1104",
+                )
             )
-        )
+        elif prod_count > DependencyThresholds.WARN_PRODUCTION_DEPS:
+            findings.append(
+                StandardFinding(
+                    rule_name="dependency-bloat-warn",
+                    message=f"High production dependency count: {prod_count} (warning threshold: {DependencyThresholds.WARN_PRODUCTION_DEPS})",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.LOW,
+                    category="dependency",
+                    snippet=f"{prod_count} production dependencies",
+                    cwe_id="CWE-1104",
+                )
+            )
+
+        # Check dev dependencies
+        if dev_count > DependencyThresholds.MAX_DEV_DEPS:
+            findings.append(
+                StandardFinding(
+                    rule_name="dependency-bloat-dev",
+                    message=f"Excessive dev dependencies: {dev_count} (threshold: {DependencyThresholds.MAX_DEV_DEPS}). Slows CI/CD.",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.LOW,
+                    category="dependency",
+                    snippet=f"{dev_count} dev dependencies declared",
+                    cwe_id="CWE-1104",
+                )
+            )
 
     return findings
 
 
-def _count_dependencies(json_str: str | None, file_path: str, field_name: str) -> int:
-    """Parse dependency JSON and return count.
+def _check_python_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
+    """Check Python package dependency counts."""
+    findings = []
 
-    Args:
-        json_str: JSON string from database
-        file_path: Source file for logging
-        field_name: Field name for logging
+    # Get counts per file
+    rows = db.query(
+        Q("python_package_dependencies")
+        .select("file_path", "is_dev", "COUNT(*) as count")
+        .group_by("file_path", "is_dev")
+    )
 
-    Returns:
-        Dependency count, or 0 if parsing fails
-    """
-    if not json_str:
-        return 0
+    # Aggregate counts by file
+    file_counts: dict[str, dict[str, int]] = {}
+    for file_path, is_dev, count in rows:
+        if file_path not in file_counts:
+            file_counts[file_path] = {"prod": 0, "dev": 0}
+        if is_dev:
+            file_counts[file_path]["dev"] = count
+        else:
+            file_counts[file_path]["prod"] = count
 
-    try:
-        deps_dict = json.loads(json_str)
-        if isinstance(deps_dict, dict):
-            return len(deps_dict)
-        return 0
-    except json.JSONDecodeError as e:
-        logger.debug(f"Failed to parse {field_name} JSON in {file_path}: {e}")
-        return 0
+    for file_path, counts in file_counts.items():
+        prod_count = counts["prod"]
+        dev_count = counts["dev"]
+
+        # Python typically has fewer deps - use lower thresholds
+        python_prod_threshold = DependencyThresholds.MAX_DIRECT_DEPS // 2  # 25
+        python_warn_threshold = DependencyThresholds.WARN_PRODUCTION_DEPS // 2  # 15
+
+        if prod_count > python_prod_threshold:
+            findings.append(
+                StandardFinding(
+                    rule_name="dependency-bloat-python-production",
+                    message=f"Excessive Python dependencies: {prod_count} (threshold: {python_prod_threshold})",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="dependency",
+                    snippet=f"{prod_count} Python dependencies",
+                    cwe_id="CWE-1104",
+                )
+            )
+        elif prod_count > python_warn_threshold:
+            findings.append(
+                StandardFinding(
+                    rule_name="dependency-bloat-python-warn",
+                    message=f"High Python dependency count: {prod_count} (warning threshold: {python_warn_threshold})",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.LOW,
+                    category="dependency",
+                    snippet=f"{prod_count} Python dependencies",
+                    cwe_id="CWE-1104",
+                )
+            )
+
+    return findings
+
+
+def _check_misplaced_dev_packages(db: RuleDB) -> list[StandardFinding]:
+    """Check for dev-only packages in production dependencies."""
+    findings = []
+
+    # Build pattern for dev-only packages
+    # Some packages like @types/* need pattern matching
+    exact_packages = [p for p in DEV_ONLY_PACKAGES if not p.endswith("/")]
+    prefix_packages = [p for p in DEV_ONLY_PACKAGES if p.endswith("/")]
+
+    if exact_packages:
+        placeholders = ",".join(["?" for _ in exact_packages])
+
+        # Query production deps that match dev-only packages
+        rows = db.query(
+            Q("package_dependencies")
+            .select("file_path", "name")
+            .where("is_dev = ?", 0)
+            .where(f"name IN ({placeholders})", *exact_packages)
+        )
+
+        for file_path, pkg_name in rows:
+            findings.append(
+                StandardFinding(
+                    rule_name="dependency-bloat-misplaced-dev",
+                    message=f"Dev-only package '{pkg_name}' is in production dependencies. Move to devDependencies.",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="dependency",
+                    snippet=f"{pkg_name} should be in devDependencies",
+                    cwe_id="CWE-1104",
+                )
+            )
+
+    # Check prefix patterns (like @types/)
+    for prefix in prefix_packages:
+        rows = db.query(
+            Q("package_dependencies")
+            .select("file_path", "name")
+            .where("is_dev = ?", 0)
+            .where("name LIKE ?", f"{prefix}%")
+        )
+
+        for file_path, pkg_name in rows:
+            findings.append(
+                StandardFinding(
+                    rule_name="dependency-bloat-misplaced-dev",
+                    message=f"Dev-only package '{pkg_name}' is in production dependencies. Move to devDependencies.",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="dependency",
+                    snippet=f"{pkg_name} should be in devDependencies",
+                    cwe_id="CWE-1104",
+                )
+            )
+
+    return findings
