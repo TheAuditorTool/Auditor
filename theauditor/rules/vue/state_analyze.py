@@ -1,326 +1,214 @@
 """Vue State Management Analyzer - Database-First Approach."""
 
-import sqlite3
-
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="vue_state",
     category="vue",
     target_extensions=[".js", ".ts"],
     target_file_patterns=["frontend/", "client/", "src/store/", "src/stores/", "store/", "stores/"],
-    exclude_patterns=["backend/", "server/", "api/", "__tests__/", "*.test.*", "*.spec.*"])
-
-
-VUEX_PATTERNS = frozenset(
-    [
-        "createStore",
-        "useStore",
-        "$store",
-        "this.$store",
-        "mapState",
-        "mapGetters",
-        "mapActions",
-        "mapMutations",
-        "commit",
-        "dispatch",
-        "subscribe",
-        "subscribeAction",
-        "registerModule",
-        "unregisterModule",
-        "hasModule",
-    ]
+    exclude_patterns=["backend/", "server/", "api/", "__tests__/", "*.test.*", "*.spec.*"],
+    execution_scope="database",
+    primary_table="files",
 )
 
 
-PINIA_PATTERNS = frozenset(
-    [
-        "defineStore",
-        "createPinia",
-        "setActivePinia",
-        "storeToRefs",
-        "acceptHMRUpdate",
-        "useStore",
-        "$patch",
-        "$reset",
-        "$subscribe",
-        "$onAction",
-        "$dispose",
-        "getActivePinia",
-        "setMapStoreSuffix",
-    ]
-)
+VUEX_PATTERNS = frozenset([
+    "createStore",
+    "useStore",
+    "$store",
+    "this.$store",
+    "mapState",
+    "mapGetters",
+    "mapActions",
+    "mapMutations",
+    "commit",
+    "dispatch",
+    "subscribe",
+    "subscribeAction",
+    "registerModule",
+    "unregisterModule",
+    "hasModule",
+])
 
 
-STATE_MUTATIONS = frozenset(
-    ["state.", "this.state.", "$store.state.", "store.state.", "this.$store.state."]
-)
+PINIA_PATTERNS = frozenset([
+    "defineStore",
+    "createPinia",
+    "setActivePinia",
+    "storeToRefs",
+    "acceptHMRUpdate",
+    "useStore",
+    "$patch",
+    "$reset",
+    "$subscribe",
+    "$onAction",
+    "$dispose",
+    "getActivePinia",
+    "setMapStoreSuffix",
+])
 
 
-STRICT_VIOLATIONS = frozenset(
-    [
-        "state.",
-        "this.$store.state.",
-        "store.state.",
-        "Object.assign",
-        "Array.push",
-        "Array.splice",
-        "delete ",
-        "Vue.set",
-        "Vue.delete",
-    ]
-)
-
-
-ACTION_PATTERNS = frozenset(
-    [
-        "actions:",
-        "dispatch",
-        "store.dispatch",
-        "$store.dispatch",
-        "mapActions",
-        "action.type",
-        "action.payload",
-    ]
-)
-
-
-MUTATION_PATTERNS = frozenset(
-    [
-        "mutations:",
-        "commit",
-        "store.commit",
-        "$store.commit",
-        "mapMutations",
-        "mutation.type",
-        "mutation.payload",
-    ]
-)
-
-
-GETTER_PATTERNS = frozenset(
-    ["getters:", "store.getters", "$store.getters", "mapGetters", "rootGetters", "getter"]
-)
-
-
-ANTIPATTERNS = frozenset(
-    ["localStorage", "sessionStorage", "window.", "document.", "global.", "process.env"]
-)
-
-
-def find_vue_state_issues(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Vue state management anti-patterns (Vuex/Pinia)."""
-    findings = []
-
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
 
-    try:
-        store_files = _get_store_files(cursor)
+        store_files = _get_store_files(db)
         if not store_files:
-            return findings
+            return RuleResult(findings=findings, manifest=db.get_manifest())
 
-        findings.extend(_find_direct_state_mutations(cursor, store_files))
-        findings.extend(_find_async_mutations(cursor, store_files))
-        findings.extend(_find_missing_namespacing(cursor, store_files))
-        findings.extend(_find_subscription_leaks(cursor, store_files))
-        findings.extend(_find_circular_getters(cursor, store_files))
-        findings.extend(_find_persistence_issues(cursor, store_files))
-        findings.extend(_find_large_stores(cursor, store_files))
-        findings.extend(_find_unhandled_action_errors(cursor, store_files))
+        findings.extend(_find_direct_state_mutations(db, store_files))
+        findings.extend(_find_async_mutations(db, store_files))
+        findings.extend(_find_missing_namespacing(db, store_files))
+        findings.extend(_find_subscription_leaks(db, store_files))
+        findings.extend(_find_circular_getters(db, store_files))
+        findings.extend(_find_persistence_issues(db, store_files))
+        findings.extend(_find_large_stores(db, store_files))
+        findings.extend(_find_unhandled_action_errors(db, store_files))
 
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _get_store_files(cursor) -> set[str]:
+def _get_store_files(db: RuleDB) -> set[str]:
     """Get all Vuex/Pinia store files."""
-    store_files = set()
+    store_files: set[str] = set()
 
-    cursor.execute("""
-        SELECT DISTINCT path
-        FROM files
-        WHERE path IS NOT NULL
-    """)
+    file_rows = db.query(
+        Q("files")
+        .select("path")
+        .where("path IS NOT NULL")
+    )
 
-    for (path,) in cursor.fetchall():
+    for (path,) in file_rows:
         path_lower = path.lower()
         if any(pattern in path_lower for pattern in ["store", "vuex", "pinia", "state"]):
             store_files.add(path)
 
-    all_patterns = list(VUEX_PATTERNS | PINIA_PATTERNS)
-    placeholders = ",".join("?" * len(all_patterns))
-
-    cursor.execute(
-        f"""
-        SELECT DISTINCT path, name
-        FROM symbols
-        WHERE name IN ({placeholders})
-           OR name IS NOT NULL
-    """,
-        all_patterns,
+    symbol_rows = db.query(
+        Q("symbols")
+        .select("path", "name")
+        .where("name IS NOT NULL")
     )
 
-    for path, name in cursor.fetchall():
+    for path, name in symbol_rows:
         if "$store" in name or "defineStore" in name or "createStore" in name:
             store_files.add(path)
 
     return store_files
 
 
-def _find_direct_state_mutations(cursor, store_files: set[str]) -> list[StandardFinding]:
+def _find_direct_state_mutations(db: RuleDB, store_files: set[str]) -> list[StandardFinding]:
     """Find direct state mutations outside of mutations."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    file_placeholders = ",".join("?" * len(store_files))
-
-    cursor.execute(
-        f"""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE file IN ({file_placeholders})
-          AND target_var IS NOT NULL
-        ORDER BY file, line
-    """,
-        list(store_files),
-    )
-
-    for file, line, target, _source in cursor.fetchall():
-        if not any(
-            pattern in target
-            for pattern in ["state.", "this.state.", "$store.state.", "store.state."]
-        ):
-            continue
-
-        file_lower = file.lower()
-        if "mutation" in file_lower or "reducer" in file_lower:
-            continue
-
-        findings.append(
-            StandardFinding(
-                rule_name="vue-direct-state-mutation",
-                message=f'Direct state mutation "{target}" outside of mutation',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category="vuex-antipattern",
-                confidence=Confidence.HIGH,
-                cwe_id="CWE-471",
-            )
+    for file in store_files:
+        assignment_rows = db.query(
+            Q("assignments")
+            .select("file", "line", "target_var", "source_expr")
+            .where("file = ?", file)
+            .where("target_var IS NOT NULL")
+            .order_by("file, line")
         )
 
-    cursor.execute(
-        f"""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.file IN ({file_placeholders})
-          AND f.callee_function IN ('push', 'pop', 'shift', 'unshift', 'splice', 'sort', 'reverse')
-          AND f.argument_expr IS NOT NULL
-        ORDER BY f.file, f.line
-    """,
-        list(store_files),
-    )
+        for file_path, line, target, _source in assignment_rows:
+            if not any(
+                pattern in target
+                for pattern in ["state.", "this.state.", "$store.state.", "store.state."]
+            ):
+                continue
 
-    for file, line, method, args in cursor.fetchall():
-        if "state." not in args and "$store.state" not in args:
-            continue
-        findings.append(
-            StandardFinding(
-                rule_name="vue-state-array-mutation",
-                message=f"Array mutation method {method} on state",
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category="vuex-antipattern",
-                confidence=Confidence.HIGH,
-                cwe_id="CWE-471",
+            file_lower = file_path.lower()
+            if "mutation" in file_lower or "reducer" in file_lower:
+                continue
+
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-direct-state-mutation",
+                    message=f'Direct state mutation "{target}" outside of mutation',
+                    file_path=file_path,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="vuex-antipattern",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-471",
+                )
             )
-        )
+
 
     return findings
 
 
-def _find_async_mutations(cursor, store_files: set[str]) -> list[StandardFinding]:
+def _find_async_mutations(db: RuleDB, store_files: set[str]) -> list[StandardFinding]:
     """Find async operations in mutations (anti-pattern)."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    file_placeholders = ",".join("?" * len(store_files))
+    async_ops = ["setTimeout", "setInterval", "fetch", "axios", "Promise", "async", "await", "then", "catch"]
 
-    cursor.execute(
-        f"""
-        SELECT file, line, callee_function
-        FROM function_call_args
-        WHERE file IN ({file_placeholders})
-          AND callee_function IN (
-              'setTimeout', 'setInterval', 'fetch', 'axios',
-              'Promise', 'async', 'await', 'then', 'catch'
-          )
-        ORDER BY file, line
-    """,
-        list(store_files),
-    )
-
-    for file, line, async_op in cursor.fetchall():
+    for file in store_files:
         file_lower = file.lower()
         if "mutation" not in file_lower and "mutations." not in file_lower:
             continue
-        findings.append(
-            StandardFinding(
-                rule_name="vue-async-mutation",
-                message=f"Async operation {async_op} in mutation - use actions instead",
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category="vuex-antipattern",
-                confidence=Confidence.HIGH,
-                cwe_id="CWE-662",
+
+        for async_op in async_ops:
+            rows = db.query(
+                Q("function_call_args")
+                .select("file", "line", "callee_function")
+                .where("file = ?", file)
+                .where("callee_function = ?", async_op)
+                .order_by("file, line")
             )
-        )
+
+            for file_path, line, op in rows:
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-async-mutation",
+                        message=f"Async operation {op} in mutation - use actions instead",
+                        file_path=file_path,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="vuex-antipattern",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-662",
+                    )
+                )
 
     return findings
 
 
-def _find_missing_namespacing(cursor, store_files: set[str]) -> list[StandardFinding]:
+def _find_missing_namespacing(db: RuleDB, store_files: set[str]) -> list[StandardFinding]:
     """Find modules without proper namespacing."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    file_placeholders = ",".join("?" * len(store_files))
-
-    cursor.execute(
-        f"""
-        SELECT DISTINCT s1.path, s1.name
-        FROM symbols s1
-        WHERE s1.path IN ({file_placeholders})
-          AND s1.name IS NOT NULL
-        ORDER BY s1.path
-    """,
-        list(store_files),
-    )
-
-    file_symbols = {}
-    for path, name in cursor.fetchall():
-        if path not in file_symbols:
-            file_symbols[path] = []
-        file_symbols[path].append(name)
-
-    for file, symbols in file_symbols.items():
+    for file in store_files:
         if "modules" not in file.lower():
             continue
+
+        symbol_rows = db.query(
+            Q("symbols")
+            .select("path", "name")
+            .where("path = ?", file)
+            .where("name IS NOT NULL")
+        )
+
+        symbols = [name for _, name in symbol_rows]
 
         has_namespace = any("namespaced" in s and "true" in s for s in symbols)
         if has_namespace:
             continue
+
         findings.append(
             StandardFinding(
                 rule_name="vue-module-no-namespace",
@@ -337,216 +225,183 @@ def _find_missing_namespacing(cursor, store_files: set[str]) -> list[StandardFin
     return findings
 
 
-def _find_subscription_leaks(cursor, store_files: set[str]) -> list[StandardFinding]:
+def _find_subscription_leaks(db: RuleDB, store_files: set[str]) -> list[StandardFinding]:
     """Find store subscriptions without cleanup."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    file_placeholders = ",".join("?" * len(store_files))
+    subscription_funcs = ["subscribe", "subscribeAction", "$subscribe", "$onAction"]
 
-    cursor.execute(
-        f"""
-        SELECT f.file, f.line, f.callee_function
-        FROM function_call_args f
-        WHERE f.file IN ({file_placeholders})
-          AND f.callee_function IN ('subscribe', 'subscribeAction', '$subscribe', '$onAction')
-        ORDER BY f.file, f.line
-    """,
-        list(store_files),
-    )
-
-    for file, line, subscription in cursor.fetchall():
-        cursor.execute(
-            """
-            SELECT target_var
-            FROM assignments
-            WHERE file = ?
-              AND line = ?
-              AND target_var IS NOT NULL
-        """,
-            (file, line),
-        )
-
-        has_unsubscribe = False
-        for (target_var,) in cursor.fetchall():
-            if "unsubscribe" in target_var.lower():
-                has_unsubscribe = True
-                break
-
-        if has_unsubscribe:
-            continue
-        findings.append(
-            StandardFinding(
-                rule_name="vue-subscription-leak",
-                message=f"{subscription} without cleanup - memory leak",
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category="vuex-memory-leak",
-                confidence=Confidence.MEDIUM,
-                cwe_id="CWE-401",
+    for file in store_files:
+        for sub_func in subscription_funcs:
+            sub_rows = db.query(
+                Q("function_call_args")
+                .select("file", "line", "callee_function")
+                .where("file = ?", file)
+                .where("callee_function = ?", sub_func)
+                .order_by("file, line")
             )
-        )
+
+            for file_path, line, subscription in sub_rows:
+                assign_rows = db.query(
+                    Q("assignments")
+                    .select("target_var")
+                    .where("file = ?", file_path)
+                    .where("line = ?", line)
+                    .where("target_var IS NOT NULL")
+                )
+
+                # If ANY variable captured the return value, assume cleanup intent
+                if list(assign_rows):
+                    continue
+
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-subscription-leak",
+                        message=f"{subscription} return value not captured - memory leak risk",
+                        file_path=file_path,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="vuex-memory-leak",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-401",
+                    )
+                )
 
     return findings
 
 
-def _find_circular_getters(cursor, store_files: set[str]) -> list[StandardFinding]:
+def _find_circular_getters(db: RuleDB, store_files: set[str]) -> list[StandardFinding]:
     """Find circular dependencies in getters."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    file_placeholders = ",".join("?" * len(store_files))
-
-    cursor.execute(
-        f"""
-        SELECT s.path, s.line, s.name
-        FROM symbols s
-        WHERE s.path IN ({file_placeholders})
-          AND s.name IS NOT NULL
-        ORDER BY s.path, s.line
-    """,
-        list(store_files),
-    )
-
-    all_symbols = cursor.fetchall()
-
-    for file, line, name in all_symbols:
-        if "getters." not in name:
-            continue
-
-        has_getter_ref = False
-        for file2, line2, name2 in all_symbols:
-            if file2 == file and line2 > line and line2 < line + 10 and "getters." in name2:
-                has_getter_ref = True
-                break
-
-        if not has_getter_ref:
-            continue
-        findings.append(
-            StandardFinding(
-                rule_name="vue-circular-getter",
-                message="Getter referencing other getters - potential circular dependency",
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category="vuex-architecture",
-                confidence=Confidence.LOW,
-                cwe_id="CWE-1047",
-            )
+    for file in store_files:
+        symbol_rows = db.query(
+            Q("symbols")
+            .select("path", "line", "name")
+            .where("path = ?", file)
+            .where("name IS NOT NULL")
+            .order_by("path, line")
         )
+
+        all_symbols = list(symbol_rows)
+
+        for file_path, line, name in all_symbols:
+            if "getters." not in name:
+                continue
+
+            has_getter_ref = False
+            for file2, line2, name2 in all_symbols:
+                if file2 == file_path and line2 > line and line2 < line + 10 and "getters." in name2:
+                    has_getter_ref = True
+                    break
+
+            if not has_getter_ref:
+                continue
+
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-circular-getter",
+                    message="Getter referencing other getters - potential circular dependency",
+                    file_path=file_path,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="vuex-architecture",
+                    confidence=Confidence.LOW,
+                    cwe_id="CWE-1047",
+                )
+            )
 
     return findings
 
 
-def _find_persistence_issues(cursor, store_files: set[str]) -> list[StandardFinding]:
+def _find_persistence_issues(db: RuleDB, store_files: set[str]) -> list[StandardFinding]:
     """Find state persistence anti-patterns."""
-    findings = []
-
-    file_placeholders = ",".join("?" * len(store_files))
-
-    cursor.execute(
-        f"""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE file IN ({file_placeholders})
-          AND (target_var IS NOT NULL OR source_expr IS NOT NULL)
-        ORDER BY file, line
-    """,
-        list(store_files),
-    )
-
-    for file, line, target, source in cursor.fetchall():
-        if not (
-            "localStorage" in (source or "")
-            or "sessionStorage" in (source or "")
-            or "localStorage" in (target or "")
-            or "sessionStorage" in (target or "")
-        ):
-            continue
-
-        if "localStorage" in (source or "") or "localStorage" in (target or ""):
-            storage = "localStorage"
-        else:
-            storage = "sessionStorage"
-
-        findings.append(
-            StandardFinding(
-                rule_name="vue-unsafe-persistence",
-                message=f"Using {storage} for state persistence - use proper plugins",
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category="vuex-persistence",
-                confidence=Confidence.HIGH,
-                cwe_id="CWE-922",
-            )
-        )
-
-    cursor.execute(
-        f"""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE file IN ({file_placeholders})
-          AND target_var IS NOT NULL
-        ORDER BY file, line
-    """,
-        list(store_files),
-    )
-
+    findings: list[StandardFinding] = []
     sensitive_patterns = frozenset(["password", "token", "secret", "apikey", "creditcard", "ssn"])
 
-    for file, line, var, _ in cursor.fetchall():
-        var_lower = var.lower()
-
-        if not var_lower.startswith("state."):
-            continue
-
-        if not any(pattern in var_lower for pattern in sensitive_patterns):
-            continue
-        findings.append(
-            StandardFinding(
-                rule_name="vue-sensitive-in-state",
-                message=f'Sensitive data "{var}" in state - security risk',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category="vuex-security",
-                confidence=Confidence.MEDIUM,
-                cwe_id="CWE-200",
-            )
+    for file in store_files:
+        assignment_rows = db.query(
+            Q("assignments")
+            .select("file", "line", "target_var", "source_expr")
+            .where("file = ?", file)
+            .order_by("file, line")
         )
+
+        for file_path, line, target, source in assignment_rows:
+            target_str = target or ""
+            source_str = source or ""
+
+            if "localStorage" in source_str or "localStorage" in target_str:
+                storage = "localStorage"
+            elif "sessionStorage" in source_str or "sessionStorage" in target_str:
+                storage = "sessionStorage"
+            else:
+                storage = None
+
+            if storage:
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-unsafe-persistence",
+                        message=f"Using {storage} for state persistence - use proper plugins",
+                        file_path=file_path,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="vuex-persistence",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-922",
+                    )
+                )
+
+            if target_str.lower().startswith("state."):
+                var_lower = target_str.lower()
+                if any(pattern in var_lower for pattern in sensitive_patterns):
+                    findings.append(
+                        StandardFinding(
+                            rule_name="vue-sensitive-in-state",
+                            message=f'Sensitive data "{target_str}" in state - security risk',
+                            file_path=file_path,
+                            line=line,
+                            severity=Severity.HIGH,
+                            category="vuex-security",
+                            confidence=Confidence.MEDIUM,
+                            cwe_id="CWE-200",
+                        )
+                    )
 
     return findings
 
 
-def _find_large_stores(cursor, store_files: set[str]) -> list[StandardFinding]:
+def _find_large_stores(db: RuleDB, store_files: set[str]) -> list[StandardFinding]:
     """Find excessively large store definitions."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    file_placeholders = ",".join("?" * len(store_files))
+    for file in store_files:
+        symbol_rows = db.query(
+            Q("symbols")
+            .select("path", "name")
+            .where("path = ?", file)
+            .where("name IS NOT NULL")
+        )
 
-    cursor.execute(
-        f"""
-        SELECT s.path, s.name
-        FROM symbols s
-        WHERE s.path IN ({file_placeholders})
-          AND s.name IS NOT NULL
-    """,
-        list(store_files),
-    )
+        state_count = 0
+        action_count = 0
+        mutation_count = 0
 
-    file_props = {}
-    for path, name in cursor.fetchall():
-        if name.startswith("state.") or name.startswith("state:"):
-            if path not in file_props:
-                file_props[path] = 0
-            file_props[path] += 1
+        for path, name in symbol_rows:
+            if name.startswith("state.") or name.startswith("state:"):
+                state_count += 1
 
-    for file, count in file_props.items():
-        if count > 50:
+            name_lower = name.lower()
+            if "action" in name_lower:
+                action_count += 1
+            if "mutation" in name_lower:
+                mutation_count += 1
+
+        if state_count > 50:
             findings.append(
                 StandardFinding(
                     rule_name="vue-large-store",
-                    message=f"Store has {count} state properties - consider modularization",
+                    message=f"Store has {state_count} state properties - consider modularization",
                     file_path=file,
                     line=1,
                     severity=Severity.MEDIUM,
@@ -556,35 +411,11 @@ def _find_large_stores(cursor, store_files: set[str]) -> list[StandardFinding]:
                 )
             )
 
-    cursor.execute(
-        f"""
-        SELECT s.path, s.name
-        FROM symbols s
-        WHERE s.path IN ({file_placeholders})
-          AND s.name IS NOT NULL
-    """,
-        list(store_files),
-    )
-
-    file_counts = {}
-    for path, name in cursor.fetchall():
-        name_lower = name.lower()
-        if "action" in name_lower or "mutation" in name_lower:
-            if path not in file_counts:
-                file_counts[path] = {"actions": 0, "mutations": 0}
-            if "action" in name_lower:
-                file_counts[path]["actions"] += 1
-            if "mutation" in name_lower:
-                file_counts[path]["mutations"] += 1
-
-    for file, counts in file_counts.items():
-        actions = counts["actions"]
-        mutations = counts["mutations"]
-        if actions > 30 or mutations > 30:
+        if action_count > 30 or mutation_count > 30:
             findings.append(
                 StandardFinding(
                     rule_name="vue-too-many-actions",
-                    message=f"Store has {actions} actions and {mutations} mutations - refactor needed",
+                    message=f"Store has {action_count} actions and {mutation_count} mutations - refactor needed",
                     file_path=file,
                     line=1,
                     severity=Severity.LOW,
@@ -597,57 +428,56 @@ def _find_large_stores(cursor, store_files: set[str]) -> list[StandardFinding]:
     return findings
 
 
-def _find_unhandled_action_errors(cursor, store_files: set[str]) -> list[StandardFinding]:
+def _find_unhandled_action_errors(db: RuleDB, store_files: set[str]) -> list[StandardFinding]:
     """Find actions without error handling."""
-    findings = []
+    findings: list[StandardFinding] = []
+    api_call_funcs = ["fetch", "axios", "post", "get", "put", "delete"]
+    error_handling_funcs = ["catch", "try", "finally"]
 
-    file_placeholders = ",".join("?" * len(store_files))
-
-    cursor.execute(
-        f"""
-        SELECT f1.file, f1.line, f1.callee_function
-        FROM function_call_args f1
-        WHERE f1.file IN ({file_placeholders})
-          AND f1.callee_function IN ('fetch', 'axios', 'post', 'get', 'put', 'delete')
-        ORDER BY f1.file, f1.line
-    """,
-        list(store_files),
-    )
-
-    for file, line, api_call in cursor.fetchall():
+    for file in store_files:
         file_lower = file.lower()
         if "action" not in file_lower and "actions." not in file_lower:
             continue
 
-        cursor.execute(
-            """
-            SELECT callee_function
-            FROM function_call_args
-            WHERE file = ?
-              AND ABS(line - ?) <= 10
-              AND callee_function IN ('catch', 'try', 'finally')
-        """,
-            (file, line),
-        )
-
-        if cursor.fetchone():
-            continue
-        findings.append(
-            StandardFinding(
-                rule_name="vue-action-no-error-handling",
-                message=f"Action with {api_call} but no error handling",
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category="vuex-error-handling",
-                confidence=Confidence.LOW,
-                cwe_id="CWE-248",
+        for api_func in api_call_funcs:
+            api_rows = db.query(
+                Q("function_call_args")
+                .select("file", "line", "callee_function")
+                .where("file = ?", file)
+                .where("callee_function = ?", api_func)
+                .order_by("file, line")
             )
-        )
+
+            for file_path, line, api_call in api_rows:
+                has_error_handling = False
+
+                for error_func in error_handling_funcs:
+                    error_rows = db.query(
+                        Q("function_call_args")
+                        .select("callee_function")
+                        .where("file = ?", file_path)
+                        .where("line BETWEEN ? AND ?", line - 10, line + 10)
+                        .where("callee_function = ?", error_func)
+                    )
+
+                    if list(error_rows):
+                        has_error_handling = True
+                        break
+
+                if has_error_handling:
+                    continue
+
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-action-no-error-handling",
+                        message=f"Action with {api_call} but no error handling",
+                        file_path=file_path,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="vuex-error-handling",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-248",
+                    )
+                )
 
     return findings
-
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point."""
-    return find_vue_state_issues(context)

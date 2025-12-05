@@ -133,6 +133,15 @@ def find_bash_dangerous_patterns(context: StandardRuleContext) -> RuleResult:
         # Check read without -r flag (backslash escape injection)
         _check_read_without_raw(db, add_finding)
 
+        # Check SSL/TLS certificate validation bypass (CWE-295)
+        _check_ssl_bypass(db, add_finding)
+
+        # Check debug mode secret leakage (CWE-532)
+        _check_debug_mode_leak(db, add_finding)
+
+        # Check SSH StrictHostKeyChecking bypass (CWE-300)
+        _check_ssh_hostkey_bypass(db, add_finding)
+
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
@@ -593,3 +602,117 @@ def _check_read_without_raw(db: RuleDB, add_finding) -> None:
                 confidence=Confidence.HIGH,
                 cwe_id="CWE-78",
             )
+
+
+def _check_ssl_bypass(db: RuleDB, add_finding) -> None:
+    """Detect SSL/TLS certificate validation bypass.
+
+    curl -k, curl --insecure, wget --no-check-certificate disable
+    certificate validation, enabling MITM attacks.
+
+    CWE-295: Improper Certificate Validation
+    """
+    INSECURE_FLAGS = frozenset(["-k", "--insecure", "--no-check-certificate"])
+
+    rows = db.query(
+        Q("bash_commands")
+        .select("file", "line", "command_name")
+        .where("command_name IN (?, ?)", "curl", "wget")
+    )
+
+    for file, line, command_name in rows:
+        arg_rows = db.query(
+            Q("bash_command_args")
+            .select("arg_value")
+            .where("file = ? AND command_line = ?", file, line)
+        )
+
+        for (arg_value,) in arg_rows:
+            if arg_value in INSECURE_FLAGS:
+                add_finding(
+                    file=file,
+                    line=line,
+                    rule_name="bash-ssl-bypass",
+                    message=f"{command_name} with {arg_value} disables certificate validation - MITM risk",
+                    severity=Severity.HIGH,
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-295",
+                )
+                break
+
+
+def _check_debug_mode_leak(db: RuleDB, add_finding) -> None:
+    """Detect debug mode that leaks secrets to stderr.
+
+    set -x (or set -o xtrace) prints all executed commands including
+    their arguments to stderr. Secrets passed as arguments are exposed.
+
+    CWE-532: Insertion of Sensitive Information into Log File
+    """
+    rows = db.query(
+        Q("bash_set_options")
+        .select("file", "line", "options")
+    )
+
+    for file, line, options in rows:
+        opts = options or ""
+        # Check for -x flag or xtrace option
+        if "-x" in opts or "xtrace" in opts:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="bash-debug-mode-leak",
+                message="set -x exposes all commands and arguments to stderr (secrets leak)",
+                severity=Severity.HIGH,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-532",
+            )
+
+
+def _check_ssh_hostkey_bypass(db: RuleDB, add_finding) -> None:
+    """Detect SSH host key checking bypass.
+
+    ssh -o StrictHostKeyChecking=no disables host key verification,
+    enabling man-in-the-middle attacks on SSH connections.
+
+    CWE-300: Channel Accessible by Non-Endpoint
+    """
+    rows = db.query(
+        Q("bash_commands")
+        .select("file", "line", "command_name")
+        .where("command_name IN (?, ?, ?)", "ssh", "scp", "sftp")
+    )
+
+    for file, line, command_name in rows:
+        arg_rows = db.query(
+            Q("bash_command_args")
+            .select("arg_value")
+            .where("file = ? AND command_line = ?", file, line)
+        )
+
+        for (arg_value,) in arg_rows:
+            arg = arg_value or ""
+            # Check for StrictHostKeyChecking=no or StrictHostKeyChecking=accept-new
+            if "StrictHostKeyChecking=no" in arg or "StrictHostKeyChecking=accept-new" in arg:
+                add_finding(
+                    file=file,
+                    line=line,
+                    rule_name="bash-ssh-hostkey-bypass",
+                    message=f"{command_name} with StrictHostKeyChecking disabled - MITM risk",
+                    severity=Severity.HIGH,
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-300",
+                )
+                break
+            # Also check for UserKnownHostsFile=/dev/null pattern
+            if "UserKnownHostsFile=/dev/null" in arg:
+                add_finding(
+                    file=file,
+                    line=line,
+                    rule_name="bash-ssh-hostkey-bypass",
+                    message=f"{command_name} with UserKnownHostsFile=/dev/null - host verification disabled",
+                    severity=Severity.HIGH,
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-300",
+                )
+                break

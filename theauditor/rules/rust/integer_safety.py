@@ -65,15 +65,11 @@ def _check_high_risk_functions(db: RuleDB) -> list[StandardFinding]:
     """Flag functions with financial/crypto names that don't use checked math."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file_path, line, name, visibility
-        FROM rust_functions
-        WHERE visibility = 'pub'
-        """,
-        [],
+    rows = db.query(
+        Q("rust_functions")
+        .select("file_path", "line", "name", "visibility")
+        .where("visibility = ?", "pub")
     )
-    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, fn_name, _ = row
@@ -110,15 +106,11 @@ def _check_macro_casts(db: RuleDB) -> list[StandardFinding]:
     """
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file_path, line, macro_name, containing_function, args_sample
-        FROM rust_macro_invocations
-        WHERE args_sample IS NOT NULL
-        """,
-        [],
+    rows = db.query(
+        Q("rust_macro_invocations")
+        .select("file_path", "line", "macro_name", "containing_function", "args_sample")
+        .where("args_sample IS NOT NULL")
     )
-    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, macro_name, containing_fn, args = row
@@ -154,16 +146,11 @@ def _check_wrapping_usage(db: RuleDB) -> list[StandardFinding]:
     """Check for explicit wrapping arithmetic usage (informational)."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file_path, line, import_path
-        FROM rust_use_statements
-        WHERE import_path LIKE '%Wrapping%'
-           OR import_path LIKE '%Saturating%'
-        """,
-        [],
+    rows = db.query(
+        Q("rust_use_statements")
+        .select("file_path", "line", "import_path")
+        .where("import_path LIKE ? OR import_path LIKE ?", "%Wrapping%", "%Saturating%")
     )
-    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, import_path = row

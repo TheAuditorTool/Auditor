@@ -128,35 +128,42 @@ def _find_artifact_poisoning(db: RuleDB) -> list[StandardFinding]:
 
 def _get_upload_jobs(db: RuleDB, workflow_path: str) -> list[tuple[str, str]]:
     """Get jobs that upload artifacts in this workflow."""
-    # JOIN github_jobs with github_steps to find upload-artifact usage
-    sql, params = Q.raw(
-        """
-        SELECT DISTINCT j.job_id, j.job_key
-        FROM github_jobs j
-        JOIN github_steps s ON j.job_id = s.job_id
-        WHERE j.workflow_path = ?
-        AND s.uses_action = 'actions/upload-artifact'
-        """,
-        [workflow_path],
+    rows = db.query(
+        Q("github_jobs")
+        .select("job_id", "job_key")
+        .join("github_steps")  # Auto-detects FK: github_steps.job_id -> github_jobs.job_id
+        .where("workflow_path = ?", workflow_path)
+        .where("github_steps.uses_action = ?", "actions/upload-artifact")
     )
-    rows = db.execute(sql, params)
-    return [(row[0], row[1]) for row in rows]
+    # Deduplicate in Python - Q doesn't support DISTINCT
+    seen: set[tuple[str, str]] = set()
+    result: list[tuple[str, str]] = []
+    for row in rows:
+        key = (row[0], row[1])
+        if key not in seen:
+            seen.add(key)
+            result.append(key)
+    return result
 
 
 def _get_download_jobs(db: RuleDB, workflow_path: str) -> list[tuple[str, str, str]]:
     """Get jobs that download artifacts in this workflow."""
-    sql, params = Q.raw(
-        """
-        SELECT DISTINCT j.job_id, j.job_key, j.permissions
-        FROM github_jobs j
-        JOIN github_steps s ON j.job_id = s.job_id
-        WHERE j.workflow_path = ?
-        AND s.uses_action = 'actions/download-artifact'
-        """,
-        [workflow_path],
+    rows = db.query(
+        Q("github_jobs")
+        .select("job_id", "job_key", "permissions")
+        .join("github_steps")  # Auto-detects FK: github_steps.job_id -> github_jobs.job_id
+        .where("workflow_path = ?", workflow_path)
+        .where("github_steps.uses_action = ?", "actions/download-artifact")
     )
-    rows = db.execute(sql, params)
-    return [(row[0], row[1], row[2]) for row in rows]
+    # Deduplicate in Python - Q doesn't support DISTINCT
+    seen: set[tuple[str, str, str]] = set()
+    result: list[tuple[str, str, str]] = []
+    for row in rows:
+        key = (row[0], row[1], row[2] or "")
+        if key not in seen:
+            seen.add(key)
+            result.append((row[0], row[1], row[2]))
+    return result
 
 
 def _check_job_dependency(db: RuleDB, download_job_id: str, upload_job_ids: list[str]) -> bool:

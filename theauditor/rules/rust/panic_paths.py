@@ -9,8 +9,6 @@ Detects panic-inducing patterns that cause availability issues:
 CWE-248: Uncaught Exception - panics terminate the program/thread.
 """
 
-import sqlite3
-
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
@@ -20,7 +18,7 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 from theauditor.rules.fidelity import RuleDB
-from theauditor.utils.logging import logger
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="rust_panic_paths",
@@ -55,22 +53,13 @@ def _is_test_file(file_path: str) -> bool:
 def _check_panic_macros(db: RuleDB) -> list[StandardFinding]:
     """Flag panic!() macro invocations outside tests."""
     findings = []
-    placeholders = ",".join("?" * len(PANIC_MACROS))
+    placeholders = ", ".join(["?"] * len(PANIC_MACROS))
 
-    try:
-        rows = db.execute(
-            f"""
-            SELECT file_path, line, macro_name, containing_function, args_sample
-            FROM rust_macro_invocations
-            WHERE macro_name IN ({placeholders})
-            """,
-            list(PANIC_MACROS),
-        )
-    except sqlite3.OperationalError as e:
-        if "no such table" in str(e):
-            logger.debug("rust_macro_invocations table not found - no Rust indexed")
-            return findings
-        raise
+    rows = db.query(
+        Q("rust_macro_invocations")
+        .select("file_path", "line", "macro_name", "containing_function", "args_sample")
+        .where(f"macro_name IN ({placeholders})", *PANIC_MACROS)
+    )
 
     for row in rows:
         file_path, line, macro_name, containing_fn, args = row
@@ -111,21 +100,13 @@ def _check_panic_macros(db: RuleDB) -> list[StandardFinding]:
 def _check_assertion_macros(db: RuleDB) -> list[StandardFinding]:
     """Flag assert macros that may panic in production."""
     findings = []
-    placeholders = ",".join("?" * len(ASSERT_MACROS))
+    placeholders = ", ".join(["?"] * len(ASSERT_MACROS))
 
-    try:
-        rows = db.execute(
-            f"""
-            SELECT file_path, line, macro_name, containing_function, args_sample
-            FROM rust_macro_invocations
-            WHERE macro_name IN ({placeholders})
-            """,
-            list(ASSERT_MACROS),
-        )
-    except sqlite3.OperationalError as e:
-        if "no such table" in str(e):
-            return findings  # Already logged in _check_panic_macros
-        raise
+    rows = db.query(
+        Q("rust_macro_invocations")
+        .select("file_path", "line", "macro_name", "containing_function", "args_sample")
+        .where(f"macro_name IN ({placeholders})", *ASSERT_MACROS)
+    )
 
     for row in rows:
         file_path, line, macro_name, containing_fn, _ = row
@@ -167,19 +148,16 @@ def _check_unwraps(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    rows = db.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE file LIKE '%.rs'
-          AND (
-              callee_function = 'unwrap'
-              OR callee_function = 'expect'
-              OR callee_function LIKE '%::unwrap'
-              OR callee_function LIKE '%::expect'
-              OR callee_function = 'unwrap_or_default'
-          )
-        ORDER BY file, line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("file LIKE ?", "%.rs")
+        .where(
+            "callee_function = ? OR callee_function = ? OR callee_function LIKE ? OR callee_function LIKE ? OR callee_function = ?",
+            "unwrap", "expect", "%::unwrap", "%::expect", "unwrap_or_default"
+        )
+        .order_by("file, line")
+    )
 
     for row in rows:
         file_path, line, callee, args = row

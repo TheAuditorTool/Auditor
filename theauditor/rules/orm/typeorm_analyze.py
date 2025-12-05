@@ -11,6 +11,8 @@ Detects security vulnerabilities and performance anti-patterns in TypeORM usage:
 - Missing indexes on common lookup fields
 - Complex multi-join queries without pagination
 - EntityManager overuse vs Repository pattern
+- Mass assignment via req.body passed to save/insert (CWE-915)
+- Exposed sensitive columns without select:false (CWE-200)
 
 Tables Used:
 - function_call_args: TypeORM method calls and arguments
@@ -20,10 +22,12 @@ Tables Used:
 
 CWE References:
 - CWE-89: SQL Injection
+- CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
 - CWE-400: Uncontrolled Resource Consumption
 - CWE-662: Improper Synchronization
 - CWE-665: Improper Initialization
 - CWE-672: Operation on Resource After Expiration
+- CWE-915: Improperly Controlled Modification of Dynamically-Determined Object Attributes
 
 Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
 """
@@ -149,6 +153,59 @@ TYPEORM_SOURCES = frozenset([
     "having",
 ])
 
+# Unsafe input sources for mass assignment detection
+UNSAFE_INPUT_SOURCES = frozenset([
+    "req.body",
+    "request.body",
+    "body",
+    "params",
+    "req.params",
+    "request.params",
+    "req.query",
+    "request.query",
+    "input",
+    "data",
+])
+
+# Methods vulnerable to mass assignment
+MASS_ASSIGNMENT_METHODS = frozenset([
+    "save",
+    "insert",
+    "update",
+    "create",
+    "upsert",
+])
+
+# Sensitive field names that should have select:false
+SENSITIVE_FIELD_NAMES = frozenset([
+    "password",
+    "passwordHash",
+    "password_hash",
+    "hashedPassword",
+    "hashed_password",
+    "secret",
+    "secretKey",
+    "secret_key",
+    "apiKey",
+    "api_key",
+    "apiSecret",
+    "api_secret",
+    "token",
+    "accessToken",
+    "access_token",
+    "refreshToken",
+    "refresh_token",
+    "privateKey",
+    "private_key",
+    "encryptionKey",
+    "encryption_key",
+    "salt",
+    "pin",
+    "ssn",
+    "creditCard",
+    "credit_card",
+])
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect TypeORM security vulnerabilities and performance anti-patterns.
@@ -175,6 +232,8 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         _check_missing_indexes(db, findings)
         _check_complex_joins(db, findings)
         _check_entity_manager_overuse(db, findings)
+        _check_mass_assignment(db, findings)
+        _check_exposed_secrets(db, findings)
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -673,6 +732,160 @@ def _check_entity_manager_overuse(db: RuleDB, findings: list[StandardFinding]) -
                 cwe_id="CWE-1061",
             )
         )
+
+
+def _check_mass_assignment(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect mass assignment vulnerabilities - passing req.body directly to save/insert.
+
+    Attackers can overwrite internal fields (e.g., isAdmin, role, balance) if raw input
+    is passed directly to TypeORM write methods without whitelisting.
+    """
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        if not func or not args:
+            continue
+
+        is_write_method = any(f".{method}" in func for method in MASS_ASSIGNMENT_METHODS)
+        if not is_write_method:
+            continue
+
+        args_str = str(args)
+        args_lower = args_str.lower()
+
+        has_unsafe_input = any(source.lower() in args_lower for source in UNSAFE_INPUT_SOURCES)
+
+        if not has_unsafe_input:
+            continue
+
+        has_spread = "..." in args_str
+        has_direct_pass = any(
+            f"({source}" in args_str or f", {source}" in args_str or f"[{source}" in args_str
+            for source in UNSAFE_INPUT_SOURCES
+        )
+
+        if has_direct_pass or has_spread:
+            findings.append(
+                StandardFinding(
+                    rule_name="typeorm-mass-assignment",
+                    message=f"Mass assignment vulnerability: {func} receives raw user input directly",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="orm",
+                    snippet=f"{func}({args_str[:50]}...)" if len(args_str) > 50 else f"{func}({args_str})",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-915",
+                    additional_info={
+                        "remediation": "Whitelist allowed fields explicitly: repository.save({ field1: body.field1, field2: body.field2 })",
+                    },
+                )
+            )
+
+
+def _check_exposed_secrets(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect sensitive columns without select:false in TypeORM entities.
+
+    By default, TypeORM returns all columns in queries. Sensitive fields like
+    password, secret, token should use @Column({ select: false }) to prevent
+    accidental exposure in API responses.
+    """
+    file_rows = db.query(
+        Q("files")
+        .select("path")
+    )
+
+    entity_files: list[str] = []
+    for (path,) in file_rows:
+        if not path:
+            continue
+        if not (path.endswith(".entity.ts") or path.endswith(".entity.js")):
+            continue
+        path_lower = path.lower()
+        if "test" in path_lower or "spec" in path_lower or "mock" in path_lower:
+            continue
+        entity_files.append(path)
+
+    reported_fields: set[str] = set()
+
+    for entity_file in entity_files:
+        symbol_rows = db.query(
+            Q("symbols")
+            .select("line", "name")
+            .where("path = ?", entity_file)
+            .where("type IN ('property', 'field', 'member')")
+        )
+
+        for field_line, field_name in symbol_rows:
+            if not field_name:
+                continue
+
+            field_name_lower = field_name.lower()
+            matching_sensitive = None
+            for sensitive_field in SENSITIVE_FIELD_NAMES:
+                if sensitive_field.lower() == field_name_lower or sensitive_field.lower() in field_name_lower:
+                    matching_sensitive = sensitive_field
+                    break
+
+            if not matching_sensitive:
+                continue
+
+            report_key = f"{entity_file}:{field_name}"
+            if report_key in reported_fields:
+                continue
+
+            nearby_call_rows = db.query(
+                Q("function_call_args")
+                .select("argument_expr")
+                .where("file = ?", entity_file)
+                .where("ABS(line - ?) <= 3", field_line)
+            )
+
+            has_select_false = False
+            for (args,) in nearby_call_rows:
+                if not args:
+                    continue
+                args_lower = str(args).lower().replace(" ", "")
+                if "select:false" in args_lower or "select :false" in str(args).lower():
+                    has_select_false = True
+                    break
+
+            assign_rows = db.query(
+                Q("assignments")
+                .select("source_expr")
+                .where("file = ?", entity_file)
+                .where("ABS(line - ?) <= 3", field_line)
+            )
+
+            for (expr,) in assign_rows:
+                if not expr:
+                    continue
+                expr_lower = str(expr).lower().replace(" ", "")
+                if "select:false" in expr_lower:
+                    has_select_false = True
+                    break
+
+            if not has_select_false:
+                reported_fields.add(report_key)
+                findings.append(
+                    StandardFinding(
+                        rule_name="typeorm-exposed-secret",
+                        message=f"Sensitive field '{field_name}' missing select:false - will be returned in queries by default",
+                        file_path=entity_file,
+                        line=field_line,
+                        severity=Severity.HIGH,
+                        category="orm",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-200",
+                        additional_info={
+                            "remediation": f"Add @Column({{ select: false }}) to '{field_name}' to prevent accidental exposure in API responses.",
+                        },
+                    )
+                )
 
 
 def register_taint_patterns(taint_registry) -> None:

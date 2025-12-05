@@ -93,6 +93,29 @@ class Q:
         self._params.extend(params)
         return self
 
+    def where_in(self, column: str, values: list) -> Q:
+        """Add WHERE column IN (...) condition with safe parameter binding.
+
+        Args:
+            column: Column name to match against
+            values: List of values for IN clause
+
+        Returns:
+            Self for chaining
+
+        Example:
+            Q("function_call_args").where_in("callee_function", ["eval", "exec"])
+            # Generates: WHERE callee_function IN (?, ?)
+        """
+        if not values:
+            # Empty list matches nothing - use impossible condition
+            self._parts["where"].append("1 = 0")
+            return self
+        placeholders = ", ".join("?" for _ in values)
+        self._parts["where"].append(f"{column} IN ({placeholders})")
+        self._params.extend(values)
+        return self
+
     def join(
         self,
         table: str,

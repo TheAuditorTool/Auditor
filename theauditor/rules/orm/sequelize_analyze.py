@@ -10,6 +10,9 @@ Detects security vulnerabilities and performance anti-patterns in Sequelize ORM 
 - Excessive eager loading (too many includes)
 - Hard deletes bypassing soft delete (paranoid:false, force:true)
 - Raw SQL queries bypassing ORM protections
+- Mass assignment via req.body passed to create/update (CWE-915)
+- raw:true bypassing model hooks (CWE-213)
+- Insecure logging configuration exposing sensitive data (CWE-532)
 
 Tables Used:
 - function_call_args: Sequelize method calls and arguments
@@ -18,10 +21,13 @@ Tables Used:
 
 CWE References:
 - CWE-89: SQL Injection
+- CWE-213: Exposure of Sensitive Information Through Debug Information
 - CWE-362: Race Condition
 - CWE-400: Uncontrolled Resource Consumption
 - CWE-471: Modification of Assumed-Immutable Data
+- CWE-532: Insertion of Sensitive Information into Log File
 - CWE-662: Improper Synchronization
+- CWE-915: Improperly Controlled Modification of Dynamically-Determined Object Attributes
 
 Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
 """
@@ -158,6 +164,38 @@ SEQUELIZE_SOURCES = frozenset([
     "having",
 ])
 
+# Unsafe input sources for mass assignment detection
+UNSAFE_INPUT_SOURCES = frozenset([
+    "req.body",
+    "request.body",
+    "body",
+    "params",
+    "req.params",
+    "request.params",
+    "req.query",
+    "request.query",
+    "input",
+    "data",
+])
+
+# Methods vulnerable to mass assignment
+MASS_ASSIGNMENT_METHODS = frozenset([
+    "create",
+    "bulkCreate",
+    "update",
+    "bulkUpdate",
+    "upsert",
+])
+
+# Find methods that can bypass hooks with raw:true
+RAW_BYPASS_METHODS = frozenset([
+    "findAll",
+    "findOne",
+    "findByPk",
+    "findAndCountAll",
+    "findOrCreate",
+])
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Sequelize ORM security vulnerabilities and performance anti-patterns.
@@ -183,6 +221,9 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         _check_excessive_eager_loading(db, findings)
         _check_hard_deletes(db, findings)
         _check_raw_sql_bypass(db, findings)
+        _check_mass_assignment(db, findings)
+        _check_raw_true_bypass(db, findings)
+        _check_insecure_logging(db, findings)
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -641,6 +682,204 @@ def _check_raw_sql_bypass(db: RuleDB, findings: list[StandardFinding]) -> None:
                 cwe_id="CWE-213",
             )
         )
+
+
+def _check_mass_assignment(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect mass assignment vulnerabilities - passing req.body directly to create/update.
+
+    Attackers can overwrite internal fields (e.g., isAdmin, balance) if raw input
+    is passed directly to ORM write methods without whitelisting.
+    """
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        if not func or not args:
+            continue
+
+        is_write_method = any(f".{method}" in func for method in MASS_ASSIGNMENT_METHODS)
+        if not is_write_method:
+            continue
+
+        args_str = str(args)
+        args_lower = args_str.lower()
+
+        has_unsafe_input = any(source.lower() in args_lower for source in UNSAFE_INPUT_SOURCES)
+
+        if not has_unsafe_input:
+            continue
+
+        has_spread = "..." in args_str
+        has_direct_pass = any(
+            f"({source}" in args_str or f", {source}" in args_str or f"[{source}" in args_str
+            for source in UNSAFE_INPUT_SOURCES
+        )
+
+        if has_direct_pass or has_spread:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-mass-assignment",
+                    message=f"Mass assignment vulnerability: {func} receives raw user input directly",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="orm",
+                    snippet=f"{func}({args_str[:50]}...)" if len(args_str) > 50 else f"{func}({args_str})",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-915",
+                    additional_info={
+                        "remediation": "Whitelist allowed fields explicitly: Model.create({ field1: req.body.field1, field2: req.body.field2 })",
+                    },
+                )
+            )
+
+
+def _check_raw_true_bypass(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect raw:true which bypasses model hooks (encryption, hashing, soft deletes).
+
+    Using { raw: true } improves performance but skips afterFind hooks and
+    returns plain objects instead of model instances, bypassing security logic.
+    """
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        if not func or not args:
+            continue
+
+        is_find_method = any(f".{method}" in func for method in RAW_BYPASS_METHODS)
+        if not is_find_method:
+            continue
+
+        args_str = str(args)
+        args_lower = args_str.lower().replace(" ", "")
+
+        if "raw:true" in args_lower or "raw :true" in args_str.lower():
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-raw-bypass",
+                    message=f"Hook bypass: {func} with raw:true skips model hooks (encryption, soft delete logic)",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="orm",
+                    snippet=f"{func}({{ raw: true, ... }})",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-213",
+                    additional_info={
+                        "remediation": "Remove raw:true unless you explicitly need plain objects and understand hooks are bypassed.",
+                    },
+                )
+            )
+
+
+def _check_insecure_logging(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect insecure Sequelize logging configuration exposing SQL/credentials.
+
+    Sequelize's logging: console.log or logging: true dumps SQL queries
+    to stdout, potentially exposing PII, passwords, and session tokens in logs.
+    """
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, var, expr in rows:
+        if not expr:
+            continue
+
+        expr_lower = expr.lower().replace(" ", "")
+        var_lower = (var or "").lower()
+
+        is_sequelize_config = (
+            "sequelize" in var_lower
+            or "db" in var_lower
+            or "database" in var_lower
+            or "connection" in var_lower
+            or "sequelize" in expr_lower
+        )
+
+        if not is_sequelize_config:
+            continue
+
+        if "logging" not in expr_lower:
+            continue
+
+        has_console_log = "console.log" in expr or "console.warn" in expr or "console.info" in expr
+        has_logging_true = "logging:true" in expr_lower or "logging: true" in expr.lower()
+
+        has_env_check = any(
+            pattern in expr_lower
+            for pattern in ["process.env", "node_env", "production", "development"]
+        )
+
+        if (has_console_log or has_logging_true) and not has_env_check:
+            severity = Severity.HIGH if has_console_log else Severity.MEDIUM
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-insecure-logging",
+                    message=f"Insecure logging: Sequelize config logs SQL to console without environment check",
+                    file_path=file,
+                    line=line,
+                    severity=severity,
+                    category="orm",
+                    snippet=f"logging: {'console.log' if has_console_log else 'true'}",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-532",
+                    additional_info={
+                        "remediation": "Use logging: process.env.NODE_ENV !== 'production' ? console.log : false",
+                    },
+                )
+            )
+
+    func_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function LIKE ?", "%Sequelize%")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in func_rows:
+        if not args:
+            continue
+
+        args_lower = str(args).lower().replace(" ", "")
+
+        if "logging" not in args_lower:
+            continue
+
+        has_console_log = "console.log" in str(args) or "console.warn" in str(args)
+        has_logging_true = "logging:true" in args_lower
+
+        has_env_check = any(
+            pattern in args_lower
+            for pattern in ["process.env", "node_env", "production"]
+        )
+
+        if (has_console_log or has_logging_true) and not has_env_check:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-insecure-logging",
+                    message=f"Insecure logging in Sequelize constructor: SQL queries logged without environment check",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="orm",
+                    snippet=f"new Sequelize({{ logging: ... }})",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-532",
+                    additional_info={
+                        "remediation": "Use logging: process.env.NODE_ENV !== 'production' ? console.log : false",
+                    },
+                )
+            )
 
 
 def register_taint_patterns(taint_registry) -> None:

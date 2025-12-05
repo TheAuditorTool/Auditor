@@ -47,6 +47,12 @@ VALIDATION_DIRECTIVES = frozenset([
 # Argument types that require validation (user-provided strings/objects)
 REQUIRES_VALIDATION_TYPES = ("String", "Input", "ID")
 
+# Validation libraries that indicate code-level validation
+VALIDATION_LIBRARIES = frozenset([
+    "zod", "yup", "joi", "ajv", "class-validator", "io-ts",
+    "pydantic", "marshmallow", "cerberus", "voluptuous", "colander",
+])
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Check for missing input validation on mutation arguments.
@@ -65,6 +71,16 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
+
+        # Build set of files that import validation libraries (these have code-level validation)
+        files_with_validation = set()
+        import_rows = db.query(
+            Q("import_statements")
+            .select("file", "module_name")
+        )
+        for file_path, module_name in import_rows:
+            if module_name and any(lib in module_name.lower() for lib in VALIDATION_LIBRARIES):
+                files_with_validation.add(file_path)
 
         # Get all mutation field arguments that are nullable and accept user input
         rows = db.query(
@@ -106,24 +122,41 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                 for (directive_name,) in directive_rows
             )
 
-            if not has_validation:
-                findings.append(
-                    StandardFinding(
-                        rule_name=METADATA.name,
-                        message=f"Mutation argument '{field_name}.{arg_name}' ({arg_type}) lacks validation directives",
-                        file_path=schema_path,
-                        line=line or 0,
-                        severity=Severity.MEDIUM,
-                        category=METADATA.category,
-                        confidence=Confidence.MEDIUM,
-                        cwe_id="CWE-20",
-                        additional_info={
-                            "mutation": field_name,
-                            "argument": arg_name,
-                            "type": arg_type,
-                            "recommendation": "Add @constraint, @validate, @length, or @pattern directive to enforce input validation",
-                        },
-                    )
+            if has_validation:
+                continue
+
+            # Check if resolver file imports validation libraries (code-level validation)
+            resolver_rows = db.query(
+                Q("graphql_resolver_mappings")
+                .select("resolver_path")
+                .where("field_id = ?", field_id)
+            )
+            resolver_has_validation = any(
+                resolver_path in files_with_validation
+                for (resolver_path,) in resolver_rows
+                if resolver_path
+            )
+
+            if resolver_has_validation:
+                continue
+
+            findings.append(
+                StandardFinding(
+                    rule_name=METADATA.name,
+                    message=f"Mutation argument '{field_name}.{arg_name}' ({arg_type}) lacks validation directives",
+                    file_path=schema_path,
+                    line=line or 0,
+                    severity=Severity.MEDIUM,
+                    category=METADATA.category,
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-20",
+                    additional_info={
+                        "mutation": field_name,
+                        "argument": arg_name,
+                        "type": arg_type,
+                        "recommendation": "Add @constraint, @validate, @length, or @pattern directive to enforce input validation",
+                    },
                 )
+            )
 
         return RuleResult(findings=findings, manifest=db.get_manifest())

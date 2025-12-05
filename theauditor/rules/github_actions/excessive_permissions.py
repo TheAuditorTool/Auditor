@@ -188,7 +188,8 @@ def _check_dangerous_permissions(permissions: dict) -> list[str]:
 
 # Permissions categorized by severity
 CRITICAL_PERMISSIONS = frozenset(["write-all", "contents", "actions", "id-token", "security-events"])
-HIGH_PERMISSIONS = frozenset(["packages", "deployments", "statuses", "checks"])
+# pull-requests: write allows auto-merge/approval, can bypass branch protection
+HIGH_PERMISSIONS = frozenset(["packages", "deployments", "statuses", "checks", "pull-requests"])
 
 
 def _build_permission_finding(

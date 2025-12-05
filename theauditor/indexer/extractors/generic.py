@@ -115,6 +115,23 @@ class GenericExtractor(BaseExtractor):
                 entrypoint = service_config.get("entrypoint")
                 depends_on = service_config.get("depends_on")
                 healthcheck = service_config.get("healthcheck")
+                read_only = service_config.get("read_only", False)
+
+                # Extract resource limits (v2 style: mem_limit, cpus)
+                mem_limit = service_config.get("mem_limit")
+                cpus = service_config.get("cpus")
+
+                # Extract resource limits (v3 style: deploy.resources.limits)
+                deploy = service_config.get("deploy", {})
+                if isinstance(deploy, dict):
+                    resources = deploy.get("resources", {})
+                    if isinstance(resources, dict):
+                        limits = resources.get("limits", {})
+                        if isinstance(limits, dict):
+                            if not mem_limit:
+                                mem_limit = limits.get("memory")
+                            if not cpus:
+                                cpus = limits.get("cpus")
 
                 if isinstance(command, str):
                     command = [command]
@@ -137,6 +154,9 @@ class GenericExtractor(BaseExtractor):
                     "command": command,
                     "entrypoint": entrypoint,
                     "healthcheck": healthcheck,
+                    "mem_limit": str(mem_limit) if mem_limit else None,
+                    "cpus": str(cpus) if cpus else None,
+                    "read_only": bool(read_only),
                 })
 
                 # Add port mappings

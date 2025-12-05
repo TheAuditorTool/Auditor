@@ -6,6 +6,7 @@ Detects S3 buckets with public access in CDK code:
 - Weak block_public_access settings (not BLOCK_ALL)
 - Website hosting enabled (inherently public)
 - Public ACL settings (PUBLIC_READ, PUBLIC_READ_WRITE)
+- Method calls that grant public access (grant_public_access, grantPublicAccess)
 
 CWE-732: Incorrect Permission Assignment for Critical Resource
 """
@@ -62,6 +63,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_weak_block_public_access(db))
         findings.extend(_check_website_hosting(db))
         findings.extend(_check_public_acl(db))
+        findings.extend(_check_public_access_methods(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -359,5 +361,61 @@ def _check_public_acl(db: RuleDB) -> list[StandardFinding]:
                     )
                 )
                 break
+
+    return findings
+
+
+def _check_public_access_methods(db: RuleDB) -> list[StandardFinding]:
+    """Detect method calls that grant public access after bucket initialization.
+
+    Catches patterns like:
+        bucket = s3.Bucket(self, "MyBucket", block_public_access=BLOCK_ALL)
+        bucket.grant_public_access()  # Bypasses constructor security!
+
+    This is a critical blind spot - constructor properties alone are insufficient.
+    """
+    findings: list[StandardFinding] = []
+
+    public_grant_methods = (
+        "grant_public_access",
+        "grantPublicAccess",
+        "grant_read",
+        "grantRead",
+    )
+
+    for method_name in public_grant_methods:
+        rows = db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("callee_function LIKE ?", f"%.{method_name}")
+        )
+
+        for file_path, line, callee, args in rows:
+            is_public_grant = method_name in ("grant_public_access", "grantPublicAccess")
+
+            if not is_public_grant:
+                args_lower = (args or "").lower()
+                if "anyone" not in args_lower and "*" not in args_lower:
+                    continue
+
+            severity = Severity.CRITICAL if is_public_grant else Severity.HIGH
+
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-s3-public-grant-method",
+                    message=f"S3 bucket method call '{callee}' grants public access",
+                    severity=severity,
+                    confidence="high",
+                    file_path=file_path,
+                    line=line,
+                    snippet=f"{callee}({args or ''})" if args else f"{callee}()",
+                    category="public_exposure",
+                    cwe_id="CWE-732",
+                    additional_info={
+                        "method": callee,
+                        "remediation": "Remove public grant method call. Use bucket policies with specific principals instead of granting public access.",
+                    },
+                )
+            )
 
     return findings

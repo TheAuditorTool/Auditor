@@ -41,6 +41,7 @@ class DockerExtractor(BaseExtractor):
             "docker_images": [],
             "dockerfile_ports": [],
             "dockerfile_env_vars": [],
+            "dockerfile_instructions": [],
         }
 
         try:
@@ -58,6 +59,15 @@ class DockerExtractor(BaseExtractor):
             for instruction in parser.structure:
                 inst_type = instruction.get("instruction", "").upper()
                 inst_value = instruction.get("value", "")
+                inst_line = instruction.get("startline", 1)
+
+                # Capture all instructions for security analysis
+                result["dockerfile_instructions"].append({
+                    "file_path": file_path_str,
+                    "line": inst_line,
+                    "instruction": inst_type,
+                    "arguments": inst_value,
+                })
 
                 if inst_type == "ENV":
                     if "=" in inst_value:

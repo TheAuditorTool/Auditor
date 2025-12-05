@@ -7,10 +7,13 @@ Detects security misconfigurations in Dockerfiles:
 - Weak passwords (CWE-521)
 - Vulnerable/EOL base images (CWE-937)
 - Unpinned image versions (CWE-494)
-- Missing HEALTHCHECK (CWE-1272)
+- Missing HEALTHCHECK (CWE-1188)
 - Sensitive ports exposed (CWE-749)
 - Docker API ports exposed (CWE-749) - CRITICAL
 - Secret patterns (GitHub PAT, AWS keys, JWT, Stripe, etc.)
+- ADD instruction usage (CWE-829) - prefer COPY
+- Sudo usage in RUN (CWE-269)
+- Missing WORKDIR (CWE-427)
 """
 
 import math
@@ -155,10 +158,12 @@ def find_docker_issues(context: StandardRuleContext) -> RuleResult:
         images = _load_images(db)
         env_vars_by_file = _load_env_vars(db)
         ports_by_file = _load_ports(db)
+        instructions_by_file = _load_instructions(db)
 
         for file_path, image_data in images.items():
             env_vars = env_vars_by_file.get(file_path, {"env": {}, "args": {}})
             ports = ports_by_file.get(file_path, [])
+            instructions = instructions_by_file.get(file_path, [])
 
             # Check: Root user
             findings.extend(_check_root_user(file_path, image_data))
@@ -174,6 +179,15 @@ def find_docker_issues(context: StandardRuleContext) -> RuleResult:
 
             # Check: Sensitive ports
             findings.extend(_check_sensitive_ports(file_path, ports))
+
+            # Check: ADD usage (prefer COPY)
+            findings.extend(_check_add_usage(file_path, instructions))
+
+            # Check: sudo in RUN
+            findings.extend(_check_sudo_usage(file_path, instructions))
+
+            # Check: Missing WORKDIR
+            findings.extend(_check_missing_workdir(file_path, instructions))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -236,6 +250,28 @@ def _load_ports(db: RuleDB) -> dict[str, list[dict]]:
         })
 
     return ports_by_file
+
+
+def _load_instructions(db: RuleDB) -> dict[str, list[dict]]:
+    """Load all Dockerfile instructions grouped by file_path."""
+    instructions_by_file = {}
+
+    rows = db.query(
+        Q("dockerfile_instructions")
+        .select("file_path", "line", "instruction", "arguments")
+        .order_by("file_path, line")
+    )
+
+    for file_path, line, instruction, arguments in rows:
+        if file_path not in instructions_by_file:
+            instructions_by_file[file_path] = []
+        instructions_by_file[file_path].append({
+            "line": line,
+            "instruction": instruction,
+            "arguments": arguments or "",
+        })
+
+    return instructions_by_file
 
 
 def _check_root_user(file_path: str, image_data: dict) -> list[StandardFinding]:
@@ -470,7 +506,7 @@ def _check_missing_healthcheck(file_path: str, image_data: dict) -> list[Standar
                 severity=Severity.MEDIUM,
                 category="deployment",
                 snippet="# No HEALTHCHECK instruction found",
-                cwe_id="CWE-1272",
+                cwe_id="CWE-1188",
             )
         )
 
@@ -506,6 +542,77 @@ def _check_sensitive_ports(file_path: str, ports: list[dict]) -> list[StandardFi
                     cwe_id="CWE-749",
                 )
             )
+
+    return findings
+
+
+def _check_add_usage(file_path: str, instructions: list[dict]) -> list[StandardFinding]:
+    """Detect ADD instruction usage - COPY is preferred."""
+    findings = []
+
+    for instr in instructions:
+        if instr["instruction"] == "ADD":
+            args = instr["arguments"]
+            # ADD is acceptable for extracting local tarballs, but flag anyway as warning
+            findings.append(
+                StandardFinding(
+                    rule_name="dockerfile-use-copy",
+                    message="Use COPY instead of ADD - ADD can extract archives and fetch URLs unexpectedly",
+                    file_path=file_path,
+                    line=instr["line"],
+                    severity=Severity.LOW,
+                    category="deployment",
+                    snippet=f"ADD {args[:60]}..." if len(args) > 60 else f"ADD {args}",
+                    cwe_id="CWE-829",
+                )
+            )
+
+    return findings
+
+
+def _check_sudo_usage(file_path: str, instructions: list[dict]) -> list[StandardFinding]:
+    """Detect sudo usage in RUN instructions."""
+    findings = []
+
+    for instr in instructions:
+        if instr["instruction"] == "RUN":
+            args = instr["arguments"]
+            # Check for sudo command
+            if "sudo " in args or args.startswith("sudo"):
+                findings.append(
+                    StandardFinding(
+                        rule_name="dockerfile-sudo-usage",
+                        message="Avoid sudo in Dockerfiles - implies privilege escalation or incorrect base image",
+                        file_path=file_path,
+                        line=instr["line"],
+                        severity=Severity.MEDIUM,
+                        category="deployment",
+                        snippet=f"RUN {args[:60]}..." if len(args) > 60 else f"RUN {args}",
+                        cwe_id="CWE-269",
+                    )
+                )
+
+    return findings
+
+
+def _check_missing_workdir(file_path: str, instructions: list[dict]) -> list[StandardFinding]:
+    """Detect missing WORKDIR instruction."""
+    findings = []
+
+    has_workdir = any(instr["instruction"] == "WORKDIR" for instr in instructions)
+    if not has_workdir and instructions:
+        findings.append(
+            StandardFinding(
+                rule_name="dockerfile-missing-workdir",
+                message="No WORKDIR instruction - container runs in root directory",
+                file_path=file_path,
+                line=1,
+                severity=Severity.LOW,
+                category="deployment",
+                snippet="# No WORKDIR instruction found",
+                cwe_id="CWE-427",
+            )
+        )
 
     return findings
 

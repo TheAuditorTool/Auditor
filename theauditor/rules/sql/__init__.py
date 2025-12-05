@@ -1,7 +1,17 @@
-"""SQL security and safety rule definitions - Phase 2 Clean Implementation."""
+"""SQL security and safety rule definitions."""
 
-from .multi_tenant_analyze import find_multi_tenant_issues
-from .sql_injection_analyze import find_sql_injection_issues
-from .sql_safety_analyze import find_sql_safety_issues
+from .multi_tenant_analyze import METADATA as multi_tenant_metadata
+from .multi_tenant_analyze import analyze as multi_tenant_analyze
+from .sql_injection_analyze import METADATA as sql_injection_metadata
+from .sql_injection_analyze import analyze as sql_injection_analyze
+from .sql_safety_analyze import METADATA as sql_safety_metadata
+from .sql_safety_analyze import analyze as sql_safety_analyze
 
-__all__ = ["find_sql_injection_issues", "find_sql_safety_issues", "find_multi_tenant_issues"]
+__all__ = [
+    "sql_injection_analyze",
+    "sql_injection_metadata",
+    "multi_tenant_analyze",
+    "multi_tenant_metadata",
+    "sql_safety_analyze",
+    "sql_safety_metadata",
+]

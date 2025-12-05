@@ -59,6 +59,29 @@ DOCKERFILE_ENV_VARS = TableSchema(
     ],
 )
 
+
+DOCKERFILE_INSTRUCTIONS = TableSchema(
+    name="dockerfile_instructions",
+    columns=[
+        Column("id", "INTEGER", nullable=False, primary_key=True),
+        Column("file_path", "TEXT", nullable=False),
+        Column("line", "INTEGER", nullable=False),
+        Column("instruction", "TEXT", nullable=False),
+        Column("arguments", "TEXT"),
+    ],
+    indexes=[
+        ("idx_dockerfile_instructions_file_path", ["file_path"]),
+        ("idx_dockerfile_instructions_instruction", ["instruction"]),
+    ],
+    foreign_keys=[
+        ForeignKey(
+            local_columns=["file_path"],
+            foreign_table="docker_images",
+            foreign_columns=["file_path"],
+        )
+    ],
+)
+
 COMPOSE_SERVICES = TableSchema(
     name="compose_services",
     columns=[
@@ -73,6 +96,9 @@ COMPOSE_SERVICES = TableSchema(
         Column("command", "TEXT"),
         Column("entrypoint", "TEXT"),
         Column("healthcheck", "TEXT"),
+        Column("mem_limit", "TEXT"),
+        Column("cpus", "TEXT"),
+        Column("read_only", "BOOLEAN", default="0"),
     ],
     primary_key=["file_path", "service_name"],
     indexes=[
@@ -635,6 +661,7 @@ INFRASTRUCTURE_TABLES: dict[str, TableSchema] = {
     "docker_images": DOCKER_IMAGES,
     "dockerfile_ports": DOCKERFILE_PORTS,
     "dockerfile_env_vars": DOCKERFILE_ENV_VARS,
+    "dockerfile_instructions": DOCKERFILE_INSTRUCTIONS,
     "compose_services": COMPOSE_SERVICES,
     "compose_service_ports": COMPOSE_SERVICE_PORTS,
     "compose_service_volumes": COMPOSE_SERVICE_VOLUMES,

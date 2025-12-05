@@ -451,13 +451,13 @@ class ReactStateAnalyzer:
                     self.findings.append(
                         StandardFinding(
                             rule_name="react-unbatched-updates",
-                            message=f"Consecutive state updates ({setter1}, {setter2}) - React 18 batches automatically, but consider useReducer for related state",
+                            message=f"Consecutive state updates ({setter1}, {setter2}) - React 18+ batches automatically, consider useReducer for related state",
                             file_path=file,
                             line=line1,
-                            severity=Severity.LOW,
+                            severity=Severity.INFO,
                             category="react-state",
                             snippet=f"{setter1}(); {setter2}()",
-                            confidence=Confidence.MEDIUM,
+                            confidence=Confidence.LOW,
                             cwe_id="CWE-1050",
                         )
                     )

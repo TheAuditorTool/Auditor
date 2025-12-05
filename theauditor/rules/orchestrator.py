@@ -90,7 +90,7 @@ class RulesOrchestrator:
                     module = importlib.import_module(module_name)
 
                     for name, obj in inspect.getmembers(module, inspect.isfunction):
-                        if name.startswith("find_") and obj.__module__ == module_name:
+                        if (name.startswith("find_") or name == "analyze") and obj.__module__ == module_name:
                             rule_info = self._analyze_rule(name, obj, module, module_name, category)
                             rules_by_category[category].append(rule_info)
 

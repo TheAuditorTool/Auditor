@@ -78,6 +78,12 @@ SESSION_CONFIGS = frozenset([
     "SESSION_COOKIE_SAMESITE",
 ])
 
+# Session lifetime configuration
+SESSION_LIFETIME_CONFIGS = frozenset([
+    "PERMANENT_SESSION_LIFETIME",
+    "SESSION_PERMANENT",
+])
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Flask security misconfigurations.
@@ -196,9 +202,13 @@ def _check_markup_xss(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_debug_mode(db: RuleDB) -> list[StandardFinding]:
-    """Check for debug mode enabled."""
+    """Check for debug mode enabled.
+
+    Detects both app.run(debug=True) and app.config['DEBUG'] = True patterns.
+    """
     findings = []
 
+    # Check app.run(debug=True)
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -212,13 +222,66 @@ def _check_debug_mode(db: RuleDB) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="flask-debug-mode-enabled",
-                    message="Flask debug mode enabled - exposes interactive debugger",
+                    message="Flask debug mode enabled via app.run(debug=True)",
                     file_path=file,
                     line=line,
                     severity=Severity.CRITICAL,
                     category="security",
                     confidence=Confidence.HIGH,
                     snippet=args[:100] if len(args) > 100 else args,
+                    cwe_id="CWE-489",
+                )
+            )
+
+    # Check app.config['DEBUG'] = True or app.config.update(DEBUG=True)
+    config_rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, target_var, source_expr in config_rows:
+        target_var = target_var or ""
+        source_expr = source_expr or ""
+
+        # Check for app.config['DEBUG'] = True
+        if "DEBUG" in target_var and source_expr.strip() == "True":
+            findings.append(
+                StandardFinding(
+                    rule_name="flask-debug-config-enabled",
+                    message="Flask debug mode enabled via config assignment",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="security",
+                    confidence=Confidence.HIGH,
+                    snippet=f"{target_var} = {source_expr}",
+                    cwe_id="CWE-489",
+                )
+            )
+
+    # Check app.config.update(DEBUG=True) or similar function calls
+    update_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function LIKE ? AND argument_expr LIKE ?",
+               "%config%", "%DEBUG%")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, args in update_rows:
+        args = args or ""
+        if "True" in args and "DEBUG" in args:
+            findings.append(
+                StandardFinding(
+                    rule_name="flask-debug-config-update",
+                    message="Flask debug mode enabled via config.update()",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="security",
+                    confidence=Confidence.HIGH,
+                    snippet=f"{callee}({args[:60]}...)" if len(args) > 60 else f"{callee}({args})",
                     cwe_id="CWE-489",
                 )
             )
@@ -621,9 +684,15 @@ def _check_csrf_protection(db: RuleDB, flask_files: list[str]) -> list[StandardF
 
 
 def _check_session_security(db: RuleDB) -> list[StandardFinding]:
-    """Check for insecure session cookie configuration."""
+    """Check for insecure session cookie configuration.
+
+    Checks for:
+    1. Session cookie flags set to False (Secure, HttpOnly, SameSite)
+    2. Missing PERMANENT_SESSION_LIFETIME (infinite sessions)
+    """
     findings = []
 
+    # Check for session flags set to False
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -650,6 +719,59 @@ def _check_session_security(db: RuleDB) -> list[StandardFinding]:
                     cwe_id="CWE-614",
                 )
             )
+
+    # Check for missing PERMANENT_SESSION_LIFETIME when sessions are used
+    # First, check if sessions are being used
+    session_usage_rows = db.query(
+        Q("function_call_args")
+        .select("file")
+        .where("argument_expr LIKE ? OR callee_function LIKE ?",
+               "%session%", "%session%")
+        .limit(1)
+    )
+
+    if list(session_usage_rows):
+        # Sessions are used - check if PERMANENT_SESSION_LIFETIME is configured
+        lifetime_rows = db.query(
+            Q("assignments")
+            .select("target_var")
+            .where("target_var LIKE ?", "%PERMANENT_SESSION_LIFETIME%")
+            .limit(1)
+        )
+
+        if not list(lifetime_rows):
+            # Also check function calls for config.update()
+            config_rows = db.query(
+                Q("function_call_args")
+                .select("argument_expr")
+                .where("argument_expr LIKE ?", "%PERMANENT_SESSION_LIFETIME%")
+                .limit(1)
+            )
+
+            if not list(config_rows):
+                # Get first Flask file for reporting
+                flask_rows = db.query(
+                    Q("refs")
+                    .select("src")
+                    .where("value IN (?, ?)", "flask", "Flask")
+                    .limit(1)
+                )
+                flask_files = list(flask_rows)
+
+                if flask_files:
+                    findings.append(
+                        StandardFinding(
+                            rule_name="flask-missing-session-lifetime",
+                            message="Sessions used without PERMANENT_SESSION_LIFETIME - sessions may never expire",
+                            file_path=flask_files[0][0],
+                            line=1,
+                            severity=Severity.MEDIUM,
+                            category="session",
+                            confidence=Confidence.MEDIUM,
+                            snippet="Set PERMANENT_SESSION_LIFETIME to limit session duration",
+                            cwe_id="CWE-613",
+                        )
+                    )
 
     return findings
 

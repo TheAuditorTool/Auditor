@@ -1,17 +1,29 @@
 """Vue.js-specific rule detectors for TheAuditor."""
 
-from .component_analyze import find_vue_component_issues
-from .hooks_analyze import find_vue_hooks_issues
-from .lifecycle_analyze import find_vue_lifecycle_issues
-from .reactivity_analyze import find_vue_reactivity_issues
-from .render_analyze import find_vue_render_issues
-from .state_analyze import find_vue_state_issues
+from .component_analyze import analyze as component_analyze
+from .component_analyze import METADATA as component_metadata
+from .hooks_analyze import analyze as hooks_analyze
+from .hooks_analyze import METADATA as hooks_metadata
+from .lifecycle_analyze import analyze as lifecycle_analyze
+from .lifecycle_analyze import METADATA as lifecycle_metadata
+from .reactivity_analyze import analyze as reactivity_analyze
+from .reactivity_analyze import METADATA as reactivity_metadata
+from .render_analyze import analyze as render_analyze
+from .render_analyze import METADATA as render_metadata
+from .state_analyze import analyze as state_analyze
+from .state_analyze import METADATA as state_metadata
 
 __all__ = [
-    "find_vue_reactivity_issues",
-    "find_vue_component_issues",
-    "find_vue_hooks_issues",
-    "find_vue_render_issues",
-    "find_vue_state_issues",
-    "find_vue_lifecycle_issues",
+    "component_analyze",
+    "component_metadata",
+    "hooks_analyze",
+    "hooks_metadata",
+    "lifecycle_analyze",
+    "lifecycle_metadata",
+    "reactivity_analyze",
+    "reactivity_metadata",
+    "render_analyze",
+    "render_metadata",
+    "state_analyze",
+    "state_metadata",
 ]

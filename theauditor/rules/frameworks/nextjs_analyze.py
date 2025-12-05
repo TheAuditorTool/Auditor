@@ -229,15 +229,27 @@ def _check_ssr_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for SSR with potentially unvalidated user input."""
     findings = []
 
-    # Find files using SSR functions
+    # Find files using SSR functions via two approaches:
+    # 1. Function definitions (symbols table) - where SSR functions are defined
+    # 2. Function calls (function_call_args) - where SSR functions call/are called
     ssr_files = set()
     for func in SSR_FUNCTIONS:
-        rows = db.query(
+        # Approach 1: Find SSR function definitions in symbols table
+        symbol_rows = db.query(
+            Q("symbols")
+            .select("path")
+            .where("name = ? AND type = ?", func, "function")
+        )
+        for (file,) in symbol_rows:
+            ssr_files.add(file)
+
+        # Approach 2: Find files where SSR functions are involved in calls
+        call_rows = db.query(
             Q("function_call_args")
             .select("file")
             .where("callee_function = ? OR caller_function = ?", func, func)
         )
-        for (file,) in rows:
+        for (file,) in call_rows:
             ssr_files.add(file)
 
     for file in ssr_files:
@@ -420,17 +432,19 @@ def _check_dangerous_html(db: RuleDB) -> list[StandardFinding]:
     """Check for dangerouslySetInnerHTML without sanitization."""
     findings = []
 
-    # Find dangerouslySetInnerHTML usage
+    # Find dangerouslySetInnerHTML usage - filter in SQL for efficiency
+    # Check both callee_function and argument_expr (JSX compiles props to argument_expr)
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function = ? OR argument_expr LIKE ?",
+               "dangerouslySetInnerHTML", "%dangerouslySetInnerHTML%")
         .order_by("file, line")
     )
 
     dangerous_calls = []
     for file, line, callee, html_content in rows:
-        if callee == "dangerouslySetInnerHTML" or (html_content and "dangerouslySetInnerHTML" in html_content):
-            dangerous_calls.append((file, line, html_content))
+        dangerous_calls.append((file, line, html_content))
 
     for file, line, html_content in dangerous_calls:
         # Check for sanitization within ±10 lines

@@ -37,6 +37,37 @@ METADATA = RuleMetadata(
         "dist/",
         "build/",
         ".git/",
+        # Build/bundler config files use implicit/global/dev imports
+        "**/webpack.config.*",
+        "**/rollup.config.*",
+        "**/vite.config.*",
+        "**/esbuild.config.*",
+        "**/parcel.config.*",
+        "**/turbopack.config.*",
+        # Linter/formatter config files
+        "**/.eslintrc.*",
+        "**/eslint.config.*",
+        "**/.prettierrc.*",
+        "**/prettier.config.*",
+        "**/.stylelintrc.*",
+        # Test config files
+        "**/jest.config.*",
+        "**/vitest.config.*",
+        "**/karma.conf.*",
+        "**/cypress.config.*",
+        "**/playwright.config.*",
+        # Transpiler config files
+        "**/babel.config.*",
+        "**/.babelrc*",
+        "**/tsconfig.*",
+        # CSS/styling config files
+        "**/tailwind.config.*",
+        "**/postcss.config.*",
+        # Other common config files
+        "**/next.config.*",
+        "**/nuxt.config.*",
+        "**/svelte.config.*",
+        "**/astro.config.*",
     ],
     execution_scope="database",
     primary_table="import_styles",

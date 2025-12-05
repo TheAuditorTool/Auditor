@@ -293,12 +293,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
 def _detect_concurrency_usage(db: RuleDB) -> bool:
     """Check if project uses threading/async/multiprocessing."""
-    placeholders = ", ".join("?" for _ in CONCURRENCY_IMPORTS)
-    sql, params = Q.raw(
-        f"SELECT COUNT(*) FROM refs WHERE value IN ({placeholders})",
-        list(CONCURRENCY_IMPORTS),
+    rows = db.query(
+        Q("refs")
+        .select("COUNT(*)")
+        .where_in("value", list(CONCURRENCY_IMPORTS))
     )
-    rows = db.execute(sql, params)
     count = rows[0][0] if rows else 0
     return count > 0
 
@@ -399,18 +398,14 @@ def _check_async_without_await(db: RuleDB, add_finding) -> None:
 def _check_parallel_writes(db: RuleDB, add_finding) -> None:
     """Find parallel operations with write operations - data corruption risk."""
     # Check asyncio.gather with writes
-    async_placeholders = ", ".join("?" for _ in ASYNC_METHODS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({async_placeholders})
-        ORDER BY file, line
-        """,
-        list(ASYNC_METHODS),
+    async_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "argument_expr")
+        .where_in("callee_function", list(ASYNC_METHODS))
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in async_rows:
         file, line, args = row[0], row[1], row[2]
         if not args:
             continue
@@ -817,19 +812,11 @@ def _check_backoff_pattern(db: RuleDB, file: str, start: int, end: int) -> bool:
 
 def _check_sleep_in_range(db: RuleDB, file: str, start: int, end: int) -> bool:
     """Check if there's sleep in line range."""
-    sleep_placeholders = ", ".join("?" for _ in SLEEP_METHODS)
-
-    sql, params = Q.raw(
-        f"""
-        SELECT COUNT(*) FROM function_call_args
-        WHERE file = ?
-          AND line >= ?
-          AND line <= ?
-          AND callee_function IN ({sleep_placeholders})
-        LIMIT 1
-        """,
-        [file, start, end] + list(SLEEP_METHODS),
+    rows = db.query(
+        Q("function_call_args")
+        .select("COUNT(*)")
+        .where("file = ? AND line >= ? AND line <= ?", file, start, end)
+        .where_in("callee_function", list(SLEEP_METHODS))
+        .limit(1)
     )
-
-    rows = db.execute(sql, params)
     return rows[0][0] > 0 if rows else False

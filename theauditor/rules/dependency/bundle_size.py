@@ -60,6 +60,7 @@ LARGE_PACKAGES = frozenset([
     # Animation
     "framer-motion",
     "gsap",
+    "lottie-web",
     # RxJS
     "rxjs",
     # Icon libraries
@@ -72,8 +73,22 @@ LARGE_PACKAGES = frozenset([
     "aws-sdk",
     # Three.js
     "three",
-    # PDF
+    # PDF generation/viewing
     "pdfjs-dist",
+    "jspdf",
+    "pdf-lib",
+    # Spreadsheet processing
+    "xlsx",
+    "sheetjs",
+    "exceljs",
+    # Crypto
+    "crypto-js",
+    # Syntax highlighting
+    "highlight.js",
+    "prismjs",
+    # Maps
+    "mapbox-gl",
+    "leaflet",
     # Legacy
     "jquery",
     "bootstrap",
@@ -108,6 +123,7 @@ PACKAGE_METADATA: dict[str, tuple[str, float, Severity]] = {
     # Animation
     "framer-motion": ("Consider lighter alternatives for simple animations", 0.4, Severity.LOW),
     "gsap": ("gsap/[module]", 0.3, Severity.LOW),
+    "lottie-web": ("@dotlottie/player-component or lazy load", 0.3, Severity.MEDIUM),
     # RxJS
     "rxjs": ("rxjs/operators or specific imports from rxjs", 0.5, Severity.LOW),
     # Icons
@@ -120,8 +136,22 @@ PACKAGE_METADATA: dict[str, tuple[str, float, Severity]] = {
     "aws-sdk": ("@aws-sdk/client-[service] (v3 modular SDK)", 3.0, Severity.HIGH),
     # 3D
     "three": ("three/examples/jsm/[module]", 1.5, Severity.MEDIUM),
-    # PDF
+    # PDF generation/viewing
     "pdfjs-dist": ("pdfjs-dist/build/pdf.min or lazy loading", 2.0, Severity.MEDIUM),
+    "jspdf": ("Server-side PDF generation or lazy loading", 2.5, Severity.HIGH),
+    "pdf-lib": ("Server-side PDF generation or lazy loading", 1.5, Severity.MEDIUM),
+    # Spreadsheet processing
+    "xlsx": ("Server-side processing or exceljs with streaming", 4.0, Severity.HIGH),
+    "sheetjs": ("Server-side processing or exceljs with streaming", 4.0, Severity.HIGH),
+    "exceljs": ("Server-side processing or streaming mode", 2.0, Severity.MEDIUM),
+    # Crypto
+    "crypto-js": ("window.crypto.subtle (Web Crypto API) or specific modules", 1.2, Severity.MEDIUM),
+    # Syntax highlighting
+    "highlight.js": ("highlight.js/lib/core + specific languages", 1.0, Severity.MEDIUM),
+    "prismjs": ("prismjs/components/[language] for specific languages", 0.5, Severity.LOW),
+    # Maps
+    "mapbox-gl": ("Lazy load or consider lighter alternatives for simple maps", 2.5, Severity.HIGH),
+    "leaflet": ("Lazy load map component", 0.4, Severity.LOW),
     # Legacy
     "jquery": ("Native DOM APIs or targeted polyfills", 0.3, Severity.MEDIUM),
     "bootstrap": ("Bootstrap CSS only + native JS or react-bootstrap", 0.4, Severity.LOW),
@@ -162,8 +192,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         if not _is_frontend_project(db):
             return RuleResult(findings=findings, manifest=db.get_manifest())
 
+        # Detect meta-frameworks (Next.js/Nuxt) for Server Component caveat
+        is_meta_framework = _is_meta_framework_project(db)
+
         # Query for full imports of large packages
-        findings.extend(_check_large_package_imports(db))
+        findings.extend(_check_large_package_imports(db, is_meta_framework))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -182,7 +215,20 @@ def _is_frontend_project(db: RuleDB) -> bool:
     return len(rows) > 0
 
 
-def _check_large_package_imports(db: RuleDB) -> list[StandardFinding]:
+def _is_meta_framework_project(db: RuleDB) -> bool:
+    """Check if project uses Next.js, Nuxt, or similar meta-frameworks with Server Components."""
+    placeholders = ",".join(["?" for _ in META_FRAMEWORKS])
+
+    rows = db.query(
+        Q("package_configs")
+        .select("package_name")
+        .where(f"package_name IN ({placeholders})", *META_FRAMEWORKS)
+    )
+
+    return len(rows) > 0
+
+
+def _check_large_package_imports(db: RuleDB, is_meta_framework: bool = False) -> list[StandardFinding]:
     """Check for full imports of large packages."""
     findings = []
     placeholders = ",".join(["?" for _ in LARGE_PACKAGES])
@@ -223,6 +269,10 @@ def _check_large_package_imports(db: RuleDB) -> list[StandardFinding]:
             message = f"Dynamic import of full '{package}' (~{size_mb}MB) package. Consider: {alternative}"
         else:
             message = f"Full import of '{package}' (~{size_mb}MB) may bloat bundle. Consider: {alternative}"
+
+        # Add caveat for meta-frameworks (Next.js/Nuxt) where Server Components don't affect client bundle
+        if is_meta_framework:
+            message += " (Note: If used in a Server Component, this may be a false positive)"
 
         findings.append(
             StandardFinding(

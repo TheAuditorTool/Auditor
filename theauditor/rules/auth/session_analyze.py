@@ -6,6 +6,7 @@ Detects session/cookie vulnerabilities including:
 - Missing or weak SameSite attribute (CWE-352)
 - Session fixation vulnerabilities (CWE-384)
 - Missing session expiration/timeout (CWE-613)
+- Missing __Host-/__Secure- cookie prefixes (CWE-1275)
 """
 
 from theauditor.rules.base import (
@@ -66,6 +67,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_missing_samesite(db))
         findings.extend(_check_session_fixation(db))
         findings.extend(_check_missing_timeout(db))
+        findings.extend(_check_missing_cookie_prefix(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -356,6 +358,98 @@ def _check_missing_timeout(db: RuleDB) -> list[StandardFinding]:
                     cwe_id="CWE-613",
                     confidence=Confidence.LOW,
                     snippet=f"{func}(...)",
+                )
+            )
+
+    return findings
+
+
+def _check_missing_cookie_prefix(db: RuleDB) -> list[StandardFinding]:
+    """Detect session cookies without __Host- or __Secure- prefix.
+
+    Cookie prefixes provide browser-enforced security guarantees that attributes alone cannot:
+    - __Host-: Must have Secure, Path=/, no Domain (prevents subdomain attacks)
+    - __Secure-: Must have Secure (weaker but useful for subdomains)
+
+    These prefixes prevent subdomain hijacking and man-in-the-middle cookie injection.
+    """
+    findings = []
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr", "argument_index")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args, arg_idx in rows:
+        func_lower = func.lower()
+
+        # Check for cookie-setting functions
+        is_cookie_function = any(keyword in func_lower for keyword in COOKIE_FUNCTION_KEYWORDS)
+        if not is_cookie_function:
+            continue
+
+        args_lower = (args or "").lower()
+
+        # Check if this is a session/auth cookie (worth protecting with prefixes)
+        is_sensitive_cookie = any(keyword in args_lower for keyword in SESSION_COOKIE_KEYWORDS)
+        if not is_sensitive_cookie:
+            continue
+
+        # First argument (index 0) is typically the cookie name
+        if arg_idx == 0:
+            cookie_name = args.strip('"').strip("'")
+
+            # Check for __Host- prefix (strongest protection)
+            if not cookie_name.startswith("__Host-") and not cookie_name.startswith("__Secure-"):
+                findings.append(
+                    StandardFinding(
+                        rule_name="session-missing-cookie-prefix",
+                        message=f'Session cookie "{cookie_name}" should use __Host- or __Secure- prefix. __Host- prefix enforces Secure, Path=/, and no Domain (prevents subdomain attacks).',
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="authentication",
+                        cwe_id="CWE-1275",
+                        confidence=Confidence.LOW,
+                        snippet=f'{func}("{cookie_name}", ...)',
+                    )
+                )
+
+    # Also check for cookie names in assignments (string literals)
+    assign_rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, target_var, source_expr in assign_rows:
+        target_lower = target_var.lower()
+        source_lower = (source_expr or "").lower()
+
+        # Check for cookie name assignments
+        if "cookie" not in target_lower or "name" not in target_lower:
+            continue
+
+        # Check if it's a session-related cookie
+        if not any(keyword in source_lower for keyword in SESSION_COOKIE_KEYWORDS):
+            continue
+
+        # Extract the cookie name from string literal
+        cookie_name = source_expr.strip().strip('"').strip("'")
+
+        if not cookie_name.startswith("__Host-") and not cookie_name.startswith("__Secure-"):
+            findings.append(
+                StandardFinding(
+                    rule_name="session-cookie-name-no-prefix",
+                    message=f'Cookie name "{cookie_name}" should use __Host- prefix for session cookies. Browser enforces Secure, Path=/, and blocks subdomain access.',
+                    file_path=file,
+                    line=line,
+                    severity=Severity.LOW,
+                    category="authentication",
+                    cwe_id="CWE-1275",
+                    confidence=Confidence.LOW,
+                    snippet=f'{target_var} = "{cookie_name}"',
                 )
             )
 

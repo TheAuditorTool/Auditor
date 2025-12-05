@@ -1,8 +1,27 @@
-"""XSS Detection - Framework-Aware Golden Standard Implementation."""
+"""XSS Detection - Framework-Aware Golden Standard Implementation.
 
-import sqlite3
+Detects cross-site scripting vulnerabilities with framework awareness:
+- Response methods (res.send, res.write)
+- DOM manipulation (innerHTML, document.write)
+- Dangerous functions (eval, Function)
+- React dangerouslySetInnerHTML
+- Vue v-html directive
+- Angular security bypass methods
+- jQuery DOM methods
+- Template injection
+- javascript: protocol URLs
+- PostMessage XSS
+"""
 
-from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+from theauditor.rules.base import (
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 from theauditor.rules.xss.constants import (
     ANGULAR_AUTO_ESCAPED,
     COMMON_INPUT_SOURCES,
@@ -19,66 +38,71 @@ METADATA = RuleMetadata(
     category="xss",
     target_extensions=XSS_TARGET_EXTENSIONS,
     exclude_patterns=["test/", "__tests__/", "node_modules/", "*.test.js", "*.spec.js"],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="function_call_args",
+)
 
 
-def find_xss_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Main XSS detection with framework awareness."""
-    findings = []
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Main XSS detection with framework awareness.
 
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    with sqlite3.connect(context.db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-
-        # Load safe sinks directly from database
+    with RuleDB(context.db_path, METADATA.name) as db:
         dynamic_safe_sinks: set[str] = set()
-        cursor.execute("""
+        sql, params = Q.raw("""
             SELECT DISTINCT sink_pattern
             FROM framework_safe_sinks
             WHERE is_safe = 1
         """)
-        for row in cursor.fetchall():
-            pattern = row["sink_pattern"]
+        for (pattern,) in db.execute(sql, params):
             if pattern:
                 dynamic_safe_sinks.add(pattern)
 
-        detected_frameworks = _get_detected_frameworks(cursor)
-        static_safe_sinks = _build_framework_safe_sinks(cursor, detected_frameworks)
+        detected_frameworks = _get_detected_frameworks(db)
+        static_safe_sinks = _build_framework_safe_sinks(db, detected_frameworks)
 
         combined_safe_sinks = frozenset(set(static_safe_sinks) | dynamic_safe_sinks)
 
-        findings.extend(_check_response_methods(cursor, combined_safe_sinks, detected_frameworks))
-        findings.extend(_check_dom_manipulation(cursor, combined_safe_sinks))
-        findings.extend(_check_dangerous_functions(cursor))
-        findings.extend(_check_react_dangerouslysetinnerhtml(cursor))
-        findings.extend(_check_vue_vhtml_directive(cursor))
-        findings.extend(_check_angular_bypass(cursor))
-        findings.extend(_check_jquery_methods(cursor))
-        findings.extend(_check_template_injection(cursor, detected_frameworks))
-        findings.extend(_check_direct_user_input_to_sink(cursor, combined_safe_sinks))
-        findings.extend(_check_url_javascript_protocol(cursor))
-        findings.extend(_check_postmessage_xss(cursor))
+        findings: list[StandardFinding] = []
 
-    return findings
+        findings.extend(_check_response_methods(db, combined_safe_sinks, detected_frameworks))
+        findings.extend(_check_dom_manipulation(db, combined_safe_sinks))
+        findings.extend(_check_dangerous_functions(db))
+        findings.extend(_check_react_dangerouslysetinnerhtml(db))
+        findings.extend(_check_vue_vhtml_directive(db))
+        findings.extend(_check_angular_bypass(db))
+        findings.extend(_check_jquery_methods(db))
+        findings.extend(_check_template_injection(db, detected_frameworks))
+        findings.extend(_check_direct_user_input_to_sink(db, combined_safe_sinks))
+        findings.extend(_check_url_javascript_protocol(db))
+        findings.extend(_check_postmessage_xss(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _get_detected_frameworks(cursor: sqlite3.Cursor) -> set[str]:
+def _get_detected_frameworks(db: RuleDB) -> set[str]:
     """Query frameworks table for detected frameworks."""
-    cursor.execute("SELECT DISTINCT name FROM frameworks WHERE is_primary = 1")
-    frameworks = {row["name"].lower() for row in cursor.fetchall() if row["name"]}
+    frameworks: set[str] = set()
 
-    cursor.execute("SELECT DISTINCT name FROM frameworks WHERE is_primary = 0")
-    frameworks.update(row["name"].lower() for row in cursor.fetchall() if row["name"])
+    sql, params = Q.raw("SELECT DISTINCT name FROM frameworks")
+    for (name,) in db.execute(sql, params):
+        if name:
+            frameworks.add(name.lower())
 
     return frameworks
 
 
-def _build_framework_safe_sinks(cursor: sqlite3.Cursor, frameworks: set[str]) -> frozenset[str]:
+def _build_framework_safe_sinks(db: RuleDB, frameworks: set[str]) -> frozenset[str]:
     """Build comprehensive safe sink list based on detected frameworks."""
-    safe_sinks = set()
+    safe_sinks: set[str] = set()
 
     if "express" in frameworks or "express.js" in frameworks:
         safe_sinks.update(EXPRESS_SAFE_SINKS)
@@ -92,42 +116,36 @@ def _build_framework_safe_sinks(cursor: sqlite3.Cursor, frameworks: set[str]) ->
     if "angular" in frameworks:
         safe_sinks.update(s for s in ANGULAR_AUTO_ESCAPED if "bypass" not in s.lower())
 
-    cursor.execute("""
+    sql, params = Q.raw("""
         SELECT DISTINCT fss.sink_pattern
         FROM framework_safe_sinks fss
         JOIN frameworks f ON fss.framework_id = f.id
         WHERE fss.is_safe = 1
     """)
 
-    for row in cursor.fetchall():
-        if row["sink_pattern"]:
-            safe_sinks.add(row["sink_pattern"])
+    for (sink_pattern,) in db.execute(sql, params):
+        if sink_pattern:
+            safe_sinks.add(sink_pattern)
 
     return frozenset(safe_sinks)
 
 
 def _check_response_methods(
-    cursor: sqlite3.Cursor, safe_sinks: frozenset[str], frameworks: set[str]
+    db: RuleDB, safe_sinks: frozenset[str], frameworks: set[str]
 ) -> list[StandardFinding]:
     """Check response methods with framework awareness."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 0
-          AND f.callee_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 0")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for row in cursor.fetchall():
-        file, line, func, args = (
-            row["file"],
-            row["line"],
-            row["callee_function"],
-            row["argument_expr"],
-        )
-
+    for file, line, func, args in rows:
+        args_safe = args or ""
         is_response_method = func.startswith("res.") or func.startswith("response.")
         if not is_response_method:
             continue
@@ -138,9 +156,9 @@ def _check_response_methods(
         if ("express" in frameworks or "express.js" in frameworks) and func in EXPRESS_SAFE_SINKS:
             continue
 
-        has_user_input = any(source in (args or "") for source in COMMON_INPUT_SOURCES)
+        has_user_input = any(source in args_safe for source in COMMON_INPUT_SOURCES)
 
-        if has_user_input and not is_sanitized(args or ""):
+        if has_user_input and not is_sanitized(args_safe):
             if func in ["res.send", "res.write", "response.send", "response.write"]:
                 severity = Severity.HIGH
             elif func in ["res.end", "response.end"]:
@@ -148,6 +166,7 @@ def _check_response_methods(
             else:
                 severity = Severity.LOW
 
+            snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
             findings.append(
                 StandardFinding(
                     rule_name="xss-response-unsafe",
@@ -156,9 +175,7 @@ def _check_response_methods(
                     line=line,
                     severity=severity,
                     category="xss",
-                    snippet=f"{func}({args[:60]}...)"
-                    if len(args or "") > 60
-                    else f"{func}({args})",
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
@@ -166,27 +183,25 @@ def _check_response_methods(
     return findings
 
 
-def _check_dom_manipulation(
-    cursor: sqlite3.Cursor, safe_sinks: frozenset[str]
-) -> list[StandardFinding]:
+def _check_dom_manipulation(db: RuleDB, safe_sinks: frozenset[str]) -> list[StandardFinding]:
     """Check dangerous DOM manipulation with user input."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.target_var IS NOT NULL
-          AND a.source_expr IS NOT NULL
-          AND (a.target_var LIKE '%.innerHTML' OR a.target_var LIKE '%.outerHTML')
-        ORDER BY a.file, a.line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .where("(target_var LIKE '%.innerHTML' OR target_var LIKE '%.outerHTML')")
+        .order_by("file, line")
+    )
 
-    for row in cursor.fetchall():
-        file, line, target, source = row["file"], row["line"], row["target_var"], row["source_expr"]
+    for file, line, target, source in rows:
+        source_safe = source or ""
+        has_user_input = any(src in source_safe for src in COMMON_INPUT_SOURCES)
 
-        has_user_input = any(src in (source or "") for src in COMMON_INPUT_SOURCES)
-
-        if has_user_input and not is_sanitized(source or ""):
+        if has_user_input and not is_sanitized(source_safe):
+            snippet = f"{target} = {source_safe[:60]}..." if len(source_safe) > 60 else f"{target} = {source_safe}"
             findings.append(
                 StandardFinding(
                     rule_name="xss-dom-innerhtml",
@@ -195,25 +210,25 @@ def _check_dom_manipulation(
                     line=line,
                     severity=Severity.CRITICAL,
                     category="xss",
-                    snippet=f"{target} = {source[:60]}..."
-                    if len(source or "") > 60
-                    else f"{target} = {source}",
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IN ('document.write', 'document.writeln')
-          AND f.argument_index = 0
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN (?, ?)", "document.write", "document.writeln")
+        .where("argument_index = 0")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
-        has_user_input = any(src in (args or "") for src in COMMON_INPUT_SOURCES)
+    for file, line, func, args in rows:
+        args_safe = args or ""
+        has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
-        if has_user_input and not is_sanitized(args or ""):
+        if has_user_input and not is_sanitized(args_safe):
+            snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
             findings.append(
                 StandardFinding(
                     rule_name="xss-document-write",
@@ -222,28 +237,28 @@ def _check_dom_manipulation(
                     line=line,
                     severity=Severity.CRITICAL,
                     category="xss",
-                    snippet=f"{func}({args[:60]}...)"
-                    if len(args or "") > 60
-                    else f"{func}({args})",
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 1
-          AND f.callee_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 1")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if "insertAdjacentHTML" not in func:
             continue
 
-        has_user_input = any(src in (args or "") for src in COMMON_INPUT_SOURCES)
+        args_safe = args or ""
+        has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
-        if has_user_input and not is_sanitized(args or ""):
+        if has_user_input and not is_sanitized(args_safe):
+            snippet = f"{func}(_, {args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}(_, {args_safe})"
             findings.append(
                 StandardFinding(
                     rule_name="xss-insert-adjacent-html",
@@ -252,9 +267,7 @@ def _check_dom_manipulation(
                     line=line,
                     severity=Severity.CRITICAL,
                     category="xss",
-                    snippet=f"{func}(_, {args[:60]}...)"
-                    if len(args or "") > 60
-                    else f"{func}(_, {args})",
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
@@ -262,22 +275,24 @@ def _check_dom_manipulation(
     return findings
 
 
-def _check_dangerous_functions(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_dangerous_functions(db: RuleDB) -> list[StandardFinding]:
     """Check eval() and similar dangerous functions."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IN ('eval', 'Function', 'execScript')
-          AND f.argument_index = 0
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN (?, ?, ?)", "eval", "Function", "execScript")
+        .where("argument_index = 0")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
-        has_user_input = any(src in (args or "") for src in COMMON_INPUT_SOURCES)
+    for file, line, func, args in rows:
+        args_safe = args or ""
+        has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
+            snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
             findings.append(
                 StandardFinding(
                     rule_name="xss-code-injection",
@@ -286,30 +301,30 @@ def _check_dangerous_functions(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.CRITICAL,
                     category="injection",
-                    snippet=f"{func}({args[:60]}...)"
-                    if len(args or "") > 60
-                    else f"{func}({args})",
+                    snippet=snippet,
                     cwe_id="CWE-94",
                 )
             )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IN ('setTimeout', 'setInterval')
-          AND f.argument_index = 0
-          AND f.argument_expr IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN (?, ?)", "setTimeout", "setInterval")
+        .where("argument_index = 0")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
-        is_string_literal = args.startswith('"') or args.startswith("'")
+    for file, line, func, args in rows:
+        args_safe = args or ""
+        is_string_literal = args_safe.startswith('"') or args_safe.startswith("'")
         if not is_string_literal:
             continue
 
-        has_user_input = any(src in (args or "") for src in COMMON_INPUT_SOURCES)
+        has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
+            snippet = f'{func}("{args_safe[:40]}...", ...)' if len(args_safe) > 40 else f'{func}("{args_safe}", ...)'
             findings.append(
                 StandardFinding(
                     rule_name="xss-timeout-eval",
@@ -318,9 +333,7 @@ def _check_dangerous_functions(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.HIGH,
                     category="injection",
-                    snippet=f'{func}("{args[:40]}...", ...)'
-                    if len(args or "") > 40
-                    else f'{func}("{args}", ...)',
+                    snippet=snippet,
                     cwe_id="CWE-94",
                 )
             )
@@ -328,26 +341,28 @@ def _check_dangerous_functions(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_react_dangerouslysetinnerhtml(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_react_dangerouslysetinnerhtml(db: RuleDB) -> list[StandardFinding]:
     """Check React dangerouslySetInnerHTML with user input."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr IS NOT NULL
-        ORDER BY a.file, a.line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "source_expr")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, source in cursor.fetchall():
-        if "dangerouslySetInnerHTML" not in (source or ""):
+    for file, line, source in rows:
+        source_safe = source or ""
+        if "dangerouslySetInnerHTML" not in source_safe:
             continue
 
-        has_user_input = any(src in (source or "") for src in COMMON_INPUT_SOURCES)
-        has_props = "props." in (source or "") or "this.props" in (source or "")
-        has_state = "state." in (source or "") or "this.state" in (source or "")
+        has_user_input = any(src in source_safe for src in COMMON_INPUT_SOURCES)
+        has_props = "props." in source_safe or "this.props" in source_safe
+        has_state = "state." in source_safe or "this.state" in source_safe
 
-        if (has_user_input or has_props or has_state) and not is_sanitized(source or ""):
+        if (has_user_input or has_props or has_state) and not is_sanitized(source_safe):
+            snippet = source_safe[:100] if len(source_safe) > 100 else source_safe
             findings.append(
                 StandardFinding(
                     rule_name="xss-react-dangerous-html",
@@ -356,36 +371,35 @@ def _check_react_dangerouslysetinnerhtml(cursor: sqlite3.Cursor) -> list[Standar
                     line=line,
                     severity=Severity.CRITICAL,
                     category="xss",
-                    snippet=source[:100] if len(source or "") > 100 else source,
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
 
-    cursor.execute("""
-        SELECT r.file, r.start_line
-        FROM react_components r
-        WHERE r.has_jsx = 1
-        -- REMOVED LIMIT: was hiding bugs
-        """)
+    sql, params = Q.raw("""
+        SELECT file, start_line
+        FROM react_components
+        WHERE has_jsx = 1
+        LIMIT 1
+    """)
+    react_rows = list(db.execute(sql, params))
 
-    if cursor.fetchone():
-        cursor.execute("""
-            SELECT f.file, f.line, f.callee_function, f.param_name, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function IS NOT NULL
-               OR f.param_name IS NOT NULL
-            ORDER BY f.file, f.line
-        """)
+    if react_rows:
+        rows = db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "param_name", "argument_expr")
+            .where("(callee_function IS NOT NULL OR param_name IS NOT NULL)")
+            .order_by("file, line")
+        )
 
-        for file, line, callee, param, args in cursor.fetchall():
-            is_dangerous = ("dangerouslySetInnerHTML" in (callee or "")) or (
-                param == "dangerouslySetInnerHTML"
-            )
+        for file, line, callee, param, args in rows:
+            args_safe = args or ""
+            is_dangerous = ("dangerouslySetInnerHTML" in (callee or "")) or (param == "dangerouslySetInnerHTML")
             if not is_dangerous:
                 continue
 
-            if args and "__html" in args:
-                has_user_input = any(src in args for src in COMMON_INPUT_SOURCES)
+            if "__html" in args_safe:
+                has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
                 if has_user_input:
                     findings.append(
                         StandardFinding(
@@ -399,27 +413,42 @@ def _check_react_dangerouslysetinnerhtml(cursor: sqlite3.Cursor) -> list[Standar
                             cwe_id="CWE-79",
                         )
                     )
+            elif args_safe and not args_safe.strip().startswith("{"):
+                findings.append(
+                    StandardFinding(
+                        rule_name="xss-react-dangerous-prop-indirect",
+                        message="XSS: dangerouslySetInnerHTML with variable reference (cannot verify safety)",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="xss",
+                        snippet=f"dangerouslySetInnerHTML={{{args_safe[:40]}}}",
+                        cwe_id="CWE-79",
+                    )
+                )
 
     return findings
 
 
-def _check_vue_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_vue_vhtml_directive(db: RuleDB) -> list[StandardFinding]:
     """Check Vue v-html directives with user input."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT vd.file, vd.line, vd.directive_name, vd.expression
-        FROM vue_directives vd
-        WHERE vd.directive_name = 'v-html'
-        ORDER BY vd.file, vd.line
+    sql, params = Q.raw("""
+        SELECT file, line, directive_name, expression
+        FROM vue_directives
+        WHERE directive_name = 'v-html'
+        ORDER BY file, line
     """)
 
-    for file, line, _directive, expression in cursor.fetchall():
-        has_user_input = any(src in (expression or "") for src in COMMON_INPUT_SOURCES)
-        has_route = "$route" in (expression or "")
-        has_props = "props" in (expression or "")
+    for file, line, _directive, expression in db.execute(sql, params):
+        expr_safe = expression or ""
+        has_user_input = any(src in expr_safe for src in COMMON_INPUT_SOURCES)
+        has_route = "$route" in expr_safe
+        has_props = "props" in expr_safe
 
         if has_user_input or has_route or has_props:
+            snippet = f'v-html="{expr_safe[:60]}"' if len(expr_safe) > 60 else f'v-html="{expr_safe}"'
             findings.append(
                 StandardFinding(
                     rule_name="xss-vue-vhtml",
@@ -428,9 +457,7 @@ def _check_vue_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.CRITICAL,
                     category="xss",
-                    snippet=f'v-html="{expression[:60]}"'
-                    if len(expression or "") > 60
-                    else f'v-html="{expression}"',
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
@@ -438,9 +465,9 @@ def _check_vue_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_angular_bypass(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_angular_bypass(db: RuleDB) -> list[StandardFinding]:
     """Check Angular security bypass methods."""
-    findings = []
+    findings: list[StandardFinding] = []
 
     bypass_methods = [
         "bypassSecurityTrustHtml",
@@ -449,27 +476,25 @@ def _check_angular_bypass(cursor: sqlite3.Cursor) -> list[StandardFinding]:
         "bypassSecurityTrustResourceUrl",
     ]
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 0
-          AND f.callee_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 0")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
-        matched_method = None
-        for method in bypass_methods:
-            if method in func:
-                matched_method = method
-                break
+    for file, line, func, args in rows:
+        matched_method = next((m for m in bypass_methods if m in func), None)
 
         if not matched_method:
             continue
 
-        has_user_input = any(src in (args or "") for src in COMMON_INPUT_SOURCES)
+        args_safe = args or ""
+        has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
+            snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
             findings.append(
                 StandardFinding(
                     rule_name="xss-angular-bypass",
@@ -478,9 +503,7 @@ def _check_angular_bypass(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.CRITICAL,
                     category="xss",
-                    snippet=f"{func}({args[:60]}...)"
-                    if len(args or "") > 60
-                    else f"{func}({args})",
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
@@ -488,45 +511,37 @@ def _check_angular_bypass(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_jquery_methods(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_jquery_methods(db: RuleDB) -> list[StandardFinding]:
     """Check jQuery DOM manipulation methods."""
-    findings = []
+    findings: list[StandardFinding] = []
 
     jquery_dangerous_methods = [
-        ".html",
-        ".append",
-        ".prepend",
-        ".after",
-        ".before",
-        ".replaceWith",
-        ".wrap",
-        ".wrapInner",
+        ".html", ".append", ".prepend", ".after",
+        ".before", ".replaceWith", ".wrap", ".wrapInner",
     ]
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 0
-          AND f.callee_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 0")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if "$" not in func and "jQuery" not in func:
             continue
 
-        matched_method = None
-        for method in jquery_dangerous_methods:
-            if method in func:
-                matched_method = method
-                break
+        matched_method = next((m for m in jquery_dangerous_methods if m in func), None)
 
         if not matched_method:
             continue
 
-        has_user_input = any(src in (args or "") for src in COMMON_INPUT_SOURCES)
+        args_safe = args or ""
+        has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
-        if has_user_input and not is_sanitized(args or ""):
+        if has_user_input and not is_sanitized(args_safe):
+            snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
             findings.append(
                 StandardFinding(
                     rule_name="xss-jquery-dom",
@@ -535,9 +550,7 @@ def _check_jquery_methods(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.HIGH,
                     category="xss",
-                    snippet=f"{func}({args[:60]}...)"
-                    if len(args or "") > 60
-                    else f"{func}({args})",
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
@@ -545,26 +558,28 @@ def _check_jquery_methods(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_template_injection(
-    cursor: sqlite3.Cursor, frameworks: set[str]
-) -> list[StandardFinding]:
+def _check_template_injection(db: RuleDB, frameworks: set[str]) -> list[StandardFinding]:
     """Check for template injection vulnerabilities."""
-    findings = []
+    findings: list[StandardFinding] = []
 
     if "flask" in frameworks or "django" in frameworks:
-        cursor.execute("""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function IN ('render_template_string', 'Template',
-                                       'jinja2.Template', 'from_string')
-              AND f.argument_index = 0
-            ORDER BY f.file, f.line
-        """)
+        rows = db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("""callee_function IN (
+                'render_template_string', 'Template',
+                'jinja2.Template', 'from_string'
+            )""")
+            .where("argument_index = 0")
+            .order_by("file, line")
+        )
 
-        for file, line, func, args in cursor.fetchall():
-            has_user_input = any(src in (args or "") for src in COMMON_INPUT_SOURCES)
+        for file, line, func, args in rows:
+            args_safe = args or ""
+            has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
             if has_user_input:
+                snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
                 findings.append(
                     StandardFinding(
                         rule_name="xss-template-injection",
@@ -573,23 +588,21 @@ def _check_template_injection(
                         line=line,
                         severity=Severity.CRITICAL,
                         category="injection",
-                        snippet=f"{func}({args[:60]}...)"
-                        if len(args or "") > 60
-                        else f"{func}({args})",
+                        snippet=snippet,
                         cwe_id="CWE-94",
                     )
                 )
 
     if "express" in frameworks:
-        cursor.execute("""
-            SELECT f.file, f.line, f.callee_function, f.argument_expr
-            FROM function_call_args f
-            WHERE f.callee_function IN ('ejs.render', 'ejs.compile', 'res.render')
-              AND f.argument_expr IS NOT NULL
-            ORDER BY f.file, f.line
-        """)
+        rows = db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("callee_function IN (?, ?, ?)", "ejs.render", "ejs.compile", "res.render")
+            .where("argument_expr IS NOT NULL")
+            .order_by("file, line")
+        )
 
-        for file, line, func, args in cursor.fetchall():
+        for file, line, func, args in rows:
             if "<%-%" not in args:
                 continue
 
@@ -609,29 +622,23 @@ def _check_template_injection(
     return findings
 
 
-def _check_direct_user_input_to_sink(
-    cursor: sqlite3.Cursor, safe_sinks: frozenset[str]
-) -> list[StandardFinding]:
+def _check_direct_user_input_to_sink(db: RuleDB, safe_sinks: frozenset[str]) -> list[StandardFinding]:
     """Check for direct user input passed to dangerous sinks."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 0
-          AND f.callee_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 0")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
+    for file, line, func, args in rows:
         if func in safe_sinks:
             continue
 
-        matched_sink = None
-        for dangerous_sink in UNIVERSAL_DANGEROUS_SINKS:
-            if dangerous_sink in func:
-                matched_sink = dangerous_sink
-                break
+        matched_sink = next((s for s in UNIVERSAL_DANGEROUS_SINKS if s in func), None)
 
         if not matched_sink:
             continue
@@ -655,30 +662,32 @@ def _check_direct_user_input_to_sink(
     return findings
 
 
-def _check_url_javascript_protocol(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_url_javascript_protocol(db: RuleDB) -> list[StandardFinding]:
     """Check for javascript: protocol in URLs."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.target_var IS NOT NULL
-          AND a.source_expr IS NOT NULL
-        ORDER BY a.file, a.line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, target, source in cursor.fetchall():
+    for file, line, target, source in rows:
+        source_safe = source or ""
         is_url_property = ".href" in target or ".src" in target
         if not is_url_property:
             continue
 
-        has_dangerous_protocol = "javascript:" in source or "data:text/html" in source
+        has_dangerous_protocol = "javascript:" in source_safe or "data:text/html" in source_safe
         if not has_dangerous_protocol:
             continue
 
-        has_user_input = any(src in (source or "") for src in COMMON_INPUT_SOURCES)
+        has_user_input = any(src in source_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
+            snippet = f"{target} = {source_safe[:60]}..." if len(source_safe) > 60 else f"{target} = {source_safe}"
             findings.append(
                 StandardFinding(
                     rule_name="xss-javascript-protocol",
@@ -687,15 +696,13 @@ def _check_url_javascript_protocol(cursor: sqlite3.Cursor) -> list[StandardFindi
                     line=line,
                     severity=Severity.HIGH,
                     category="xss",
-                    snippet=f"{target} = {source[:60]}..."
-                    if len(source or "") > 60
-                    else f"{target} = {source}",
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
 
-    cursor.execute("""
-        SELECT f1.file, f1.line, f1.callee_function, f1.argument_expr as attr_name, f2.argument_expr as attr_value
+    sql, params = Q.raw("""
+        SELECT f1.file, f1.line, f1.callee_function, f1.argument_expr, f2.argument_expr
         FROM function_call_args f1
         JOIN function_call_args f2 ON f1.file = f2.file AND f1.line = f2.line
         WHERE f1.argument_index = 0
@@ -705,8 +712,9 @@ def _check_url_javascript_protocol(cursor: sqlite3.Cursor) -> list[StandardFindi
           AND f2.callee_function IS NOT NULL
         ORDER BY f1.file, f1.line
     """)
+    rows = list(db.execute(sql, params))
 
-    for file, line, callee, attr, value in cursor.fetchall():
+    for file, line, callee, attr, value in rows:
         if "setAttribute" not in callee:
             continue
 
@@ -730,20 +738,20 @@ def _check_url_javascript_protocol(cursor: sqlite3.Cursor) -> list[StandardFindi
     return findings
 
 
-def _check_postmessage_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_postmessage_xss(db: RuleDB) -> list[StandardFinding]:
     """Check for PostMessage XSS vulnerabilities."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 1
-          AND (f.argument_expr = "'*'" OR f.argument_expr = '"*"')
-          AND f.callee_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 1")
+        .where("(argument_expr = ? OR argument_expr = ?)", "'*'", '"*"')
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, _target_origin in cursor.fetchall():
+    for file, line, func, _target_origin in rows:
         if "postMessage" not in func:
             continue
 
@@ -763,44 +771,44 @@ def _check_postmessage_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     message_data_patterns = ["event.data", "message.data"]
     dangerous_operations = [".innerHTML", "eval(", "Function("]
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr IS NOT NULL
-        ORDER BY a.file, a.line
-    """)
+    assignment_rows = list(db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    ))
 
-    for file, line, target, source in cursor.fetchall():
-        has_message_data = any(pattern in source for pattern in message_data_patterns)
+    for file, line, target, source in assignment_rows:
+        source_safe = source or ""
+        target_safe = target or ""
+        has_message_data = any(pattern in source_safe for pattern in message_data_patterns)
         if not has_message_data:
             continue
 
-        has_dangerous_op = any(op in (target or "") for op in dangerous_operations) or any(
-            op in source for op in dangerous_operations
+        has_dangerous_op = (
+            any(op in target_safe for op in dangerous_operations)
+            or any(op in source_safe for op in dangerous_operations)
         )
         if not has_dangerous_op:
             continue
 
         origin_patterns = ["event.origin", "message.origin"]
 
-        cursor.execute(
-            """
-            SELECT source_expr
-            FROM assignments
-            WHERE file = ?
-              AND ABS(line - ?) <= 5
-              AND source_expr IS NOT NULL
-        """,
-            [file, line],
+        nearby_rows = db.query(
+            Q("assignments")
+            .select("source_expr")
+            .where("file = ?", file)
+            .where("line BETWEEN ? AND ?", line - 5, line + 5)
+            .where("source_expr IS NOT NULL")
         )
 
-        has_origin_check = False
-        for (nearby_source,) in cursor.fetchall():
-            if any(pattern in nearby_source for pattern in origin_patterns):
-                has_origin_check = True
-                break
+        has_origin_check = any(
+            any(pattern in nearby_source for pattern in origin_patterns)
+            for (nearby_source,) in nearby_rows
+        )
 
         if not has_origin_check:
+            snippet = source_safe[:80] if len(source_safe) > 80 else source_safe
             findings.append(
                 StandardFinding(
                     rule_name="xss-postmessage-no-validation",
@@ -809,14 +817,9 @@ def _check_postmessage_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.HIGH,
                     category="xss",
-                    snippet=source[:80] if len(source or "") > 80 else source,
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
 
     return findings
-
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point."""
-    return find_xss_issues(context)

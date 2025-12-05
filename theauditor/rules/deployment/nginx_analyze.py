@@ -8,6 +8,7 @@ Detects security misconfigurations in Nginx configurations:
 - Weak SSL ciphers (CWE-327)
 - Server version disclosure (CWE-200)
 - Directory listing enabled (CWE-548)
+- Large/unlimited client_max_body_size (CWE-400)
 """
 
 import json
@@ -198,6 +199,7 @@ def find_nginx_issues(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_ssl_configurations(ssl_configs))
         findings.extend(_check_server_tokens(server_tokens))
         findings.extend(_check_autoindex(location_blocks))
+        findings.extend(_check_client_body_size(configs))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -528,6 +530,69 @@ def _check_autoindex(location_blocks: list[NginxLocationBlock]) -> list[Standard
             )
 
     return findings
+
+
+def _check_client_body_size(configs: list[dict]) -> list[StandardFinding]:
+    """Check for large or unlimited client_max_body_size (DoS risk)."""
+    findings = []
+
+    for config in configs:
+        directives = config.get("directives", {})
+        file_path = config.get("file_path", "")
+
+        client_body_size = directives.get("client_max_body_size")
+        if client_body_size:
+            size_str = str(client_body_size).lower().strip()
+
+            # Check for unlimited (0 means unlimited in nginx)
+            if size_str == "0":
+                findings.append(
+                    StandardFinding(
+                        rule_name="nginx-unlimited-body-size",
+                        message="client_max_body_size is unlimited (0) - DoS risk",
+                        file_path=file_path,
+                        line=1,
+                        severity=Severity.HIGH,
+                        category="security",
+                        snippet="client_max_body_size 0;",
+                        cwe_id="CWE-400",
+                    )
+                )
+            else:
+                # Parse size and check if too large (>100MB)
+                size_bytes = _parse_nginx_size(size_str)
+                if size_bytes and size_bytes > 100 * 1024 * 1024:
+                    findings.append(
+                        StandardFinding(
+                            rule_name="nginx-large-body-size",
+                            message=f"client_max_body_size is very large ({size_str}) - potential DoS risk",
+                            file_path=file_path,
+                            line=1,
+                            severity=Severity.MEDIUM,
+                            category="security",
+                            snippet=f"client_max_body_size {size_str};",
+                            cwe_id="CWE-400",
+                        )
+                    )
+
+    return findings
+
+
+def _parse_nginx_size(size_str: str) -> int | None:
+    """Parse nginx size string (e.g., '100m', '1g', '1024k') to bytes."""
+    size_str = size_str.lower().strip()
+
+    try:
+        if size_str.endswith("g"):
+            return int(float(size_str[:-1]) * 1024 * 1024 * 1024)
+        elif size_str.endswith("m"):
+            return int(float(size_str[:-1]) * 1024 * 1024)
+        elif size_str.endswith("k"):
+            return int(float(size_str[:-1]) * 1024)
+        else:
+            return int(size_str)
+    except (ValueError, TypeError):
+        return None
 
 
 def _extract_location_pattern(context: str) -> str:

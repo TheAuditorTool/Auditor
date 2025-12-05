@@ -1,178 +1,163 @@
-"""DOM-specific XSS Detection."""
+"""DOM-specific XSS Detection.
 
-import sqlite3
+Detects DOM-based cross-site scripting vulnerabilities including:
+- Direct source-to-sink flows (location.* -> innerHTML)
+- URL manipulation and open redirects
+- Event handler injection
+- DOM clobbering attacks
+- Client-side template injection
+- postMessage origin validation
+- DOMPurify bypass patterns
+"""
 
-from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+from theauditor.rules.base import (
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
+from theauditor.rules.xss.constants import (
+    COMMON_INPUT_SOURCES,
+    UNIVERSAL_DANGEROUS_SINKS,
+    is_sanitized,
+)
 
 METADATA = RuleMetadata(
     name="dom_xss",
     category="xss",
     target_extensions=[".js", ".ts", ".jsx", ".tsx", ".html"],
     exclude_patterns=["test/", "__tests__/", "node_modules/", "*.test.js", "*.spec.js"],
-    execution_scope="database")
-
-
-DOM_XSS_SOURCES = frozenset(
-    [
-        "location.search",
-        "location.hash",
-        "location.href",
-        "location.pathname",
-        "location.hostname",
-        "document.URL",
-        "document.documentURI",
-        "document.baseURI",
-        "document.referrer",
-        "document.cookie",
-        "window.name",
-        "window.location",
-        "history.pushState",
-        "history.replaceState",
-        "localStorage.getItem",
-        "sessionStorage.getItem",
-        "IndexedDB",
-        "postMessage",
-        "message.data",
-        "URLSearchParams",
-        "searchParams.get",
-        "document.forms",
-        "document.anchors",
-    ]
+    execution_scope="database",
+    primary_table="assignments",
 )
 
 
-DOM_XSS_SINKS = frozenset(
-    [
-        "innerHTML",
-        "outerHTML",
-        "document.write",
-        "document.writeln",
-        "eval",
-        "setTimeout",
-        "setInterval",
-        "Function",
-        "insertAdjacentHTML",
-        "insertAdjacentElement",
-        "insertAdjacentText",
-        "element.setAttribute",
-        "document.createElement",
-        "location.href",
-        "location.replace",
-        "location.assign",
-        "window.open",
-        "document.domain",
-        "element.src",
-        "element.href",
-        "element.action",
-        "jQuery.html",
-        "jQuery.append",
-        "jQuery.prepend",
-        "jQuery.before",
-        "jQuery.after",
-        "jQuery.replaceWith",
-        "createContextualFragment",
-        "parseFromString",
-    ]
-)
+# Extend common sources with DOM-specific sources
+DOM_XSS_SOURCES = COMMON_INPUT_SOURCES | frozenset([
+    "history.pushState",
+    "history.replaceState",
+    "IndexedDB",
+    "document.forms",
+    "document.anchors",
+    "document.documentURI",
+    "document.baseURI",
+    "searchParams.get",
+])
 
 
-DOM_SAFE_METHODS = frozenset(["textContent", "innerText", "createTextNode", "setAttribute"])
+# Extend universal sinks with DOM-specific sinks
+DOM_XSS_SINKS = UNIVERSAL_DANGEROUS_SINKS | frozenset([
+    "insertAdjacentElement",
+    "insertAdjacentText",
+    "element.setAttribute",
+    "document.createElement",
+    "location.href",
+    "location.replace",
+    "location.assign",
+    "window.open",
+    "document.domain",
+    "element.src",
+    "element.href",
+    "element.action",
+    "jQuery.html",
+    "jQuery.append",
+    "jQuery.prepend",
+    "jQuery.before",
+    "jQuery.after",
+    "jQuery.replaceWith",
+])
 
 
-BROWSER_APIS = frozenset(
-    ["navigator.", "screen.", "window.", "document.", "console.", "performance.", "crypto."]
-)
+EVENT_HANDLERS = frozenset([
+    "onclick",
+    "onmouseover",
+    "onmouseout",
+    "onload",
+    "onerror",
+    "onfocus",
+    "onblur",
+    "onchange",
+    "onsubmit",
+    "onkeydown",
+    "onkeyup",
+    "onkeypress",
+    "ondblclick",
+    "onmousedown",
+    "onmouseup",
+    "onmousemove",
+    "oncontextmenu",
+])
 
 
-EVENT_HANDLERS = frozenset(
-    [
-        "onclick",
-        "onmouseover",
-        "onmouseout",
-        "onload",
-        "onerror",
-        "onfocus",
-        "onblur",
-        "onchange",
-        "onsubmit",
-        "onkeydown",
-        "onkeyup",
-        "onkeypress",
-        "ondblclick",
-        "onmousedown",
-        "onmouseup",
-        "onmousemove",
-        "oncontextmenu",
-    ]
-)
-
-
-TEMPLATE_LIBRARIES = frozenset(
-    [
-        "Handlebars.compile",
-        "Mustache.compile",
-        "doT.compile",
-        "ejs.compile",
-        "underscore.compile",
-        "lodash.compile",
-        "_.template",
-    ]
-)
+TEMPLATE_LIBRARIES = frozenset([
+    "Handlebars.compile",
+    "Mustache.compile",
+    "doT.compile",
+    "ejs.compile",
+    "underscore.compile",
+    "lodash.compile",
+    "_.template",
+])
 
 
 EVAL_SINKS = frozenset(["eval", "setTimeout", "setInterval", "Function", "execScript"])
 
 
-def find_dom_xss(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect DOM-based XSS vulnerabilities."""
-    findings = []
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect DOM-based XSS vulnerabilities.
 
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    conn = sqlite3.connect(context.db_path)
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
 
-    try:
-        findings.extend(_check_direct_dom_flows(conn))
-        findings.extend(_check_url_manipulation(conn))
-        findings.extend(_check_event_handler_injection(conn))
-        findings.extend(_check_dom_clobbering(conn))
-        findings.extend(_check_client_side_templates(conn))
-        findings.extend(_check_web_messaging(conn))
-        findings.extend(_check_dom_purify_bypass(conn))
+        findings.extend(_check_direct_dom_flows(db))
+        findings.extend(_check_url_manipulation(db))
+        findings.extend(_check_event_handler_injection(db))
+        findings.extend(_check_dom_clobbering(db))
+        findings.extend(_check_client_side_templates(db))
+        findings.extend(_check_web_messaging(db))
+        findings.extend(_check_dom_purify_bypass(db))
 
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _check_direct_dom_flows(conn) -> list[StandardFinding]:
+def _check_direct_dom_flows(db: RuleDB) -> list[StandardFinding]:
     """Check for direct data flows from sources to sinks."""
-    findings = []
-    cursor = conn.cursor()
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.target_var IS NOT NULL
-          AND a.source_expr IS NOT NULL
-          AND (
-              a.target_var LIKE '%innerHTML%'
-              OR a.target_var LIKE '%outerHTML%'
-              OR a.target_var LIKE '%document.write%'
-              OR a.target_var LIKE '%eval%'
-              OR a.target_var LIKE '%location.href%'
-          )
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .where("""(
+            target_var LIKE '%innerHTML%'
+            OR target_var LIKE '%outerHTML%'
+            OR target_var LIKE '%document.write%'
+            OR target_var LIKE '%eval%'
+            OR target_var LIKE '%location.href%'
+        )""")
+    )
 
-    for file, line, target, source in cursor:
+    for file, line, target, source in rows:
         sink_found = next((s for s in DOM_XSS_SINKS if s in target), None)
         if not sink_found:
             continue
 
         source_found = next((s for s in DOM_XSS_SOURCES if s in source), None)
         if source_found:
+            snippet = f"{target} = {source[:60]}..." if len(source) > 60 else f"{target} = {source}"
             findings.append(
                 StandardFinding(
                     rule_name="dom-xss-direct-flow",
@@ -181,28 +166,26 @@ def _check_direct_dom_flows(conn) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.CRITICAL,
                     category="xss",
-                    snippet=f"{target} = {source[:60]}..."
-                    if len(source) > 60
-                    else f"{target} = {source}",
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 0
-          AND f.callee_function IS NOT NULL
-          AND f.argument_expr IS NOT NULL
-          AND (
-              f.callee_function LIKE '%eval%'
-              OR f.callee_function LIKE '%setTimeout%'
-              OR f.callee_function LIKE '%setInterval%'
-              OR f.callee_function LIKE '%Function%'
-          )
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 0")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .where("""(
+            callee_function LIKE '%eval%'
+            OR callee_function LIKE '%setTimeout%'
+            OR callee_function LIKE '%setInterval%'
+            OR callee_function LIKE '%Function%'
+        )""")
+    )
 
-    for file, line, func, args in cursor:
+    for file, line, func, args in rows:
         is_eval_sink = any(sink in func for sink in EVAL_SINKS)
         if not is_eval_sink:
             continue
@@ -225,38 +208,32 @@ def _check_direct_dom_flows(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_url_manipulation(conn) -> list[StandardFinding]:
+def _check_url_manipulation(db: RuleDB) -> list[StandardFinding]:
     """Check for URL-based DOM XSS."""
-    findings = []
-    cursor = conn.cursor()
+    findings: list[StandardFinding] = []
 
     location_patterns = ["location.href", "location.replace", "location.assign", "window.location"]
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.target_var IS NOT NULL
-          AND a.source_expr IS NOT NULL
-        ORDER BY a.file, a.line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, target, source in cursor.fetchall():
+    for file, line, target, source in rows:
         is_location = any(pattern in target for pattern in location_patterns)
         if not is_location:
             continue
 
         has_url_source = any(
             s in source
-            for s in [
-                "location.search",
-                "location.hash",
-                "URLSearchParams",
-                "searchParams",
-                "window.name",
-            ]
+            for s in ["location.search", "location.hash", "URLSearchParams", "searchParams", "window.name"]
         )
 
         if has_url_source:
+            snippet = f"{target} = {source[:60]}..." if len(source) > 60 else f"{target} = {source}"
             findings.append(
                 StandardFinding(
                     rule_name="dom-xss-url-redirect",
@@ -265,9 +242,7 @@ def _check_url_manipulation(conn) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.HIGH,
                     category="xss",
-                    snippet=f"{target} = {source[:60]}..."
-                    if len(source) > 60
-                    else f"{target} = {source}",
+                    snippet=snippet,
                     cwe_id="CWE-601",
                 )
             )
@@ -286,15 +261,15 @@ def _check_url_manipulation(conn) -> list[StandardFinding]:
                 )
             )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function = 'window.open'
-          AND f.argument_index = 0
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "argument_expr")
+        .where("callee_function = ?", "window.open")
+        .where("argument_index = 0")
+        .order_by("file, line")
+    )
 
-    for file, line, url_arg in cursor.fetchall():
+    for file, line, url_arg in rows:
         has_user_input = any(s in (url_arg or "") for s in DOM_XSS_SOURCES)
 
         if has_user_input:
@@ -314,13 +289,14 @@ def _check_url_manipulation(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_event_handler_injection(conn) -> list[StandardFinding]:
+def _check_event_handler_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for event handler injection vulnerabilities."""
-    findings = []
-    cursor = conn.cursor()
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT f1.file, f1.line, f1.argument_expr as handler_name, f2.argument_expr as handler_value
+    # Self-join to get both arguments of setAttribute(arg0, arg1)
+    # MUST select callee_function to check which function is being called
+    sql, params = Q.raw("""
+        SELECT f1.file, f1.line, f1.callee_function, f1.argument_expr, f2.argument_expr
         FROM function_call_args f1
         JOIN function_call_args f2 ON f1.file = f2.file AND f1.line = f2.line
         WHERE f1.argument_index = 0
@@ -329,22 +305,26 @@ def _check_event_handler_injection(conn) -> list[StandardFinding]:
           AND f1.argument_expr IS NOT NULL
         ORDER BY f1.file, f1.line
     """)
+    rows = db.execute(sql, params)
 
-    for file, line, handler_name, handler_value in cursor.fetchall():
-        if ".setAttribute" not in handler_name:
+    for file, line, callee_func, arg0, arg1 in rows:
+        # Check if this is a setAttribute call
+        if "setAttribute" not in (callee_func or ""):
             continue
 
-        handler_name_lower = handler_name.lower()
-        matched_handler = None
-        for handler in EVENT_HANDLERS:
-            if handler in handler_name_lower:
-                matched_handler = handler
-                break
+        # Check if arg0 is an event handler (starts with "on")
+        arg0_clean = (arg0 or "").strip("'\"").lower()
+        if not arg0_clean.startswith("on"):
+            continue
 
+        # Match against known event handlers
+        matched_handler = next((h for h in EVENT_HANDLERS if h == arg0_clean), None)
         if not matched_handler:
-            continue
+            # Could be unknown event handler like "onpointerdown" - still flag if starts with "on"
+            matched_handler = arg0_clean
 
-        has_user_input = any(s in handler_value for s in DOM_XSS_SOURCES)
+        # Check if arg1 (the handler value) contains user input
+        has_user_input = any(s in (arg1 or "") for s in DOM_XSS_SOURCES)
 
         if has_user_input:
             findings.append(
@@ -360,16 +340,16 @@ def _check_event_handler_injection(conn) -> list[StandardFinding]:
                 )
             )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 1
-          AND f.callee_function IS NOT NULL
-          AND f.argument_expr IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 1")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, listener_func in cursor.fetchall():
+    for file, line, func, listener_func in rows:
         if ".addEventListener" not in func:
             continue
 
@@ -390,21 +370,20 @@ def _check_event_handler_injection(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_dom_clobbering(conn) -> list[StandardFinding]:
+def _check_dom_clobbering(db: RuleDB) -> list[StandardFinding]:
     """Check for DOM clobbering vulnerabilities."""
-    findings = []
-    cursor = conn.cursor()
+    findings: list[StandardFinding] = []
 
     safe_patterns = ["localStorage", "sessionStorage", "location"]
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr IS NOT NULL
-        ORDER BY a.file, a.line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "source_expr")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, source in cursor.fetchall():
+    for file, line, source in rows:
         has_window_bracket = "window[" in source and 'window["_' not in source
         has_document_bracket = "document[" in source and 'document["_' not in source
 
@@ -412,6 +391,7 @@ def _check_dom_clobbering(conn) -> list[StandardFinding]:
             continue
 
         if not any(safe in source for safe in safe_patterns):
+            snippet = source[:80] if len(source) > 80 else source
             findings.append(
                 StandardFinding(
                     rule_name="dom-clobbering",
@@ -420,34 +400,28 @@ def _check_dom_clobbering(conn) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.MEDIUM,
                     category="xss",
-                    snippet=source[:80] if len(source) > 80 else source,
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function
-        FROM function_call_args f
-        WHERE f.callee_function IN ('document.getElementById', 'getElementById')
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+        .where("callee_function IN (?, ?)", "document.getElementById", "getElementById")
+        .order_by("file, line")
+    )
 
-    for file, line, _func in cursor.fetchall():
-        cursor.execute(
-            """
-            SELECT a.source_expr
-            FROM assignments a
-            WHERE a.file = ?
-              AND a.line = ?
-              AND a.source_expr IS NOT NULL
-        """,
-            [file, line],
+    for file, line, _func in rows:
+        check_rows = db.query(
+            Q("assignments")
+            .select("source_expr")
+            .where("file = ?", file)
+            .where("line = ?", line)
+            .where("source_expr IS NOT NULL")
         )
 
-        result = cursor.fetchone()
-        if result:
-            source_expr = result[0]
-
+        for (source_expr,) in check_rows:
             has_get_element_by_id = "getElementById" in source_expr
             has_null_check = "?" in source_expr or "&&" in source_expr
 
@@ -468,20 +442,19 @@ def _check_dom_clobbering(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_client_side_templates(conn) -> list[StandardFinding]:
+def _check_client_side_templates(db: RuleDB) -> list[StandardFinding]:
     """Check for client-side template injection."""
-    findings = []
-    cursor = conn.cursor()
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.target_var IS NOT NULL
-          AND a.source_expr IS NOT NULL
-        ORDER BY a.file, a.line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, target, source in cursor.fetchall():
+    for file, line, target, source in rows:
         is_inner_html = ".innerHTML" in target
         has_template_literal = "`" in source and "${" in source
 
@@ -504,21 +477,17 @@ def _check_client_side_templates(conn) -> list[StandardFinding]:
                 )
             )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 0
-          AND f.callee_function IS NOT NULL
-          AND f.argument_expr IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 0")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, template in cursor.fetchall():
-        matched_lib = None
-        for lib_func in TEMPLATE_LIBRARIES:
-            if func.startswith(lib_func):
-                matched_lib = lib_func
-                break
+    for file, line, func, template in rows:
+        matched_lib = next((lib for lib in TEMPLATE_LIBRARIES if func.startswith(lib)), None)
 
         if not matched_lib:
             continue
@@ -548,50 +517,41 @@ def _check_client_side_templates(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_web_messaging(conn) -> list[StandardFinding]:
+def _check_web_messaging(db: RuleDB) -> list[StandardFinding]:
     """Check for postMessage XSS vulnerabilities."""
-    findings = []
-    cursor = conn.cursor()
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 0
-          AND f.callee_function LIKE '%.addEventListener%'
-          AND f.argument_expr LIKE '%message%'
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 0")
+        .where("callee_function LIKE ?", "%.addEventListener%")
+        .where("argument_expr LIKE ?", "%message%")
+    )
 
-    for file, line, _func, _event_type in cursor:
-        cursor.execute(
-            """
-            SELECT 1
-            FROM assignments a
-            WHERE a.file = ?
-              AND a.line BETWEEN ? + 1 AND ? + 30
-              AND a.source_expr IS NOT NULL
-              AND (a.source_expr LIKE '%event.origin%' OR a.source_expr LIKE '%e.origin%')
-        -- REMOVED LIMIT: was hiding bugs
-        """,
-            [file, line, line],
+    for file, line, _func, _event_type in rows:
+        origin_check_rows = db.query(
+            Q("assignments")
+            .select("file")
+            .where("file = ?", file)
+            .where("line BETWEEN ? AND ?", line + 1, line + 30)
+            .where("source_expr IS NOT NULL")
+            .where("(source_expr LIKE '%event.origin%' OR source_expr LIKE '%e.origin%')")
         )
 
-        has_origin_check = cursor.fetchone() is not None
+        has_origin_check = len(list(origin_check_rows)) > 0
 
         if not has_origin_check:
-            cursor.execute(
-                """
-                SELECT 1
-                FROM assignments a
-                WHERE a.file = ?
-                  AND a.line BETWEEN ? + 1 AND ? + 30
-                  AND (a.source_expr LIKE '%event.data%' OR a.source_expr LIKE '%e.data%')
-                  AND (a.target_var LIKE '%.innerHTML%' OR a.source_expr LIKE '%eval%')
-        -- REMOVED LIMIT: was hiding bugs
-        """,
-                [file, line, line],
+            sink_rows = db.query(
+                Q("assignments")
+                .select("file")
+                .where("file = ?", file)
+                .where("line BETWEEN ? AND ?", line + 1, line + 30)
+                .where("(source_expr LIKE '%event.data%' OR source_expr LIKE '%e.data%')")
+                .where("(target_var LIKE '%.innerHTML%' OR source_expr LIKE '%eval%')")
             )
 
-            if cursor.fetchone() is not None:
+            if len(list(sink_rows)) > 0:
                 findings.append(
                     StandardFinding(
                         rule_name="dom-xss-postmessage",
@@ -605,15 +565,15 @@ def _check_web_messaging(conn) -> list[StandardFinding]:
                     )
                 )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function
-        FROM function_call_args f
-        WHERE f.argument_index = 1
-          AND f.callee_function LIKE '%postMessage%'
-          AND (f.argument_expr = "'*'" OR f.argument_expr = '"*"')
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+        .where("argument_index = 1")
+        .where("callee_function LIKE ?", "%postMessage%")
+        .where("(argument_expr = ? OR argument_expr = ?)", "'*'", '"*"')
+    )
 
-    for file, line, _func in cursor:
+    for file, line, _func in rows:
         findings.append(
             StandardFinding(
                 rule_name="dom-xss-postmessage-wildcard",
@@ -630,22 +590,21 @@ def _check_web_messaging(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_dom_purify_bypass(conn) -> list[StandardFinding]:
+def _check_dom_purify_bypass(db: RuleDB) -> list[StandardFinding]:
     """Check for potential DOMPurify bypass patterns."""
-    findings = []
-    cursor = conn.cursor()
+    findings: list[StandardFinding] = []
 
     dangerous_configs = ["ALLOW_UNKNOWN_PROTOCOLS", "ALLOW_DATA_ATTR", "ALLOW_ARIA_ATTR"]
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.target_var IS NOT NULL
-          AND a.source_expr IS NOT NULL
-        ORDER BY a.file, a.line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, target, source in cursor.fetchall():
+    for file, line, target, source in rows:
         is_inner_html = ".innerHTML" in target
         has_dom_purify = "DOMPurify.sanitize" in source
 
@@ -667,12 +626,12 @@ def _check_dom_purify_bypass(conn) -> list[StandardFinding]:
                     )
                 )
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr IS NOT NULL
-        ORDER BY a.file, a.line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "source_expr")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
     double_decode_patterns = [
         ("decodeURIComponent", "decodeURIComponent(decodeURIComponent(input))"),
@@ -680,7 +639,7 @@ def _check_dom_purify_bypass(conn) -> list[StandardFinding]:
         ("atob", "atob(atob(input))"),
     ]
 
-    for file, line, source in cursor.fetchall():
+    for file, line, source in rows:
         for pattern, snippet in double_decode_patterns:
             if source.count(pattern) >= 2:
                 findings.append(
@@ -698,8 +657,3 @@ def _check_dom_purify_bypass(conn) -> list[StandardFinding]:
                 break
 
     return findings
-
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point."""
-    return find_dom_xss(context)

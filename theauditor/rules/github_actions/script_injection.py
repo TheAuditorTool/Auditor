@@ -132,18 +132,17 @@ def _find_script_injections(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     # Get all steps with run scripts (JOIN to get workflow context)
-    sql, params = Q.raw(
-        """
-        SELECT s.step_id, s.step_name, s.run_script,
-               j.workflow_path, j.job_key, w.workflow_name
-        FROM github_steps s
-        JOIN github_jobs j ON s.job_id = j.job_id
-        JOIN github_workflows w ON j.workflow_path = w.workflow_path
-        WHERE s.run_script IS NOT NULL
-        """,
-        [],
+    step_rows = db.query(
+        Q("github_steps")
+        .alias("s")
+        .select(
+            "s.step_id", "s.step_name", "s.run_script",
+            "github_jobs.workflow_path", "github_jobs.job_key", "github_workflows.workflow_name"
+        )
+        .join("github_jobs", on=[("job_id", "job_id")])
+        .join("github_workflows", on="github_jobs.workflow_path = github_workflows.workflow_path")
+        .where("s.run_script IS NOT NULL")
     )
-    step_rows = db.execute(sql, params)
 
     for step_id, step_name, run_script, workflow_path, job_key, workflow_name in step_rows:
         # Get references used in this step's run script

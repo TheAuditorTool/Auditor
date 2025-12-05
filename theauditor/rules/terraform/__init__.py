@@ -1,7 +1,5 @@
 """Terraform security rule package."""
 
-from .terraform_analyze import find_terraform_issues
+from .terraform_analyze import METADATA, analyze
 
-__all__ = [
-    "find_terraform_issues",
-]
+__all__ = ["METADATA", "analyze"]

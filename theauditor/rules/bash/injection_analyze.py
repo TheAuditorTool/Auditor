@@ -258,6 +258,73 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                 confidence=Confidence.MEDIUM,
             )
 
+        # Check arithmetic expansion injection $(( var ))
+        # Bash arithmetic contexts allow code execution via array subscripts:
+        # x='arr[$(whoami)]'; echo $((x)) executes whoami
+        rows = db.query(
+            Q("bash_command_args")
+            .select("file", "command_line", "arg_value")
+            .where("arg_value LIKE ?", "%$((%")
+        )
+
+        for file, line, arg_value in rows:
+            # Check if there's a variable inside the arithmetic context
+            if arg_value and "$" in arg_value:
+                add_finding(
+                    file=file,
+                    line=line,
+                    rule_name="bash-arithmetic-injection",
+                    message=f"Arithmetic expansion with variable - potential code injection: {arg_value[:60]}",
+                    severity=Severity.HIGH,
+                    confidence=Confidence.MEDIUM,
+                )
+
+        # Also check variable assignments for arithmetic injection
+        rows = db.query(
+            Q("bash_variables")
+            .select("file", "line", "value_expr")
+            .where("value_expr LIKE ?", "%$((%")
+        )
+
+        for file, line, value_expr in rows:
+            if value_expr and "$" in value_expr:
+                add_finding(
+                    file=file,
+                    line=line,
+                    rule_name="bash-arithmetic-injection",
+                    message=f"Arithmetic expansion in assignment with variable: {value_expr[:60]}",
+                    severity=Severity.HIGH,
+                    confidence=Confidence.MEDIUM,
+                )
+
+        # Check printf format injection
+        # printf $VAR is dangerous - variable as format string allows format exploits
+        rows = db.query(
+            Q("bash_commands")
+            .select("file", "line")
+            .where("command_name = ?", "printf")
+        )
+
+        for file, line in rows:
+            arg_rows = db.query(
+                Q("bash_command_args")
+                .select("arg_value", "has_expansion", "is_quoted")
+                .where("file = ? AND command_line = ? AND arg_index = 0", file, line)
+            )
+
+            for arg_value, has_expansion, is_quoted in arg_rows:
+                # First arg is format string - dangerous if it's a variable
+                if has_expansion or (arg_value and "$" in str(arg_value)):
+                    add_finding(
+                        file=file,
+                        line=line,
+                        rule_name="bash-printf-format-injection",
+                        message=f"printf with variable format string: {arg_value[:40]}",
+                        severity=Severity.MEDIUM,
+                        confidence=Confidence.MEDIUM,
+                    )
+                    break
+
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 

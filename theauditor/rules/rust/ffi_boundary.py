@@ -53,15 +53,11 @@ def _check_variadic_functions(db: RuleDB) -> list[StandardFinding]:
     """Flag variadic C functions (format string vulnerability risk)."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file_path, line, name, abi, params_json
-        FROM rust_extern_functions
-        WHERE is_variadic = 1
-        """,
-        [],
+    rows = db.query(
+        Q("rust_extern_functions")
+        .select("file_path", "line", "name", "abi", "params_json")
+        .where("is_variadic = ?", 1)
     )
-    rows = db.execute(sql, params)
 
     format_functions = {"printf", "sprintf", "fprintf", "snprintf", "vprintf", "vsprintf"}
 
@@ -98,15 +94,11 @@ def _check_raw_pointer_params(db: RuleDB) -> list[StandardFinding]:
     """Flag FFI functions with raw pointer parameters."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file_path, line, name, abi, params_json, return_type
-        FROM rust_extern_functions
-        WHERE params_json IS NOT NULL
-        """,
-        [],
+    rows = db.query(
+        Q("rust_extern_functions")
+        .select("file_path", "line", "name", "abi", "params_json", "return_type")
+        .where("params_json IS NOT NULL")
     )
-    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, fn_name, _, params_json, return_type = row
@@ -175,30 +167,25 @@ def _check_extern_blocks(db: RuleDB) -> list[StandardFinding]:
     """Flag extern blocks for security review."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file_path, line, end_line, abi
-        FROM rust_extern_blocks
-        """,
-        [],
+    rows = db.query(
+        Q("rust_extern_blocks")
+        .select("file_path", "line", "end_line", "abi")
     )
-    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, end_line, abi = row
         abi = abi or "C"
 
-        fn_count_sql, fn_count_params = Q.raw(
-            """
-            SELECT COUNT(*) as fn_count
-            FROM rust_extern_functions
-            WHERE file_path = ?
-              AND line > ?
-              AND (? IS NULL OR line < ?)
-            """,
-            [file_path, line, end_line, end_line],
+        # Build query with conditional end_line filter
+        fn_query = (
+            Q("rust_extern_functions")
+            .select("COUNT(*) as fn_count")
+            .where("file_path = ?", file_path)
+            .where("line > ?", line)
         )
-        fn_count_rows = db.execute(fn_count_sql, fn_count_params)
+        if end_line is not None:
+            fn_query = fn_query.where("line < ?", end_line)
+        fn_count_rows = db.query(fn_query)
         fn_count = fn_count_rows[0][0] if fn_count_rows else 0
 
         if fn_count > 0:
@@ -232,35 +219,27 @@ def _check_panic_across_ffi(db: RuleDB) -> list[StandardFinding]:
     """
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file_path, line, name, visibility, is_unsafe, return_type
-        FROM rust_functions
-        WHERE visibility = 'pub'
-          AND (abi = 'C' OR abi = 'system' OR abi = 'cdecl')
-        """,
-        [],
+    rows = db.query(
+        Q("rust_functions")
+        .select("file_path", "line", "name", "visibility", "is_unsafe", "return_type")
+        .where("visibility = ?", "pub")
+        .where("abi IN (?, ?, ?)", "C", "system", "cdecl")
     )
-    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, fn_name, _, _, _ = row
 
-        catch_unwind_sql, catch_unwind_params = Q.raw(
-            """
-            SELECT COUNT(*) as count FROM function_call_args
-            WHERE file = ?
-              AND line >= ?
-              AND line <= ? + 100
-              AND (
-                  callee_function = 'catch_unwind'
-                  OR callee_function LIKE '%::catch_unwind'
-                  OR callee_function = 'panic::catch_unwind'
-              )
-            """,
-            [file_path, line, line],
+        catch_unwind_rows = db.query(
+            Q("function_call_args")
+            .select("COUNT(*) as count")
+            .where("file = ?", file_path)
+            .where("line >= ?", line)
+            .where("line <= ?", line + 100)
+            .where(
+                "callee_function = ? OR callee_function LIKE ? OR callee_function = ?",
+                "catch_unwind", "%::catch_unwind", "panic::catch_unwind"
+            )
         )
-        catch_unwind_rows = db.execute(catch_unwind_sql, catch_unwind_params)
         has_catch_unwind = catch_unwind_rows[0][0] > 0 if catch_unwind_rows else False
 
         if not has_catch_unwind:

@@ -139,6 +139,14 @@ BASE64_PATTERNS = frozenset([
     "decodestring",
 ])
 
+# Tarfile extraction methods - CVE-2007-4559 TarSlip vulnerability
+TAR_UNSAFE = frozenset([
+    "extractall",
+    "tarfile.extractall",
+    "TarFile.extractall",
+    "tar.extractall",
+])
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Python deserialization vulnerabilities.
@@ -193,24 +201,21 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         _check_xml_xxe(db, add_finding)
         _check_base64_pickle_combo(db, add_finding)
         _check_pickle_imports(db, add_finding)
+        _check_tar_slip(db, add_finding)
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def _check_pickle_usage(db: RuleDB, add_finding) -> None:
     """Detect pickle usage - CRITICAL remote code execution vulnerability."""
-    placeholders = ", ".join("?" for _ in PICKLE_METHODS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr, caller_function
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-        ORDER BY file, line
-        """,
-        list(PICKLE_METHODS),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr", "caller_function")
+        .where_in("callee_function", list(PICKLE_METHODS))
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args, caller = row[0], row[1], row[2], row[3], row[4]
 
         data_source = _check_data_source(db, file, line, args)
@@ -249,18 +254,14 @@ def _check_pickle_usage(db: RuleDB, add_finding) -> None:
 
 def _check_yaml_unsafe(db: RuleDB, add_finding) -> None:
     """Detect unsafe YAML loading - arbitrary object instantiation."""
-    placeholders = ", ".join("?" for _ in YAML_UNSAFE)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-        ORDER BY file, line
-        """,
-        list(YAML_UNSAFE),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", list(YAML_UNSAFE))
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
         # Skip if SafeLoader is explicitly used
@@ -284,18 +285,14 @@ def _check_yaml_unsafe(db: RuleDB, add_finding) -> None:
 def _check_marshal_shelve(db: RuleDB, add_finding) -> None:
     """Detect marshal and shelve usage - bytecode execution risk."""
     # Check marshal
-    marshal_placeholders = ", ".join("?" for _ in MARSHAL_METHODS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function
-        FROM function_call_args
-        WHERE callee_function IN ({marshal_placeholders})
-        ORDER BY file, line
-        """,
-        list(MARSHAL_METHODS),
+    marshal_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+        .where_in("callee_function", list(MARSHAL_METHODS))
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in marshal_rows:
         file, line, method = row[0], row[1], row[2]
         add_finding(
             file=file,
@@ -308,18 +305,14 @@ def _check_marshal_shelve(db: RuleDB, add_finding) -> None:
         )
 
     # Check shelve
-    shelve_placeholders = ", ".join("?" for _ in SHELVE_METHODS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function
-        FROM function_call_args
-        WHERE callee_function IN ({shelve_placeholders})
-        ORDER BY file, line
-        """,
-        list(SHELVE_METHODS),
+    shelve_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+        .where_in("callee_function", list(SHELVE_METHODS))
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in shelve_rows:
         file, line, method = row[0], row[1], row[2]
         add_finding(
             file=file,
@@ -334,18 +327,15 @@ def _check_marshal_shelve(db: RuleDB, add_finding) -> None:
 
 def _check_json_exploitation(db: RuleDB, add_finding) -> None:
     """Detect potentially exploitable JSON parsing with custom object hooks."""
-    sql, params = Q.raw(
-        """
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ('json.loads', 'json.load', 'loads', 'load')
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", ["json.loads", "json.load", "loads", "load"])
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
         if not args:
@@ -395,18 +385,14 @@ def _check_django_flask_sessions(db: RuleDB, add_finding) -> None:
             )
 
     # Check Flask session patterns
-    flask_placeholders = ", ".join("?" for _ in FLASK_SESSION)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({flask_placeholders})
-        ORDER BY file, line
-        """,
-        list(FLASK_SESSION),
+    flask_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", list(FLASK_SESSION))
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in flask_rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
         method_lower = method.lower() if method else ""
@@ -426,18 +412,14 @@ def _check_django_flask_sessions(db: RuleDB, add_finding) -> None:
 
 def _check_xml_xxe(db: RuleDB, add_finding) -> None:
     """Detect XML external entity (XXE) vulnerabilities."""
-    placeholders = ", ".join("?" for _ in XML_UNSAFE)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-        ORDER BY file, line
-        """,
-        list(XML_UNSAFE),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", list(XML_UNSAFE))
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
         # Skip if external entities are disabled
@@ -458,18 +440,12 @@ def _check_xml_xxe(db: RuleDB, add_finding) -> None:
 def _check_base64_pickle_combo(db: RuleDB, add_finding) -> None:
     """Detect base64-encoded pickle - common attack pattern to bypass filters."""
     # Find base64 decode calls
-    base64_placeholders = ", ".join("?" for _ in BASE64_PATTERNS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function
-        FROM function_call_args
-        WHERE callee_function IN ({base64_placeholders})
-        ORDER BY file, line
-        """,
-        list(BASE64_PATTERNS),
-    )
-
-    base64_calls = list(db.execute(sql, params))
+    base64_calls = list(db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+        .where_in("callee_function", list(BASE64_PATTERNS))
+        .order_by("file, line")
+    ))
 
     if not base64_calls:
         return
@@ -590,3 +566,40 @@ def _check_data_source(db: RuleDB, file: str, line: int, args: str | None) -> st
             return "file"
 
     return "unknown"
+
+
+def _check_tar_slip(db: RuleDB, add_finding) -> None:
+    """Detect TarSlip vulnerability (CVE-2007-4559).
+
+    tarfile.extractall() without 'members' filter allows path traversal.
+    Attackers can craft tar files with paths like '../../etc/passwd' to
+    write files outside the target directory.
+    """
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function LIKE ?", "%extractall%")
+        .order_by("file, line")
+    )
+
+    for row in rows:
+        file, line, method, args = row[0], row[1], row[2], row[3]
+
+        # Skip if 'members' filter is present (safe usage)
+        args_str = str(args) if args else ""
+        if "members=" in args_str or "members =" in args_str:
+            continue
+
+        # Check for filter= parameter (Python 3.12+ safe extraction)
+        if "filter=" in args_str:
+            continue
+
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-tar-slip",
+            message=f"tarfile {method} without 'members' filter - path traversal vulnerability (CVE-2007-4559)",
+            severity=Severity.HIGH,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-22",
+        )

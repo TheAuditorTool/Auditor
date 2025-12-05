@@ -298,37 +298,32 @@ def _get_assignment_expr(db: RuleDB, file: str, variable: str, call_line: int) -
 
     This enables basic taint tracking: if a variable is passed to execute(),
     we look up what was assigned to that variable.
-    """
-    sql, params = Q.raw(
-        """
-        SELECT source_expr
-        FROM assignments
-        WHERE file = ? AND target_var = ? AND line <= ?
-        ORDER BY line DESC
-        LIMIT 1
-        """,
-        [file, variable, call_line],
-    )
 
-    rows = db.execute(sql, params)
+    Note: This is a simple line-based heuristic. It assumes linear execution
+    and will not correctly handle assignments in branches or loops. For full
+    dataflow analysis, use the taint module instead.
+    """
+    rows = db.query(
+        Q("assignments")
+        .select("source_expr")
+        .where("file = ? AND target_var = ? AND line <= ?", file, variable, call_line)
+        .order_by("line DESC")
+        .limit(1)
+    )
     return rows[0][0] if rows else None
 
 
 def _check_sql_injection(db: RuleDB, add_finding) -> None:
     """Detect SQL injection vulnerabilities via string formatting in queries."""
-    placeholders = ", ".join("?" for _ in SQL_METHODS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        list(SQL_METHODS),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", list(SQL_METHODS))
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
         if not args:
             continue
@@ -386,19 +381,15 @@ def _check_sql_injection(db: RuleDB, add_finding) -> None:
 
 def _check_command_injection(db: RuleDB, add_finding) -> None:
     """Detect command injection vulnerabilities."""
-    placeholders = ", ".join("?" for _ in COMMAND_METHODS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        list(COMMAND_METHODS),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", list(COMMAND_METHODS))
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
         if not args:
             continue
@@ -437,18 +428,14 @@ def _check_command_injection(db: RuleDB, add_finding) -> None:
 
 def _check_code_injection(db: RuleDB, add_finding) -> None:
     """Detect code injection (eval/exec) vulnerabilities."""
-    placeholders = ", ".join("?" for _ in CODE_INJECTION)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-        ORDER BY file, line
-        """,
-        list(CODE_INJECTION),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", list(CODE_INJECTION))
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
         severity = Severity.CRITICAL
@@ -477,19 +464,15 @@ def _check_code_injection(db: RuleDB, add_finding) -> None:
 
 def _check_template_injection(db: RuleDB, add_finding) -> None:
     """Detect Server-Side Template Injection (SSTI) vulnerabilities."""
-    placeholders = ", ".join("?" for _ in TEMPLATE_PATTERNS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        list(TEMPLATE_PATTERNS),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", list(TEMPLATE_PATTERNS))
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
         args_str = str(args) if args else ""
@@ -520,19 +503,15 @@ def _check_template_injection(db: RuleDB, add_finding) -> None:
 
 def _check_ldap_injection(db: RuleDB, add_finding) -> None:
     """Detect LDAP injection vulnerabilities."""
-    placeholders = ", ".join("?" for _ in LDAP_METHODS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        list(LDAP_METHODS),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", list(LDAP_METHODS))
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
         args_str = str(args) if args else ""
@@ -553,19 +532,15 @@ def _check_ldap_injection(db: RuleDB, add_finding) -> None:
 
 def _check_nosql_injection(db: RuleDB, add_finding) -> None:
     """Detect NoSQL (MongoDB) injection vulnerabilities."""
-    placeholders = ", ".join("?" for _ in NOSQL_METHODS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        list(NOSQL_METHODS),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", list(NOSQL_METHODS))
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
         args_str = str(args) if args else ""
@@ -598,19 +573,15 @@ def _check_nosql_injection(db: RuleDB, add_finding) -> None:
 
 def _check_xpath_injection(db: RuleDB, add_finding) -> None:
     """Detect XPath injection vulnerabilities."""
-    placeholders = ", ".join("?" for _ in XPATH_METHODS)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        list(XPATH_METHODS),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where_in("callee_function", list(XPATH_METHODS))
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
         args_str = str(args) if args else ""
@@ -629,7 +600,16 @@ def _check_xpath_injection(db: RuleDB, add_finding) -> None:
 
 
 def _check_raw_sql_construction(db: RuleDB, add_finding) -> None:
-    """Check for SQL queries constructed via string operations in assignments."""
+    """Check for SQL queries constructed via string operations in assignments.
+
+    To reduce false positives (e.g., log messages mentioning SQL keywords),
+    we require either:
+    1. Variable name indicates SQL purpose (query, sql, stmt, etc.)
+    2. Expression starts with SQL keyword (actually constructing SQL)
+    """
+    # Variable name patterns that indicate SQL construction
+    sql_var_patterns = {"query", "sql", "stmt", "statement", "cmd", "command", "script"}
+
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -638,11 +618,12 @@ def _check_raw_sql_construction(db: RuleDB, add_finding) -> None:
 
     for row in rows:
         file, line, var, expr = row[0], row[1], row[2], row[3]
-        if not expr:
+        if not expr or not var:
             continue
 
         expr_str = str(expr)
         expr_upper = expr_str.upper()
+        var_lower = var.lower()
 
         # Check for SQL keywords
         has_sql_keyword = any(kw in expr_upper for kw in ["SELECT", "INSERT", "UPDATE", "DELETE"])
@@ -652,6 +633,13 @@ def _check_raw_sql_construction(db: RuleDB, add_finding) -> None:
         # Check for string formatting/concatenation
         has_formatting = any(pattern in expr_str for pattern in ["+", ".format(", 'f"', "f'"])
         if not has_formatting:
+            continue
+
+        # Reduce false positives: require either SQL-ish variable name or SQL at start
+        is_sql_var = any(p in var_lower for p in sql_var_patterns)
+        starts_with_sql = any(expr_upper.lstrip(' "\'f').startswith(kw) for kw in ["SELECT", "INSERT", "UPDATE", "DELETE"])
+
+        if not is_sql_var and not starts_with_sql:
             continue
 
         add_finding(

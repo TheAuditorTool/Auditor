@@ -126,6 +126,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_jwt_vulnerabilities(db))
         findings.extend(_check_missing_rate_limiting(db, fastapi_files))
         findings.extend(_check_missing_security_headers(db, fastapi_files))
+        findings.extend(_check_missing_csrf(db, fastapi_files))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -181,22 +182,22 @@ def _check_sync_in_async(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_no_dependency_injection(db: RuleDB) -> list[StandardFinding]:
-    """Check for direct database access without dependency injection."""
+    """Check for direct database access without dependency injection.
+
+    Improved to:
+    1. Support SessionDep (SQLModel pattern) alongside Depends
+    2. Check per-function granularity, not just file-level
+    """
     findings = []
 
-    # Find files with API endpoints but no Depends usage
+    # Find DB access calls in API endpoint files
     sql, params = Q.raw(
         """
-        SELECT DISTINCT file, line, callee_function
+        SELECT DISTINCT file, line, callee_function, caller_function
         FROM function_call_args
         WHERE EXISTS (
             SELECT 1 FROM api_endpoints e
             WHERE e.file = function_call_args.file
-        )
-        AND NOT EXISTS (
-            SELECT 1 FROM function_call_args f2
-            WHERE f2.file = function_call_args.file
-            AND f2.callee_function = 'Depends'
         )
         AND (callee_function LIKE '%.query%'
              OR callee_function LIKE '%.execute%'
@@ -206,14 +207,43 @@ def _check_no_dependency_injection(db: RuleDB) -> list[StandardFinding]:
         """,
         [],
     )
-    rows = db.execute(sql, params)
+    db_access_rows = list(db.execute(sql, params))
+
+    # Get all Depends/SessionDep usage per file+function
+    di_sql, di_params = Q.raw(
+        """
+        SELECT DISTINCT file, caller_function, callee_function
+        FROM function_call_args
+        WHERE callee_function IN ('Depends', 'SessionDep')
+           OR argument_expr LIKE '%SessionDep%'
+           OR argument_expr LIKE '%Depends%'
+        """,
+        [],
+    )
+    di_rows = list(db.execute(di_sql, di_params))
+
+    # Build set of (file, function) pairs that have DI
+    di_functions = set()
+    di_files = set()
+    for file, caller, callee in di_rows:
+        if caller:
+            di_functions.add((file, caller))
+        di_files.add(file)
 
     seen = set()
-    for file, line, callee in rows:
+    for file, line, callee, caller in db_access_rows:
         key = (file, line, callee)
         if key in seen:
             continue
         seen.add(key)
+
+        # Check if this specific function uses DI
+        if caller and (file, caller) in di_functions:
+            continue  # This function has DI
+
+        # Fallback: if file has ANY DI and caller is unknown, skip (benefit of doubt)
+        if not caller and file in di_files:
+            continue
 
         findings.append(
             StandardFinding(
@@ -224,7 +254,7 @@ def _check_no_dependency_injection(db: RuleDB) -> list[StandardFinding]:
                 severity=Severity.MEDIUM,
                 category="architecture",
                 confidence=Confidence.MEDIUM,
-                snippet="Use Depends() for database session management",
+                snippet="Use Depends() or SessionDep for database session management",
                 cwe_id="CWE-1061",
             )
         )
@@ -592,7 +622,10 @@ def _check_missing_exception_handlers(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_pydantic_mass_assignment(db: RuleDB) -> list[StandardFinding]:
-    """Check for Pydantic models without extra='forbid' allowing mass assignment."""
+    """Check for Pydantic models without extra='forbid' allowing mass assignment.
+
+    Supports both Pydantic v1 (class Config) and v2 (model_config = ConfigDict).
+    """
     findings = []
 
     # Look for Pydantic model definitions
@@ -604,38 +637,69 @@ def _check_pydantic_mass_assignment(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, class_name in rows:
-        # Check if this model has Config with extra = "forbid"
+        # First verify this is actually a Pydantic model
+        base_rows = db.query(
+            Q("refs")
+            .select("value")
+            .where("src = ? AND value IN (?, ?, ?)",
+                   file, "BaseModel", "pydantic", "Pydantic")
+            .limit(1)
+        )
+        if not list(base_rows):
+            continue  # Not a Pydantic model
+
+        has_extra_forbid = False
+
+        # Check Pydantic v1: class Config with extra = "forbid"
         config_rows = db.query(
             Q("symbols")
             .select("name")
             .where("file = ? AND line BETWEEN ? AND ? AND name = ?",
-                   file, line, line + 20, "Config")
+                   file, line, line + 30, "Config")
             .limit(1)
         )
-
-        if not list(config_rows):
-            # No Config class - check if it's actually a Pydantic model
-            base_rows = db.query(
-                Q("refs")
-                .select("value")
-                .where("src = ? AND value IN (?, ?, ?)",
-                       file, "BaseModel", "pydantic", "Pydantic")
+        if list(config_rows):
+            # Config class exists - check for extra = "forbid" assignment nearby
+            extra_rows = db.query(
+                Q("assignments")
+                .select("source_expr")
+                .where("file = ? AND line BETWEEN ? AND ? AND target_var = ?",
+                       file, line, line + 30, "extra")
                 .limit(1)
             )
-            if list(base_rows):
-                findings.append(
-                    StandardFinding(
-                        rule_name="fastapi-pydantic-mass-assignment",
-                        message=f"Pydantic model {class_name} without extra='forbid' - mass assignment risk",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.MEDIUM,
-                        category="security",
-                        confidence=Confidence.LOW,
-                        snippet=f"Add Config class with extra = 'forbid' to {class_name}",
-                        cwe_id="CWE-915",
-                    )
+            for (source_expr,) in extra_rows:
+                if source_expr and "forbid" in source_expr.lower():
+                    has_extra_forbid = True
+                    break
+
+        # Check Pydantic v2: model_config = ConfigDict(extra='forbid')
+        if not has_extra_forbid:
+            model_config_rows = db.query(
+                Q("assignments")
+                .select("source_expr")
+                .where("file = ? AND line BETWEEN ? AND ? AND target_var = ?",
+                       file, line, line + 30, "model_config")
+                .limit(1)
+            )
+            for (source_expr,) in model_config_rows:
+                if source_expr and "forbid" in source_expr.lower():
+                    has_extra_forbid = True
+                    break
+
+        if not has_extra_forbid:
+            findings.append(
+                StandardFinding(
+                    rule_name="fastapi-pydantic-mass-assignment",
+                    message=f"Pydantic model {class_name} without extra='forbid' - mass assignment risk",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="security",
+                    confidence=Confidence.LOW,
+                    snippet=f"Add model_config = ConfigDict(extra='forbid') or class Config with extra='forbid'",
+                    cwe_id="CWE-915",
                 )
+            )
 
     return findings
 
@@ -909,6 +973,87 @@ def _check_missing_security_headers(db: RuleDB, fastapi_files: list[str]) -> lis
                 cwe_id="CWE-693",
             )
         )
+
+    return findings
+
+
+def _check_missing_csrf(db: RuleDB, fastapi_files: list[str]) -> list[StandardFinding]:
+    """Check for missing CSRF protection on cookie-authenticated endpoints.
+
+    FastAPI has no built-in CSRF protection (unlike Flask/Django).
+    Apps using cookie-based authentication need starlette-csrf or fastapi-csrf-protect.
+    JWT-only APIs are CSRF-immune and don't need this check.
+    """
+    findings = []
+
+    if not fastapi_files:
+        return findings
+
+    # Check for CSRF middleware libraries
+    csrf_libs = ("starlette-csrf", "fastapi-csrf-protect", "csrf", "CSRFProtect")
+    for lib in csrf_libs:
+        rows = db.query(
+            Q("refs")
+            .select("value")
+            .where("value = ?", lib)
+            .limit(1)
+        )
+        if list(rows):
+            return findings  # CSRF protection present
+
+    # Check if app uses cookie-based authentication (indicators)
+    cookie_auth_indicators = ("cookie", "session", "SESSION_COOKIE", "set_cookie")
+    has_cookie_auth = False
+
+    for indicator in cookie_auth_indicators:
+        rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("callee_function LIKE ? OR argument_expr LIKE ?",
+                   f"%{indicator}%", f"%{indicator}%")
+            .limit(1)
+        )
+        if list(rows):
+            has_cookie_auth = True
+            break
+
+    if not has_cookie_auth:
+        # Also check assignments for cookie config
+        rows = db.query(
+            Q("assignments")
+            .select("target_var")
+            .where("target_var LIKE ? OR source_expr LIKE ?",
+                   "%cookie%", "%cookie%")
+            .limit(1)
+        )
+        if list(rows):
+            has_cookie_auth = True
+
+    # Only flag if cookie auth is detected and no CSRF protection
+    if has_cookie_auth:
+        # Check for state-changing endpoints
+        rows = db.query(
+            Q("api_endpoints")
+            .select("file", "line", "method", "pattern")
+            .where("method IN (?, ?, ?, ?)", "POST", "PUT", "DELETE", "PATCH")
+            .limit(1)
+        )
+        state_changing = list(rows)
+
+        if state_changing:
+            findings.append(
+                StandardFinding(
+                    rule_name="fastapi-missing-csrf",
+                    message="Cookie-authenticated FastAPI app without CSRF protection",
+                    file_path=state_changing[0][0],
+                    line=state_changing[0][1],
+                    severity=Severity.HIGH,
+                    category="csrf",
+                    confidence=Confidence.MEDIUM,
+                    snippet="Add starlette-csrf or fastapi-csrf-protect middleware",
+                    cwe_id="CWE-352",
+                )
+            )
 
     return findings
 

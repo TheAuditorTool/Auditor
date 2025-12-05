@@ -109,10 +109,9 @@ def _find_untrusted_checkouts(db: RuleDB) -> list[StandardFinding]:
                 # Check if checkout uses untrusted ref
                 is_untrusted, detected_pattern = _check_untrusted_ref(db, step_id, with_args)
 
-                # Flag if untrusted checkout happens early (before validation)
-                # sequence_order < 3 means it's one of the first 3 steps (0, 1, 2)
-                # Early checkout before validation is most dangerous
-                if is_untrusted and sequence_order < 3:
+                # Flag ANY untrusted checkout in pull_request_target/workflow_run context
+                # Attacker-controlled code execution with secrets is dangerous regardless of step order
+                if is_untrusted:
                     permissions = {}
                     if permissions_json:
                         try:
