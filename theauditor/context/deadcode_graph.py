@@ -1,5 +1,6 @@
 """Graph-based dead code detection using NetworkX and graphs.db."""
 
+import json
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,8 @@ import networkx as nx
 
 from theauditor.utils.logging import logger
 
+# Default exclusions - used when no config file exists
+# Users should override via .auditor/config.json instead of editing this list
 DEFAULT_EXCLUSIONS = [
     "__init__.py",
     "test",
@@ -24,6 +27,44 @@ DEFAULT_EXCLUSIONS = [
     ".next",
     ".nuxt",
 ]
+
+
+def load_exclusions_from_config(root: Path) -> list[str] | None:
+    """Load dead code exclusion patterns from .auditor/config.json.
+
+    Config file format:
+    {
+        "deadcode": {
+            "exclusions": ["pattern1", "pattern2", ...]
+        }
+    }
+
+    Returns None if no config file exists (caller should use DEFAULT_EXCLUSIONS).
+    Raises ValueError if config file exists but is malformed.
+    """
+    config_path = root / ".auditor" / "config.json"
+
+    if not config_path.exists():
+        return None
+
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            config = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in {config_path}: {e}") from e
+
+    deadcode_config = config.get("deadcode", {})
+    exclusions = deadcode_config.get("exclusions")
+
+    if exclusions is None:
+        return None
+
+    if not isinstance(exclusions, list):
+        raise ValueError(
+            f"deadcode.exclusions must be a list in {config_path}, got {type(exclusions).__name__}"
+        )
+
+    return exclusions
 
 
 @dataclass
@@ -44,18 +85,25 @@ class DeadCode:
 def detect_isolated_modules(
     db_path: str, path_filter: str = None, exclude_patterns: list[str] = None
 ) -> list[DeadCode]:
-    """Detect dead code using graph-based analysis."""
+    """Detect dead code using graph-based analysis.
+
+    Zero Fallback Policy: Raises FileNotFoundError if graphs.db missing.
+    """
     repo_db = Path(db_path)
     graphs_db = repo_db.parent / "graphs.db"
 
     if not graphs_db.exists():
-        return []
+        raise FileNotFoundError(
+            f"graphs.db not found: {graphs_db}\n"
+            f"Run 'aud graph build' to create it."
+        )
 
     detector = GraphDeadCodeDetector(str(graphs_db), str(repo_db), debug=False)
 
+    # Pass exclude_patterns as-is; analyze() handles priority (arg > config > defaults)
     return detector.analyze(
         path_filter=path_filter,
-        exclude_patterns=exclude_patterns or DEFAULT_EXCLUSIONS,
+        exclude_patterns=exclude_patterns,
         analyze_symbols=False,
     )
 
@@ -84,6 +132,11 @@ class GraphDeadCodeDetector:
         self.repo_conn = sqlite3.connect(self.repo_db)
 
         self._validate_schema()
+
+        # Load exclusions from config file (.auditor/config.json)
+        # Project root is parent of .pf directory (which contains the databases)
+        self.project_root = self.graphs_db.parent.parent
+        self.config_exclusions = load_exclusions_from_config(self.project_root)
 
         self.import_graph: nx.DiGraph | None = None
         self.call_graph: nx.DiGraph | None = None
@@ -121,9 +174,19 @@ class GraphDeadCodeDetector:
         path_filter: str | None = None,
         exclude_patterns: list[str] | None = None,
         analyze_symbols: bool = False,
+        analyze_ghost_imports: bool = False,
     ) -> list[DeadCode]:
-        """Run full dead code analysis."""
-        exclude_patterns = exclude_patterns or DEFAULT_EXCLUSIONS
+        """Run full dead code analysis.
+
+        Args:
+            path_filter: Only analyze files matching this path prefix
+            exclude_patterns: Patterns to exclude from analysis
+            analyze_symbols: Also find dead functions/classes within live modules
+            analyze_ghost_imports: Detect imports that are never actually used
+        """
+        # Priority: explicit arg > config file > defaults
+        if exclude_patterns is None:
+            exclude_patterns = self.config_exclusions or DEFAULT_EXCLUSIONS
 
         findings = []
 
@@ -152,6 +215,16 @@ class GraphDeadCodeDetector:
 
             dead_symbols = self._find_dead_symbols(self.call_graph, live_modules, exclude_patterns)
             findings.extend(dead_symbols)
+
+        if analyze_ghost_imports:
+            if self.debug:
+                logger.info("Detecting ghost imports...")
+
+            ghost_imports = self._detect_ghost_imports(exclude_patterns, path_filter)
+            findings.extend(ghost_imports)
+
+            if self.debug:
+                logger.info(f"  Ghost imports found: {len(ghost_imports)}")
 
         return findings
 
@@ -301,20 +374,111 @@ class GraphDeadCodeDetector:
 
         return entry_points
 
+    def _find_reachable_files_sql(
+        self, entry_points: set[str], path_filter: str | None = None
+    ) -> set[str]:
+        """Find all reachable files from entry points using Recursive CTE.
+
+        Replaces NetworkX in-memory graph traversal with pure SQL.
+        Performance: O(1) queries, zero RAM for graph storage.
+        """
+        if not entry_points:
+            return set()
+
+        cursor = self.graphs_conn.cursor()
+
+        # Build placeholders for entry points
+        placeholders = ",".join("?" * len(entry_points))
+        entry_list = list(entry_points)
+
+        # Recursive CTE: Find all files reachable from entry points
+        # Base case: Entry points themselves
+        # Recursive step: Files imported by reachable files
+        query = f"""
+            WITH RECURSIVE reachable(file_path) AS (
+                -- BASE CASE: Entry points are reachable
+                SELECT DISTINCT source AS file_path
+                FROM edges
+                WHERE source IN ({placeholders})
+                  AND graph_type = 'import'
+
+                UNION
+
+                -- Also include entry points that may not have outgoing edges
+                SELECT DISTINCT target AS file_path
+                FROM edges
+                WHERE source IN ({placeholders})
+                  AND graph_type = 'import'
+
+                UNION
+
+                -- RECURSIVE STEP: Files imported by reachable files
+                SELECT DISTINCT e.target
+                FROM edges e
+                JOIN reachable r ON e.source = r.file_path
+                WHERE e.graph_type = 'import'
+                  AND e.type IN ('import', 'from')
+            )
+            SELECT DISTINCT file_path FROM reachable
+        """
+
+        # Apply path filter if specified
+        if path_filter:
+            query = query.replace(
+                "SELECT DISTINCT file_path FROM reachable",
+                f"SELECT DISTINCT file_path FROM reachable WHERE file_path LIKE '{path_filter}%'"
+            )
+
+        # Entry points appear twice in params (for both SELECT clauses)
+        params = tuple(entry_list) + tuple(entry_list)
+        cursor.execute(query, params)
+
+        reachable = {row[0] for row in cursor.fetchall()}
+
+        # Also add entry points themselves (they may not be in edges table)
+        reachable.update(entry_points)
+
+        return reachable
+
+    def _get_all_files_sql(self, path_filter: str | None = None) -> set[str]:
+        """Get all files from the import graph edges."""
+        cursor = self.graphs_conn.cursor()
+
+        query = """
+            SELECT DISTINCT source FROM edges WHERE graph_type = 'import'
+            UNION
+            SELECT DISTINCT target FROM edges WHERE graph_type = 'import'
+        """
+
+        if path_filter:
+            query = f"""
+                SELECT DISTINCT source FROM edges
+                WHERE graph_type = 'import' AND source LIKE '{path_filter}%'
+                UNION
+                SELECT DISTINCT target FROM edges
+                WHERE graph_type = 'import' AND target LIKE '{path_filter}%'
+            """
+
+        cursor.execute(query)
+        return {row[0] for row in cursor.fetchall()}
+
     def _find_dead_nodes(
         self, graph: nx.DiGraph, entry_points: set[str], exclude_patterns: list[str]
     ) -> list[DeadCode]:
-        """Find dead nodes using graph reachability."""
+        """Find dead nodes using SQL-based reachability.
 
-        reachable = set()
-        for entry in entry_points:
-            if entry in graph:
-                reachable.update(nx.descendants(graph, entry))
-                reachable.add(entry)
+        Uses Recursive CTE for reachability (O(1) query) instead of
+        Python loop with nx.descendants (O(entries × edges)).
+        NetworkX still used for clustering (operates on small dead node set).
+        """
+        # SQL-based reachability - single query instead of O(n) nx.descendants calls
+        reachable = self._find_reachable_files_sql(entry_points)
 
+        # Get all files from graph (still using graph for consistency with caller)
         all_nodes = set(graph.nodes())
         dead_nodes = all_nodes - reachable
 
+        # Apply exclusion filters
         dead_nodes = {
             node
             for node in dead_nodes
@@ -325,6 +489,8 @@ class GraphDeadCodeDetector:
         if not dead_nodes:
             return []
 
+        # Clustering still uses NetworkX (operates on small dead node set, not full graph)
+        # This is acceptable because dead nodes are typically <5% of codebase
         dead_subgraph = graph.subgraph(dead_nodes).to_undirected()
         clusters = list(nx.connected_components(dead_subgraph))
 
@@ -437,6 +603,117 @@ class GraphDeadCodeDetector:
         elif name in ["__init__", "__repr__", "__str__", "__eq__", "__hash__"]:
             confidence = "low"
             reason = "Magic method (invoked implicitly)"
+
+        return confidence, reason
+
+    def _detect_ghost_imports(
+        self, exclude_patterns: list[str], path_filter: str | None = None
+    ) -> list[DeadCode]:
+        """Detect ghost imports: files imported but never actually used.
+
+        Cross-references graphs.db (import edges) with repo_index.db (function calls).
+        If File A imports File B but never calls any function from File B,
+        the import is flagged as a "ghost import" - potentially dead code.
+
+        Returns findings with type="ghost_import".
+        """
+        graphs_cursor = self.graphs_conn.cursor()
+        repo_cursor = self.repo_conn.cursor()
+
+        # Get all import edges
+        import_query = """
+            SELECT DISTINCT source, target
+            FROM edges
+            WHERE graph_type = 'import'
+              AND type IN ('import', 'from')
+              AND NOT target LIKE 'external::%'
+        """
+        if path_filter:
+            import_query += f" AND source LIKE '{path_filter}%'"
+
+        graphs_cursor.execute(import_query)
+        all_imports = graphs_cursor.fetchall()
+
+        if not all_imports:
+            return []
+
+        # Build lookup of actual function calls: {(caller_file, callee_file)}
+        # Uses callee_file_path column from function_call_args
+        repo_cursor.execute("""
+            SELECT DISTINCT file, callee_file_path
+            FROM function_call_args
+            WHERE callee_file_path IS NOT NULL
+              AND callee_file_path != ''
+        """)
+        actual_calls = {(row[0], row[1]) for row in repo_cursor.fetchall()}
+
+        # Also check JSX calls
+        repo_cursor.execute("""
+            SELECT DISTINCT file, callee_file_path
+            FROM function_call_args_jsx
+            WHERE callee_file_path IS NOT NULL
+              AND callee_file_path != ''
+        """)
+        actual_calls.update((row[0], row[1]) for row in repo_cursor.fetchall())
+
+        # Find ghost imports: imported but never called
+        findings = []
+        for importer, imported in all_imports:
+            # Skip excluded patterns
+            if any(pattern in importer for pattern in exclude_patterns):
+                continue
+            if any(pattern in imported for pattern in exclude_patterns):
+                continue
+
+            # Check if any call exists from importer to imported
+            # We need fuzzy matching because paths might differ slightly
+            has_call = False
+            for caller_file, callee_file in actual_calls:
+                if caller_file == importer or caller_file.endswith(importer):
+                    if callee_file == imported or callee_file.endswith(imported):
+                        has_call = True
+                        break
+                    # Also check if imported path is contained in callee_file
+                    if imported in callee_file or callee_file in imported:
+                        has_call = True
+                        break
+
+            if not has_call:
+                confidence, reason = self._classify_ghost_import(importer, imported)
+                findings.append(
+                    DeadCode(
+                        type="ghost_import",
+                        path=importer,
+                        name=imported,
+                        line=0,
+                        symbol_count=0,
+                        reason=reason,
+                        confidence=confidence,
+                        lines_estimated=0,
+                        cluster_id=None,
+                    )
+                )
+
+        return findings
+
+    def _classify_ghost_import(self, importer: str, imported: str) -> tuple[str, str]:
+        """Classify confidence and reason for ghost import."""
+        confidence = "medium"  # Default medium - could be type imports, side effects
+        reason = f"Imports '{Path(imported).name}' but no function calls detected"
+
+        # Lower confidence for certain patterns
+        if imported.endswith("__init__.py"):
+            confidence = "low"
+            reason = "Package import (may import for side effects or re-exports)"
+        elif "types" in imported.lower() or "typing" in imported.lower():
+            confidence = "low"
+            reason = "Type definition import (used for type hints, not runtime calls)"
+        elif any(pattern in imported for pattern in ["constants", "config", "settings"]):
+            confidence = "low"
+            reason = "Config/constants import (may use variables, not functions)"
+        elif importer.endswith("__init__.py"):
+            confidence = "low"
+            reason = "Re-export pattern (package __init__ importing for re-export)"
 
         return confidence, reason
 
