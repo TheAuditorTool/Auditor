@@ -38,20 +38,26 @@ def find_terraform_issues(context: StandardRuleContext) -> list[StandardFinding]
     cursor = conn.cursor()
 
     try:
-        findings.extend(_check_public_s3_buckets(cursor))
-        findings.extend(_check_unencrypted_storage(cursor))
-        findings.extend(_check_iam_wildcards(cursor))
-        findings.extend(_check_resource_secrets(cursor))
+        # Bulk load: 2 queries for ALL properties instead of N*2 queries
+        all_props = _bulk_load_all_properties(cursor)
+        sensitive_props = _bulk_load_sensitive_props(cursor)
+
+        findings.extend(_check_public_s3_buckets(cursor, all_props))
+        findings.extend(_check_unencrypted_storage(cursor, all_props))
+        findings.extend(_check_iam_wildcards(cursor, all_props))
+        findings.extend(_check_resource_secrets(cursor, all_props, sensitive_props))
         findings.extend(_check_tfvars_secrets(cursor))
-        findings.extend(_check_missing_encryption(cursor))
-        findings.extend(_check_security_groups(cursor))
+        findings.extend(_check_missing_encryption(cursor, all_props))
+        findings.extend(_check_security_groups(cursor, all_props))
     finally:
         conn.close()
 
     return findings
 
 
-def _check_public_s3_buckets(cursor) -> list[StandardFinding]:
+def _check_public_s3_buckets(
+    cursor, all_props: dict[str, dict[str, Any]]
+) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     cursor.execute(
@@ -64,7 +70,7 @@ def _check_public_s3_buckets(cursor) -> list[StandardFinding]:
 
     for row in cursor.fetchall():
         resource_id = row["resource_id"]
-        properties = _get_resource_properties(cursor, resource_id)
+        properties = all_props.get(resource_id, {})
         snippet = f'resource "aws_s3_bucket" "{row["resource_name"]}"'
         line = row["line"] or 1
 
@@ -103,7 +109,9 @@ def _check_public_s3_buckets(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_unencrypted_storage(cursor) -> list[StandardFinding]:
+def _check_unencrypted_storage(
+    cursor, all_props: dict[str, dict[str, Any]]
+) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     cursor.execute(
@@ -115,7 +123,7 @@ def _check_unencrypted_storage(cursor) -> list[StandardFinding]:
     )
 
     for row in cursor.fetchall():
-        properties = _get_resource_properties(cursor, row["resource_id"])
+        properties = all_props.get(row["resource_id"], {})
         if not properties.get("storage_encrypted"):
             findings.append(
                 _build_finding(
@@ -142,7 +150,7 @@ def _check_unencrypted_storage(cursor) -> list[StandardFinding]:
     )
 
     for row in cursor.fetchall():
-        properties = _get_resource_properties(cursor, row["resource_id"])
+        properties = all_props.get(row["resource_id"], {})
         if not properties.get("encrypted"):
             findings.append(
                 _build_finding(
@@ -160,7 +168,9 @@ def _check_unencrypted_storage(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_iam_wildcards(cursor) -> list[StandardFinding]:
+def _check_iam_wildcards(
+    cursor, all_props: dict[str, dict[str, Any]]
+) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     cursor.execute(
@@ -172,10 +182,10 @@ def _check_iam_wildcards(cursor) -> list[StandardFinding]:
     )
 
     for row in cursor.fetchall():
-        properties = _get_resource_properties(cursor, row["resource_id"])
-        policy_str = properties.get("policy")
-        policy = _load_json(policy_str) if isinstance(policy_str, str) else None
-        if not policy:
+        properties = all_props.get(row["resource_id"], {})
+        policy = properties.get("policy")
+        # Policy is already parsed by bulk loader
+        if not isinstance(policy, dict):
             continue
 
         has_wildcard_action = False
@@ -216,7 +226,11 @@ def _check_iam_wildcards(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_resource_secrets(cursor) -> list[StandardFinding]:
+def _check_resource_secrets(
+    cursor,
+    all_props: dict[str, dict[str, Any]],
+    sensitive_props: dict[str, set[str]],
+) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     cursor.execute(
@@ -228,10 +242,10 @@ def _check_resource_secrets(cursor) -> list[StandardFinding]:
 
     for row in cursor.fetchall():
         resource_id = row["resource_id"]
-        properties = _get_resource_properties(cursor, resource_id)
-        sensitive_props = _get_sensitive_properties(cursor, resource_id)
+        properties = all_props.get(resource_id, {})
+        resource_sensitive_props = sensitive_props.get(resource_id, set())
 
-        for prop_name in sensitive_props:
+        for prop_name in resource_sensitive_props:
             prop_value = properties.get(prop_name)
             if (
                 isinstance(prop_value, str)
@@ -286,7 +300,9 @@ def _check_tfvars_secrets(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_missing_encryption(cursor) -> list[StandardFinding]:
+def _check_missing_encryption(
+    cursor, all_props: dict[str, dict[str, Any]]
+) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     cursor.execute(
@@ -298,7 +314,7 @@ def _check_missing_encryption(cursor) -> list[StandardFinding]:
     )
 
     for row in cursor.fetchall():
-        properties = _get_resource_properties(cursor, row["resource_id"])
+        properties = all_props.get(row["resource_id"], {})
         if "kms_master_key_id" not in properties:
             findings.append(
                 _build_finding(
@@ -316,7 +332,9 @@ def _check_missing_encryption(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_security_groups(cursor) -> list[StandardFinding]:
+def _check_security_groups(
+    cursor, all_props: dict[str, dict[str, Any]]
+) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     cursor.execute(
@@ -328,7 +346,7 @@ def _check_security_groups(cursor) -> list[StandardFinding]:
     )
 
     for row in cursor.fetchall():
-        properties = _get_resource_properties(cursor, row["resource_id"]) or {}
+        properties = all_props.get(row["resource_id"], {})
         ingress_rules = properties.get("ingress", [])
         if isinstance(ingress_rules, dict):
             ingress_rules = [ingress_rules]
@@ -366,14 +384,48 @@ def _check_security_groups(cursor) -> list[StandardFinding]:
 
 
 def _load_json(raw: Any) -> Any:
+    """Parse JSON or return as-is. Crashes on corrupt data (Zero Fallback)."""
     if raw is None:
         return {}
     if isinstance(raw, (dict, list)):
         return raw
-    try:
-        return json.loads(raw)
-    except (TypeError, json.JSONDecodeError):
-        return {}
+    # No try-except: if DB contains corrupt JSON, crash loud to expose extractor bugs
+    return json.loads(raw)
+
+
+def _bulk_load_all_properties(cursor) -> dict[str, dict[str, Any]]:
+    """Load ALL resource properties in one query. O(1) lookup after."""
+    cursor.execute("""
+        SELECT resource_id, property_name, property_value
+        FROM terraform_resource_properties
+    """)
+    props_map: dict[str, dict[str, Any]] = {}
+    for row in cursor.fetchall():
+        resource_id = row["resource_id"]
+        if resource_id not in props_map:
+            props_map[resource_id] = {}
+        value = row["property_value"]
+        if value:
+            props_map[resource_id][row["property_name"]] = _load_json(value)
+        else:
+            props_map[resource_id][row["property_name"]] = value
+    return props_map
+
+
+def _bulk_load_sensitive_props(cursor) -> dict[str, set[str]]:
+    """Load ALL sensitive property names in one query. O(1) lookup after."""
+    cursor.execute("""
+        SELECT resource_id, property_name
+        FROM terraform_resource_properties
+        WHERE is_sensitive = 1
+    """)
+    sensitive_map: dict[str, set[str]] = {}
+    for row in cursor.fetchall():
+        resource_id = row["resource_id"]
+        if resource_id not in sensitive_map:
+            sensitive_map[resource_id] = set()
+        sensitive_map[resource_id].add(row["property_name"])
+    return sensitive_map
 
 
 def _get_resource_properties(cursor, resource_id: str) -> dict:
