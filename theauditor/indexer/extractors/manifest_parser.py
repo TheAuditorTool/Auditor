@@ -2,6 +2,7 @@
 
 import configparser
 import json
+import tomllib
 from pathlib import Path
 from typing import Any
 
@@ -14,21 +15,12 @@ class ManifestParser:
     """Universal parser for all manifest file types."""
 
     def parse_toml(self, path: Path) -> dict:
-        """Parse TOML using tomllib with fallback to tomli for older Python."""
-        try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib
-            except ImportError:
-                logger.info(f"Warning: Cannot parse {path} - tomllib not available")
-                return {}
-
+        """Parse TOML file."""
         try:
             with open(path, "rb") as f:
                 return tomllib.load(f)
         except Exception as e:
-            logger.info(f"Warning: Failed to parse TOML {path}: {e}")
+            logger.warning(f"Failed to parse TOML {path}: {e}")
             return {}
 
     def parse_json(self, path: Path) -> dict:
@@ -37,7 +29,7 @@ class ManifestParser:
             with open(path, encoding="utf-8") as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError) as e:
-            logger.info(f"Warning: Failed to parse JSON {path}: {e}")
+            logger.warning(f"Failed to parse JSON {path}: {e}")
             return {}
 
     def parse_yaml(self, path: Path) -> dict:
@@ -46,7 +38,7 @@ class ManifestParser:
             with open(path, encoding="utf-8") as f:
                 return yaml.safe_load(f) or {}
         except (yaml.YAMLError, OSError) as e:
-            logger.info(f"Warning: Failed to parse YAML {path}: {e}")
+            logger.warning(f"Failed to parse YAML {path}: {e}")
             return {}
 
     def parse_ini(self, path: Path) -> dict:
@@ -56,7 +48,7 @@ class ManifestParser:
             config.read(path)
             return {s: dict(config[s]) for s in config.sections()}
         except Exception as e:
-            logger.info(f"Warning: Failed to parse INI/CFG {path}: {e}")
+            logger.warning(f"Failed to parse INI/CFG {path}: {e}")
             return {}
 
     def parse_requirements_txt(self, path: Path) -> list[str]:
@@ -79,7 +71,7 @@ class ManifestParser:
                         lines.append(line)
                 return lines
         except OSError as e:
-            logger.info(f"Warning: Failed to parse requirements.txt {path}: {e}")
+            logger.warning(f"Failed to parse requirements.txt {path}: {e}")
             return []
 
     def extract_nested_value(self, data: dict | list, key_path: list[str]) -> Any:
