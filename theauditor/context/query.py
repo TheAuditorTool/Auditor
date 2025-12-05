@@ -899,40 +899,75 @@ class CodeQueryEngine:
         cursor = self.repo_db.cursor()
         results = []
 
-        for table in ["symbols", "symbols_jsx"]:
-            query = f"""
-                SELECT path, name, type, line, end_line, type_annotation, is_typed
-                FROM {table}
-                WHERE name LIKE ?
-            """
-            params = [pattern]
+        # Query symbols table (has end_line, type_annotation, is_typed)
+        query = """
+            SELECT path, name, type, line, end_line, type_annotation, is_typed
+            FROM symbols
+            WHERE name LIKE ?
+        """
+        params = [pattern]
 
-            if type_filter:
-                query += " AND type = ?"
-                params.append(type_filter)
+        if type_filter:
+            query += " AND type = ?"
+            params.append(type_filter)
 
-            if path_filter:
-                query += " AND path LIKE ?"
-                params.append(path_filter)
+        if path_filter:
+            query += " AND path LIKE ?"
+            params.append(path_filter)
 
-            query += " ORDER BY path, line"
-            query += f" LIMIT {limit}"
+        query += " ORDER BY path, line"
+        query += f" LIMIT {limit}"
 
-            cursor.execute(query, params)
+        cursor.execute(query, params)
 
-            for row in cursor.fetchall():
-                results.append(
-                    SymbolInfo(
-                        name=row["name"],
-                        type=row["type"],
-                        file=row["path"],
-                        line=row["line"],
-                        end_line=row["end_line"] or row["line"],
-                        signature=row["type_annotation"],
-                        is_exported=bool(row["is_typed"]) if row["is_typed"] is not None else False,
-                        framework_type=None,
-                    )
+        for row in cursor.fetchall():
+            results.append(
+                SymbolInfo(
+                    name=row["name"],
+                    type=row["type"],
+                    file=row["path"],
+                    line=row["line"],
+                    end_line=row["end_line"] or row["line"],
+                    signature=row["type_annotation"],
+                    is_exported=bool(row["is_typed"]) if row["is_typed"] is not None else False,
+                    framework_type=None,
                 )
+            )
+
+        # Query symbols_jsx table (different schema - no end_line, type_annotation, is_typed)
+        query_jsx = """
+            SELECT path, name, type, line
+            FROM symbols_jsx
+            WHERE name LIKE ?
+        """
+        params_jsx = [pattern]
+
+        if type_filter:
+            query_jsx += " AND type = ?"
+            params_jsx.append(type_filter)
+
+        if path_filter:
+            query_jsx += " AND path LIKE ?"
+            params_jsx.append(path_filter)
+
+        query_jsx += " ORDER BY path, line"
+        query_jsx += f" LIMIT {limit}"
+
+        cursor.execute(query_jsx, params_jsx)
+
+        for row in cursor.fetchall():
+            results.append(
+                SymbolInfo(
+                    name=row["name"],
+                    type=row["type"],
+                    file=row["path"],
+                    line=row["line"],
+                    end_line=row["line"],  # No end_line in symbols_jsx, use line
+                    signature=None,  # No type_annotation in symbols_jsx
+                    is_exported=False,  # No is_typed in symbols_jsx
+                    framework_type=None,
+                )
+            )
 
         return results[:limit]
 
@@ -1070,17 +1105,44 @@ class CodeQueryEngine:
 
         normalized_path = self._normalize_path(file_path)
 
-        for table in ["symbols", "symbols_jsx"]:
+        # Query symbols table (has end_line, type_annotation)
+        cursor.execute(
+            """
+            SELECT name, type, line, end_line, type_annotation, path
+            FROM symbols
+            WHERE path LIKE ?
+              AND type NOT IN ('call')
+            ORDER BY line
+            LIMIT ?
+        """,
+            (f"%{normalized_path}", limit),
+        )
+
+        for row in cursor.fetchall():
+            results.append(
+                {
+                    "name": row["name"],
+                    "type": row["type"],
+                    "line": row["line"],
+                    "end_line": row["end_line"] or row["line"],
+                    "signature": row["type_annotation"],
+                    "path": row["path"],
+                }
+            )
+
+        # Query symbols_jsx table (different schema - no end_line, type_annotation)
+        remaining = limit - len(results)
+        if remaining > 0:
             cursor.execute(
-                f"""
-                SELECT name, type, line, end_line, type_annotation, path
-                FROM {table}
+                """
+                SELECT name, type, line, path
+                FROM symbols_jsx
                 WHERE path LIKE ?
                   AND type NOT IN ('call')
                 ORDER BY line
                 LIMIT ?
             """,
-                (f"%{normalized_path}", limit - len(results)),
+                (f"%{normalized_path}", remaining),
             )
 
             for row in cursor.fetchall():
@@ -1089,8 +1151,8 @@ class CodeQueryEngine:
                         "name": row["name"],
                         "type": row["type"],
                         "line": row["line"],
-                        "end_line": row["end_line"] or row["line"],
-                        "signature": row["type_annotation"],
+                        "end_line": row["line"],  # No end_line in symbols_jsx
+                        "signature": None,  # No type_annotation in symbols_jsx
                         "path": row["path"],
                     }
                 )

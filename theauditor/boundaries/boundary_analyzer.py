@@ -13,6 +13,15 @@ from theauditor.graph.store import XGraphStore
 VALIDATION_PATTERNS = ["validate", "parse", "check", "sanitize", "clean", "schema", "validator"]
 
 
+def _table_exists(cursor, table_name: str) -> bool:
+    """Check if a table exists in the database."""
+    cursor.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+        (table_name,),
+    )
+    return cursor.fetchone() is not None
+
+
 def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> list[dict]:
     """Analyze input validation boundaries across all entry points."""
     conn = sqlite3.connect(db_path)
@@ -22,98 +31,106 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
     try:
         entry_points = []
 
-        cursor.execute(
-            """
-            SELECT file, line, pattern, method FROM python_routes
-            WHERE pattern IS NOT NULL
-            LIMIT ?
-        """,
-            (max_entries // 3,),
-        )
-        for file, line, pattern, method in cursor.fetchall():
-            entry_points.append(
-                {
-                    "type": "http",
-                    "name": f"{method or 'GET'} {pattern}",
-                    "file": file,
-                    "line": line,
-                }
+        # Python routes
+        if _table_exists(cursor, "python_routes"):
+            cursor.execute(
+                """
+                SELECT file, line, pattern, method FROM python_routes
+                WHERE pattern IS NOT NULL
+                LIMIT ?
+            """,
+                (max_entries // 3,),
             )
+            for file, line, pattern, method in cursor.fetchall():
+                entry_points.append(
+                    {
+                        "type": "http",
+                        "name": f"{method or 'GET'} {pattern}",
+                        "file": file,
+                        "line": line,
+                    }
+                )
 
-        cursor.execute(
-            """
-            SELECT file, line, pattern, method FROM js_routes
-            WHERE pattern IS NOT NULL
-            LIMIT ?
-        """,
-            (max_entries // 3,),
-        )
-        for file, line, pattern, method in cursor.fetchall():
-            entry_points.append(
-                {
-                    "type": "http",
-                    "name": f"{method or 'GET'} {pattern}",
-                    "file": file,
-                    "line": line,
-                }
+        # JavaScript routes (table may not exist in Python-only codebases)
+        if _table_exists(cursor, "js_routes"):
+            cursor.execute(
+                """
+                SELECT file, line, pattern, method FROM js_routes
+                WHERE pattern IS NOT NULL
+                LIMIT ?
+            """,
+                (max_entries // 3,),
             )
+            for file, line, pattern, method in cursor.fetchall():
+                entry_points.append(
+                    {
+                        "type": "http",
+                        "name": f"{method or 'GET'} {pattern}",
+                        "file": file,
+                        "line": line,
+                    }
+                )
 
-        cursor.execute(
-            """
-            SELECT file, line, pattern, method FROM api_endpoints
-            WHERE pattern IS NOT NULL
-            LIMIT ?
-        """,
-            (max_entries // 3,),
-        )
-        for file, line, pattern, method in cursor.fetchall():
-            entry_points.append(
-                {
-                    "type": "http",
-                    "name": f"{method or 'GET'} {pattern}",
-                    "file": file,
-                    "line": line,
-                }
+        # API endpoints (generic)
+        if _table_exists(cursor, "api_endpoints"):
+            cursor.execute(
+                """
+                SELECT file, line, pattern, method FROM api_endpoints
+                WHERE pattern IS NOT NULL
+                LIMIT ?
+            """,
+                (max_entries // 3,),
             )
+            for file, line, pattern, method in cursor.fetchall():
+                entry_points.append(
+                    {
+                        "type": "http",
+                        "name": f"{method or 'GET'} {pattern}",
+                        "file": file,
+                        "line": line,
+                    }
+                )
 
-        # Go routes (go_routes uses 'file' column, not 'file_path')
-        cursor.execute(
-            """
-            SELECT file, line, path, method FROM go_routes
-            WHERE path IS NOT NULL
-            LIMIT ?
-        """,
-            (max_entries // 4,),
-        )
-        for file, line, pattern, method in cursor.fetchall():
-            entry_points.append(
-                {
-                    "type": "http",
-                    "name": f"{method or 'GET'} {pattern}",
-                    "file": file,
-                    "line": line,
-                }
+        # Go routes (table may not exist in non-Go codebases)
+        if _table_exists(cursor, "go_routes"):
+            cursor.execute(
+                """
+                SELECT file, line, path, method FROM go_routes
+                WHERE path IS NOT NULL
+                LIMIT ?
+            """,
+                (max_entries // 4,),
             )
+            for file, line, pattern, method in cursor.fetchall():
+                entry_points.append(
+                    {
+                        "type": "http",
+                        "name": f"{method or 'GET'} {pattern}",
+                        "file": file,
+                        "line": line,
+                    }
+                )
 
-        # Rust routes (from attributes)
-        cursor.execute(
-            """
-            SELECT file_path, target_line, args, attribute_name FROM rust_attributes
-            WHERE attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route')
-            AND args IS NOT NULL
-            LIMIT ?
-        """,
-            (max_entries // 4,),
-        )
-        for file, line, pattern, method in cursor.fetchall():
-            entry_points.append(
-                {
-                    "type": "http",
-                    "name": f"{method.upper()} {pattern}",
-                    "file": file,
-                    "line": line or 0,
-                }
+        # Rust routes (table may not exist in non-Rust codebases)
+        if _table_exists(cursor, "rust_attributes"):
+            cursor.execute(
+                """
+                SELECT file_path, target_line, args, attribute_name FROM rust_attributes
+                WHERE attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route')
+                AND args IS NOT NULL
+                LIMIT ?
+            """,
+                (max_entries // 4,),
             )
+            for file, line, pattern, method in cursor.fetchall():
+                entry_points.append(
+                    {
+                        "type": "http",
+                        "name": f"{method.upper()} {pattern}",
+                        "file": file,
+                        "line": line or 0,
+                    }
+                )
 
         # Load graph ONCE before loop (O(1) instead of O(N) disk I/O)
         graph_db_path = str(Path(db_path).parent / "graphs.db")

@@ -223,6 +223,21 @@ def suggest(
 
     import numpy as np
 
+    # Validate feature count compatibility with saved model
+    expected_features = scaler.n_features_in_
+    actual_features = feature_matrix.shape[1]
+    if expected_features != actual_features:
+        logger.error(
+            f"Feature count mismatch: model expects {expected_features} features, "
+            f"but current code generates {actual_features}. "
+            f"Run 'aud learn' to retrain models with current feature set."
+        )
+        return {
+            "success": False,
+            "error": f"Model incompatible: trained with {expected_features} features, "
+            f"current code generates {actual_features}. Run 'aud learn' to retrain.",
+        }
+
     # 2025: Pipelines handle scaling internally for classifiers
     # Only need explicit scaling for the risk regressor
     features_scaled = scaler.transform(feature_matrix)
