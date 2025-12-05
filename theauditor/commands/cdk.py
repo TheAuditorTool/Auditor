@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.logging import logger
 
 
@@ -121,10 +121,10 @@ def analyze(root, db, severity, output_format, output):
     db_path = Path(db) if Path(db).is_absolute() else (Path(root) / db).resolve()
 
     if not db_path.exists():
-        console.print(
-            f"[error]Error: Database not found at {db_path}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Database not found at {db_path}[/error]", highlight=False
         )
-        console.print("[error]Run 'aud full' first to extract CDK constructs.[/error]", stderr=True)
+        err_console.print("[error]Run 'aud full' first to extract CDK constructs.[/error]", )
         raise SystemExit(3)
 
     try:
@@ -185,12 +185,12 @@ def analyze(root, db, severity, output_format, output):
             raise SystemExit(1)
 
     except FileNotFoundError as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise SystemExit(3) from e
     except Exception as e:
         logger.error(f"CDK analysis failed: {e}", exc_info=True)
-        console.print(
-            f"[error]Error during CDK analysis: {e}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error during CDK analysis: {e}[/error]", highlight=False
         )
         raise SystemExit(3) from e
 

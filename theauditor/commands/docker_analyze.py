@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.exit_codes import ExitCodes
 
@@ -200,10 +200,10 @@ def docker_analyze(db_path, output, severity, check_vulns):
     from theauditor.docker_analyzer import analyze_docker_images
 
     if not Path(db_path).exists():
-        console.print(
-            f"[error]Error: Database not found at {db_path}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Database not found at {db_path}[/error]", highlight=False
         )
-        console.print("[error]Run 'aud full' first to create the database[/error]", stderr=True)
+        err_console.print("[error]Run 'aud full' first to create the database[/error]", )
         return ExitCodes.TASK_INCOMPLETE
 
     console.print("Analyzing Docker images for security issues...")

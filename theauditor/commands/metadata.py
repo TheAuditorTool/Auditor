@@ -3,7 +3,7 @@
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.logging import logger
 
 
@@ -110,7 +110,7 @@ def analyze_churn(root, days, output):
         result = collector.collect_churn(days=days, output_path=output)
 
         if "error" in result:
-            console.print(f"[warning]{result['error']}[/warning]", stderr=True)
+            err_console.print(f"[warning]{result['error']}[/warning]", )
             if not result.get("files"):
                 return
 
@@ -132,7 +132,7 @@ def analyze_churn(root, days, output):
 
     except Exception as e:
         logger.error(f"Churn analysis failed: {e}")
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -176,7 +176,7 @@ def analyze_coverage(root, coverage_file, output):
         result = collector.collect_coverage(coverage_file=coverage_file, output_path=output)
 
         if "error" in result:
-            console.print(f"[error]{result['error']}[/error]", stderr=True)
+            err_console.print(f"[error]{result['error']}[/error]", )
             if not result.get("files"):
                 raise click.ClickException(result["error"])
 
@@ -209,7 +209,7 @@ def analyze_coverage(root, coverage_file, output):
 
     except Exception as e:
         logger.error(f"Coverage analysis failed: {e}")
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -247,9 +247,8 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
             )
 
             if "error" in churn_result:
-                console.print(
-                    f"[error]  \\[WARNING] Churn: {churn_result['error']}[/error]", stderr=True
-                )
+                err_console.print(
+                    f"[error]  \\[WARNING] Churn: {churn_result['error']}[/error]", )
             else:
                 total = churn_result.get("total_files_analyzed", 0)
                 console.print(f"  \\[OK] Churn: Analyzed {total} files")
@@ -263,10 +262,9 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
             )
 
             if "error" in coverage_result:
-                console.print(
+                err_console.print(
                     f"[error]  \\[WARNING] Coverage: {coverage_result['error']}[/error]",
-                    stderr=True,
-                )
+                    )
             else:
                 format_type = coverage_result.get("format_detected", "unknown")
                 total = coverage_result.get("total_files_analyzed", 0)
@@ -283,5 +281,5 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
 
     except Exception as e:
         logger.error(f"Metadata analysis failed: {e}")
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e

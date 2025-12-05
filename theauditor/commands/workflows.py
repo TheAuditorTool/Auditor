@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.logging import logger
 
 from .. import __version__
@@ -112,13 +112,12 @@ def analyze(root, workset, severity, output, db, chunk_size):
     try:
         db_path = Path(db)
         if not db_path.exists():
-            console.print(
-                f"[error]Error: Database not found: {db}[/error]", stderr=True, highlight=False
+            err_console.print(
+                f"[error]Error: Database not found: {db}[/error]", highlight=False
             )
-            console.print(
+            err_console.print(
                 "[error]Run 'aud full' first to extract GitHub Actions workflows.[/error]",
-                stderr=True,
-            )
+                )
             raise click.Abort()
 
         conn = sqlite3.connect(str(db_path))
@@ -128,10 +127,9 @@ def analyze(root, workset, severity, output, db, chunk_size):
         if workset:
             workset_path = Path(".pf/workset.json")
             if not workset_path.exists():
-                console.print(
+                err_console.print(
                     "[error]Error: Workset file not found. Run 'aud workset' first.[/error]",
-                    stderr=True,
-                )
+                    )
                 raise click.Abort()
 
             with open(workset_path) as f:
@@ -206,11 +204,11 @@ def analyze(root, workset, severity, output, db, chunk_size):
         conn.close()
 
     except sqlite3.Error as e:
-        console.print(f"[error]Database error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Database error: {e}[/error]", highlight=False)
         raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to analyze workflows: {e}", exc_info=True)
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.Abort() from e
 
 

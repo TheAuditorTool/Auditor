@@ -18,13 +18,15 @@ import time
 from pathlib import Path
 
 import click
+from rich.panel import Panel
+from rich.table import Table
 
 from theauditor.cli import RichCommand
 from theauditor.context.explain_formatter import ExplainFormatter
 from theauditor.context.query import CodeQueryEngine
 from theauditor.fce import FCEQueryEngine, VectorSignal
 from theauditor.fce.formatter import FCEFormatter
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.code_snippets import CodeSnippetManager
 from theauditor.utils.error_handler import handle_exceptions
 
@@ -79,7 +81,7 @@ def detect_target_type(target: str, engine: CodeQueryEngine) -> str:
 
 
 @click.command(cls=RichCommand)
-@click.argument("target")
+@click.argument("target", required=False)
 @click.option(
     "--depth", default=1, type=int, help="Call graph depth for callers/callees (1-5, default=1)"
 )
@@ -210,6 +212,42 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
       aud manual explain    Learn about the explain command
       aud manual context    Apply business logic rules to findings
     """
+    if not target:
+        # Styled welcome page
+        console.print()
+        console.print(Panel.fit(
+            "[bold cyan]aud explain[/bold cyan]\n"
+            "[dim]Get comprehensive context about any code target in one call[/dim]",
+            border_style="cyan"
+        ))
+        console.print()
+
+        # Target types
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Target", style="green", width=28)
+        table.add_column("Description", style="dim")
+        table.add_row("aud explain src/auth.py", "File context (symbols, deps, calls)")
+        table.add_row("aud explain authenticate", "Symbol context (callers, callees)")
+        table.add_row("aud explain User.create", "Method context (class + method)")
+        table.add_row("aud explain Dashboard", "React component (hooks, children)")
+        console.print(Panel(table, title="[bold]TARGET TYPES[/bold]", border_style="blue"))
+
+        # Options
+        opts_table = Table(show_header=False, box=None, padding=(0, 2))
+        opts_table.add_column("Option", style="yellow", width=20)
+        opts_table.add_column("Effect", style="dim")
+        opts_table.add_row("--format json", "Machine-readable output")
+        opts_table.add_row("--depth N", "Call graph depth (1-5)")
+        opts_table.add_row("--no-code", "Skip code snippets (faster)")
+        opts_table.add_row("--fce", "Include vector signal density")
+        console.print(Panel(opts_table, title="[bold]OPTIONS[/bold]", border_style="blue"))
+
+        console.print()
+        console.print("[dim]Prerequisite:[/dim] aud full [dim](builds the database)[/dim]")
+        console.print("[dim]More info:[/dim]    aud explain --help")
+        console.print()
+        return
+
     start_time = time.perf_counter()
 
     depth = max(1, min(5, depth))
@@ -260,7 +298,7 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
             data = engine.get_symbol_context_bundle(target, limit=limit, depth=depth)
             if "error" in data:
                 console.print(
-                    f"[error]Error: {data['error']}[/error]", stderr=True, highlight=False
+                    f"[error]Error: {data['error']}[/error]", highlight=False
                 )
                 return
 
@@ -285,8 +323,8 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
         else:
             data = engine.get_component_tree(target)
             if isinstance(data, dict) and "error" in data:
-                console.print(
-                    f"[error]Error: {data['error']}[/error]", stderr=True, highlight=False
+                err_console.print(
+                    f"[error]Error: {data['error']}[/error]", highlight=False
                 )
                 return
             data["target"] = target

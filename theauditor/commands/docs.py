@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 
 
 @click.command("docs", cls=RichCommand)
@@ -374,5 +374,5 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
                 console.print("\nUse 'aud docs list' to see all available docs")
 
     except Exception as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e

@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.planning import snapshots, verification
 from theauditor.planning.manager import PlanningManager
 from theauditor.utils.error_handler import handle_exceptions
@@ -200,8 +200,8 @@ def show(plan_id, tasks, verbose, format):
 
     plan = manager.get_plan(plan_id)
     if not plan:
-        console.print(
-            f"[error]Error: Plan {plan_id} not found[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Plan {plan_id} not found[/error]", highlight=False
         )
         return
 
@@ -479,9 +479,8 @@ def add_task(plan_id, title, description, spec, assigned_to, phase):
         if phase_row:
             phase_id = phase_row[0]
         else:
-            console.print(
+            err_console.print(
                 f"[error]Warning: Phase {phase} not found in plan {plan_id}[/error]",
-                stderr=True,
                 highlight=False,
             )
             return
@@ -527,9 +526,8 @@ def add_job(plan_id, task_number, description, is_audit):
 
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
-        console.print(
+        err_console.print(
             f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
-            stderr=True,
             highlight=False,
         )
         return
@@ -579,9 +577,8 @@ def update_task(plan_id, task_number, status, assigned_to):
 
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
-        console.print(
+        err_console.print(
             f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
-            stderr=True,
             highlight=False,
         )
         return
@@ -615,18 +612,16 @@ def verify_task(plan_id, task_number, verbose, auto_update):
     repo_index_db = Path.cwd() / ".pf" / "repo_index.db"
 
     if not repo_index_db.exists():
-        console.print(
-            "[error]Error: repo_index.db not found. Run 'aud full' first.[/error]", stderr=True
-        )
+        err_console.print(
+            "[error]Error: repo_index.db not found. Run 'aud full' first.[/error]", )
         return
 
     manager = PlanningManager(db_path)
 
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
-        console.print(
+        err_console.print(
             f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
-            stderr=True,
             highlight=False,
         )
         return
@@ -638,9 +633,8 @@ def verify_task(plan_id, task_number, verbose, auto_update):
 
     spec_yaml = manager.load_task_spec(task_id)
     if not spec_yaml:
-        console.print(
+        err_console.print(
             f"[error]Error: No verification spec for task {task_number}[/error]",
-            stderr=True,
             highlight=False,
         )
         return
@@ -658,16 +652,14 @@ def verify_task(plan_id, task_number, verbose, auto_update):
         console.print(f"  Total violations: {total_violations}", highlight=False)
 
         if is_regression:
-            console.print("[error]\n  WARNING: REGRESSION DETECTED[/error]", stderr=True)
-            console.print(
+            err_console.print("[error]\n  WARNING: REGRESSION DETECTED[/error]", )
+            err_console.print(
                 f"[error]  Task {task_number} was previously completed but now has {total_violations} violation(s)[/error]",
-                stderr=True,
                 highlight=False,
             )
-            console.print(
+            err_console.print(
                 "[error]  Code changes since completion have broken verification[/error]",
-                stderr=True,
-            )
+                )
 
         if verbose and total_violations > 0:
             console.print("\nViolations by rule:")
@@ -722,12 +714,12 @@ def verify_task(plan_id, task_number, verbose, auto_update):
                 console.print(f"Sequence: {snapshot['sequence']}", highlight=False)
 
     except ValueError as e:
-        console.print(
-            f"[error]Error: Invalid verification spec: {e}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Invalid verification spec: {e}[/error]", highlight=False
         )
     except Exception as e:
-        console.print(
-            f"[error]Error during verification: {e}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error during verification: {e}[/error]", highlight=False
         )
         raise
 
@@ -750,8 +742,8 @@ def archive(plan_id, notes):
 
     plan = manager.get_plan(plan_id)
     if not plan:
-        console.print(
-            f"[error]Error: Plan {plan_id} not found[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Plan {plan_id} not found[/error]", highlight=False
         )
         return
 
@@ -759,21 +751,18 @@ def archive(plan_id, notes):
     incomplete_tasks = [t for t in all_tasks if t["status"] != "completed"]
 
     if incomplete_tasks:
-        console.print(
+        err_console.print(
             f"[error]Warning: Plan has {len(incomplete_tasks)} incomplete task(s):[/error]",
-            stderr=True,
             highlight=False,
         )
         for task in incomplete_tasks[:5]:
-            console.print(
+            err_console.print(
                 f"[error]  - Task {task['task_number']}: {task['title']} (status: {task['status']})[/error]",
-                stderr=True,
                 highlight=False,
             )
         if len(incomplete_tasks) > 5:
-            console.print(
+            err_console.print(
                 f"[error]  ... and {len(incomplete_tasks) - 5} more[/error]",
-                stderr=True,
                 highlight=False,
             )
 
@@ -831,8 +820,8 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
 
     plan = manager.get_plan(plan_id)
     if not plan:
-        console.print(
-            f"[error]Error: Plan {plan_id} not found[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Plan {plan_id} not found[/error]", highlight=False
         )
         return
 
@@ -841,9 +830,8 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
     if task_number is not None:
         task_id = manager.get_task_id(plan_id, task_number)
         if not task_id:
-            console.print(
+            err_console.print(
                 f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
-                stderr=True,
                 highlight=False,
             )
             return
@@ -862,9 +850,8 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             snapshots_to_apply = cursor.fetchall()
 
             if not snapshots_to_apply:
-                console.print(
+                err_console.print(
                     f"[error]Error: No checkpoints found up to sequence {to_sequence}[/error]",
-                    stderr=True,
                     highlight=False,
                 )
                 return
@@ -936,9 +923,8 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
 
             snapshot_row = cursor.fetchone()
             if not snapshot_row:
-                console.print(
+                err_console.print(
                     f"[error]Error: Checkpoint '{checkpoint}' not found[/error]",
-                    stderr=True,
                     highlight=False,
                 )
                 return
@@ -1009,9 +995,8 @@ def checkpoint(plan_id, task_number, name):
 
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
-        console.print(
+        err_console.print(
             f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
-            stderr=True,
             highlight=False,
         )
         return
@@ -1065,9 +1050,8 @@ def show_diff(plan_id, task_number, sequence, file):
 
     task_id = manager.get_task_id(plan_id, task_number)
     if not task_id:
-        console.print(
+        err_console.print(
             f"[error]Error: Task {task_number} not found in plan {plan_id}[/error]",
-            stderr=True,
             highlight=False,
         )
         return
@@ -1086,9 +1070,8 @@ def show_diff(plan_id, task_number, sequence, file):
 
         snapshot_row = cursor.fetchone()
         if not snapshot_row:
-            console.print(
+            err_console.print(
                 f"[error]Error: No checkpoint with sequence {sequence} found[/error]",
-                stderr=True,
                 highlight=False,
             )
             return
@@ -1181,21 +1164,19 @@ def validate_plan(plan_id, session_id, format):
     session_db_path = Path.cwd() / ".pf" / "ml" / "session_history.db"
 
     if not session_db_path.exists():
-        console.print(
+        err_console.print(
             "[error]Error: Session database not found (.pf/ml/session_history.db)[/error]",
-            stderr=True,
-        )
-        console.print(
-            "[error]Run 'aud session analyze' to create session database[/error]", stderr=True
-        )
-        console.print("[error]Planning validation requires session logs[/error]", stderr=True)
+            )
+        err_console.print(
+            "[error]Run 'aud session analyze' to create session database[/error]", )
+        err_console.print("[error]Planning validation requires session logs[/error]", )
         raise click.ClickException("Session logging not enabled")
 
     manager = PlanningManager(db_path)
     plan = manager.get_plan(plan_id)
     if not plan:
-        console.print(
-            f"[error]Error: Plan {plan_id} not found[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Plan {plan_id} not found[/error]", highlight=False
         )
         raise click.ClickException(f"Plan {plan_id} not found")
 
@@ -1227,15 +1208,13 @@ def validate_plan(plan_id, session_id, format):
 
     session_row = session_cursor.fetchone()
     if not session_row:
-        console.print(
+        err_console.print(
             f"[error]Error: No session found for plan '{plan['name']}'[/error]",
-            stderr=True,
             highlight=False,
         )
         if session_id:
-            console.print(
+            err_console.print(
                 f"[error]Session ID '{session_id}' not found in database[/error]",
-                stderr=True,
                 highlight=False,
             )
         raise click.ClickException("No matching session found")
@@ -1353,10 +1332,10 @@ def validate_plan(plan_id, session_id, format):
 
     if validation_passed:
         manager.update_task(plan_id, 1, status="completed")
-        console.print("[error]\nPlan status updated to: completed[/error]", stderr=True)
+        err_console.print("[error]\nPlan status updated to: completed[/error]", )
     else:
         manager.update_task(plan_id, 1, status="needs-revision")
-        console.print("[error]\nPlan status updated to: needs-revision[/error]", stderr=True)
+        err_console.print("[error]\nPlan status updated to: needs-revision[/error]", )
 
     session_conn.close()
 

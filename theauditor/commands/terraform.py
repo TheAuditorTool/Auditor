@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.logging import logger
 
 
@@ -117,22 +117,20 @@ def provision(root, workset, output, db, graphs_db):
     try:
         db_path = Path(db)
         if not db_path.exists():
-            console.print(
-                f"[error]Error: Database not found: {db}[/error]", stderr=True, highlight=False
+            err_console.print(
+                f"[error]Error: Database not found: {db}[/error]", highlight=False
             )
-            console.print(
-                "[error]Run 'aud full' first to extract Terraform resources.[/error]", stderr=True
-            )
+            err_console.print(
+                "[error]Run 'aud full' first to extract Terraform resources.[/error]", )
             raise click.Abort()
 
         file_filter = None
         if workset:
             workset_path = Path(".pf/workset.json")
             if not workset_path.exists():
-                console.print(
+                err_console.print(
                     "[error]Error: Workset file not found. Run 'aud workset' first.[/error]",
-                    stderr=True,
-                )
+                    )
                 raise click.Abort()
 
             with open(workset_path) as f:
@@ -194,11 +192,11 @@ def provision(root, workset, output, db, graphs_db):
                 console.print(f"  - {node['name']} ({node['terraform_type']})", highlight=False)
 
     except FileNotFoundError as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to build provisioning graph: {e}", exc_info=True)
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.Abort() from e
 
 
@@ -245,12 +243,11 @@ def analyze(root, severity, categories, output, db):
     try:
         db_path = Path(db)
         if not db_path.exists():
-            console.print(
-                f"[error]Error: Database not found: {db}[/error]", stderr=True, highlight=False
+            err_console.print(
+                f"[error]Error: Database not found: {db}[/error]", highlight=False
             )
-            console.print(
-                "[error]Run 'aud full' first to extract Terraform resources.[/error]", stderr=True
-            )
+            err_console.print(
+                "[error]Run 'aud full' first to extract Terraform resources.[/error]", )
             raise click.Abort()
 
         console.print("Analyzing Terraform configurations for security issues...")
@@ -310,11 +307,11 @@ def analyze(root, severity, categories, output, db):
                 console.print(f"  {finding.description}", highlight=False)
 
     except FileNotFoundError as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to analyze Terraform: {e}", exc_info=True)
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.Abort() from e
 
 
@@ -350,10 +347,8 @@ def report(format, output, severity):
 
     This command will be implemented in Phase 7.
     """
-    console.print(
-        "[error]Error: 'terraform report' not yet implemented (Phase 7)[/error]", stderr=True
-    )
-    console.print(
-        "[error]Run 'aud terraform provision' to build provisioning graph.[/error]", stderr=True
-    )
+    err_console.print(
+        "[error]Error: 'terraform report' not yet implemented (Phase 7)[/error]", )
+    err_console.print(
+        "[error]Run 'aud terraform provision' to build provisioning graph.[/error]", )
     raise click.Abort()

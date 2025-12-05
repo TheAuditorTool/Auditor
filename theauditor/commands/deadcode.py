@@ -10,7 +10,7 @@ import click
 
 from theauditor.cli import RichCommand
 from theauditor.context.deadcode_graph import detect_isolated_modules
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -189,9 +189,8 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
     db_path = project_path / ".pf" / "repo_index.db"
 
     if not db_path.exists():
-        console.print(
-            "[error]Error: Database not found. Run 'aud full' first.[/error]", stderr=True
-        )
+        err_console.print(
+            "[error]Error: Database not found. Run 'aud full' first.[/error]", )
         raise click.ClickException("Database not found")
 
     try:
@@ -220,13 +219,13 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
             save_path.parent.mkdir(parents=True, exist_ok=True)
             with open(save_path, "w", encoding="utf-8") as f:
                 f.write(output)
-            console.print(f"[error]\nSaved to: {save_path}[/error]", stderr=True, highlight=False)
+            err_console.print(f"[error]\nSaved to: {save_path}[/error]", highlight=False)
 
         if fail_on_dead_code and len(modules) > 0:
             raise click.ClickException(f"Dead code detected: {len(modules)} files")
 
     except Exception as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise
 
 
