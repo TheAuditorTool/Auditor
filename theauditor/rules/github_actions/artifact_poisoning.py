@@ -1,143 +1,175 @@
-"""GitHub Actions Artifact Poisoning Detection."""
+"""GitHub Actions Artifact Poisoning Detection.
+
+Detects artifact poisoning via untrusted build -> trusted deploy chain
+in pull_request_target workflows.
+
+Tables Used:
+- github_workflows: Workflow metadata and triggers
+- github_jobs: Job definitions and permissions
+- github_steps: Step actions (upload/download artifact)
+- github_job_dependencies: Job dependency graph
+
+Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
+"""
 
 import json
-import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
-from theauditor.utils.logging import logger
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="github_actions_artifact_poisoning",
     category="supply-chain",
     target_extensions=[".yml", ".yaml"],
     exclude_patterns=[".pf/", "test/", "__tests__/", "node_modules/"],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="github_workflows",
+)
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect artifact poisoning via untrusted build -> trusted deploy chain.
+
+    Args:
+        context: Standard rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = _find_artifact_poisoning(db)
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def find_artifact_poisoning_risk(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect artifact poisoning via untrusted build → trusted deploy chain."""
+    """Legacy entry point - delegates to analyze().
+
+    Maintained for backwards compatibility with __init__.py exports.
+    """
+    result = analyze(context)
+    return result.findings
+
+
+# =============================================================================
+# DETECTION LOGIC
+# =============================================================================
+
+
+def _find_artifact_poisoning(db: RuleDB) -> list[StandardFinding]:
+    """Core detection logic for artifact poisoning."""
     findings: list[StandardFinding] = []
 
-    if not context.db_path:
-        return findings
+    # Get all workflows with triggers
+    workflow_rows = db.query(
+        Q("github_workflows")
+        .select("workflow_path", "workflow_name", "on_triggers")
+        .where("on_triggers IS NOT NULL")
+    )
 
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    for workflow_path, workflow_name, on_triggers in workflow_rows:
+        on_triggers = on_triggers or ""
 
-    try:
-        cursor.execute("""
-            SELECT workflow_path, workflow_name, on_triggers
-            FROM github_workflows
-            WHERE on_triggers IS NOT NULL
-        """)
+        # Only check pull_request_target workflows (untrusted context)
+        if "pull_request_target" not in on_triggers:
+            continue
 
-        for workflow_row in cursor.fetchall():
-            workflow_path = workflow_row["workflow_path"]
-            workflow_name = workflow_row["workflow_name"]
-            on_triggers = workflow_row["on_triggers"] or ""
+        # Find jobs that upload artifacts
+        upload_jobs = _get_upload_jobs(db, workflow_path)
+        if not upload_jobs:
+            continue
 
-            if "pull_request_target" not in on_triggers:
-                continue
+        # Find jobs that download artifacts
+        download_jobs = _get_download_jobs(db, workflow_path)
 
-            cursor.execute(
-                """
-                SELECT DISTINCT j.job_id, j.job_key
-                FROM github_jobs j
-                JOIN github_steps s ON j.job_id = s.job_id
-                WHERE j.workflow_path = ?
-                AND s.uses_action = 'actions/upload-artifact'
-            """,
-                (workflow_path,),
+        for download_job_id, download_job_key, permissions_json in download_jobs:
+            # Check if download depends on upload (explicit dependency chain)
+            has_dependency = _check_job_dependency(
+                db, download_job_id, [uj[0] for uj in upload_jobs]
             )
 
-            upload_jobs = [
-                {"job_id": row["job_id"], "job_key": row["job_key"]} for row in cursor.fetchall()
-            ]
+            # Check for dangerous operations on downloaded artifacts
+            dangerous_ops = _check_dangerous_operations(db, download_job_id)
 
-            if not upload_jobs:
-                continue
+            if dangerous_ops:
+                permissions = _parse_permissions(permissions_json)
 
-            cursor.execute(
-                """
-                SELECT DISTINCT j.job_id, j.job_key, j.permissions
-                FROM github_jobs j
-                JOIN github_steps s ON j.job_id = s.job_id
-                WHERE j.workflow_path = ?
-                AND s.uses_action = 'actions/download-artifact'
-            """,
-                (workflow_path,),
-            )
-
-            for download_row in cursor.fetchall():
-                download_job_id = download_row["job_id"]
-                download_job_key = download_row["job_key"]
-
-                has_dependency = _check_job_dependency(
-                    download_job_id=download_job_id,
-                    upload_jobs=[uj["job_id"] for uj in upload_jobs],
-                    cursor=cursor,
-                )
-
-                if not has_dependency:
-                    pass
-
-                dangerous_ops = _check_dangerous_operations(download_job_id, cursor)
-
-                if dangerous_ops:
-                    permissions = _parse_permissions(download_row["permissions"])
-
-                    findings.append(
-                        _build_artifact_poisoning_finding(
-                            workflow_path=workflow_path,
-                            workflow_name=workflow_name,
-                            upload_jobs=[uj["job_key"] for uj in upload_jobs],
-                            download_job_key=download_job_key,
-                            dangerous_ops=dangerous_ops,
-                            permissions=permissions,
-                            has_dependency=has_dependency,
-                        )
+                findings.append(
+                    _build_artifact_poisoning_finding(
+                        workflow_path=workflow_path,
+                        workflow_name=workflow_name,
+                        upload_jobs=[uj[1] for uj in upload_jobs],
+                        download_job_key=download_job_key,
+                        dangerous_ops=dangerous_ops,
+                        permissions=permissions,
+                        has_dependency=has_dependency,
                     )
-
-    finally:
-        conn.close()
+                )
 
     return findings
 
 
-def _check_job_dependency(download_job_id: str, upload_jobs: list[str], cursor) -> bool:
-    """Check if download job depends on any upload job."""
-    cursor.execute(
+def _get_upload_jobs(db: RuleDB, workflow_path: str) -> list[tuple[str, str]]:
+    """Get jobs that upload artifacts in this workflow."""
+    # JOIN github_jobs with github_steps to find upload-artifact usage
+    sql, params = Q.raw(
         """
-        SELECT needs_job_id
-        FROM github_job_dependencies
-        WHERE job_id = ?
-    """,
-        (download_job_id,),
+        SELECT DISTINCT j.job_id, j.job_key
+        FROM github_jobs j
+        JOIN github_steps s ON j.job_id = s.job_id
+        WHERE j.workflow_path = ?
+        AND s.uses_action = 'actions/upload-artifact'
+        """,
+        [workflow_path],
+    )
+    rows = db.execute(sql, params)
+    return [(row[0], row[1]) for row in rows]
+
+
+def _get_download_jobs(db: RuleDB, workflow_path: str) -> list[tuple[str, str, str]]:
+    """Get jobs that download artifacts in this workflow."""
+    sql, params = Q.raw(
+        """
+        SELECT DISTINCT j.job_id, j.job_key, j.permissions
+        FROM github_jobs j
+        JOIN github_steps s ON j.job_id = s.job_id
+        WHERE j.workflow_path = ?
+        AND s.uses_action = 'actions/download-artifact'
+        """,
+        [workflow_path],
+    )
+    rows = db.execute(sql, params)
+    return [(row[0], row[1], row[2]) for row in rows]
+
+
+def _check_job_dependency(db: RuleDB, download_job_id: str, upload_job_ids: list[str]) -> bool:
+    """Check if download job depends on any upload job."""
+    rows = db.query(
+        Q("github_job_dependencies")
+        .select("needs_job_id")
+        .where("job_id = ?", download_job_id)
     )
 
-    dependencies = [row["needs_job_id"] for row in cursor.fetchall()]
+    dependencies = {row[0] for row in rows}
+    return any(upload_id in dependencies for upload_id in upload_job_ids)
 
-    return any(upload_job in dependencies for upload_job in upload_jobs)
 
-
-def _check_dangerous_operations(job_id: str, cursor) -> list[str]:
+def _check_dangerous_operations(db: RuleDB, job_id: str) -> list[str]:
     """Check if job performs dangerous operations on downloaded artifacts."""
-    dangerous_ops = []
-
-    cursor.execute(
-        """
-        SELECT run_script, step_name
-        FROM github_steps
-        WHERE job_id = ?
-        AND run_script IS NOT NULL
-    """,
-        (job_id,),
+    rows = db.query(
+        Q("github_steps")
+        .select("run_script")
+        .where("job_id = ?", job_id)
+        .where("run_script IS NOT NULL")
     )
 
     dangerous_patterns = {
@@ -146,12 +178,14 @@ def _check_dangerous_operations(job_id: str, cursor) -> list[str]:
         "publish": ["npm publish", "pip upload", "docker push", "gh release create"],
     }
 
-    for row in cursor.fetchall():
-        script = row["run_script"].lower()
+    dangerous_ops: list[str] = []
+    for (run_script,) in rows:
+        script_lower = run_script.lower()
 
         for op_type, patterns in dangerous_patterns.items():
-            if any(pattern in script for pattern in patterns) and op_type not in dangerous_ops:
-                dangerous_ops.append(op_type)
+            if op_type not in dangerous_ops:
+                if any(pattern in script_lower for pattern in patterns):
+                    dangerous_ops.append(op_type)
 
     return dangerous_ops
 

@@ -1,6 +1,11 @@
-"""Detect ghost dependencies - packages imported but not declared."""
+"""Detect ghost dependencies - packages imported but not declared.
 
-import json
+Detects packages that are imported in source code but not declared in
+package.json, requirements.txt, Cargo.toml, or go.mod. These phantom
+dependencies can break builds and create supply chain vulnerabilities.
+
+CWE: CWE-1104 (Use of Unmaintained Third Party Components)
+"""
 
 from theauditor.rules.base import RuleMetadata, RuleResult, Severity, StandardFinding, StandardRuleContext
 from theauditor.rules.fidelity import RuleDB
@@ -18,7 +23,10 @@ METADATA = RuleMetadata(
         "dist/",
         "build/",
         ".git/",
-    ])
+    ],
+    execution_scope="database",
+    primary_table="import_styles",
+)
 
 
 PYTHON_STDLIB = frozenset(
@@ -140,7 +148,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     if not context.db_path:
         return RuleResult(findings=findings, manifest={})
 
-    with RuleDB(context.db_path, "ghost_dependencies") as db:
+    with RuleDB(context.db_path, METADATA.name) as db:
         declared_deps = _get_declared_dependencies(db)
         imported_packages = _get_imported_packages(db)
         findings = _find_ghost_dependencies(imported_packages, declared_deps)

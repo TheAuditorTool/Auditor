@@ -17,6 +17,7 @@ METADATA = RuleMetadata(
     target_extensions=[".sh", ".bash"],
     exclude_patterns=["node_modules/", "vendor/", ".git/"],
     execution_scope="database",
+    primary_table="bash_command_args",
 )
 
 # Commands where unquoted variables are particularly dangerous
@@ -168,7 +169,3 @@ def _check_dangerous_unquoted_commands(db: RuleDB, add_finding) -> None:
                     severity=Severity.HIGH,
                     confidence=Confidence.HIGH,
                 )
-
-
-# Alias for backwards compatibility
-analyze = find_bash_quoting_issues

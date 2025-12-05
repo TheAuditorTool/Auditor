@@ -1,22 +1,35 @@
-"""GitHub Actions Excessive Permissions Detection."""
+"""GitHub Actions Excessive Permissions Detection.
+
+Detects workflows with dangerous write permissions in untrusted trigger contexts
+(pull_request_target, issue_comment, workflow_run).
+
+Tables Used:
+- github_workflows: Workflow metadata, triggers, and permissions
+- github_jobs: Job-level permissions
+
+Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
+"""
 
 import json
-import sqlite3
 
 from theauditor.rules.base import (
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
-from theauditor.utils.logging import logger
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="github_actions_excessive_permissions",
     category="access-control",
     target_extensions=[".yml", ".yaml"],
     exclude_patterns=[".pf/", "test/", "__tests__/", "node_modules/"],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="github_workflows",
+)
 
 
 UNTRUSTED_TRIGGERS: set[str] = {
@@ -34,82 +47,96 @@ DANGEROUS_WRITE_PERMISSIONS: set[str] = {
 }
 
 
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect excessive write permissions in untrusted workflows.
+
+    Args:
+        context: Standard rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = _find_excessive_permissions(db)
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
 def find_excessive_pr_permissions(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect excessive write permissions in untrusted workflows."""
+    """Legacy entry point - delegates to analyze()."""
+    result = analyze(context)
+    return result.findings
+
+
+# =============================================================================
+# DETECTION LOGIC
+# =============================================================================
+
+
+def _find_excessive_permissions(db: RuleDB) -> list[StandardFinding]:
+    """Core detection logic for excessive permissions."""
     findings: list[StandardFinding] = []
 
-    if not context.db_path:
-        return findings
+    # Get all workflows
+    workflow_rows = db.query(
+        Q("github_workflows")
+        .select("workflow_path", "workflow_name", "on_triggers", "permissions")
+    )
 
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    for workflow_path, workflow_name, on_triggers_json, permissions_json in workflow_rows:
+        # Parse triggers
+        try:
+            triggers = json.loads(on_triggers_json) if on_triggers_json else []
+        except json.JSONDecodeError:
+            triggers = []
 
-    try:
-        cursor.execute("""
-            SELECT workflow_path, workflow_name, on_triggers, permissions
-            FROM github_workflows
-        """)
+        # Only check workflows with untrusted triggers
+        has_untrusted = any(trigger in UNTRUSTED_TRIGGERS for trigger in triggers)
+        if not has_untrusted:
+            continue
 
-        for workflow_row in cursor.fetchall():
-            workflow_path = workflow_row["workflow_path"]
-            workflow_name = workflow_row["workflow_name"]
-
-            try:
-                triggers = (
-                    json.loads(workflow_row["on_triggers"]) if workflow_row["on_triggers"] else []
+        # Check workflow-level permissions
+        workflow_perms = _parse_permissions(permissions_json)
+        if workflow_perms:
+            dangerous = _check_dangerous_permissions(workflow_perms)
+            if dangerous:
+                findings.append(
+                    _build_permission_finding(
+                        workflow_path=workflow_path,
+                        workflow_name=workflow_name,
+                        scope="workflow",
+                        job_key=None,
+                        triggers=triggers,
+                        dangerous_perms=dangerous,
+                        all_perms=workflow_perms,
+                    )
                 )
-            except json.JSONDecodeError:
-                triggers = []
 
-            has_untrusted = any(trigger in UNTRUSTED_TRIGGERS for trigger in triggers)
-            if not has_untrusted:
-                continue
+        # Check job-level permissions
+        job_rows = db.query(
+            Q("github_jobs")
+            .select("job_key", "permissions")
+            .where("workflow_path = ?", workflow_path)
+        )
 
-            workflow_perms = _parse_permissions(workflow_row["permissions"])
-            if workflow_perms:
-                dangerous = _check_dangerous_permissions(workflow_perms)
+        for job_key, job_perms_json in job_rows:
+            job_perms = _parse_permissions(job_perms_json)
+            if job_perms:
+                dangerous = _check_dangerous_permissions(job_perms)
                 if dangerous:
                     findings.append(
                         _build_permission_finding(
                             workflow_path=workflow_path,
                             workflow_name=workflow_name,
-                            scope="workflow",
-                            job_key=None,
+                            scope="job",
+                            job_key=job_key,
                             triggers=triggers,
                             dangerous_perms=dangerous,
-                            all_perms=workflow_perms,
+                            all_perms=job_perms,
                         )
                     )
-
-            cursor.execute(
-                """
-                SELECT job_id, job_key, job_name, permissions
-                FROM github_jobs
-                WHERE workflow_path = ?
-            """,
-                (workflow_path,),
-            )
-
-            for job_row in cursor.fetchall():
-                job_perms = _parse_permissions(job_row["permissions"])
-                if job_perms:
-                    dangerous = _check_dangerous_permissions(job_perms)
-                    if dangerous:
-                        findings.append(
-                            _build_permission_finding(
-                                workflow_path=workflow_path,
-                                workflow_name=workflow_name,
-                                scope="job",
-                                job_key=job_row["job_key"],
-                                triggers=triggers,
-                                dangerous_perms=dangerous,
-                                all_perms=job_perms,
-                            )
-                        )
-
-    finally:
-        conn.close()
 
     return findings
 

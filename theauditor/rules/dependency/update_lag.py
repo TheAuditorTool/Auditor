@@ -1,95 +1,170 @@
-"""Detect severely outdated dependencies using existing version check data."""
+"""Detect severely outdated dependencies using indexed version data.
 
-import json
-import sqlite3
-from pathlib import Path
+Flags dependencies that are 2+ major versions behind the latest release.
+Severely outdated dependencies often miss critical security patches and
+may have known vulnerabilities.
 
-from theauditor.indexer.schema import build_query
-from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+CWE-1104: Use of Unmaintained Third Party Components
+"""
+
+from theauditor.rules.base import (
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="update_lag",
     category="dependency",
     target_extensions=[".json", ".txt", ".toml"],
-    exclude_patterns=["node_modules/", ".venv/", "test/"])
+    exclude_patterns=["node_modules/", ".venv/", "test/", "__pycache__/"],
+    execution_scope="database",
+    primary_table="dependency_versions",
+)
 
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect severely outdated dependencies from deps_latest.json."""
-    findings = []
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect severely outdated dependencies from version tracking data.
 
-    deps_latest_path = Path(".pf/raw/deps_latest.json")
-    if not deps_latest_path.exists():
-        return findings
+    Uses the dependency_versions table populated by version checking
+    to identify packages that are multiple major versions behind.
 
-    try:
-        with open(deps_latest_path, encoding="utf-8") as f:
-            latest_info = json.load(f)
+    Args:
+        context: Standard rule context with db_path
 
-        conn = sqlite3.connect(context.db_path)
-        cursor = conn.cursor()
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    findings: list[StandardFinding] = []
 
-        query = build_query("package_configs", ["file_path", "package_name", "version"])
-        cursor.execute(query)
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
 
-        package_files = {}
-        for file_path, pkg_name, _version in cursor.fetchall():
-            if "package.json" in file_path:
-                key = f"npm:{pkg_name}"
-            elif "requirements.txt" in file_path or "pyproject.toml" in file_path:
-                key = f"py:{pkg_name}"
-            else:
-                key = f"unknown:{pkg_name}"
+    with RuleDB(context.db_path, METADATA.name) as db:
+        # Build file path map for better finding locations
+        file_path_map = _build_file_path_map(db)
 
-            package_files[key] = file_path
+        # Query outdated dependencies with major version delta
+        rows = db.query(
+            Q("dependency_versions")
+            .select(
+                "manager",
+                "package_name",
+                "locked_version",
+                "latest_version",
+                "delta",
+                "is_outdated",
+                "error",
+            )
+            .where("is_outdated = ?", 1)
+            .where("delta = ?", "major")
+            .where("error IS NULL OR error = ?", "")
+            .order_by("manager, package_name")
+        )
 
-        conn.close()
-
-        for key, info in latest_info.items():
-            if info.get("error"):
+        for manager, pkg_name, locked, latest, delta, is_outdated, error in rows:
+            if not locked or not latest:
                 continue
 
-            if not info.get("is_outdated", False):
+            versions_behind = _calculate_major_versions_behind(locked, latest)
+            if versions_behind < 2:
                 continue
 
-            delta = info.get("delta", "")
-            locked = info.get("locked", "")
-            latest = info.get("latest", "")
+            # Determine severity based on how far behind
+            severity = Severity.MEDIUM if versions_behind == 2 else Severity.HIGH
 
-            if delta == "major":
-                parts = key.split(":", 1)
-                if len(parts) != 2:
-                    continue
+            # Get file path from map or use default
+            key = f"{manager}:{pkg_name}"
+            file_path = file_path_map.get(key, _default_file_path(manager))
 
-                manager, pkg_name = parts
-                file_path = package_files.get(
-                    key, "package.json" if manager == "npm" else "requirements.txt"
+            findings.append(
+                StandardFinding(
+                    rule_name=METADATA.name,
+                    message=f"Dependency '{pkg_name}' is {versions_behind} major versions behind (using {locked}, latest is {latest})",
+                    file_path=file_path,
+                    line=1,
+                    severity=severity,
+                    category=METADATA.category,
+                    snippet=f"{pkg_name}: {locked} -> {latest}",
+                    cwe_id="CWE-1104",
                 )
+            )
 
-                try:
-                    locked_major = int(locked.split(".")[0].lstrip("v^~<>="))
-                    latest_major = int(latest.split(".")[0].lstrip("v^~<>="))
-                    versions_behind = latest_major - locked_major
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
-                    if versions_behind >= 2:
-                        severity = Severity.MEDIUM if versions_behind == 2 else Severity.HIGH
 
-                        findings.append(
-                            StandardFinding(
-                                file_path=file_path,
-                                line=1,
-                                rule_name="update_lag",
-                                message=f"Dependency '{pkg_name}' is {versions_behind} major versions behind (using {locked}, latest is {latest})",
-                                severity=severity,
-                                category="dependency",
-                                snippet=f"{pkg_name}: {locked} (latest: {latest})",
-                                cwe_id="CWE-1104",
-                            )
-                        )
-                except (ValueError, IndexError):
-                    continue
+def _build_file_path_map(db: RuleDB) -> dict[str, str]:
+    """Build a map of manager:package_name -> file_path.
 
-    except (json.JSONDecodeError, OSError, sqlite3.Error):
-        pass
+    Args:
+        db: RuleDB instance
 
-    return findings
+    Returns:
+        Dict mapping "manager:pkg_name" to file_path
+    """
+    file_map: dict[str, str] = {}
+
+    # Map JavaScript packages
+    js_rows = db.query(
+        Q("package_dependencies")
+        .select("file_path", "name")
+        .order_by("file_path")
+    )
+    for file_path, name in js_rows:
+        file_map[f"npm:{name}"] = file_path
+
+    # Map Python packages
+    py_rows = db.query(
+        Q("python_package_dependencies")
+        .select("file_path", "name")
+        .order_by("file_path")
+    )
+    for file_path, name in py_rows:
+        file_map[f"pypi:{name}"] = file_path
+
+    return file_map
+
+
+def _default_file_path(manager: str) -> str:
+    """Get default file path for a package manager.
+
+    Args:
+        manager: Package manager identifier (npm, pypi, etc.)
+
+    Returns:
+        Default manifest file path
+    """
+    defaults = {
+        "npm": "package.json",
+        "pypi": "requirements.txt",
+        "cargo": "Cargo.toml",
+        "go": "go.mod",
+    }
+    return defaults.get(manager, "package.json")
+
+
+def _calculate_major_versions_behind(locked: str, latest: str) -> int:
+    """Calculate how many major versions behind locked is from latest.
+
+    Args:
+        locked: Currently locked version string
+        latest: Latest available version string
+
+    Returns:
+        Number of major versions behind, or 0 if calculation fails
+    """
+    try:
+        # Strip common prefixes (v, ^, ~, <, >, =)
+        locked_clean = locked.lstrip("v^~<>=")
+        latest_clean = latest.lstrip("v^~<>=")
+
+        locked_major = int(locked_clean.split(".")[0])
+        latest_major = int(latest_clean.split(".")[0])
+
+        return max(0, latest_major - locked_major)
+    except (ValueError, IndexError):
+        return 0
