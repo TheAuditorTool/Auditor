@@ -67,37 +67,35 @@ class DockerPackageManager(BasePackageManager):
     def _parse_docker_compose(self, path: Path) -> list[dict[str, Any]]:
         """Parse Docker base images from docker-compose.yml files."""
         deps = []
-        try:
-            with open(path, encoding="utf-8") as f:
-                data = yaml.safe_load(f)
 
-            if not data or "services" not in data:
-                return deps
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
 
-            for _service_name, service_config in data["services"].items():
-                if not isinstance(service_config, dict):
-                    continue
+        if not data or "services" not in data:
+            return deps
 
-                if "image" in service_config:
-                    image_spec = service_config["image"]
+        for _service_name, service_config in data["services"].items():
+            if not isinstance(service_config, dict):
+                continue
 
-                    if ":" in image_spec:
-                        name, tag = image_spec.rsplit(":", 1)
-                    else:
-                        name = image_spec
-                        tag = "latest"
+            if "image" in service_config:
+                image_spec = service_config["image"]
 
-                    name = self._normalize_image_name(name)
+                if ":" in image_spec:
+                    name, tag = image_spec.rsplit(":", 1)
+                else:
+                    name = image_spec
+                    tag = "latest"
 
-                    deps.append({
-                        "name": name,
-                        "version": tag,
-                        "manager": "docker",
-                        "files": [],
-                        "source": path.name,
-                    })
-        except (yaml.YAMLError, KeyError, AttributeError) as e:
-            console.print(f"Warning: Could not parse {path}: {e}", highlight=False)
+                name = self._normalize_image_name(name)
+
+                deps.append({
+                    "name": name,
+                    "version": tag,
+                    "manager": "docker",
+                    "files": [],
+                    "source": path.name,
+                })
 
         return deps
 
@@ -106,47 +104,44 @@ class DockerPackageManager(BasePackageManager):
         deps = []
         stages = set()
 
-        try:
-            with open(path, encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
+        with open(path, encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
 
-                    if line.upper().startswith("FROM "):
-                        parts = line[5:].strip().split()
-                        image_part = parts[0]
+                if line.upper().startswith("FROM "):
+                    parts = line[5:].strip().split()
+                    image_part = parts[0]
 
-                        if image_part in stages:
-                            continue
+                    if image_part in stages:
+                        continue
 
-                        if len(parts) >= 3 and parts[1].upper() == "AS":
-                            stages.add(parts[2])
+                    if len(parts) >= 3 and parts[1].upper() == "AS":
+                        stages.add(parts[2])
 
-                        if image_part.lower() == "scratch":
-                            continue
+                    if image_part.lower() == "scratch":
+                        continue
 
-                        if ":" in image_part:
-                            name, tag = image_part.rsplit(":", 1)
-                        else:
-                            name = image_part
-                            tag = "latest"
+                    if ":" in image_part:
+                        name, tag = image_part.rsplit(":", 1)
+                    else:
+                        name = image_part
+                        tag = "latest"
 
-                        name = self._normalize_image_name(name)
+                    name = self._normalize_image_name(name)
 
-                        # Use resolved path for relative_to, or just path.name as fallback
-                        try:
-                            source = str(path.resolve().relative_to(Path.cwd()))
-                        except ValueError:
-                            source = str(path)
+                    # Use resolved path for relative_to, or just path.name as fallback
+                    try:
+                        source = str(path.resolve().relative_to(Path.cwd()))
+                    except ValueError:
+                        source = str(path)
 
-                        deps.append({
-                            "name": name,
-                            "version": tag,
-                            "manager": "docker",
-                            "files": [],
-                            "source": source,
-                        })
-        except Exception as e:
-            console.print(f"Warning: Could not parse {path}: {e}", highlight=False)
+                    deps.append({
+                        "name": name,
+                        "version": tag,
+                        "manager": "docker",
+                        "files": [],
+                        "source": source,
+                    })
 
         return deps
 
@@ -186,53 +181,48 @@ class DockerPackageManager(BasePackageManager):
 
         url = f"https://hub.docker.com/v2/repositories/{name}/tags?page_size=100"
 
-        try:
-            resp = await client.get(url, headers={"User-Agent": f"TheAuditor/{__version__}"})
-            if resp.status_code != 200:
+        resp = await client.get(url, headers={"User-Agent": f"TheAuditor/{__version__}"})
+        if resp.status_code != 200:
+            return None
+
+        data = resp.json()
+        tags = data.get("results", [])
+        if not tags:
+            return None
+
+        parsed_tags = []
+        for tag in tags:
+            tag_name = tag.get("name", "")
+            parsed = self._parse_docker_tag(tag_name)
+            if parsed:
+                parsed_tags.append(parsed)
+
+        if not parsed_tags:
+            return None
+
+        if allow_prerelease:
+            candidates = parsed_tags
+        else:
+            candidates = [t for t in parsed_tags if t["stability"] == "stable"]
+            if not candidates:
                 return None
 
-            data = resp.json()
-            tags = data.get("results", [])
-            if not tags:
-                return None
-
-            parsed_tags = []
-            for tag in tags:
-                tag_name = tag.get("name", "")
-                parsed = self._parse_docker_tag(tag_name)
-                if parsed:
-                    parsed_tags.append(parsed)
-
-            if not parsed_tags:
-                return None
-
-            if allow_prerelease:
-                candidates = parsed_tags
-            else:
-                candidates = [t for t in parsed_tags if t["stability"] == "stable"]
-                if not candidates:
+        if current_tag:
+            base_preference = self._extract_base_preference(current_tag)
+            if base_preference:
+                matching_base = [
+                    t for t in candidates if base_preference in t["variant"].lower()
+                ]
+                if matching_base:
+                    candidates = matching_base
+                else:
                     return None
 
-            if current_tag:
-                base_preference = self._extract_base_preference(current_tag)
-                if base_preference:
-                    matching_base = [
-                        t for t in candidates if base_preference in t["variant"].lower()
-                    ]
-                    if matching_base:
-                        candidates = matching_base
-                    else:
-                        return None
+        candidates.sort(
+            key=lambda x: (x["version"], x["is_clean"], -len(x["tag"])), reverse=True
+        )
 
-            candidates.sort(
-                key=lambda x: (x["version"], x["is_clean"], -len(x["tag"])), reverse=True
-            )
-
-            return candidates[0]["tag"] if candidates else None
-        except Exception:
-            pass
-
-        return None
+        return candidates[0]["tag"] if candidates else None
 
     async def fetch_docs_async(
         self,

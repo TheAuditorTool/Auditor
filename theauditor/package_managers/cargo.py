@@ -57,44 +57,33 @@ class CargoPackageManager(BasePackageManager):
         Returns:
             List of dependency dicts with name, version, manager, etc.
         """
+        import tomllib
+
         deps = []
 
-        try:
-            import tomllib
-        except ImportError:
-            try:
-                import tomli as tomllib  # type: ignore
-            except ImportError:
-                logger.warning(f"Cannot parse {path} - tomllib not available")
-                return deps
+        with open(path, "rb") as f:
+            data = tomllib.load(f)
 
-        try:
-            with open(path, "rb") as f:
-                data = tomllib.load(f)
+        # Parse regular dependencies
+        deps.extend(self._parse_cargo_deps(
+            data.get("dependencies", {}),
+            kind="normal",
+            source=str(path),
+        ))
 
-            # Parse regular dependencies
-            deps.extend(self._parse_cargo_deps(
-                data.get("dependencies", {}),
-                kind="normal",
-                source=str(path),
-            ))
+        # Parse dev dependencies
+        deps.extend(self._parse_cargo_deps(
+            data.get("dev-dependencies", {}),
+            kind="dev",
+            source=str(path),
+        ))
 
-            # Parse dev dependencies
-            deps.extend(self._parse_cargo_deps(
-                data.get("dev-dependencies", {}),
-                kind="dev",
-                source=str(path),
-            ))
-
-            # Parse build dependencies
-            deps.extend(self._parse_cargo_deps(
-                data.get("build-dependencies", {}),
-                kind="build",
-                source=str(path),
-            ))
-
-        except Exception as e:
-            logger.error(f"Could not parse {path}: {e}")
+        # Parse build dependencies
+        deps.extend(self._parse_cargo_deps(
+            data.get("build-dependencies", {}),
+            kind="build",
+            source=str(path),
+        ))
 
         return deps
 
@@ -163,27 +152,21 @@ class CargoPackageManager(BasePackageManager):
         limiter = get_rate_limiter("cargo")
         await limiter.acquire()
 
-        try:
-            url = f"https://crates.io/api/v1/crates/{name}"
-            headers = {"User-Agent": f"TheAuditor/{__version__} (dependency checker)"}
-            response = await client.get(url, headers=headers, timeout=10.0)
+        url = f"https://crates.io/api/v1/crates/{name}"
+        headers = {"User-Agent": f"TheAuditor/{__version__} (dependency checker)"}
+        response = await client.get(url, headers=headers, timeout=10.0)
 
-            if response.status_code != 200:
-                return None
+        if response.status_code != 200:
+            return None
 
-            data = response.json()
-            crate_data = data.get("crate", {})
+        data = response.json()
+        crate_data = data.get("crate", {})
 
-            # Use max_version for stable, newest_version includes pre-releases
-            allow_prerelease = dep.get("allow_prerelease", False)
-            if allow_prerelease:
-                return crate_data.get("newest_version")
-            return crate_data.get("max_version")
-
-        except Exception:
-            pass
-
-        return None
+        # Use max_version for stable, newest_version includes pre-releases
+        allow_prerelease = dep.get("allow_prerelease", False)
+        if allow_prerelease:
+            return crate_data.get("newest_version")
+        return crate_data.get("max_version")
 
     async def fetch_docs_async(
         self,
@@ -280,24 +263,13 @@ class CargoPackageManager(BasePackageManager):
         limiter = get_rate_limiter("github")
         await limiter.acquire()
 
-        try:
-            # Try common README filenames via GitHub raw content
-            for readme_name in ["README.md", "readme.md", "Readme.md", "README.rst", "README"]:
-                url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/{readme_name}"
-                response = await client.get(url, timeout=10.0, follow_redirects=True)
+        # Try common README filenames via GitHub raw content (main branch only)
+        for readme_name in ["README.md", "readme.md", "Readme.md", "README.rst", "README"]:
+            url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/{readme_name}"
+            response = await client.get(url, timeout=10.0, follow_redirects=True)
 
-                if response.status_code == 200:
-                    return response.text
-
-                # Try master branch if main doesn't work
-                url = f"https://raw.githubusercontent.com/{owner}/{repo}/master/{readme_name}"
-                response = await client.get(url, timeout=10.0, follow_redirects=True)
-
-                if response.status_code == 200:
-                    return response.text
-
-        except Exception:
-            pass
+            if response.status_code == 200:
+                return response.text
 
         return None
 
