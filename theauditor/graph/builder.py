@@ -13,7 +13,7 @@ import click
 from theauditor.ast_extractors.ast_parser import ASTParser
 from theauditor.indexer.config import SKIP_DIRS
 from theauditor.indexer.fidelity_utils import FidelityToken
-from theauditor.module_resolver import ModuleResolver
+from theauditor.ast_extractors.module_resolver import ModuleResolver
 from theauditor.utils.logging import logger
 
 

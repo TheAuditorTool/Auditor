@@ -12,7 +12,7 @@ from typing import Any
 import yaml
 
 from theauditor import __version__
-from theauditor.package_managers import get_manager, Dependency
+from . import get_manager, Dependency
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter

@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from theauditor.package_managers import get_manager
+from . import get_manager
 from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import (
     RATE_LIMIT_BACKOFF,

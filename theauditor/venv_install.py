@@ -18,7 +18,7 @@ except ModuleNotFoundError:  # pragma: no cover - fallback for older interpreter
     import tomli as tomllib  # type: ignore
 
 
-from theauditor.deps import check_latest_versions
+from theauditor.package_managers.deps import check_latest_versions
 from theauditor.utils.temp_manager import TempManager
 
 IS_WINDOWS = platform.system() == "Windows"
