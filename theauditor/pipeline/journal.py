@@ -12,45 +12,38 @@ class JournalWriter:
     """Writes execution events to journal.ndjson file."""
 
     def __init__(self, journal_path: str = "./.pf/journal.ndjson", history_dir: str | None = None):
-        """Initialize journal writer."""
-        self.journal_path = Path(journal_path)
-        self.history_dir = Path(history_dir) if history_dir else None
+        """Initialize journal writer.
+
+        Raises:
+            OSError: If journal file cannot be opened (permissions, disk space, etc.)
+        """
+        self.journal_path = Path(journal_path).resolve()  # Force absolute path
+        self.history_dir = Path(history_dir).resolve() if history_dir else None
         self.session_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
         self.journal_path.parent.mkdir(parents=True, exist_ok=True)
 
-        self.file_handle = None
-        self._open_journal()
-
-    def _open_journal(self):
-        """Open journal file for writing."""
-        try:
-            self.file_handle = open(self.journal_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
-        except Exception as e:
-            logger.warning(f"Could not open journal file {self.journal_path}: {e}")
-            self.file_handle = None
+        # No try/except - if journal fails, crash immediately.
+        # An auditor without an audit trail is lying about its execution.
+        self.file_handle = open(self.journal_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
 
     def write_event(self, event_type: str, data: dict[str, Any]) -> bool:
-        """Write an event to the journal."""
-        if not self.file_handle:
-            return False
+        """Write an event to the journal.
 
-        try:
-            event = {
-                "timestamp": datetime.now(UTC).isoformat(),
-                "session_id": self.session_id,
-                "event_type": event_type,
-                **data,
-            }
+        Trust the state - if we're here, file_handle exists (enforced by __init__).
+        If write fails, let it crash. Silent journal failures corrupt audit trail.
+        """
+        event = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "session_id": self.session_id,
+            "event_type": event_type,
+            **data,
+        }
 
-            json.dump(event, self.file_handle)
-            self.file_handle.write("\n")
-            self.file_handle.flush()
-            return True
-
-        except Exception as e:
-            logger.warning(f"Failed to write journal event: {e}")
-            return False
+        json.dump(event, self.file_handle)
+        self.file_handle.write("\n")
+        self.file_handle.flush()
+        return True
 
     def phase_start(self, phase_name: str, command: str, phase_num: int = 0) -> bool:
         """Record the start of a pipeline phase."""
@@ -146,22 +139,16 @@ class JournalWriter:
     def close(self, copy_to_history: bool = True):
         """Close the journal file and optionally copy to history."""
         if self.file_handle:
-            try:
-                self.file_handle.close()
-            except Exception:
-                pass
+            self.file_handle.close()
             self.file_handle = None
 
         if copy_to_history and self.history_dir and self.journal_path.exists():
-            try:
-                import shutil
+            import shutil
 
-                self.history_dir.mkdir(parents=True, exist_ok=True)
-                dest_path = self.history_dir / f"journal_{self.session_id}.ndjson"
-                shutil.copy2(self.journal_path, dest_path)
-                logger.info(f"Journal copied to history: {dest_path}")
-            except Exception as e:
-                logger.warning(f"Could not copy journal to history: {e}")
+            self.history_dir.mkdir(parents=True, exist_ok=True)
+            dest_path = self.history_dir / f"journal_{self.session_id}.ndjson"
+            shutil.copy2(self.journal_path, dest_path)
+            logger.info(f"Journal copied to history: {dest_path}")
 
     def __enter__(self):
         """Context manager entry."""
