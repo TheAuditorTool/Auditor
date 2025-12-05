@@ -140,14 +140,16 @@ class AWSCdkAnalyzer:
         ]
 
     def _write_findings(self, findings: list[CdkFinding]):
-        """Write findings to cdk_findings and findings_consolidated tables."""
+        """Write findings to cdk_findings and findings_consolidated tables.
+
+        Fails loud on database errors per Zero Fallback policy.
+        """
         if not findings:
             return
 
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
 
-        try:
             for finding in findings:
                 cursor.execute(
                     """
@@ -194,9 +196,3 @@ class AWSCdkAnalyzer:
 
             conn.commit()
             logger.info(f"Wrote {len(findings)} CDK findings to database")
-
-        except sqlite3.Error as e:
-            logger.error(f"Failed to write CDK findings: {e}")
-            conn.rollback()
-        finally:
-            conn.close()
