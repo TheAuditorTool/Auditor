@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.logging import logger
 
 
@@ -115,10 +115,10 @@ def graphql_build(root, db, verbose):
 
     db_path = Path(root) / db
     if not db_path.exists():
-        console.print(
-            f"[error]Error: Database not found at {db_path}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Database not found at {db_path}[/error]", highlight=False
         )
-        console.print("[error]Run 'aud full' first to extract GraphQL schemas[/error]", stderr=True)
+        err_console.print("[error]Run 'aud full' first to extract GraphQL schemas[/error]", )
         return 1
 
     logger.info(f"Building GraphQL resolver mappings from {db_path}")
@@ -161,7 +161,7 @@ def graphql_build(root, db, verbose):
 
     except Exception as e:
         logger.error(f"GraphQL build failed: {e}", exc_info=True)
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         return 1
 
 
@@ -185,8 +185,8 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
 
     db_path = Path(db)
     if not db_path.exists():
-        console.print(
-            f"[error]Error: Database not found at {db_path}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Database not found at {db_path}[/error]", highlight=False
         )
         return 1
 
@@ -211,7 +211,7 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
 
     except Exception as e:
         logger.error(f"GraphQL query failed: {e}", exc_info=True)
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         return 1
 
 
@@ -232,8 +232,8 @@ def graphql_viz(db, output, format, type_filter):
 
     db_path = Path(db)
     if not db_path.exists():
-        console.print(
-            f"[error]Error: Database not found at {db_path}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Database not found at {db_path}[/error]", highlight=False
         )
         return 1
 
@@ -247,5 +247,5 @@ def graphql_viz(db, output, format, type_filter):
 
     except Exception as e:
         logger.error(f"GraphQL visualization failed: {e}", exc_info=True)
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         return 1

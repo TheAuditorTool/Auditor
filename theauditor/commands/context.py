@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -187,16 +187,16 @@ def context(context_file: str, output: str | None, verbose: bool):
     db_path = pf_dir / "repo_index.db"
 
     if not db_path.exists():
-        console.print("\n" + "=" * 60, stderr=True)
-        console.print("[error]\\[X] ERROR: Database not found[/error]", stderr=True)
+        err_console.print("\n" + "=" * 60, )
+        err_console.print("[error]\\[X] ERROR: Database not found[/error]", )
         console.rule()
-        console.print("[error]\nSemantic context requires analysis data.[/error]", stderr=True)
-        console.print("[error]\nPlease run ONE of these first:[/error]", stderr=True)
-        console.print("[error]\n  Option A (Recommended):[/error]", stderr=True)
-        console.print("[error]    aud full[/error]", stderr=True)
-        console.print("[error]\nThen try again:[/error]", stderr=True)
-        console.print(
-            f"[error]    aud context --file {context_file}\n[/error]", stderr=True, highlight=False
+        err_console.print("[error]\nSemantic context requires analysis data.[/error]", )
+        err_console.print("[error]\nPlease run ONE of these first:[/error]", )
+        err_console.print("[error]\n  Option A (Recommended):[/error]", )
+        err_console.print("[error]    aud full[/error]", )
+        err_console.print("[error]\nThen try again:[/error]", )
+        err_console.print(
+            f"[error]    aud context --file {context_file}\n[/error]", highlight=False
         )
         raise click.Abort()
 
@@ -208,8 +208,8 @@ def context(context_file: str, output: str | None, verbose: bool):
     try:
         context = SemanticContext.load(Path(context_file))
     except (FileNotFoundError, ValueError) as e:
-        console.print(
-            f"[error]\n\\[X] ERROR loading context file: {e}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]\n\\[X] ERROR loading context file: {e}[/error]", highlight=False
         )
         raise click.Abort() from e
 
@@ -230,12 +230,11 @@ def context(context_file: str, output: str | None, verbose: bool):
         """)
 
         if not cursor.fetchone():
-            console.print(
-                "\n[warning]️  WARNING: findings_consolidated table not found[/warning]", stderr=True
-            )
-            console.print("[error]\nThis means analysis hasn't been run yet.[/error]", stderr=True)
-            console.print("[error]\nPlease run:[/error]", stderr=True)
-            console.print("[error]    aud full[/error]", stderr=True)
+            err_console.print(
+                "\n[warning]️  WARNING: findings_consolidated table not found[/warning]", )
+            err_console.print("[error]\nThis means analysis hasn't been run yet.[/error]", )
+            err_console.print("[error]\nPlease run:[/error]", )
+            err_console.print("[error]    aud full[/error]", )
             conn.close()
             raise click.Abort()
 
@@ -265,8 +264,8 @@ def context(context_file: str, output: str | None, verbose: bool):
         conn.close()
 
     except sqlite3.Error as e:
-        console.print(
-            f"[error]\n\\[X] ERROR reading database: {e}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]\n\\[X] ERROR reading database: {e}[/error]", highlight=False
         )
         raise click.Abort() from e
 

@@ -11,7 +11,7 @@ from theauditor.boundaries.boundary_analyzer import (
     generate_report,
 )
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -222,29 +222,27 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
     db = Path.cwd() / ".pf" / "repo_index.db" if db is None else Path(db)
 
     if not db.exists():
-        console.print(
-            f"[error]Error: Database not found at {db}[/error]", stderr=True, highlight=False
+        err_console.print(
+            f"[error]Error: Database not found at {db}[/error]", highlight=False
         )
-        console.print("[error]Run 'aud full' first to populate the database[/error]", stderr=True)
+        err_console.print("[error]Run 'aud full' first to populate the database[/error]", )
         sys.exit(1)
 
     results = []
 
     if boundary_type in ["all", "input-validation"]:
-        console.print("[error]Analyzing input validation boundaries...[/error]", stderr=True)
+        err_console.print("[error]Analyzing input validation boundaries...[/error]", )
         validation_results = analyze_input_validation_boundaries(
             db_path=str(db), max_entries=max_entries
         )
         results.extend(validation_results)
 
     if boundary_type == "multi-tenant":
-        console.print(
+        err_console.print(
             "[error]Error: Multi-tenant boundary analysis not yet wired to this command[/error]",
-            stderr=True,
-        )
-        console.print(
-            "[error]Use: aud full (includes multi-tenant analysis via rules)[/error]", stderr=True
-        )
+            )
+        err_console.print(
+            "[error]Use: aud full (includes multi-tenant analysis via rules)[/error]", )
         sys.exit(1)
 
     if severity != "all":

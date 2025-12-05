@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.logging import logger
 
 
@@ -214,7 +214,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
 
     except Exception as e:
         logger.error(f"CFG analysis failed: {e}")
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e
 
 
@@ -346,5 +346,5 @@ def viz(db, file, function, output, format, show_statements, highlight_paths):
 
     except Exception as e:
         logger.error(f"CFG visualization failed: {e}")
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e

@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 
 
 @click.command(name="learn", cls=RichCommand)
@@ -248,10 +248,9 @@ def learn(
         try:
             session_db = Path(".pf/ml/session_history.db")
             if not session_db.exists():
-                console.print(
+                err_console.print(
                     "[warning]session_history.db not found - run session analysis first[/warning]",
-                    stderr=True,
-                )
+                    )
             else:
                 conn = sqlite3.connect(session_db)
                 cursor = conn.cursor()
@@ -260,10 +259,9 @@ def learn(
                     "SELECT name FROM sqlite_master WHERE type='table' AND name='session_executions'"
                 )
                 if not cursor.fetchone():
-                    console.print(
+                    err_console.print(
                         "[warning]session_executions table not found - run session analysis first[/warning]",
-                        stderr=True,
-                    )
+                        )
                     conn.close()
                 else:
                     cursor.execute("""
@@ -355,15 +353,14 @@ def learn(
 
                         console.print()
                     else:
-                        console.print(
+                        err_console.print(
                             "[warning]No session data found in session_executions table[/warning]",
-                            stderr=True,
-                        )
+                            )
 
                     conn.close()
 
         except Exception as e:
-            console.print(f"[warning]Could not load Tier 5 statistics: {e}[/warning]", stderr=True)
+            err_console.print(f"[warning]Could not load Tier 5 statistics: {e}[/warning]", )
 
     result = ml_learn(
         db_path=db_path,
@@ -392,7 +389,7 @@ def learn(
             console.print("  [warning]Cold-start mode (<500 samples)[/warning]")
         console.print(f"  * Models saved to: {result.get('model_dir')}", highlight=False)
     else:
-        console.print(f"[error]Training failed: {result.get('error')}[/error]", stderr=True)
+        err_console.print(f"[error]Training failed: {result.get('error')}[/error]", )
         raise click.ClickException(result.get("error"))
 
 
@@ -609,9 +606,8 @@ def suggest(db_path, workset, model_dir, topk, out, print_plan):
             highlight=False,
         )
     else:
-        console.print(
-            f"[error]Suggestion generation failed: {result.get('error')}[/error]", stderr=True
-        )
+        err_console.print(
+            f"[error]Suggestion generation failed: {result.get('error')}[/error]", )
         raise click.ClickException(result.get("error"))
 
 
@@ -817,7 +813,7 @@ def learn_feedback(feedback_file, db_path, model_dir, train_on, print_stats):
     from theauditor.MachineL import learn as ml_learn
 
     if not Path(feedback_file).exists():
-        console.print(f"[error]Feedback file not found: {feedback_file}[/error]", stderr=True)
+        err_console.print(f"[error]Feedback file not found: {feedback_file}[/error]", )
         raise click.ClickException(f"Feedback file not found: {feedback_file}")
 
     try:
@@ -835,7 +831,7 @@ def learn_feedback(feedback_file, db_path, model_dir, train_on, print_stats):
         )
 
     except Exception as e:
-        console.print(f"[error]Invalid feedback file format: {e}[/error]", stderr=True)
+        err_console.print(f"[error]Invalid feedback file format: {e}[/error]", )
         raise click.ClickException(f"Invalid feedback file: {e}") from e
 
     console.print(
@@ -863,5 +859,5 @@ def learn_feedback(feedback_file, db_path, model_dir, train_on, print_stats):
             "\n\\[TIP] The models have learned from your feedback and will provide more accurate predictions."
         )
     else:
-        console.print(f"[error]Re-training failed: {result.get('error')}[/error]", stderr=True)
+        err_console.print(f"[error]Re-training failed: {result.get('error')}[/error]", )
         raise click.ClickException(result.get("error"))

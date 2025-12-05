@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.error_handler import handle_exceptions
 
 VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_endpoints"})
@@ -152,8 +152,8 @@ def blueprint(
     graphs_db = pf_dir / "graphs.db"
 
     if not pf_dir.exists() or not repo_db.exists():
-        console.print("[error]\nERROR: No indexed database found[/error]", stderr=True)
-        console.print("[error]Run: aud full[/error]", stderr=True)
+        err_console.print("[error]\nERROR: No indexed database found[/error]", )
+        err_console.print("[error]Run: aud full[/error]", )
         raise click.Abort()
 
     if monoliths:

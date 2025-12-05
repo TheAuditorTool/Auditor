@@ -8,7 +8,7 @@ import click
 from theauditor.cli import RichCommand
 from theauditor.fce.formatter import FCEFormatter
 from theauditor.fce.schema import ConvergencePoint, Fact, Vector
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -294,10 +294,10 @@ def fce(root, output_format, min_vectors, detailed, write):
             console.print(f"[success]FCE report written to:[/success] {output_path}")
             return
         except FileNotFoundError as e:
-            console.print(f"[error]Error:[/error] {e}", stderr=True)
+            err_console.print(f"[error]Error:[/error] {e}", )
             raise click.ClickException(str(e))
         except RuntimeError as e:
-            console.print(f"[error]Error:[/error] {e}", stderr=True)
+            err_console.print(f"[error]Error:[/error] {e}", )
             raise click.ClickException(str(e))
 
     if output_format == "json":
@@ -313,5 +313,5 @@ def fce(root, output_format, min_vectors, detailed, write):
         points = result["convergence_points"]
         _render_convergence_report(points, detailed=detailed)
     else:
-        console.print(f"[error]Error:[/error] {result['error']}", stderr=True)
+        err_console.print(f"[error]Error:[/error] {result['error']}", )
         raise click.ClickException(result["error"])

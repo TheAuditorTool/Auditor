@@ -7,7 +7,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.session.activity_metrics import (
     ActivityClassifier,
     analyze_activity,
@@ -147,10 +147,9 @@ def analyze(session_dir):
                         highlight=False,
                     )
             except Exception as e:
-                console.print(
+                err_console.print(
                     f"[warning]Failed to analyze session {session.session_id}: {e}[/warning]",
-                    stderr=True,
-                )
+                    )
                 continue
 
         console.print(
@@ -158,7 +157,7 @@ def analyze(session_dir):
         )
 
     except Exception as e:
-        console.print(f"[error]Session analysis failed: {e}[/error]", stderr=True)
+        err_console.print(f"[error]Session analysis failed: {e}[/error]", )
         raise
 
 

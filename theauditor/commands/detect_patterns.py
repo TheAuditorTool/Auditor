@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.helpers import get_self_exclusion_patterns
 
 
@@ -157,9 +157,8 @@ def detect_patterns(
                     highlight=False,
                 )
             except Exception as e:
-                console.print(
+                err_console.print(
                     f"[error]\\[DB] Warning: Database write failed: {e}[/error]",
-                    stderr=True,
                     highlight=False,
                 )
                 console.print("\\[DB] JSON output will still be generated for AI consumption")
@@ -194,5 +193,5 @@ def detect_patterns(
                     console.print(f"  {category}: {count}", highlight=False)
 
     except Exception as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e

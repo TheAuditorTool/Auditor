@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import console
+from theauditor.pipeline.ui import err_console, console
 
 
 @click.command("detect-frameworks", cls=RichCommand)
@@ -148,9 +148,8 @@ def detect_frameworks(project_path, output_json):
     db_path = project_path / ".pf" / "repo_index.db"
 
     if not db_path.exists():
-        console.print(
-            "[error]Error: Database not found. Run 'aud full' first.[/error]", stderr=True
-        )
+        err_console.print(
+            "[error]Error: Database not found. Run 'aud full' first.[/error]", )
         raise click.ClickException("Database not found - run 'aud full' first")
 
     try:
@@ -170,7 +169,7 @@ def detect_frameworks(project_path, output_json):
         console.print(f"\nDetected {len(frameworks)} framework(s)", highlight=False)
 
     except Exception as e:
-        console.print(f"[error]Error: {e}[/error]", stderr=True, highlight=False)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e
 
 
