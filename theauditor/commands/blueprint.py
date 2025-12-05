@@ -68,7 +68,7 @@ def blueprint(
       Purpose: Visualize codebase architecture facts (no recommendations)
       Input: .pf/repo_index.db (indexed code)
       Output: Terminal tree or JSON (configurable via --format)
-      Prerequisites: aud index (populates database)
+      Prerequisites: aud full (populates database)
       Integration: Architecture documentation, onboarding, refactoring planning
       Performance: ~2-5 seconds (database queries + formatting)
 
@@ -134,7 +134,7 @@ def blueprint(
     PREREQUISITES:
         aud full            # Complete analysis (recommended)
             OR
-        aud index           # Minimum (basic structure only)
+        aud full --index    # Fast reindex (basic structure only)
         aud detect-patterns # Optional (for security surface)
         aud taint   # Optional (for data flow)
         aud graph build     # Optional (for import graph)

@@ -40,7 +40,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
       Purpose: Finds unused code (modules, functions) that can be safely removed
       Input: .pf/repo_index.db (symbols and refs tables)
       Output: List of isolated modules with confidence levels
-      Prerequisites: aud index (populates import graph in database)
+      Prerequisites: aud full (populates import graph in database)
       Integration: Code cleanup workflow, technical debt reduction
       Performance: ~1-2 seconds (pure database query, no file I/O)
 
@@ -75,7 +75,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     EXAMPLES:
       # Use Case 1: Find all dead code after indexing
-      aud index && aud deadcode
+      aud full && aud deadcode
 
       # Use Case 2: Analyze specific directory
       aud deadcode --path-filter 'src/features/%'
@@ -91,7 +91,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     COMMON WORKFLOWS:
       Code Cleanup Sprint:
-        aud index && aud deadcode --format json --save cleanup_targets.json
+        aud full && aud deadcode --format json --save cleanup_targets.json
 
       Pre-Release Audit:
         aud deadcode --exclude test --fail-on-dead-code
@@ -146,7 +146,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     PREREQUISITES:
       Required:
-        aud index              # Populates symbols and refs tables
+        aud full               # Populates symbols and refs tables
 
       Optional:
         None (standalone database query)
@@ -157,7 +157,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
       2 = Error (database missing or query failed)
 
     RELATED COMMANDS:
-      aud index              # Populates import graph in database
+      aud full               # Populates import graph in database
       aud graph analyze      # Shows dependency graph (complementary view)
       aud refactor           # Detects incomplete refactorings (related issue)
       aud impact             # Analyzes change blast radius (opposite of dead code)
@@ -167,20 +167,20 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     TROUBLESHOOTING:
       Error: "Database not found"
-        → Run 'aud index' first to create .pf/repo_index.db
+        -> Run 'aud full' first to create .pf/repo_index.db
 
       False positive: CLI entry point flagged as dead
-        → Expected (medium confidence) - CLI files invoked externally
-        → Review manually, entry points are not dead code
+        -> Expected (medium confidence) - CLI files invoked externally
+        -> Review manually, entry points are not dead code
 
       False positive: Test file flagged as dead
-        → Tests not imported, invoked by test runner
-        → Use --exclude test to filter out test files
+        -> Tests not imported, invoked by test runner
+        -> Use --exclude test to filter out test files
 
       Missing dead code (known unused file not detected):
-        → File might have no symbols (empty or only imports)
-        → Check if file was indexed: aud context query --path filename
-        → Re-run 'aud index' to refresh database
+        -> File might have no symbols (empty or only imports)
+        -> Check if file was indexed: aud query --file filename
+        -> Re-run 'aud full' to refresh database
 
     NOTE: This analysis is conservative - it detects modules never imported, not
     functions never called within modules. For function-level analysis, use 'aud graph analyze'.

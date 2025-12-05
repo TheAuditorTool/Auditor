@@ -35,9 +35,9 @@ def docker_analyze(db_path, output, severity, check_vulns):
 
     AI ASSISTANT CONTEXT:
       Purpose: Identifies Docker security issues and container misconfigurations
-      Input: .pf/repo_index.db (Dockerfile contents indexed by 'aud index')
+      Input: .pf/repo_index.db (Dockerfile contents extracted by 'aud full')
       Output: .pf/raw/docker_findings.json (security issues with severity)
-      Prerequisites: aud index (populates database with Dockerfile contents)
+      Prerequisites: aud full (populates database with Dockerfile contents)
       Integration: Part of security audit workflow, runs in 'aud full' pipeline
       Performance: ~2-5 seconds local analysis, +10-30s if checking vulnerabilities
 
@@ -73,7 +73,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
       - docker-compose.yml (analyzed for service configurations)
 
     HOW IT WORKS:
-      1. Reads Dockerfile content from database (indexed by 'aud index')
+      1. Reads Dockerfile content from database (extracted by 'aud full')
       2. Parses Docker instructions (FROM, RUN, ENV, ARG, USER, COPY, etc.)
       3. Applies security rules (privilege checks, secret detection, etc.)
       4. Optionally queries vulnerability databases for base image CVEs
@@ -82,7 +82,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
 
     EXAMPLES:
       # Use Case 1: Quick Docker security scan after indexing
-      aud index && aud docker-analyze
+      aud full && aud docker-analyze
 
       # Use Case 2: Offline analysis (skip vulnerability checks)
       aud docker-analyze --no-check-vulns
@@ -98,7 +98,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
 
     COMMON WORKFLOWS:
       Pre-Deployment Security Check:
-        aud index && aud docker-analyze --severity high --check-vulns
+        aud full && aud docker-analyze --severity high --check-vulns
 
       CI/CD Pipeline (fail on critical):
         aud docker-analyze --severity critical || exit 2
@@ -154,7 +154,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
 
     PREREQUISITES:
       Required:
-        aud index              # Populates database with Dockerfile contents
+        aud full               # Populates database with Dockerfile contents
 
       Optional:
         Network access         # For --check-vulns (queries CVE databases)
@@ -166,7 +166,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
       3 = Analysis incomplete (database missing or parse error)
 
     RELATED COMMANDS:
-      aud index              # Extracts Dockerfile contents to database
+      aud full               # Extracts Dockerfile contents to database
       aud detect-patterns    # Pattern-based security rules (includes Docker)
       aud deps               # Analyzes package vulnerabilities in images
       aud terraform          # Analyzes infrastructure-as-code security
@@ -177,10 +177,10 @@ def docker_analyze(db_path, output, severity, check_vulns):
 
     TROUBLESHOOTING:
       Error: "Database not found"
-        → Run 'aud index' first to populate .pf/repo_index.db
+        → Run 'aud full' first to populate .pf/repo_index.db
 
       No Dockerfiles found despite having Dockerfile:
-        → Check 'aud index' output for parsing errors
+        → Check 'aud full' output for parsing errors
         → Verify Dockerfile syntax is valid
         → Check .pf/pipeline.log for extractor failures
 

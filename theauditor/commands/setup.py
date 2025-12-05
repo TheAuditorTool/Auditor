@@ -97,7 +97,7 @@ def setup_ai(target, sync, dry_run, show_versions):
       Initial Project Setup:
         git clone <repo> && cd <repo>
         aud setup-ai --target .
-        aud init && aud full
+        aud full
 
       Refresh Vulnerability Databases:
         aud setup-ai --target . --sync
@@ -152,7 +152,7 @@ def setup_ai(target, sync, dry_run, show_versions):
       2 = Verification failed (tools not working after install)
 
     RELATED COMMANDS:
-      aud init               # Uses sandboxed environment after setup
+      aud full               # Uses sandboxed environment after setup
       aud deps --vuln-scan   # Uses offline vulnerability databases
       aud lint               # Uses sandboxed ESLint/TypeScript
 

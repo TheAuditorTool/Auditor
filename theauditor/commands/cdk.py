@@ -28,7 +28,7 @@ def cdk():
       Purpose: Detect AWS infrastructure security issues in CDK code
       Input: CDK code files (*.py, *.ts, *.js with CDK imports)
       Output: .pf/repo_index.db (cdk_findings table)
-      Prerequisites: aud index (extracts CDK constructs)
+      Prerequisites: aud full (extracts CDK constructs)
       Integration: Pre-deployment validation, IaC security auditing
       Performance: ~5-10 seconds (AST parsing + security rules)
 
@@ -52,9 +52,8 @@ def cdk():
         - Missing network ACLs
 
     TYPICAL WORKFLOW:
-      aud index
+      aud full
       aud cdk analyze
-      sqlite3 .pf/repo_index.db "SELECT * FROM cdk_findings"
 
     EXAMPLES:
       aud cdk analyze
@@ -113,7 +112,7 @@ def analyze(root, db, severity, output_format, output):
       3 = Analysis failed (database not found, etc.)
 
     Prerequisites:
-      - Run 'aud index' first to populate cdk_constructs table
+      - Run 'aud full' first to populate cdk_constructs table
       - Python CDK: Files must import aws_cdk or from aws_cdk
       - TypeScript/JavaScript CDK: Files must import from aws-cdk-lib
     """

@@ -38,7 +38,7 @@ These agents enforce query-driven workflows using TheAuditor's database:
 
 **Agent Files Location:**
 Agents are copied to .auditor_venv/.theauditor_tools/agents/ during venv setup.
-Run `aud init` to install the venv if agents are missing.
+Run `aud setup-ai --target . --sync` to reinstall agents if missing.
 
 {TRIGGER_END}
 """
@@ -49,6 +49,14 @@ Run `aud init` to install the venv if agents are missing.
 def planning():
     """Planning and Verification System - Database-Centric Task Management
 
+    AI ASSISTANT CONTEXT:
+      Purpose: Database-centric task tracking with spec-based verification
+      Input: .pf/planning.db (plan/task/job hierarchy), .pf/repo_index.db (verification)
+      Output: Plan status, verification results, git snapshots for rollback
+      Prerequisites: aud full (for verify-task to query indexed code)
+      Integration: Works with aud refactor profiles, session logging, git snapshots
+      Performance: <1 second (database queries only)
+
     PURPOSE:
       The planning system provides deterministic task tracking with spec-based
       verification. Unlike external tools (Jira, Linear), planning integrates
@@ -58,7 +66,7 @@ def planning():
       - Verification specs query actual code (not developer self-assessment)
       - Git snapshots create immutable audit trail
       - Zero external dependencies (offline-first)
-      - Works seamlessly with aud index / aud full workflow
+      - Works seamlessly with aud full workflow
 
     QUICK START:
       # Initialize your first plan
@@ -68,7 +76,7 @@ def planning():
       aud planning add-task 1 --title "Task" --spec spec.yaml
 
       # Make code changes, then verify
-      aud index && aud planning verify-task 1 1 --verbose
+      aud full --index && aud planning verify-task 1 1 --verbose
 
     COMMON WORKFLOWS:
 
@@ -77,13 +85,13 @@ def planning():
         2. aud query --api "/users" --format json  # Find analogous patterns
         3. aud planning add-task 1 --title "Add /products endpoint"
         4. [Implement feature]
-        5. aud index && aud planning verify-task 1 1
+        5. aud full --index && aud planning verify-task 1 1
 
       Refactoring Migration:
         1. aud planning init --name "Auth0 to Cognito"
         2. aud planning add-task 1 --title "Migrate routes" --spec auth_spec.yaml
         3. [Make changes]
-        4. aud index && aud planning verify-task 1 1 --auto-update
+        4. aud full --index && aud planning verify-task 1 1 --auto-update
         5. aud planning archive 1 --notes "Deployed to prod"
 
       Checkpoint-Driven Development:
@@ -118,8 +126,7 @@ def planning():
       See: docs/planning/examples/ for more spec templates
 
     PREREQUISITES:
-      - Run 'aud init' to create .pf/ directory
-      - Run 'aud index' to build repo_index.db before verify-task
+      - Run 'aud full' to create .pf/ directory and build repo_index.db
       - Verification queries indexed code (not raw files)
 
     COMMANDS:
@@ -337,7 +344,7 @@ def show(plan_id, tasks, verbose, format):
     console.print('  aud planning add-task {plan_id} --title "..." --description "..." --phase N')
     console.print('  aud planning add-job {plan_id} <task_number> --description "..."')
     console.print("  aud planning update-task {plan_id} <task_number> --status completed")
-    console.print("  aud planning verify-task {plan_id} <task_number> --pass")
+    console.print("  aud planning verify-task {plan_id} <task_number> --auto-update")
     console.print("  aud planning validate {plan_id}  # Validate against session logs")
     console.print("\nFiles:")
     console.print(f"  Database: {db_path}", highlight=False)
@@ -1179,7 +1186,7 @@ def validate_plan(plan_id, session_id, format):
             stderr=True,
         )
         console.print(
-            "[error]Run 'aud session init' to enable session logging[/error]", stderr=True
+            "[error]Run 'aud session analyze' to create session database[/error]", stderr=True
         )
         console.print("[error]Planning validation requires session logs[/error]", stderr=True)
         raise click.ClickException("Session logging not enabled")
@@ -1409,7 +1416,7 @@ def setup_agents(target):
     console.print("\nAgent trigger setup complete!")
     console.print("AI assistants will now automatically load specialized agent workflows.")
     console.print("\nNext steps:")
-    console.print("  1. Run 'aud init' if .auditor_venv/ doesn't exist (copies agent files)")
+    console.print("  1. Run 'aud setup-ai --target . --sync' to install agent files")
     console.print(
         "  2. Try triggering agents with keywords like 'refactor storage.py' or 'check for XSS'"
     )

@@ -18,6 +18,13 @@ def cfg():
     Analyzes function complexity via CFG - calculates cyclomatic complexity (McCabe),
     identifies unreachable code, measures nesting depth.
 
+    AI ASSISTANT CONTEXT:
+      Purpose: Analyze control flow graph complexity and detect unreachable code
+      Input: .pf/repo_index.db (after aud full)
+      Output: .pf/raw/cfg.json (complexity metrics), DOT/SVG diagrams
+      Prerequisites: aud full (populates CFG data in database)
+      Integration: Use after aud full to identify complex functions needing refactoring
+
     SUBCOMMANDS:
       analyze: Calculate complexity and detect dead code
       viz:     Generate DOT diagrams (requires Graphviz)

@@ -168,7 +168,7 @@ def docs(action, package_name, deps, offline, allow_non_gh_readmes, docs_dir, pr
 
     RELATED COMMANDS:
       aud deps               # Detects dependencies (prerequisite)
-      aud init               # Runs deps + docs fetch automatically
+      aud full               # Runs deps as part of the full pipeline
       aud context            # Uses documentation for semantic analysis
 
     SEE ALSO:

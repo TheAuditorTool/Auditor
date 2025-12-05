@@ -87,7 +87,7 @@ def refactor(
       Purpose: Detect code-schema mismatches from incomplete refactorings
       Input: backend/migrations/ (SQL files), .pf/repo_index.db (code references)
       Output: Breaking changes report (code using deleted tables/columns)
-      Prerequisites: aud index (for code symbol database)
+      Prerequisites: aud full (for code symbol database)
       Integration: Pre-deployment validation, refactoring safety checks
       Performance: ~2-5 seconds (migration parsing + database queries)
 
@@ -148,7 +148,7 @@ def refactor(
 
     COMMON WORKFLOWS:
       Pre-Deployment Validation:
-        aud index && aud refactor --migration-limit 1
+        aud full && aud refactor --migration-limit 1
 
       Large Refactoring Review:
         aud refactor --migration-limit 0 --output ./breaking_changes.json
@@ -193,7 +193,7 @@ def refactor(
 
     PREREQUISITES:
       Required:
-        aud index              # Populates code reference database
+        aud full               # Populates code reference database
         backend/migrations/    # Migration files directory
 
       Optional:
@@ -205,7 +205,7 @@ def refactor(
       2 = Analysis error (database missing or migration parse failure)
 
     RELATED COMMANDS:
-      aud index              # Populates code reference database
+      aud full               # Populates code reference database
       aud impact             # Broader change impact analysis
       aud query              # Manual code search for schema elements
 

@@ -27,9 +27,15 @@ from theauditor.utils.error_handler import handle_exceptions
 def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
     """[DEPRECATED] This command now runs 'aud full' for data fidelity.
 
-    ════════════════════════════════════════════════════════════════════════════════
-    DEPRECATION NOTICE: 'aud index' is DEPRECATED
-    ════════════════════════════════════════════════════════════════════════════════
+    AI ASSISTANT CONTEXT:
+      Purpose: DEPRECATED - redirects to aud full for backwards compatibility
+      Input: N/A (runs aud full instead)
+      Output: N/A (runs aud full instead)
+      Prerequisites: N/A
+      Integration: DO NOT USE - always use 'aud full' or 'aud full --index' instead
+
+    DESCRIPTION:
+      DEPRECATION NOTICE: 'aud index' is DEPRECATED
 
     The 'aud index' command no longer provides sufficient data fidelity for modern
     TheAuditor analysis. It now automatically runs the complete 'aud full' pipeline
@@ -95,9 +101,9 @@ def index(ctx, root, quiet, exclude_self, offline, subprocess_taint, wipecache):
       NEW redirect:    ~10-60 minutes (complete 20-phase pipeline)
 
       This is INTENTIONAL - you should be running the full audit for data fidelity.
-      For incremental analysis, use workset filtering after initial audit:
+      For incremental analysis, use the --index flag for fast reindexing:
         aud full                     # Initial complete audit
-        aud taint --workset  # Incremental on changed files
+        aud full --index             # Fast reindex after code changes
 
     TIMELINE:
       This deprecation warning will be removed in v2.0 when 'aud index' is fully

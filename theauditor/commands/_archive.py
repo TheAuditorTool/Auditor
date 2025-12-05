@@ -40,6 +40,13 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
     Always archived:
     - .pf/raw/ (raw tool outputs)
     - All other .pf/ contents
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Internal command to archive previous run artifacts by run type
+      Input: .pf/ directory contents (raw outputs, databases, caches)
+      Output: .pf/history/{full|diff}/<timestamp>/ archived artifacts with _metadata.json
+      Prerequisites: None (called internally by pipeline)
+      Integration: NOT for direct use - called automatically by aud full before each run
     """
 
     pf_dir = Path(".pf")
