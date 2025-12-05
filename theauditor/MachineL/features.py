@@ -106,67 +106,64 @@ def load_security_pattern_features(db_path: str, file_paths: list[str]) -> dict[
         }
     )
 
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        placeholders = ",".join("?" * len(file_paths))
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    placeholders = ",".join("?" * len(file_paths))
 
-        cursor.execute(
-            f"""
-            SELECT file_path, COUNT(*) as count
-            FROM jwt_patterns
-            WHERE file_path IN ({placeholders})
-            GROUP BY file_path
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT file_path, COUNT(*) as count
+        FROM jwt_patterns
+        WHERE file_path IN ({placeholders})
+        GROUP BY file_path
+    """,
+        file_paths,
+    )
 
-        for file_path, count in cursor.fetchall():
-            stats[file_path]["jwt_usage_count"] = count
+    for file_path, count in cursor.fetchall():
+        stats[file_path]["jwt_usage_count"] = count
 
-        cursor.execute(
-            f"""
-            SELECT DISTINCT file_path
-            FROM jwt_patterns
-            WHERE file_path IN ({placeholders})
-            AND secret_source = 'hardcoded'
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT DISTINCT file_path
+        FROM jwt_patterns
+        WHERE file_path IN ({placeholders})
+        AND secret_source = 'hardcoded'
+    """,
+        file_paths,
+    )
 
-        for (file_path,) in cursor.fetchall():
-            stats[file_path]["has_hardcoded_secret"] = True
+    for (file_path,) in cursor.fetchall():
+        stats[file_path]["has_hardcoded_secret"] = True
 
-        cursor.execute(
-            f"""
-            SELECT DISTINCT file_path
-            FROM jwt_patterns
-            WHERE file_path IN ({placeholders})
-            AND algorithm IN ('HS256', 'none', 'None')
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT DISTINCT file_path
+        FROM jwt_patterns
+        WHERE file_path IN ({placeholders})
+        AND algorithm IN ('HS256', 'none', 'None')
+    """,
+        file_paths,
+    )
 
-        for (file_path,) in cursor.fetchall():
-            stats[file_path]["has_weak_crypto"] = True
+    for (file_path,) in cursor.fetchall():
+        stats[file_path]["has_weak_crypto"] = True
 
-        cursor.execute(
-            f"""
-            SELECT file_path, COUNT(*) as count
-            FROM sql_queries
-            WHERE file_path IN ({placeholders})
-            AND extraction_source = 'code_execute'
-            GROUP BY file_path
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT file_path, COUNT(*) as count
+        FROM sql_queries
+        WHERE file_path IN ({placeholders})
+        AND extraction_source = 'code_execute'
+        GROUP BY file_path
+    """,
+        file_paths,
+    )
 
-        for file_path, count in cursor.fetchall():
-            stats[file_path]["sql_query_count"] = count
+    for file_path, count in cursor.fetchall():
+        stats[file_path]["sql_query_count"] = count
 
-        conn.close()
-    except sqlite3.Error as e:
-        logger.debug(f"DB error in load_security_pattern_features: {e}")
+    conn.close()
 
     return dict(stats)
 
@@ -185,47 +182,44 @@ def load_vulnerability_flow_features(db_path: str, file_paths: list[str]) -> dic
         }
     )
 
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        placeholders = ",".join("?" * len(file_paths))
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    placeholders = ",".join("?" * len(file_paths))
 
-        cursor.execute(
-            f"""
-            SELECT file, severity, COUNT(*) as count
-            FROM findings_consolidated
-            WHERE file IN ({placeholders})
-            AND tool = 'taint'
-            GROUP BY file, severity
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT file, severity, COUNT(*) as count
+        FROM findings_consolidated
+        WHERE file IN ({placeholders})
+        AND tool = 'taint'
+        GROUP BY file, severity
+    """,
+        file_paths,
+    )
 
-        for file_path, severity, count in cursor.fetchall():
-            if severity == "critical":
-                stats[file_path]["critical_findings"] = count
-            elif severity == "high":
-                stats[file_path]["high_findings"] = count
-            elif severity == "medium":
-                stats[file_path]["medium_findings"] = count
+    for file_path, severity, count in cursor.fetchall():
+        if severity == "critical":
+            stats[file_path]["critical_findings"] = count
+        elif severity == "high":
+            stats[file_path]["high_findings"] = count
+        elif severity == "medium":
+            stats[file_path]["medium_findings"] = count
 
-        cursor.execute(
-            f"""
-            SELECT file, COUNT(DISTINCT cwe) as unique_cwes
-            FROM findings_consolidated
-            WHERE file IN ({placeholders})
-            AND cwe IS NOT NULL
-            GROUP BY file
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT file, COUNT(DISTINCT cwe) as unique_cwes
+        FROM findings_consolidated
+        WHERE file IN ({placeholders})
+        AND cwe IS NOT NULL
+        GROUP BY file
+    """,
+        file_paths,
+    )
 
-        for file_path, unique_cwes in cursor.fetchall():
-            stats[file_path]["unique_cwe_count"] = unique_cwes
+    for file_path, unique_cwes in cursor.fetchall():
+        stats[file_path]["unique_cwe_count"] = unique_cwes
 
-        conn.close()
-    except sqlite3.Error as e:
-        logger.debug(f"DB error in load_vulnerability_flow_features: {e}")
+    conn.close()
 
     return dict(stats)
 
@@ -245,37 +239,34 @@ def load_type_coverage_features(db_path: str, file_paths: list[str]) -> dict[str
         }
     )
 
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        placeholders = ",".join("?" * len(file_paths))
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    placeholders = ",".join("?" * len(file_paths))
 
-        cursor.execute(
-            f"""
-            SELECT file,
-                   COUNT(*) as total,
-                   SUM(CASE WHEN is_any = 1 THEN 1 ELSE 0 END) as any_count,
-                   SUM(CASE WHEN is_unknown = 1 THEN 1 ELSE 0 END) as unknown_count,
-                   SUM(CASE WHEN is_generic = 1 THEN 1 ELSE 0 END) as generic_count
-            FROM type_annotations
-            WHERE file IN ({placeholders})
-            GROUP BY file
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT file,
+               COUNT(*) as total,
+               SUM(CASE WHEN is_any = 1 THEN 1 ELSE 0 END) as any_count,
+               SUM(CASE WHEN is_unknown = 1 THEN 1 ELSE 0 END) as unknown_count,
+               SUM(CASE WHEN is_generic = 1 THEN 1 ELSE 0 END) as generic_count
+        FROM type_annotations
+        WHERE file IN ({placeholders})
+        GROUP BY file
+    """,
+        file_paths,
+    )
 
-        for file_path, total, any_count, unknown_count, generic_count in cursor.fetchall():
-            stats[file_path]["type_annotation_count"] = total
-            stats[file_path]["any_type_count"] = any_count
-            stats[file_path]["unknown_type_count"] = unknown_count
-            stats[file_path]["generic_type_count"] = generic_count
+    for file_path, total, any_count, unknown_count, generic_count in cursor.fetchall():
+        stats[file_path]["type_annotation_count"] = total
+        stats[file_path]["any_type_count"] = any_count
+        stats[file_path]["unknown_type_count"] = unknown_count
+        stats[file_path]["generic_type_count"] = generic_count
 
-            typed = total - any_count - unknown_count
-            stats[file_path]["type_coverage_ratio"] = typed / total if total > 0 else 0.0
+        typed = total - any_count - unknown_count
+        stats[file_path]["type_coverage_ratio"] = typed / total if total > 0 else 0.0
 
-        conn.close()
-    except sqlite3.Error as e:
-        logger.debug(f"DB error in load_type_coverage_features: {e}")
+    conn.close()
 
     return dict(stats)
 
@@ -293,43 +284,40 @@ def load_cfg_complexity_features(db_path: str, file_paths: list[str]) -> dict[st
         }
     )
 
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
-        placeholders = ",".join("?" * len(file_paths))
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    placeholders = ",".join("?" * len(file_paths))
 
-        cursor.execute(
-            f"""
-            SELECT file, COUNT(*) as block_count
-            FROM cfg_blocks
-            WHERE file IN ({placeholders})
-            GROUP BY file
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT file, COUNT(*) as block_count
+        FROM cfg_blocks
+        WHERE file IN ({placeholders})
+        GROUP BY file
+    """,
+        file_paths,
+    )
 
-        for file_path, block_count in cursor.fetchall():
-            stats[file_path]["cfg_block_count"] = block_count
+    for file_path, block_count in cursor.fetchall():
+        stats[file_path]["cfg_block_count"] = block_count
 
-        cursor.execute(
-            f"""
-            SELECT file, COUNT(*) as edge_count
-            FROM cfg_edges
-            WHERE file IN ({placeholders})
-            GROUP BY file
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT file, COUNT(*) as edge_count
+        FROM cfg_edges
+        WHERE file IN ({placeholders})
+        GROUP BY file
+    """,
+        file_paths,
+    )
 
-        for file_path, edge_count in cursor.fetchall():
-            stats[file_path]["cfg_edge_count"] = edge_count
+    for file_path, edge_count in cursor.fetchall():
+        stats[file_path]["cfg_edge_count"] = edge_count
 
-            blocks = stats[file_path]["cfg_block_count"]
-            stats[file_path]["cyclomatic_complexity"] = edge_count - blocks + 2
+        blocks = stats[file_path]["cfg_block_count"]
+        stats[file_path]["cyclomatic_complexity"] = edge_count - blocks + 2
 
-        conn.close()
-    except sqlite3.Error as e:
-        logger.debug(f"DB error in load_cfg_complexity_features: {e}")
+    conn.close()
 
     return dict(stats)
 
@@ -348,65 +336,62 @@ def load_graph_stats(db_path: str, file_paths: list[str]) -> dict[str, dict]:
         }
     )
 
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
-        placeholders = ",".join("?" * len(file_paths))
+    placeholders = ",".join("?" * len(file_paths))
 
-        cursor.execute(
-            f"""
-            SELECT value, COUNT(*) as count
-            FROM refs
-            WHERE value IN ({placeholders})
-            GROUP BY value
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT value, COUNT(*) as count
+        FROM refs
+        WHERE value IN ({placeholders})
+        GROUP BY value
+    """,
+        file_paths,
+    )
 
-        for file_path, count in cursor.fetchall():
-            stats[file_path]["in_degree"] = count
+    for file_path, count in cursor.fetchall():
+        stats[file_path]["in_degree"] = count
 
-        cursor.execute(
-            f"""
-            SELECT src, COUNT(*) as count
-            FROM refs
-            WHERE src IN ({placeholders})
-            GROUP BY src
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT src, COUNT(*) as count
+        FROM refs
+        WHERE src IN ({placeholders})
+        GROUP BY src
+    """,
+        file_paths,
+    )
 
-        for file_path, count in cursor.fetchall():
-            stats[file_path]["out_degree"] = count
+    for file_path, count in cursor.fetchall():
+        stats[file_path]["out_degree"] = count
 
-        cursor.execute(
-            f"""
-            SELECT DISTINCT file
-            FROM api_endpoints
-            WHERE file IN ({placeholders})
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT DISTINCT file
+        FROM api_endpoints
+        WHERE file IN ({placeholders})
+    """,
+        file_paths,
+    )
 
-        for (file_path,) in cursor.fetchall():
-            stats[file_path]["has_routes"] = True
+    for (file_path,) in cursor.fetchall():
+        stats[file_path]["has_routes"] = True
 
-        cursor.execute(
-            f"""
-            SELECT DISTINCT file
-            FROM sql_objects
-            WHERE file IN ({placeholders})
-        """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT DISTINCT file
+        FROM sql_objects
+        WHERE file IN ({placeholders})
+    """,
+        file_paths,
+    )
 
-        for (file_path,) in cursor.fetchall():
-            stats[file_path]["has_sql"] = True
+    for (file_path,) in cursor.fetchall():
+        stats[file_path]["has_sql"] = True
 
-        conn.close()
-    except sqlite3.Error as e:
-        logger.debug(f"DB error in load_graph_stats: {e}")
+    conn.close()
 
     return dict(stats)
 
@@ -425,45 +410,42 @@ def load_semantic_import_features(db_path: str, file_paths: list[str]) -> dict[s
         }
     )
 
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
-        placeholders = ",".join("?" * len(file_paths))
+    placeholders = ",".join("?" * len(file_paths))
 
-        cursor.execute(
-            f"""
-            SELECT src, value
-            FROM refs
-            WHERE src IN ({placeholders})
-            AND kind IN ('import', 'from', 'require')
-            """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT src, value
+        FROM refs
+        WHERE src IN ({placeholders})
+        AND kind IN ('import', 'from', 'require')
+        """,
+        file_paths,
+    )
 
-        for file_path, import_value in cursor.fetchall():
-            import_name = import_value.lower().strip("\"'")
+    for file_path, import_value in cursor.fetchall():
+        import_name = import_value.lower().strip("\"'")
 
-            if "/" in import_name:
-                import_name = import_name.split("/")[0].lstrip("@")
+        if "/" in import_name:
+            import_name = import_name.split("/")[0].lstrip("@")
 
-            base_import = import_name.split(".")[0]
+        base_import = import_name.split(".")[0]
 
-            if any(lib in import_name or base_import == lib for lib in HTTP_LIBS):
-                stats[file_path]["has_http_import"] = True
+        if any(lib in import_name or base_import == lib for lib in HTTP_LIBS):
+            stats[file_path]["has_http_import"] = True
 
-            if any(lib in import_name or base_import == lib for lib in DB_LIBS):
-                stats[file_path]["has_db_import"] = True
+        if any(lib in import_name or base_import == lib for lib in DB_LIBS):
+            stats[file_path]["has_db_import"] = True
 
-            if any(lib in import_name or base_import == lib for lib in AUTH_LIBS):
-                stats[file_path]["has_auth_import"] = True
+        if any(lib in import_name or base_import == lib for lib in AUTH_LIBS):
+            stats[file_path]["has_auth_import"] = True
 
-            if any(lib in import_name or base_import == lib for lib in TEST_LIBS):
-                stats[file_path]["has_test_import"] = True
+        if any(lib in import_name or base_import == lib for lib in TEST_LIBS):
+            stats[file_path]["has_test_import"] = True
 
-        conn.close()
-    except sqlite3.Error as e:
-        logger.debug(f"DB error in load_semantic_import_features: {e}")
+    conn.close()
 
     return dict(stats)
 
@@ -483,63 +465,60 @@ def load_ast_complexity_metrics(db_path: str, file_paths: list[str]) -> dict[str
         }
     )
 
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
 
-        placeholders = ",".join("?" * len(file_paths))
+    placeholders = ",".join("?" * len(file_paths))
 
-        cursor.execute(
-            f"""
-            SELECT path, type, COUNT(*) as count
-            FROM symbols
-            WHERE path IN ({placeholders})
-            GROUP BY path, type
-            """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT path, type, COUNT(*) as count
+        FROM symbols
+        WHERE path IN ({placeholders})
+        GROUP BY path, type
+        """,
+        file_paths,
+    )
 
-        for file_path, symbol_type, count in cursor.fetchall():
-            if symbol_type == "function":
-                stats[file_path]["function_count"] = count
-            elif symbol_type == "class":
-                stats[file_path]["class_count"] = count
-            elif symbol_type == "call":
-                stats[file_path]["call_count"] = count
+    for file_path, symbol_type, count in cursor.fetchall():
+        if symbol_type == "function":
+            stats[file_path]["function_count"] = count
+        elif symbol_type == "class":
+            stats[file_path]["class_count"] = count
+        elif symbol_type == "call":
+            stats[file_path]["call_count"] = count
 
-        cursor.execute(
-            f"""
-            SELECT path, COUNT(*) as count
-            FROM symbols
-            WHERE path IN ({placeholders})
-            AND type = 'function'
-            AND (name LIKE 'async%' OR name LIKE '%async%')
-            GROUP BY path
-            """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT path, COUNT(*) as count
+        FROM symbols
+        WHERE path IN ({placeholders})
+        AND type = 'function'
+        AND (name LIKE 'async%' OR name LIKE '%async%')
+        GROUP BY path
+        """,
+        file_paths,
+    )
 
-        for file_path, count in cursor.fetchall():
-            stats[file_path]["async_def_count"] = count
+    for file_path, count in cursor.fetchall():
+        stats[file_path]["async_def_count"] = count
 
-        cursor.execute(
-            f"""
-            SELECT path, COUNT(*) as count
-            FROM symbols
-            WHERE path IN ({placeholders})
-            AND type = 'call'
-            AND (name IN ('catch', 'except', 'rescue', 'error', 'try', 'finally'))
-            GROUP BY path
-            """,
-            file_paths,
-        )
+    cursor.execute(
+        f"""
+        SELECT path, COUNT(*) as count
+        FROM symbols
+        WHERE path IN ({placeholders})
+        AND type = 'call'
+        AND (name IN ('catch', 'except', 'rescue', 'error', 'try', 'finally'))
+        GROUP BY path
+        """,
+        file_paths,
+    )
 
-        for file_path, count in cursor.fetchall():
-            stats[file_path]["try_except_count"] = count
+    for file_path, count in cursor.fetchall():
+        stats[file_path]["try_except_count"] = count
 
-        conn.close()
-    except sqlite3.Error as e:
-        logger.debug(f"DB error in load_ast_complexity_metrics: {e}")
+    conn.close()
 
     return dict(stats)
 
@@ -744,88 +723,78 @@ def load_session_execution_features(
     if not Path(db_path).exists():
         return dict(stats)
 
-    try:
-        conn = sqlite3.connect(db_path)
-        cursor = conn.cursor()
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    project_root = Path.cwd()
+
+    for file_path in file_paths:
+        normalized_path = str(Path(file_path).as_posix())
 
         cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='session_executions'"
+            """
+            SELECT workflow_compliant, compliance_score, risk_score,
+                   user_engagement_rate, diffs_scored
+            FROM session_executions
+            WHERE diffs_scored LIKE ?
+        """,
+            (f"%{normalized_path}%",),
         )
-        if not cursor.fetchone():
-            conn.close()
-            return dict(stats)
 
-        project_root = Path.cwd()
+        rows = cursor.fetchall()
 
-        for file_path in file_paths:
-            normalized_path = str(Path(file_path).as_posix())
+        if not rows:
+            continue
 
-            cursor.execute(
-                """
-                SELECT workflow_compliant, compliance_score, risk_score,
-                       user_engagement_rate, diffs_scored
-                FROM session_executions
-                WHERE diffs_scored LIKE ?
-            """,
-                (f"%{normalized_path}%",),
-            )
+        compliance_scores = [row[1] for row in rows]
+        risk_scores = [row[2] for row in rows]
+        engagement_rates = [row[3] for row in rows]
 
-            rows = cursor.fetchall()
+        blind_edits = 0
+        total_edits = 0
 
-            if not rows:
+        for row in rows:
+            diffs_json = row[4]
+            if not diffs_json:
                 continue
 
-            compliance_scores = [row[1] for row in rows]
-            risk_scores = [row[2] for row in rows]
-            engagement_rates = [row[3] for row in rows]
+            try:
+                diffs = json.loads(diffs_json)
+                for diff in diffs:
+                    diff_file = diff.get("file", "")
+                    if not diff_file:
+                        continue
 
-            blind_edits = 0
-            total_edits = 0
+                    try:
+                        diff_path_obj = Path(diff_file)
+                        if diff_path_obj.is_absolute():
+                            diff_path_obj = diff_path_obj.relative_to(project_root)
+                        normalized_diff = str(diff_path_obj.as_posix())
+                    except ValueError:
+                        # Path not relative to project root
+                        normalized_diff = str(Path(diff_file).as_posix())
 
-            for row in rows:
-                diffs_json = row[4]
-                if not diffs_json:
-                    continue
+                    if normalized_diff == normalized_path:
+                        total_edits += 1
+                        if diff.get("blind_edit", False):
+                            blind_edits += 1
+            except json.JSONDecodeError:
+                continue
 
-                try:
-                    diffs = json.loads(diffs_json)
-                    for diff in diffs:
-                        diff_file = diff.get("file", "")
-                        if not diff_file:
-                            continue
+        stats[file_path]["session_workflow_compliance"] = (
+            sum(compliance_scores) / len(compliance_scores) if compliance_scores else 0.0
+        )
+        stats[file_path]["session_avg_risk_score"] = (
+            sum(risk_scores) / len(risk_scores) if risk_scores else 0.0
+        )
+        stats[file_path]["session_blind_edit_rate"] = (
+            blind_edits / total_edits if total_edits > 0 else 0.0
+        )
+        stats[file_path]["session_user_engagement"] = (
+            sum(engagement_rates) / len(engagement_rates) if engagement_rates else 0.0
+        )
 
-                        try:
-                            diff_path_obj = Path(diff_file)
-                            if diff_path_obj.is_absolute():
-                                diff_path_obj = diff_path_obj.relative_to(project_root)
-                            normalized_diff = str(diff_path_obj.as_posix())
-                        except ValueError:
-                            # Path not relative to project root
-                            normalized_diff = str(Path(diff_file).as_posix())
-
-                        if normalized_diff == normalized_path:
-                            total_edits += 1
-                            if diff.get("blind_edit", False):
-                                blind_edits += 1
-                except json.JSONDecodeError:
-                    continue
-
-            stats[file_path]["session_workflow_compliance"] = (
-                sum(compliance_scores) / len(compliance_scores) if compliance_scores else 0.0
-            )
-            stats[file_path]["session_avg_risk_score"] = (
-                sum(risk_scores) / len(risk_scores) if risk_scores else 0.0
-            )
-            stats[file_path]["session_blind_edit_rate"] = (
-                blind_edits / total_edits if total_edits > 0 else 0.0
-            )
-            stats[file_path]["session_user_engagement"] = (
-                sum(engagement_rates) / len(engagement_rates) if engagement_rates else 0.0
-            )
-
-        conn.close()
-    except sqlite3.Error as e:
-        logger.debug(f"DB error in load_session_execution_features: {e}")
+    conn.close()
 
     return dict(stats)
 
@@ -837,6 +806,10 @@ def load_impact_features(db_path: str, file_paths: list[str]) -> dict[str, dict]
     the theoretical maximum impact if each file were touched.
 
     Returns raw counts without formatting (headless mode for ML).
+
+    OPTIMIZED: Uses batch queries instead of N+1 pattern.
+    Before: O(N * M) queries where N=files, M=avg dependency depth
+    After: O(1) batch queries regardless of file count
     """
     if not Path(db_path).exists() or not file_paths:
         return {}
@@ -856,82 +829,109 @@ def load_impact_features(db_path: str, file_paths: list[str]) -> dict[str, dict]
 
     try:
         from . import impact_analyzer
-
-        with sqlite3.connect(db_path) as conn:
-            cursor = conn.cursor()
-
-            # Check which files are API endpoints (high-value targets)
-            placeholders = ",".join("?" * len(file_paths))
-            cursor.execute(
-                f"SELECT DISTINCT file FROM api_endpoints WHERE file IN ({placeholders})",
-                file_paths,
-            )
-            api_files = {row[0] for row in cursor.fetchall()}
-
-            for fp in file_paths:
-                if fp in api_files:
-                    stats[fp]["is_api_endpoint"] = True
-
-                # Find first function/class to analyze impact
-                cursor.execute(
-                    """
-                    SELECT name, type, line
-                    FROM symbols
-                    WHERE path = ? AND type IN ('function', 'class')
-                    LIMIT 1
-                    """,
-                    (fp,),
-                )
-                row = cursor.fetchone()
-                if not row:
-                    continue
-
-                name, sym_type, line = row
-
-                # Calculate upstream (who calls this)
-                upstream = impact_analyzer.find_upstream_dependencies(
-                    cursor, fp, name, sym_type
-                )
-
-                # Calculate downstream (what this calls)
-                downstream = impact_analyzer.find_downstream_dependencies(
-                    cursor, fp, line, name
-                )
-
-                # Calculate transitive impact
-                downstream_transitive = impact_analyzer.calculate_transitive_impact(
-                    cursor, downstream, "downstream", max_depth=2
-                )
-
-                # Risk classification
-                all_impacts = upstream + downstream + downstream_transitive
-                risk_data = impact_analyzer.classify_risk(all_impacts)
-
-                # Populate features
-                stats[fp]["direct_upstream"] = len(upstream)
-                stats[fp]["direct_downstream"] = len(downstream)
-                stats[fp]["transitive_impact"] = len(downstream_transitive)
-
-                total_impact = len(upstream) + len(downstream) + len(downstream_transitive)
-                affected_files = len(
-                    {item["file"] for item in all_impacts if item.get("file") != "external"}
-                )
-
-                stats[fp]["affected_files"] = affected_files
-
-                # Log-scale blast radius (stability for large values)
-                stats[fp]["blast_radius"] = float(np.log1p(total_impact))
-
-                # Coupling score: normalized 0-1
-                stats[fp]["coupling_score"] = min(total_impact / 50.0, 1.0)
-
-                # Production dependency count (most actionable)
-                stats[fp]["prod_dependency_count"] = risk_data["metrics"]["prod_count"]
-
     except ImportError:
         logger.debug("impact_analyzer not available for feature extraction")
-    except sqlite3.Error as e:
-        logger.debug(f"DB error in impact features: {e}")
+        return dict(stats)
+
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.cursor()
+
+        # BATCH 1: Check which files are API endpoints (high-value targets)
+        placeholders = ",".join("?" * len(file_paths))
+        cursor.execute(
+            f"SELECT DISTINCT file FROM api_endpoints WHERE file IN ({placeholders})",
+            file_paths,
+        )
+        api_files = {row[0] for row in cursor.fetchall()}
+
+        for fp in file_paths:
+            if fp in api_files:
+                stats[fp]["is_api_endpoint"] = True
+
+        # BATCH 2: Get first function/class for ALL files in one query
+        cursor.execute(
+            f"""
+            SELECT path, name, type, line
+            FROM symbols
+            WHERE path IN ({placeholders})
+            AND type IN ('function', 'class')
+            ORDER BY path, line
+        """,
+            file_paths,
+        )
+
+        # Keep only first symbol per file
+        file_symbols: dict[str, tuple[str, str, int]] = {}
+        for path, name, sym_type, line in cursor.fetchall():
+            if path not in file_symbols:
+                file_symbols[path] = (name, sym_type, line)
+
+        if not file_symbols:
+            return dict(stats)
+
+        # Prepare batch inputs
+        upstream_symbols = [
+            (fp, name, sym_type)
+            for fp, (name, sym_type, _) in file_symbols.items()
+        ]
+        downstream_symbols = [
+            (fp, line, name)
+            for fp, (name, _, line) in file_symbols.items()
+        ]
+
+        # BATCH 3: Get all upstream dependencies in ONE query
+        upstream_results = impact_analyzer.find_upstream_dependencies_batch(
+            cursor, upstream_symbols
+        )
+
+        # BATCH 4: Get all downstream dependencies in ONE query
+        downstream_results = impact_analyzer.find_downstream_dependencies_batch(
+            cursor, downstream_symbols
+        )
+
+        # Process results for each file
+        for fp in file_paths:
+            if fp not in file_symbols:
+                continue
+
+            name, sym_type, line = file_symbols[fp]
+
+            # Get upstream for this file's symbol
+            upstream = upstream_results.get(name, [])
+
+            # Get downstream for this file's symbol
+            downstream_key = f"{fp}:{name}"
+            downstream = downstream_results.get(downstream_key, [])
+
+            # Calculate transitive impact (still recursive, but starting from batch results)
+            downstream_transitive = impact_analyzer.calculate_transitive_impact(
+                cursor, downstream, "downstream", max_depth=2
+            )
+
+            # Risk classification
+            all_impacts = upstream + downstream + downstream_transitive
+            risk_data = impact_analyzer.classify_risk(all_impacts)
+
+            # Populate features
+            stats[fp]["direct_upstream"] = len(upstream)
+            stats[fp]["direct_downstream"] = len(downstream)
+            stats[fp]["transitive_impact"] = len(downstream_transitive)
+
+            total_impact = len(upstream) + len(downstream) + len(downstream_transitive)
+            affected_files = len(
+                {item["file"] for item in all_impacts if item.get("file") != "external"}
+            )
+
+            stats[fp]["affected_files"] = affected_files
+
+            # Log-scale blast radius (stability for large values)
+            stats[fp]["blast_radius"] = float(np.log1p(total_impact))
+
+            # Coupling score: normalized 0-1
+            stats[fp]["coupling_score"] = min(total_impact / 50.0, 1.0)
+
+            # Production dependency count (most actionable)
+            stats[fp]["prod_dependency_count"] = risk_data["metrics"]["prod_count"]
 
     return dict(stats)
 

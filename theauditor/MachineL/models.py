@@ -103,10 +103,8 @@ def validate_ml_schema():
         _SCHEMA_VALIDATED = True
 
     except ImportError:
-        pass
-    except AssertionError as e:
-        logger.info(f"Schema validation warning: {e}")
-        _SCHEMA_VALIDATED = True
+        # Schema module not available - cannot validate, fail loud
+        raise RuntimeError("Schema validation failed: theauditor.indexer.schema not available")
 
 
 def check_ml_available():
@@ -162,24 +160,25 @@ def build_feature_matrix(
     historical_data: dict,
     intelligent_features: dict = None,
 ) -> tuple[np.ndarray, dict[str, int]]:
-    """Build feature matrix for files."""
+    """Build feature matrix for files.
+
+    OPTIMIZED: Pre-allocates numpy array to avoid Python list resizing overhead.
+    """
     if not ML_AVAILABLE:
         return None, {}
 
     import sqlite3
     from pathlib import Path
 
+    # Load file metadata from database
     file_metadata = {}
     if Path(db_path).exists():
-        try:
-            conn = sqlite3.connect(db_path)
-            cursor = conn.cursor()
-            cursor.execute("SELECT path, ext, bytes, loc FROM files")
-            for row in cursor.fetchall():
-                file_metadata[row[0]] = {"path": row[0], "ext": row[1], "bytes": row[2], "loc": row[3]}
-            conn.close()
-        except sqlite3.Error as e:
-            logger.debug(f"DB error loading file metadata: {e}")
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute("SELECT path, ext, bytes, loc FROM files")
+        for row in cursor.fetchall():
+            file_metadata[row[0]] = {"path": row[0], "ext": row[1], "bytes": row[2], "loc": row[3]}
+        conn.close()
 
     journal_stats = historical_data.get("journal_stats", {})
     rca_stats = historical_data.get("rca_stats", {})
@@ -188,108 +187,168 @@ def build_feature_matrix(
 
     intelligent_features = intelligent_features or {}
 
-    features = []
+    # OPTIMIZED: Pre-allocate numpy array (52 base features + 50 text features = 102 total)
+    n_files = len(file_paths)
+    n_features = 102
+    features = np.zeros((n_files, n_features), dtype=np.float32)
 
-    for file_path in file_paths:
-        feat = []
+    for i, file_path in enumerate(file_paths):
+        col = 0
 
         meta = file_metadata.get(file_path, {})
-        feat.append(meta.get("bytes", 0) / 10000.0)
-        feat.append(meta.get("loc", 0) / 100.0)
+        features[i, col] = meta.get("bytes", 0) / 10000.0
+        col += 1
+        features[i, col] = meta.get("loc", 0) / 100.0
+        col += 1
 
         ext = meta.get("ext", "")
-        feat.append(1.0 if ext in [".ts", ".tsx", ".js", ".jsx"] else 0.0)
-        feat.append(1.0 if ext == ".py" else 0.0)
+        features[i, col] = 1.0 if ext in [".ts", ".tsx", ".js", ".jsx"] else 0.0
+        col += 1
+        features[i, col] = 1.0 if ext == ".py" else 0.0
+        col += 1
 
         db_feat = db_features.get(file_path, {})
 
-        feat.append(db_feat.get("in_degree", 0) / 10.0)
-        feat.append(db_feat.get("out_degree", 0) / 10.0)
-        feat.append(1.0 if db_feat.get("has_routes") else 0.0)
-        feat.append(1.0 if db_feat.get("has_sql") else 0.0)
+        features[i, col] = db_feat.get("in_degree", 0) / 10.0
+        col += 1
+        features[i, col] = db_feat.get("out_degree", 0) / 10.0
+        col += 1
+        features[i, col] = 1.0 if db_feat.get("has_routes") else 0.0
+        col += 1
+        features[i, col] = 1.0 if db_feat.get("has_sql") else 0.0
+        col += 1
 
         journal = journal_stats.get(file_path, {})
-        feat.append(journal.get("touches", 0) / 10.0)
-        feat.append(journal.get("failures", 0) / 5.0)
-        feat.append(journal.get("successes", 0) / 5.0)
+        features[i, col] = journal.get("touches", 0) / 10.0
+        col += 1
+        features[i, col] = journal.get("failures", 0) / 5.0
+        col += 1
+        features[i, col] = journal.get("successes", 0) / 5.0
+        col += 1
 
         rca = rca_stats.get(file_path, {})
-        feat.append(rca.get("fail_count", 0) / 5.0)
+        features[i, col] = rca.get("fail_count", 0) / 5.0
+        col += 1
 
         ast = ast_stats.get(file_path, {})
-        feat.append(ast.get("invariant_fails", 0) / 3.0)
-        feat.append(ast.get("invariant_passes", 0) / 3.0)
+        features[i, col] = ast.get("invariant_fails", 0) / 3.0
+        col += 1
+        features[i, col] = ast.get("invariant_passes", 0) / 3.0
+        col += 1
 
         git = git_churn.get(file_path, {})
-        feat.append(git.get("commits_90d", 0) / 20.0)
-        feat.append(git.get("unique_authors", 0) / 5.0)
-        feat.append(git.get("days_since_modified", 999) / 100.0)
-        feat.append(git.get("days_active_in_range", 0) / 30.0)
+        features[i, col] = git.get("commits_90d", 0) / 20.0
+        col += 1
+        features[i, col] = git.get("unique_authors", 0) / 5.0
+        col += 1
+        features[i, col] = git.get("days_since_modified", 999) / 100.0
+        col += 1
+        features[i, col] = git.get("days_active_in_range", 0) / 30.0
+        col += 1
 
-        feat.append(1.0 if db_feat.get("has_http_import") else 0.0)
-        feat.append(1.0 if db_feat.get("has_db_import") else 0.0)
-        feat.append(1.0 if db_feat.get("has_auth_import") else 0.0)
-        feat.append(1.0 if db_feat.get("has_test_import") else 0.0)
+        features[i, col] = 1.0 if db_feat.get("has_http_import") else 0.0
+        col += 1
+        features[i, col] = 1.0 if db_feat.get("has_db_import") else 0.0
+        col += 1
+        features[i, col] = 1.0 if db_feat.get("has_auth_import") else 0.0
+        col += 1
+        features[i, col] = 1.0 if db_feat.get("has_test_import") else 0.0
+        col += 1
 
-        feat.append(db_feat.get("function_count", 0) / 20.0)
-        feat.append(db_feat.get("class_count", 0) / 10.0)
-        feat.append(db_feat.get("call_count", 0) / 50.0)
-        feat.append(db_feat.get("try_except_count", 0) / 5.0)
-        feat.append(db_feat.get("async_def_count", 0) / 5.0)
+        features[i, col] = db_feat.get("function_count", 0) / 20.0
+        col += 1
+        features[i, col] = db_feat.get("class_count", 0) / 10.0
+        col += 1
+        features[i, col] = db_feat.get("call_count", 0) / 50.0
+        col += 1
+        features[i, col] = db_feat.get("try_except_count", 0) / 5.0
+        col += 1
+        features[i, col] = db_feat.get("async_def_count", 0) / 5.0
+        col += 1
 
-        feat.append(db_feat.get("jwt_usage_count", 0) / 5.0)
-        feat.append(db_feat.get("sql_query_count", 0) / 10.0)
-        feat.append(1.0 if db_feat.get("has_hardcoded_secret") else 0.0)
-        feat.append(1.0 if db_feat.get("has_weak_crypto") else 0.0)
+        features[i, col] = db_feat.get("jwt_usage_count", 0) / 5.0
+        col += 1
+        features[i, col] = db_feat.get("sql_query_count", 0) / 10.0
+        col += 1
+        features[i, col] = 1.0 if db_feat.get("has_hardcoded_secret") else 0.0
+        col += 1
+        features[i, col] = 1.0 if db_feat.get("has_weak_crypto") else 0.0
+        col += 1
 
-        feat.append(db_feat.get("critical_findings", 0) / 3.0)
-        feat.append(db_feat.get("high_findings", 0) / 5.0)
-        feat.append(db_feat.get("medium_findings", 0) / 10.0)
-        feat.append(db_feat.get("unique_cwe_count", 0) / 5.0)
+        features[i, col] = db_feat.get("critical_findings", 0) / 3.0
+        col += 1
+        features[i, col] = db_feat.get("high_findings", 0) / 5.0
+        col += 1
+        features[i, col] = db_feat.get("medium_findings", 0) / 10.0
+        col += 1
+        features[i, col] = db_feat.get("unique_cwe_count", 0) / 5.0
+        col += 1
 
-        feat.append(db_feat.get("type_annotation_count", 0) / 50.0)
-        feat.append(db_feat.get("any_type_count", 0) / 10.0)
-        feat.append(db_feat.get("unknown_type_count", 0) / 10.0)
-        feat.append(db_feat.get("generic_type_count", 0) / 10.0)
-        feat.append(db_feat.get("type_coverage_ratio", 0.0))
+        features[i, col] = db_feat.get("type_annotation_count", 0) / 50.0
+        col += 1
+        features[i, col] = db_feat.get("any_type_count", 0) / 10.0
+        col += 1
+        features[i, col] = db_feat.get("unknown_type_count", 0) / 10.0
+        col += 1
+        features[i, col] = db_feat.get("generic_type_count", 0) / 10.0
+        col += 1
+        features[i, col] = db_feat.get("type_coverage_ratio", 0.0)
+        col += 1
 
-        feat.append(db_feat.get("cfg_block_count", 0) / 20.0)
-        feat.append(db_feat.get("cfg_edge_count", 0) / 30.0)
-        feat.append(db_feat.get("cyclomatic_complexity", 0) / 10.0)
+        features[i, col] = db_feat.get("cfg_block_count", 0) / 20.0
+        col += 1
+        features[i, col] = db_feat.get("cfg_edge_count", 0) / 30.0
+        col += 1
+        features[i, col] = db_feat.get("cyclomatic_complexity", 0) / 10.0
+        col += 1
 
         # 2025: Blast radius features from impact_analyzer
-        feat.append(db_feat.get("blast_radius", 0.0))  # Already log-scaled
-        feat.append(db_feat.get("coupling_score", 0.0))  # Already 0-1 normalized
-        feat.append(db_feat.get("direct_upstream", 0) / 10.0)
-        feat.append(db_feat.get("direct_downstream", 0) / 10.0)
-        feat.append(db_feat.get("transitive_impact", 0) / 20.0)
-        feat.append(db_feat.get("affected_files", 0) / 10.0)
-        feat.append(1.0 if db_feat.get("is_api_endpoint") else 0.0)
-        feat.append(db_feat.get("prod_dependency_count", 0) / 10.0)
+        features[i, col] = db_feat.get("blast_radius", 0.0)  # Already log-scaled
+        col += 1
+        features[i, col] = db_feat.get("coupling_score", 0.0)  # Already 0-1 normalized
+        col += 1
+        features[i, col] = db_feat.get("direct_upstream", 0) / 10.0
+        col += 1
+        features[i, col] = db_feat.get("direct_downstream", 0) / 10.0
+        col += 1
+        features[i, col] = db_feat.get("transitive_impact", 0) / 20.0
+        col += 1
+        features[i, col] = db_feat.get("affected_files", 0) / 10.0
+        col += 1
+        features[i, col] = 1.0 if db_feat.get("is_api_endpoint") else 0.0
+        col += 1
+        features[i, col] = db_feat.get("prod_dependency_count", 0) / 10.0
+        col += 1
 
-        feat.append(db_feat.get("agent_blind_edit_count", 0) / 5.0)
-        feat.append(db_feat.get("agent_duplicate_impl_rate", 0.0))
-        feat.append(db_feat.get("agent_missed_search_count", 0) / 10.0)
-        feat.append(db_feat.get("agent_read_efficiency", 0.0) / 5.0)
+        features[i, col] = db_feat.get("agent_blind_edit_count", 0) / 5.0
+        col += 1
+        features[i, col] = db_feat.get("agent_duplicate_impl_rate", 0.0)
+        col += 1
+        features[i, col] = db_feat.get("agent_missed_search_count", 0) / 10.0
+        col += 1
+        features[i, col] = db_feat.get("agent_read_efficiency", 0.0) / 5.0
+        col += 1
 
-        feat.append(db_feat.get("comment_reference_count", 0) / 10.0)
-        feat.append(db_feat.get("comment_hallucination_count", 0) / 5.0)
-        feat.append(db_feat.get("comment_conflict_rate", 0.0))
-        feat.append(1.0 if db_feat.get("has_removed_comments") else 0.0)
+        features[i, col] = db_feat.get("comment_reference_count", 0) / 10.0
+        col += 1
+        features[i, col] = db_feat.get("comment_hallucination_count", 0) / 5.0
+        col += 1
+        features[i, col] = db_feat.get("comment_conflict_rate", 0.0)
+        col += 1
+        features[i, col] = 1.0 if db_feat.get("has_removed_comments") else 0.0
+        col += 1
 
+        # Text features (50 dimensions)
         text_feats = extract_text_features(
             file_path,
             rca.get("messages", []),
             dim=50,
         )
-        text_vec = [0.0] * 50
         for idx, val in text_feats.items():
             if idx < 50:
-                text_vec[idx] = val
-        feat.extend(text_vec)
+                features[i, col + idx] = val
 
-        features.append(feat)
-
+    # Feature names for interpretability
     feature_names = [
         "bytes_norm",
         "loc_norm",
@@ -356,7 +415,7 @@ def build_feature_matrix(
 
     feature_name_map = {name: i for i, name in enumerate(feature_names)}
 
-    return np.array(features), feature_name_map
+    return features, feature_name_map
 
 
 def build_labels(
