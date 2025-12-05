@@ -8,7 +8,7 @@ import click
 from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import err_console, console
 from theauditor.utils.error_handler import handle_exceptions
-from theauditor.utils.exit_codes import ExitCodes
+from theauditor.utils.constants import ExitCodes
 
 
 @click.command("docker-analyze", cls=RichCommand)

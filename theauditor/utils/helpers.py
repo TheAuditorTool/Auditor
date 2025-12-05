@@ -53,27 +53,10 @@ def load_json_file(file_path: str) -> dict[str, Any]:
         raise
 
 
-def save_json_file(data: dict[str, Any], file_path: str) -> None:
-    """Save data as JSON to file."""
-    with open(file_path, "w") as f:
-        json.dump(data, f, indent=2)
-
-
 def count_lines_in_file(file_path: Path) -> int:
     """Count number of lines in a text file."""
     with open(file_path, encoding="utf-8", errors="ignore") as f:
         return sum(1 for _ in f)
-
-
-def extract_data_array(data: Any, key: str, path: str) -> list:
-    """Extract array from potentially wrapped data structure."""
-    if isinstance(data, dict) and key in data:
-        return data[key]
-    elif isinstance(data, list):
-        return data
-    else:
-        logger.warning(f"Invalid format in {path} - expected dict with '{key}' key or flat list")
-        return []
 
 
 def get_self_exclusion_patterns(exclude_self_enabled: bool) -> list[str]:

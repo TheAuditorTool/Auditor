@@ -508,7 +508,7 @@ def graph_analyze(root, db, out, max_depth, workset):
         }
 
         from theauditor.indexer.database import DatabaseManager
-        from theauditor.utils.meta_findings import format_cycle_finding, format_hotspot_finding
+        from theauditor.utils.findings import format_cycle_finding, format_hotspot_finding
 
         meta_findings = []
 

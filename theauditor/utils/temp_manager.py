@@ -31,30 +31,22 @@ class TempManager:
         return file_path, fd
 
     @staticmethod
-    def cleanup_temp_dir(root_path: str) -> bool:
-        """Clean up all temporary files in project temp directory."""
-        temp_dir = Path(root_path) / ".auditor_venv" / "tmp"
+    def cleanup_temp_dir(root_path: str) -> None:
+        """Clean up all temporary files in project temp directory.
+
+        Raises:
+            OSError: If cleanup fails (e.g., permission denied, file in use).
+        """
+        temp_dir = TempManager.get_temp_dir(root_path)
 
         if not temp_dir.exists():
-            return True
+            return
 
-        try:
-            for temp_file in temp_dir.iterdir():
-                if temp_file.is_file():
-                    try:
-                        temp_file.unlink()
-                    except (OSError, PermissionError):
-                        pass
+        for temp_file in temp_dir.iterdir():
+            if temp_file.is_file():
+                temp_file.unlink()
 
-            try:
-                temp_dir.rmdir()
-            except OSError:
-                pass
-
-            return True
-
-        except Exception:
-            return False
+        temp_dir.rmdir()
 
     @staticmethod
     def create_temp_files_for_subprocess(
@@ -78,13 +70,3 @@ class TempManager:
         os.close(stderr_fd)
 
         return stdout_path, stderr_path
-
-
-def get_project_temp_dir(root_path: str) -> Path:
-    """Get project-specific temp directory."""
-    return TempManager.get_temp_dir(root_path)
-
-
-def cleanup_project_temp(root_path: str) -> bool:
-    """Clean up project temp directory."""
-    return TempManager.cleanup_temp_dir(root_path)

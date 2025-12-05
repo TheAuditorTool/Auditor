@@ -126,12 +126,16 @@ def get_recommended_memory_limit() -> int:
 
 
 def get_available_memory() -> int:
-    """Get currently available system memory in MB. Returns -1 on failure."""
-    try:
-        if _SYSTEM == "Windows":
-            return _get_available_memory_windows()
-        elif _SYSTEM == "Linux":
-            return _get_available_memory_linux()
-    except Exception:
-        pass
-    return -1
+    """Get currently available system memory in MB.
+
+    Returns:
+        Available memory in MB, or -1 if platform is unsupported (macOS).
+
+    Raises:
+        RuntimeError: If memory detection fails on supported platform.
+    """
+    if _SYSTEM == "Windows":
+        return _get_available_memory_windows()
+    elif _SYSTEM == "Linux":
+        return _get_available_memory_linux()
+    return -1  # Unsupported platform (Darwin)

@@ -105,7 +105,7 @@ class MetadataCollector:
         }
 
         from theauditor.indexer.database import DatabaseManager
-        from theauditor.utils.meta_findings import format_churn_finding
+        from theauditor.utils.findings import format_churn_finding
 
         meta_findings = []
         churn_threshold = 50
@@ -256,7 +256,7 @@ class MetadataCollector:
         }
 
         from theauditor.indexer.database import DatabaseManager
-        from theauditor.utils.meta_findings import format_coverage_finding
+        from theauditor.utils.findings import format_coverage_finding
 
         meta_findings = []
         coverage_threshold = 50.0

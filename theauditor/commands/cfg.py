@@ -169,7 +169,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
                 console.print("[success]No unreachable code detected[/success]")
 
         from theauditor.indexer.database import DatabaseManager
-        from theauditor.utils.meta_findings import format_complexity_finding
+        from theauditor.utils.findings import format_complexity_finding
 
         meta_findings = []
 

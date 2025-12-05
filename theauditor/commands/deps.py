@@ -8,7 +8,7 @@ import click
 from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
-from theauditor.utils.exit_codes import ExitCodes
+from theauditor.utils.constants import ExitCodes
 
 IS_WINDOWS = platform.system() == "Windows"
 
