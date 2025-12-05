@@ -1,6 +1,8 @@
 """AST cache management for improved parsing performance."""
 
 import json
+import os
+import random
 from pathlib import Path
 from typing import Any
 
@@ -25,15 +27,30 @@ class ASTCache:
         return None
 
     def set(self, key: str, value: dict, context: dict[str, Any] = None) -> None:
-        """Store an AST tree in the cache."""
+        """Store an AST tree in the cache.
+
+        Uses atomic write (temp file + rename) for crash safety.
+        Probabilistic eviction (1% chance) to avoid O(N) stat overhead.
+        """
         cache_file = self.cache_dir / f"{key}.json"
+        temp_file = self.cache_dir / f"{key}.tmp"
         try:
             if isinstance(value, dict):
-                with open(cache_file, "w", encoding="utf-8") as f:
+                # Atomic write: temp file first, then rename
+                with open(temp_file, "w", encoding="utf-8") as f:
                     json.dump(value, f)
-                self._evict_if_needed()
+                os.replace(temp_file, cache_file)
+
+                # Probabilistic eviction: only 1% of writes trigger full scan
+                if random.random() < 0.01:
+                    self._evict_if_needed()
         except (OSError, PermissionError, TypeError):
-            pass
+            # Clean up temp file on failure
+            try:
+                if temp_file.exists():
+                    temp_file.unlink()
+            except OSError:
+                pass
 
     def _evict_if_needed(self, max_size_bytes: int = 1073741824, max_files: int = 20000) -> None:
         """Evict old cache entries if limits are exceeded (1GB or 20k files)."""
