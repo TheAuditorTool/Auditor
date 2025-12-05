@@ -406,6 +406,9 @@ async def run_full_pipeline(
 
     reset_stop_flag()
 
+    # Force absolute path immediately - prevents WSL/Windows path ambiguity
+    root = str(Path(root).resolve())
+
     pf_dir = Path(root) / ".pf"
     pf_dir.mkdir(parents=True, exist_ok=True)
 
