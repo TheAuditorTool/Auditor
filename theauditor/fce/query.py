@@ -45,11 +45,18 @@ class FCEQueryEngine:
             )
 
         self.repo_db = sqlite3.connect(str(repo_db_path))
+        # Performance: WAL mode for concurrent reads, larger cache for 180MB+ databases
+        self.repo_db.execute("PRAGMA journal_mode=WAL;")
+        self.repo_db.execute("PRAGMA synchronous=NORMAL;")
+        self.repo_db.execute("PRAGMA cache_size=-64000;")  # 64MB cache
         self.repo_db.row_factory = sqlite3.Row
 
         graph_db_path = pf_dir / "graphs.db"
         if graph_db_path.exists():
             self.graph_db = sqlite3.connect(str(graph_db_path))
+            self.graph_db.execute("PRAGMA journal_mode=WAL;")
+            self.graph_db.execute("PRAGMA synchronous=NORMAL;")
+            self.graph_db.execute("PRAGMA cache_size=-64000;")
             self.graph_db.row_factory = sqlite3.Row
         else:
             self.graph_db = None
