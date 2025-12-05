@@ -2,9 +2,9 @@
 
 Rust extractor now populates language-agnostic tables (assignments, function_call_args, returns) per the recent `wire-rust-graph-integration` change. However, **no source/sink patterns are registered** for Rust, meaning taint analysis cannot identify what's user input (source) or dangerous (sink) in Rust code.
 
-**Evidence from Prime Directive investigation:**
-- `assignments` table: 321 Rust rows (extraction working!)
-- `function_call_args` table: 1,620 Rust rows (extraction working!)
+**Evidence from Prime Directive investigation (verified 2025-12-05):**
+- `assignments` table: 688 Rust rows (extraction working!)
+- `function_call_args` table: 3,549 Rust rows (extraction working!)
 - TaintRegistry: 0 Rust patterns (Go has 50+, Python has 100+)
 - Result: Taint flows cannot be detected despite having graph edges
 
@@ -82,37 +82,62 @@ assert len(rust_sinks) > 0, f"Expected Rust sinks, got {rust_sinks}"
 
 Categories map to `TaintRegistry.CATEGORY_TO_VULN_TYPE` at `taint/core.py:27-47`.
 
-| Pattern | Category | Description |
-|---------|----------|-------------|
-| `std::io::stdin` | user_input | Standard input |
-| `std::env::args` | user_input | Command line arguments |
-| `std::env::var` | user_input | Environment variables |
-| `std::fs::read` | user_input | File contents |
-| `std::fs::read_to_string` | user_input | File contents as string |
-| `web::Json` | http_request | Actix-web JSON body |
-| `web::Path` | http_request | Actix-web path parameters |
-| `web::Query` | http_request | Actix-web query parameters |
-| `axum::extract::Json` | http_request | Axum JSON body |
-| `axum::extract::Path` | http_request | Axum path parameters |
-| `axum::extract::Query` | http_request | Axum query parameters |
-| `rocket::request` | http_request | Rocket request data |
-| `rocket::form` | http_request | Rocket form data |
-| `warp::body::json` | http_request | Warp JSON body |
-| `warp::path::param` | http_request | Warp path parameters |
+**Verified against database 2025-12-05:** Patterns include BOTH qualified and unqualified forms for maximum coverage.
+
+| Pattern | Category | Description | Verified |
+|---------|----------|-------------|----------|
+| `io::stdin` | user_input | Standard input | YES |
+| `std::io::stdin` | user_input | Standard input (qualified) | for coverage |
+| `std::env::args` | user_input | Command line arguments | YES |
+| `args` | user_input | CLI args (unqualified) | YES |
+| `std::env::var` | user_input | Environment variables | YES |
+| `env::var` | user_input | Environment variables (short) | YES |
+| `std::env::vars` | user_input | All environment variables | YES |
+| `getenv` | user_input | C-style getenv | YES |
+| `std::fs::read_to_string` | user_input | File contents as string | YES |
+| `fs::read_to_string` | user_input | File contents (short) | YES |
+| `read_file` | user_input | File read helper | YES |
+| `read_line` | user_input | Line read from stdin | YES |
+| `read_user_input` | user_input | User input helper | YES |
+| `BufReader::new` | user_input | Buffered reader (often stdin) | YES |
+| `serde_json::from_reader` | user_input | JSON deserialization from reader | YES |
+| `Json` | http_request | Actix-web JSON body | YES |
+| `web::Json` | http_request | Actix-web JSON body (qualified) | for coverage |
+| `web::Path` | http_request | Actix-web path parameters | for coverage |
+| `web::Query` | http_request | Actix-web query parameters | for coverage |
+| `web::Form` | http_request | Actix-web form data | for coverage |
+| `axum::extract::Json` | http_request | Axum JSON body | for coverage |
+| `axum::extract::Path` | http_request | Axum path parameters | for coverage |
+| `axum::extract::Query` | http_request | Axum query parameters | for coverage |
+| `rocket::request` | http_request | Rocket request data | for coverage |
+| `rocket::form` | http_request | Rocket form data | for coverage |
+| `warp::body::json` | http_request | Warp JSON body | for coverage |
+| `warp::path::param` | http_request | Warp path parameters | for coverage |
 
 ## Sink Patterns (Dangerous Operations)
 
 Categories map to `TaintRegistry.CATEGORY_TO_VULN_TYPE` at `taint/core.py:27-47`.
 
-| Pattern | Category | Description |
-|---------|----------|-------------|
-| `std::process::Command` | command | Shell command execution |
-| `std::process::exec` | command | Process execution |
-| `sqlx::query` | sql | SQL query (sqlx) |
-| `sqlx::query_as` | sql | SQL query with mapping |
-| `diesel::sql_query` | sql | SQL query (diesel) |
-| `std::fs::write` | path | File write |
-| `std::fs::File::create` | path | File creation |
-| `std::ptr::write` | code_injection | Unsafe pointer write |
-| `std::mem::transmute` | code_injection | Type transmutation |
-| `TcpStream::connect` | ssrf | Network connection to user-controlled host |
+**Verified against database 2025-12-05:** Patterns include BOTH qualified and unqualified forms for maximum coverage.
+
+| Pattern | Category | Description | Verified |
+|---------|----------|-------------|----------|
+| `Command::new` | command | Shell command execution | YES |
+| `execute_command` | command | Command execution helper | YES |
+| `command` | command | Generic command call | YES |
+| `sqlx::query` | sql | SQL query (sqlx) | YES |
+| `sqlx::query_as` | sql | SQL query with mapping | YES |
+| `execute` | sql | SQL execute | YES |
+| `execute_sql` | sql | SQL execute helper | YES |
+| `diesel::sql_query` | sql | SQL query (diesel) | for coverage |
+| `std::fs::write` | path | File write | YES |
+| `fs::write` | path | File write (short) | YES |
+| `write_file` | path | File write helper | YES |
+| `ptr::write` | code_injection | Unsafe pointer write | YES |
+| `ptr::write_volatile` | code_injection | Volatile pointer write | YES |
+| `ptr::read` | code_injection | Unsafe pointer read | YES |
+| `ptr::read_volatile` | code_injection | Volatile pointer read | YES |
+| `std::ptr::write` | code_injection | Unsafe pointer write (qualified) | for coverage |
+| `std::mem::transmute` | code_injection | Type transmutation | for coverage |
+| `connect` | ssrf | Network connection | YES |
+| `TcpStream::connect` | ssrf | TCP connection (qualified) | for coverage |
