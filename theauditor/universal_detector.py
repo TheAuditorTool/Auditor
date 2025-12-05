@@ -124,8 +124,7 @@ class UniversalPatternDetector:
         """Query files from database."""
         files = []
 
-        try:
-            conn = sqlite3.connect(str(db_path))
+        with sqlite3.connect(str(db_path)) as conn:
             cursor = conn.cursor()
 
             if file_filter:
@@ -137,13 +136,7 @@ class UniversalPatternDetector:
 
             for path, ext, sha256_hash in rows:
                 full_path = self.project_path / path
-                if full_path.exists():
-                    files.append((full_path, ext, sha256_hash))
-
-            conn.close()
-
-        except sqlite3.Error as e:
-            logger.info(f"Database error: {e}")
+                files.append((full_path, ext, sha256_hash))
 
         return files
 
@@ -151,11 +144,10 @@ class UniversalPatternDetector:
         """Query specific files from database."""
         files = []
 
-        try:
-            conn = sqlite3.connect(str(db_path))
+        with sqlite3.connect(str(db_path)) as conn:
             cursor = conn.cursor()
 
-            path_strings = [str(p).replace("\\", "/") for p in file_list]
+            path_strings = [p.as_posix() for p in file_list]
 
             placeholders = ",".join(["?"] * len(path_strings))
             query = f"SELECT path, ext, sha256 FROM files WHERE path IN ({placeholders})"
@@ -164,13 +156,7 @@ class UniversalPatternDetector:
 
             for path, ext, sha256_hash in rows:
                 full_path = self.project_path / path
-                if full_path.exists():
-                    files.append((full_path, ext, sha256_hash))
-
-            conn.close()
-
-        except sqlite3.Error as e:
-            logger.info(f"Database error: {e}")
+                files.append((full_path, ext, sha256_hash))
 
         return files
 
@@ -248,28 +234,24 @@ class UniversalPatternDetector:
         """Run database-level rules through orchestrator."""
         findings = []
 
-        try:
-            db_findings = self.orchestrator.run_database_rules()
+        db_findings = self.orchestrator.run_database_rules()
 
-            for finding in db_findings:
-                findings.append(
-                    Finding(
-                        pattern_name=finding.get(
-                            "rule", finding.get("pattern_name", "DATABASE_RULE")
-                        ),
-                        message=finding.get("message", "Database issue detected"),
-                        file=finding.get("file", ""),
-                        line=finding.get("line") or 0,
-                        column=finding.get("column") or 0,
-                        severity=finding.get("severity", "medium").lower(),
-                        snippet=finding.get("snippet", "")[:200],
-                        category=finding.get("category", "database"),
-                        match_type="database",
-                    )
+        for finding in db_findings:
+            findings.append(
+                Finding(
+                    pattern_name=finding.get(
+                        "rule", finding.get("pattern_name", "DATABASE_RULE")
+                    ),
+                    message=finding.get("message", "Database issue detected"),
+                    file=finding.get("file", ""),
+                    line=finding.get("line") or 0,
+                    column=finding.get("column") or 0,
+                    severity=finding.get("severity", "medium").lower(),
+                    snippet=finding.get("snippet", "")[:200],
+                    category=finding.get("category", "database"),
+                    match_type="database",
                 )
-
-        except Exception as e:
-            logger.debug(f"Database rules error: {e}")
+            )
 
         return findings
 
