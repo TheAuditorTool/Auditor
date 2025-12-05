@@ -8,6 +8,34 @@ from theauditor.graph.analyzer import XGraphAnalyzer
 from theauditor.graph.store import XGraphStore
 
 
+def _normalize_path(path: str) -> str:
+    """Normalize path to forward slashes for consistent comparison."""
+    return path.replace("\\", "/") if path else ""
+
+
+def _build_graph_index(graph: dict) -> None:
+    """Build O(1) lookup indexes for graph nodes. Caches in graph dict."""
+    if "_node_by_id" in graph:
+        return  # Already indexed
+
+    node_by_id: dict[str, dict] = {}
+    nodes_by_file: dict[str, list[dict]] = {}
+
+    for node in graph.get("nodes", []):
+        node_id = node.get("id", "")
+        node_file = _normalize_path(node.get("file", ""))
+
+        node_by_id[node_id] = node
+
+        if node_file:
+            if node_file not in nodes_by_file:
+                nodes_by_file[node_file] = []
+            nodes_by_file[node_file].append(node)
+
+    graph["_node_by_id"] = node_by_id
+    graph["_nodes_by_file"] = nodes_by_file
+
+
 def calculate_distance(
     db_path: str, entry_file: str, entry_line: int, control_file: str, control_line: int
 ) -> int | None:
@@ -19,8 +47,9 @@ def calculate_distance(
     call_graph = store.load_call_graph()
 
     if not call_graph.get("nodes") or not call_graph.get("edges"):
-        return _calculate_distance_fallback(
-            db_path, entry_file, entry_line, control_file, control_line
+        raise RuntimeError(
+            f"Graph DB empty or missing at {graph_db_path}. "
+            "Run 'aud graph build' to generate the call graph."
         )
 
     conn = sqlite3.connect(db_path)
@@ -40,9 +69,7 @@ def calculate_distance(
         control_node = _find_graph_node(call_graph, control_file, control_func.split(":")[-1])
 
         if not entry_node or not control_node:
-            return _calculate_distance_fallback(
-                db_path, entry_file, entry_line, control_file, control_line
-            )
+            return None
 
         analyzer = XGraphAnalyzer(call_graph)
         path = analyzer.find_shortest_path(entry_node, control_node, call_graph)
@@ -57,50 +84,34 @@ def calculate_distance(
 
 
 def _find_graph_node(graph: dict, file_path: str, func_name: str) -> str | None:
-    """Find a node ID in the graph matching file and function name."""
+    """Find a node ID in the graph matching file and function name.
 
-    file_path_normalized = file_path.replace("\\", "/")
+    Uses indexed lookup (O(1) file lookup + O(k) where k = nodes in that file).
+    """
+    _build_graph_index(graph)  # No-op if already indexed
 
-    for node in graph.get("nodes", []):
+    file_path_normalized = _normalize_path(file_path)
+    nodes_by_file = graph.get("_nodes_by_file", {})
+
+    # O(1) lookup: get only nodes for this file
+    file_nodes = nodes_by_file.get(file_path_normalized, [])
+
+    for node in file_nodes:
         node_id = node.get("id", "")
-        node_file = node.get("file", "").replace("\\", "/")
 
-        if node_file == file_path_normalized and func_name in node_id:
+        if func_name in node_id:
             return node_id
 
-        if file_path_normalized in node_id and func_name in node_id:
+        if node_id.endswith(func_name):
             return node_id
 
-        if node_id == f"{file_path_normalized}:{func_name}":
-            return node_id
-
-        if node_file == file_path_normalized and node_id.endswith(func_name):
-            return node_id
+    # Fallback: check if file path is embedded in node_id (for different ID formats)
+    node_by_id = graph.get("_node_by_id", {})
+    target_id = f"{file_path_normalized}:{func_name}"
+    if target_id in node_by_id:
+        return target_id
 
     return None
-
-
-def _calculate_distance_fallback(
-    db_path: str, entry_file: str, entry_line: int, control_file: str, control_line: int
-) -> int | None:
-    """Fallback distance calculation using repo_index.db when graphs.db unavailable."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-
-    try:
-        entry_func = _find_containing_function(cursor, entry_file, entry_line)
-        control_func = _find_containing_function(cursor, control_file, control_line)
-
-        if not entry_func or not control_func:
-            return None
-
-        if entry_func == control_func:
-            return 0
-
-        return _bfs_distance_sql(cursor, entry_func, control_func)
-
-    finally:
-        conn.close()
 
 
 def _find_containing_function(cursor, file_path: str, line: int) -> str | None:
@@ -127,62 +138,40 @@ def _find_containing_function(cursor, file_path: str, line: int) -> str | None:
     return None
 
 
-def _bfs_distance_sql(cursor, start_func: str, target_func: str, max_depth: int = 10) -> int | None:
-    """BFS through function_call_args (fallback when graphs.db unavailable)."""
-    start_file, start_name = start_func.split(":", 1)
-    target_file, target_name = target_func.split(":", 1)
-
-    queue = deque([(start_func, 0)])
-    visited = {start_func}
-
-    while queue:
-        current_func, distance = queue.popleft()
-
-        if distance >= max_depth:
-            continue
-
-        current_file, current_name = current_func.split(":", 1)
-
-        cursor.execute(
-            """
-            SELECT callee_function, callee_file_path
-            FROM function_call_args
-            WHERE caller_function = ?
-              AND file = ?
-              AND callee_function IS NOT NULL
-              AND callee_file_path IS NOT NULL
-        """,
-            (current_name, current_file),
-        )
-
-        for callee, callee_file in cursor.fetchall():
-            callee_qualified = f"{callee_file}:{callee}"
-
-            if callee_qualified == target_func:
-                return distance + 1
-
-            if callee_qualified not in visited:
-                visited.add(callee_qualified)
-                queue.append((callee_qualified, distance + 1))
-
-    return None
-
-
 def find_all_paths_to_controls(
-    db_path: str, entry_file: str, entry_line: int, control_patterns: list[str], max_depth: int = 5
+    db_path: str,
+    entry_file: str,
+    entry_line: int,
+    control_patterns: list[str],
+    max_depth: int = 5,
+    call_graph: dict | None = None,
 ) -> list[dict]:
-    """Find all control points reachable from entry point and their distances."""
-    graph_db_path = str(Path(db_path).parent / "graphs.db")
+    """Find all control points reachable from entry point and their distances.
 
-    store = XGraphStore(graph_db_path)
-    call_graph = store.load_call_graph()
+    Args:
+        db_path: Path to repo_index.db
+        entry_file: Entry point file path
+        entry_line: Entry point line number
+        control_patterns: Patterns to match control functions
+        max_depth: Maximum traversal depth
+        call_graph: Pre-loaded call graph (pass to avoid repeated disk I/O)
 
-    if call_graph.get("nodes") and call_graph.get("edges"):
-        return _find_controls_via_graph(
-            db_path, call_graph, entry_file, entry_line, control_patterns, max_depth
-        )
+    Raises RuntimeError if graph is missing - run 'aud graph build' first.
+    """
+    if call_graph is None:
+        graph_db_path = str(Path(db_path).parent / "graphs.db")
+        store = XGraphStore(graph_db_path)
+        call_graph = store.load_call_graph()
 
-    return _find_controls_via_sql(db_path, entry_file, entry_line, control_patterns, max_depth)
+        if not call_graph.get("nodes") or not call_graph.get("edges"):
+            raise RuntimeError(
+                f"Graph DB empty or missing at {graph_db_path}. "
+                "Run 'aud graph build' to generate the call graph."
+            )
+
+    return _find_controls_via_graph(
+        db_path, call_graph, entry_file, entry_line, control_patterns, max_depth
+    )
 
 
 def _find_controls_via_graph(
@@ -207,9 +196,7 @@ def _find_controls_via_graph(
         entry_node = _find_graph_node(call_graph, entry_file, entry_name)
 
         if not entry_node:
-            return _find_controls_via_sql(
-                db_path, entry_file, entry_line, control_patterns, max_depth
-            )
+            return results
 
         adj = {}
         for edge in call_graph.get("edges", []):
@@ -278,11 +265,10 @@ def _extract_func_name(node_id: str) -> str:
 
 
 def _extract_file_from_node(graph: dict, node_id: str) -> str | None:
-    """Get file path from node metadata."""
-    for node in graph.get("nodes", []):
-        if node.get("id") == node_id:
-            return node.get("file")
-    return None
+    """Get file path from node metadata. O(1) indexed lookup."""
+    _build_graph_index(graph)  # No-op if already indexed
+    node = graph.get("_node_by_id", {}).get(node_id)
+    return node.get("file") if node else None
 
 
 def _get_function_line(cursor, file_path: str | None, func_name: str) -> int | None:
@@ -302,81 +288,6 @@ def _get_function_line(cursor, file_path: str | None, func_name: str) -> int | N
 
     result = cursor.fetchone()
     return result[0] if result else None
-
-
-def _find_controls_via_sql(
-    db_path: str, entry_file: str, entry_line: int, control_patterns: list[str], max_depth: int
-) -> list[dict]:
-    """Fallback: Find control points using SQL BFS (no interceptor edges)."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
-    results = []
-
-    try:
-        entry_func = _find_containing_function(cursor, entry_file, entry_line)
-        if not entry_func:
-            return results
-
-        entry_file_part, entry_name = entry_func.split(":", 1)
-
-        queue = deque([(entry_func, 0, [entry_name])])
-        visited = {entry_func}
-
-        while queue:
-            current_func, distance, path = queue.popleft()
-
-            if distance >= max_depth:
-                continue
-
-            current_file, current_name = current_func.split(":", 1)
-
-            cursor.execute(
-                """
-                SELECT callee_function, callee_file_path, line
-                FROM function_call_args
-                WHERE caller_function = ?
-                  AND file = ?
-                  AND callee_function IS NOT NULL
-            """,
-                (current_name, current_file),
-            )
-
-            for callee, callee_file, call_line in cursor.fetchall():
-                is_control = any(pattern.lower() in callee.lower() for pattern in control_patterns)
-
-                if is_control:
-                    cursor.execute(
-                        """
-                        SELECT line FROM symbols
-                        WHERE path = ? AND name = ?
-                          AND type IN ('function', 'method', 'arrow_function')
-                        LIMIT 1
-                    """,
-                        (callee_file, callee),
-                    )
-
-                    def_result = cursor.fetchone()
-                    callee_line = def_result[0] if def_result else call_line
-
-                    results.append(
-                        {
-                            "control_function": callee,
-                            "control_file": callee_file,
-                            "control_line": callee_line,
-                            "distance": distance + 1,
-                            "path": path + [callee],
-                        }
-                    )
-
-                callee_qualified = f"{callee_file}:{callee}"
-                if callee_qualified not in visited:
-                    visited.add(callee_qualified)
-                    queue.append((callee_qualified, distance + 1, path + [callee]))
-
-    finally:
-        conn.close()
-
-    return results
 
 
 def measure_boundary_quality(controls: list[dict]) -> dict:

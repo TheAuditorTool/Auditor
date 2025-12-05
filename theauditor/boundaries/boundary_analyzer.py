@@ -1,8 +1,14 @@
 """Input Validation Boundary Analyzer."""
 
 import sqlite3
+from pathlib import Path
 
-from theauditor.boundaries.distance import find_all_paths_to_controls, measure_boundary_quality
+from theauditor.boundaries.distance import (
+    find_all_paths_to_controls,
+    measure_boundary_quality,
+    _build_graph_index,
+)
+from theauditor.graph.store import XGraphStore
 
 VALIDATION_PATTERNS = ["validate", "parse", "check", "sanitize", "clean", "schema", "validator"]
 
@@ -109,6 +115,20 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                 }
             )
 
+        # Load graph ONCE before loop (O(1) instead of O(N) disk I/O)
+        graph_db_path = str(Path(db_path).parent / "graphs.db")
+        store = XGraphStore(graph_db_path)
+        call_graph = store.load_call_graph()
+
+        if not call_graph.get("nodes") or not call_graph.get("edges"):
+            raise RuntimeError(
+                f"Graph DB empty or missing at {graph_db_path}. "
+                "Run 'aud graph build' to generate the call graph."
+            )
+
+        # Build index ONCE for O(1) node lookups (instead of O(N) per lookup)
+        _build_graph_index(call_graph)
+
         for entry in entry_points[:max_entries]:
             controls = find_all_paths_to_controls(
                 db_path=db_path,
@@ -116,6 +136,7 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                 entry_line=entry["line"],
                 control_patterns=VALIDATION_PATTERNS,
                 max_depth=5,
+                call_graph=call_graph,
             )
 
             quality = measure_boundary_quality(controls)
