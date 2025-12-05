@@ -192,16 +192,19 @@ def _check_dangerous_html(db: RuleDB) -> list[StandardFinding]:
     """Check for dangerouslySetInnerHTML usage without sanitization."""
     findings = []
 
+    # Filter in SQL for efficiency - check both callee and argument_expr
+    # JSX compiles to React.createElement with props in argument_expr
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function = ? OR argument_expr LIKE ?",
+               "dangerouslySetInnerHTML", "%dangerouslySetInnerHTML%")
         .order_by("file, line")
     )
 
     dangerous_usages = []
     for file, line, callee, html_content in rows:
-        if callee == "dangerouslySetInnerHTML" or (html_content and "dangerouslySetInnerHTML" in html_content):
-            dangerous_usages.append((file, line, html_content))
+        dangerous_usages.append((file, line, html_content))
 
     for file, line, html_content in dangerous_usages:
         # Check for sanitization within ±10 lines
@@ -315,9 +318,11 @@ def _check_unsafe_target_blank(db: RuleDB) -> list[StandardFinding]:
     """Check for unsafe target='_blank' links without rel='noopener'."""
     findings = []
 
+    # Filter in SQL for target="_blank" patterns
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
+        .where("source_expr LIKE ?", "%_blank%")
         .order_by("file, line")
     )
 
@@ -325,7 +330,7 @@ def _check_unsafe_target_blank(db: RuleDB) -> list[StandardFinding]:
         if not link_code:
             continue
 
-        # Check for target="_blank"
+        # Verify target="_blank" pattern (SQL LIKE is broad, refine in Python)
         has_target_blank = (
             'target="_blank"' in link_code
             or "target='_blank'" in link_code
@@ -360,10 +365,11 @@ def _check_direct_innerhtml(db: RuleDB) -> list[StandardFinding]:
     """Check for direct innerHTML manipulation bypassing React."""
     findings = []
 
-    # Check assignments to innerHTML/outerHTML
+    # Check assignments to innerHTML/outerHTML - filter in SQL
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
+        .where("target_var LIKE ? OR target_var LIKE ?", "%.innerHTML", "%.outerHTML")
         .order_by("file, line")
     )
 
@@ -753,9 +759,12 @@ def _check_unescaped_user_input(db: RuleDB) -> list[StandardFinding]:
     """Check for unescaped user input in JSX."""
     findings = []
 
+    # Filter in SQL for common user input patterns in JSX interpolation
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
+        .where("source_expr LIKE ? OR source_expr LIKE ? OR source_expr LIKE ? OR source_expr LIKE ?",
+               "%{props.%", "%{user%", "%{input%", "%{data%")
         .order_by("file, line")
     )
 
@@ -763,7 +772,7 @@ def _check_unescaped_user_input(db: RuleDB) -> list[StandardFinding]:
         if not jsx_content:
             continue
 
-        # Check for JSX patterns with interpolation
+        # Verify JSX patterns with interpolation (SQL LIKE is broad)
         if not any(pattern in jsx_content for pattern in ["{props.", "{user", "{input", "{data", "{params", "{query"]):
             continue
 

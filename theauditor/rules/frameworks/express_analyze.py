@@ -69,6 +69,7 @@ REDIRECT_SINKS = frozenset([
 
 # Sync operations that block event loop
 SYNC_OPERATIONS = frozenset([
+    # File system operations
     "fs.readFileSync",
     "fs.writeFileSync",
     "fs.appendFileSync",
@@ -80,8 +81,20 @@ SYNC_OPERATIONS = frozenset([
     "fs.lstatSync",
     "fs.existsSync",
     "fs.accessSync",
+    # Child process operations
     "child_process.execSync",
     "child_process.spawnSync",
+    # Crypto operations - common CPU blockers in auth routes
+    "crypto.pbkdf2Sync",
+    "crypto.scryptSync",
+    "crypto.randomFillSync",
+    "crypto.generateKeyPairSync",
+    "crypto.generateKeySync",
+    # bcrypt sync operations - kills event loop on auth routes
+    "bcrypt.hashSync",
+    "bcrypt.compareSync",
+    "bcryptjs.hashSync",
+    "bcryptjs.compareSync",
 ])
 
 # Rate limiting libraries
@@ -135,7 +148,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_sync_operations(db))
         findings.extend(_check_xss_vulnerabilities(db))
         findings.extend(_check_open_redirect(db))
-        findings.extend(_check_missing_rate_limiting(imports, endpoints))
+        findings.extend(_check_missing_rate_limiting(db, imports, endpoints))
         findings.extend(_check_body_parser_limits(db))
         findings.extend(_check_db_in_routes(db, endpoints))
         findings.extend(_check_cors_wildcard(db))
@@ -407,9 +420,12 @@ def _check_open_redirect(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_missing_rate_limiting(
-    imports: dict[str, set[str]], endpoints: list[dict]
+    db: RuleDB, imports: dict[str, set[str]], endpoints: list[dict]
 ) -> list[StandardFinding]:
-    """Check for missing rate limiting on API endpoints."""
+    """Check for missing rate limiting on API endpoints.
+
+    Improved to verify rate limiter is actually applied via app.use(), not just imported.
+    """
     findings = []
 
     # Only check if there are API routes
@@ -418,12 +434,12 @@ def _check_missing_rate_limiting(
         return findings
 
     # Check for rate limiting library import
-    has_rate_limit = any(
+    has_rate_limit_import = any(
         any(lib in file_imports for lib in RATE_LIMIT_LIBS)
         for file_imports in imports.values()
     )
 
-    if not has_rate_limit:
+    if not has_rate_limit_import:
         findings.append(
             StandardFinding(
                 rule_name="express-missing-rate-limit",
@@ -434,6 +450,50 @@ def _check_missing_rate_limiting(
                 category="security",
                 confidence=Confidence.MEDIUM,
                 snippet="Add express-rate-limit middleware",
+                cwe_id="CWE-400",
+            )
+        )
+        return findings
+
+    # Rate limiter imported - verify it's actually applied via app.use()
+    rate_limit_patterns = ("limiter", "rateLimit", "rateLimiter", "slowDown", "brute")
+    applied = False
+
+    for pattern in rate_limit_patterns:
+        rows = db.query(
+            Q("function_call_args")
+            .select("callee_function", "argument_expr")
+            .where("callee_function LIKE ? AND argument_expr LIKE ?",
+                   "%use%", f"%{pattern}%")
+            .limit(1)
+        )
+        if list(rows):
+            applied = True
+            break
+
+    if not applied:
+        # Also check for router.use() or direct middleware application
+        rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("callee_function LIKE ? OR callee_function LIKE ?",
+                   "%rateLimit%", "%rateLimiter%")
+            .limit(1)
+        )
+        if list(rows):
+            applied = True
+
+    if not applied:
+        findings.append(
+            StandardFinding(
+                rule_name="express-rate-limit-not-applied",
+                message="Rate limiter imported but not applied via app.use()",
+                file_path=api_routes[0]["file"],
+                line=api_routes[0]["line"],
+                severity=Severity.HIGH,
+                category="security",
+                confidence=Confidence.MEDIUM,
+                snippet="Call app.use(limiter) to apply rate limiting",
                 cwe_id="CWE-400",
             )
         )

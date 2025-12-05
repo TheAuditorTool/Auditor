@@ -15,6 +15,8 @@ Detects security misconfigurations in Docker Compose files:
 - Command injection risks (CWE-78)
 - Missing healthcheck (CWE-1188)
 - Missing restart policy (CWE-1188)
+- Missing resource limits (CWE-400)
+- Writable root filesystem (CWE-1188)
 """
 
 from theauditor.rules.base import (
@@ -244,12 +246,15 @@ def _load_services(db: RuleDB) -> dict[tuple[str, str], dict]:
             "command",
             "entrypoint",
             "healthcheck",
+            "mem_limit",
+            "cpus",
+            "read_only",
         )
         .order_by("file_path, service_name")
     )
 
     for row in rows:
-        file_path, service_name, image, is_privileged, network_mode, user, security_opt, restart, command, entrypoint, healthcheck = row
+        file_path, service_name, image, is_privileged, network_mode, user, security_opt, restart, command, entrypoint, healthcheck, mem_limit, cpus, read_only = row
         services[(file_path, service_name)] = {
             "image": image,
             "is_privileged": bool(is_privileged),
@@ -260,6 +265,9 @@ def _load_services(db: RuleDB) -> dict[tuple[str, str], dict]:
             "command": command,
             "entrypoint": entrypoint,
             "healthcheck": healthcheck,
+            "mem_limit": mem_limit,
+            "cpus": cpus,
+            "read_only": bool(read_only),
         }
 
     return services
@@ -640,6 +648,41 @@ def _analyze_service(
                 severity=Severity.LOW,
                 category="deployment",
                 snippet=f"{service_name}:\n  # restart: not defined (use 'unless-stopped' or 'always')",
+                cwe_id="CWE-1188",
+            )
+        )
+
+    # Check: Missing resource limits
+    # Containers without CPU/memory limits can DoS the host
+    mem_limit = service_data.get("mem_limit")
+    cpus = service_data.get("cpus")
+    if not mem_limit and not cpus:
+        findings.append(
+            StandardFinding(
+                rule_name="compose-no-resource-limits",
+                message=f'Service "{service_name}" has no resource limits - can exhaust host resources (DoS)',
+                file_path=file_path,
+                line=1,
+                severity=Severity.MEDIUM,
+                category="deployment",
+                snippet=f"{service_name}:\n  # mem_limit/cpus: not defined",
+                cwe_id="CWE-400",
+            )
+        )
+
+    # Check: Writable root filesystem
+    # Read-only root filesystem is a security best practice
+    read_only = service_data.get("read_only", False)
+    if not read_only:
+        findings.append(
+            StandardFinding(
+                rule_name="compose-writable-rootfs",
+                message=f'Service "{service_name}" has writable root filesystem - use read_only: true',
+                file_path=file_path,
+                line=1,
+                severity=Severity.LOW,
+                category="deployment",
+                snippet=f"{service_name}:\n  # read_only: true (recommended)",
                 cwe_id="CWE-1188",
             )
         )

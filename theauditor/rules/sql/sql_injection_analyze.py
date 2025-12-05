@@ -1,283 +1,269 @@
-"""SQL Injection Detection."""
+"""SQL Injection Detection - CWE-89.
+
+Detects SQL injection vulnerabilities across multiple patterns:
+1. String interpolation in SQL queries (f-strings, .format(), concatenation)
+2. Dynamic SQL construction without parameterization
+3. ORM raw query methods with user input
+4. User input flowing to SQL execution sinks
+5. Template literals with SQL and interpolation
+6. Stored procedure calls with dynamic input
+"""
 
 import re
-import sqlite3
-from dataclasses import dataclass
 
-from theauditor.indexer.schema import build_query
-from theauditor.rules.base import Severity, StandardFinding, StandardRuleContext
+from theauditor.rules.base import (
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
+from theauditor.rules.sql.utils import register_regexp, truncate
+
+# =============================================================================
+# METADATA
+# =============================================================================
+
+METADATA = RuleMetadata(
+    name="sql_injection",
+    category="security",
+    target_extensions=[".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".go", ".rb", ".php"],
+    exclude_patterns=[
+        "node_modules/",
+        ".venv/",
+        "__pycache__/",
+        "test/",
+        "tests/",
+        "spec/",
+        "fixtures/",
+        "mocks/",
+        "migrations/",
+    ],
+    execution_scope="database",
+    primary_table="sql_queries",
+)
+
+# =============================================================================
+# DETECTION PATTERNS
+# =============================================================================
+
+# SQL keywords that indicate a SQL statement
+SQL_KEYWORDS = frozenset([
+    "SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER",
+    "TRUNCATE", "EXEC", "EXECUTE", "UNION", "MERGE", "REPLACE", "UPSERT",
+])
+
+# Patterns indicating string interpolation/concatenation (dangerous in SQL)
+INTERPOLATION_PATTERNS = frozenset([
+    "${",           # JS template literal interpolation
+    ".format(",     # Python str.format()
+    "% ",           # Python % formatting (with space to avoid %s params)
+    "%(",           # Python % formatting with named params
+    '+ "',          # String concatenation
+    '" +',          # String concatenation
+    "+ '",          # String concatenation (single quotes)
+    "' +",          # String concatenation (single quotes)
+    'f"',           # Python f-string (double quotes)
+    "f'",           # Python f-string (single quotes)
+    "`",            # JS template literal
+    "String.format",  # Java String.format
+    "sprintf",      # C-style sprintf
+    "concat(",      # SQL CONCAT or string concat method
+])
+
+# ORM and database raw query methods that bypass parameterization
+RAW_QUERY_METHODS = frozenset([
+    # Node.js ORMs
+    "sequelize.query",
+    "knex.raw",
+    "db.raw",
+    "typeorm.query",
+    "prisma.$queryRaw",
+    "prisma.$executeRaw",
+    "prisma.$queryRawUnsafe",
+    "prisma.$executeRawUnsafe",
+    "mongoose.aggregate",
+    # Python ORMs
+    "session.execute",
+    "engine.execute",
+    "connection.execute",
+    "cursor.execute",
+    "cursor.executemany",
+    "cursor.executescript",
+    "execute_sql",
+    "raw_sql",
+    # Java
+    "createStatement",
+    "prepareStatement",
+    "executeQuery",
+    "executeUpdate",
+    # General
+    "raw(",
+    "executeSql",
+    "exec(",
+])
+
+# User input sources that should never reach SQL sinks unsanitized
+USER_INPUT_PATTERNS = frozenset([
+    "request.",
+    "req.",
+    "params.",
+    "query.",
+    "body.",
+    "args.",
+    "form.",
+    "headers.",
+    "cookies.",
+    "input(",
+    "argv",
+    "stdin",
+    "getParameter",
+    "getQueryString",
+])
+
+# Stored procedure patterns
+STORED_PROC_PATTERNS = frozenset([
+    "CALL ",
+    "EXEC ",
+    "EXECUTE ",
+    "sp_executesql",
+    "xp_cmdshell",
+    "sp_",
+])
+
+# Patterns that indicate safe parameterization (filter these out)
+SAFE_PARAM_INDICATORS = frozenset([
+    "?",            # Positional placeholder
+    ":1", ":2",     # Oracle-style numbered params
+    "$1", "$2",     # PostgreSQL-style numbered params
+    "@",            # SQL Server named params
+    ":param",       # Named parameter
+])
 
 
-def _regexp_adapter(expr: str, item: str) -> bool:
-    """Adapter to let SQLite use Python's regex engine."""
-    if item is None:
-        return False
-    return re.search(expr, item, re.IGNORECASE) is not None
+# =============================================================================
+# MAIN ENTRY POINT
+# =============================================================================
+
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect SQL injection vulnerabilities in indexed codebase.
+
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    findings: list[StandardFinding] = []
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        register_regexp(db.conn)
+
+        # Run all detection checks
+        findings.extend(_check_interpolated_sql_queries(db))
+        findings.extend(_check_dynamic_execute_calls(db))
+        findings.extend(_check_orm_raw_queries(db))
+        findings.extend(_check_user_input_to_sql(db))
+        findings.extend(_check_template_literal_sql(db))
+        findings.extend(_check_stored_procedure_injection(db))
+        findings.extend(_check_dynamic_query_construction(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-@dataclass(frozen=True)
-class SQLInjectionPatterns:
-    """SQL injection patterns."""
+# =============================================================================
+# DETECTION FUNCTIONS
+# =============================================================================
 
-    SQL_KEYWORDS = frozenset(
-        [
-            "SELECT",
-            "INSERT",
-            "UPDATE",
-            "DELETE",
-            "DROP",
-            "CREATE",
-            "ALTER",
-            "TRUNCATE",
-            "EXEC",
-            "EXECUTE",
-            "UNION",
-        ]
-    )
+def _check_interpolated_sql_queries(db: RuleDB) -> list[StandardFinding]:
+    """Check sql_queries table for queries with string interpolation.
 
-    INTERPOLATION_PATTERNS = frozenset(
-        ["${", "%s", "%(", "{0}", "{1}", ".format(", '+ "', '" +', "+ '", "' +", 'f"', "f'", "`"]
-    )
-
-    SAFE_PARAMS = frozenset(["?", ":1", ":2", "$1", "$2", "%s", "@param", ":param", "${param}"])
-
-
-def find_sql_injection_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Analyze codebase for SQL injection vulnerabilities.
-
-    Named find_* for orchestrator discovery - enables register_taint_patterns loading.
+    This catches SQL statements that were constructed with f-strings,
+    .format(), or string concatenation.
     """
     findings = []
-    patterns = SQLInjectionPatterns()
 
-    conn = sqlite3.connect(context.db_path)
-
-    conn.create_function("REGEXP", 2, _regexp_adapter)
-
-    cursor = conn.cursor()
-
-    interpolation_tokens = []
-    for pattern in patterns.INTERPOLATION_PATTERNS:
-        interpolation_tokens.append(re.escape(pattern))
-
+    # Build regex pattern for interpolation detection
+    interpolation_tokens = [re.escape(p) for p in INTERPOLATION_PATTERNS]
     interpolation_regex = "|".join(interpolation_tokens)
 
-    cursor.execute(
-        """
-        SELECT file_path, line_number, query_text
-        FROM sql_queries
-        WHERE has_interpolation = 1
-          AND file_path NOT LIKE '%test%'
-          AND file_path NOT LIKE '%migration%'
-          AND query_text REGEXP ?
-        ORDER BY file_path, line_number
-    """,
-        (interpolation_regex,),
+    rows = db.query(
+        Q("sql_queries")
+        .select("file_path", "line_number", "query_text")
+        .where("has_interpolation = ?", 1)
+        .where("file_path NOT LIKE ?", "%test%")
+        .where("file_path NOT LIKE ?", "%migration%")
+        .where("file_path NOT LIKE ?", "%fixture%")
+        .where("file_path NOT LIKE ?", "%mock%")
+        .where("file_path NOT LIKE ?", "%spec%")
+        .order_by("file_path, line_number")
     )
 
-    for file, line, query_text in cursor.fetchall():
+    for file_path, line_number, query_text in rows:
+        if not query_text:
+            continue
+
+        # Check if query matches interpolation patterns
+        if not re.search(interpolation_regex, query_text, re.IGNORECASE):
+            continue
+
+        # Skip if query appears to use safe parameterization
+        if _has_safe_params(query_text):
+            continue
+
         findings.append(
             StandardFinding(
                 rule_name="sql-injection-interpolation",
-                message="SQL query with string interpolation - high injection risk",
-                file_path=file,
-                line=line,
+                message="SQL query with string interpolation detected - high injection risk",
+                file_path=file_path,
+                line=line_number,
                 severity=Severity.CRITICAL,
-                category="security",
-                snippet=query_text[:100] + "..." if len(query_text) > 100 else query_text,
+                category=METADATA.category,
+                snippet=truncate(query_text, 100),
                 cwe_id="CWE-89",
             )
         )
 
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "callee_function", "argument_expr"],
-        where="callee_function LIKE '%execute%' OR callee_function LIKE '%query%'",
-        order_by="file, line",
-    )
-    cursor.execute(query)
-
-    seen_dynamic = set()
-    for file, line, func, args in cursor.fetchall():
-        if not args:
-            continue
-
-        if not any(kw in func.lower() for kw in ["execute", "query", "sql", "db"]):
-            continue
-
-        has_concat = any(pattern in args for pattern in ["+", "${", 'f"', ".format(", "%"])
-
-        if has_concat:
-            key = f"{file}:{line}"
-            if key not in seen_dynamic:
-                seen_dynamic.add(key)
-                findings.append(
-                    StandardFinding(
-                        rule_name="sql-injection-dynamic-args",
-                        message=f"{func} called with dynamic SQL construction",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category="security",
-                        snippet=args[:80] + "..." if len(args) > 80 else args,
-                        cwe_id="CWE-89",
-                    )
-                )
-
-    raw_query_patterns = [
-        "sequelize.query",
-        "knex.raw",
-        "db.raw",
-        "raw(",
-        "execute_sql",
-        "executeSql",
-        "session.execute",
-    ]
-
-    placeholders = ",".join(["?" for _ in raw_query_patterns])
-    query = build_query(
-        "function_call_args",
-        ["file", "line", "callee_function", "argument_expr"],
-        where=f"callee_function IN ({placeholders})",
-        order_by="file, line",
-    )
-    cursor.execute(query, raw_query_patterns)
-
-    for file, line, func, args in cursor.fetchall():
-        if not args:
-            continue
-
-        if any(pattern in args for pattern in patterns.INTERPOLATION_PATTERNS):
-            findings.append(
-                StandardFinding(
-                    rule_name="sql-injection-orm-raw",
-                    message=f"ORM raw query {func} with dynamic SQL",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="security",
-                    snippet=args[:80] + "..." if len(args) > 80 else args,
-                    cwe_id="CWE-89",
-                )
-            )
-
-    cursor.execute("""
-        WITH tainted_vars AS (
-            SELECT file, target_var, source_expr
-            FROM assignments
-            WHERE (source_expr LIKE '%request.%' OR source_expr LIKE '%req.%')
-              AND target_var REGEXP '(?i)(sql|query|stmt|command)'
-              AND file NOT LIKE '%test%'
-              AND file NOT LIKE '%migration%'
-        )
-        SELECT f.file, f.line, f.callee_function, t.target_var, t.source_expr
-        FROM function_call_args f
-        INNER JOIN tainted_vars t
-            ON f.file = t.file
-            AND (f.callee_function LIKE '%execute%' OR f.callee_function LIKE '%query%')
-            AND f.argument_expr LIKE '%' || t.target_var || '%'
-        ORDER BY f.file, f.line
-    """)
-
-    for file, line, func, var, expr in cursor.fetchall():
-        findings.append(
-            StandardFinding(
-                rule_name="sql-injection-user-input",
-                message=f"User input from {expr[:30]} used in SQL {func}",
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category="security",
-                snippet=f"{var} used in {func}",
-                cwe_id="CWE-89",
-            )
-        )
-
-    query = build_query("template_literals", ["file", "line", "content"], order_by="file, line")
-    cursor.execute(query)
-
-    for file, line, content in cursor.fetchall():
-        if not content:
-            continue
-
-        content_upper = content.upper()
-        has_sql = any(kw in content_upper for kw in patterns.SQL_KEYWORDS)
-
-        if has_sql and "${" in content:
-            findings.append(
-                StandardFinding(
-                    rule_name="sql-injection-template-literal",
-                    message="Template literal contains SQL with interpolation",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="security",
-                    snippet=content[:100] + "..." if len(content) > 100 else content,
-                    cwe_id="CWE-89",
-                )
-            )
-
-    sp_patterns = ["CALL", "EXEC", "EXECUTE", "sp_executesql"]
-
-    for sp in sp_patterns:
-        query = build_query(
-            "function_call_args",
-            ["file", "line", "callee_function", "argument_expr"],
-            where="callee_function LIKE ? OR argument_expr LIKE ?",
-            order_by="file, line",
-        )
-        cursor.execute(query, [f"%{sp}%", f"%{sp}%"])
-
-        for file, line, _func, args in cursor.fetchall():
-            if not args:
-                continue
-
-            if any(pattern in args for pattern in ["+", "${", ".format"]):
-                findings.append(
-                    StandardFinding(
-                        rule_name="sql-injection-stored-proc",
-                        message="Stored procedure call with dynamic input",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category="security",
-                        snippet=args[:80] + "..." if len(args) > 80 else args,
-                        cwe_id="CWE-89",
-                    )
-                )
-
-    conn.close()
     return findings
 
 
-def check_dynamic_query_construction(context: StandardRuleContext) -> list[StandardFinding]:
-    """Check for dynamic SQL query construction patterns."""
+def _check_dynamic_execute_calls(db: RuleDB) -> list[StandardFinding]:
+    """Check function calls to execute/query methods with dynamic arguments."""
     findings = []
-    patterns = SQLInjectionPatterns()
-
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
-
-    query = build_query(
-        "sql_queries", ["file", "line", "query_text", "command"], order_by="file, line"
-    )
-    cursor.execute(query)
-
     seen = set()
-    for file, line, query, command in cursor.fetchall():
-        if not query:
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function LIKE ? OR callee_function LIKE ?", "%execute%", "%query%")
+        .where("file NOT LIKE ?", "%test%")
+        .where("file NOT LIKE ?", "%migration%")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        if not args:
             continue
 
-        has_interpolation = any(pattern in query for pattern in patterns.INTERPOLATION_PATTERNS)
-
-        if not has_interpolation:
+        # Must be SQL-related function
+        func_lower = func.lower()
+        if not any(kw in func_lower for kw in ["execute", "query", "sql", "db", "cursor", "conn"]):
             continue
 
-        has_params = any(param in query for param in patterns.SAFE_PARAMS)
-
-        if has_params:
+        # Check for string construction patterns
+        if not _has_interpolation(args):
             continue
 
+        # Skip if appears to have safe parameterization
+        if _has_safe_params(args):
+            continue
+
+        # Deduplicate by location
         key = f"{file}:{line}"
         if key in seen:
             continue
@@ -285,13 +271,13 @@ def check_dynamic_query_construction(context: StandardRuleContext) -> list[Stand
 
         findings.append(
             StandardFinding(
-                rule_name="sql-injection-dynamic-query",
-                message=f"{command} query with dynamic construction - potential injection risk",
+                rule_name="sql-injection-dynamic-args",
+                message=f"SQL function {func}() called with dynamic string construction",
                 file_path=file,
                 line=line,
                 severity=Severity.HIGH,
-                category="security",
-                snippet=query[:80] + "..." if len(query) > 80 else query,
+                category=METADATA.category,
+                snippet=truncate(args, 80),
                 cwe_id="CWE-89",
             )
         )
@@ -299,54 +285,284 @@ def check_dynamic_query_construction(context: StandardRuleContext) -> list[Stand
     return findings
 
 
-def register_taint_patterns(taint_registry):
-    """Register SQL injection sinks and sources for taint analysis."""
+def _check_orm_raw_queries(db: RuleDB) -> list[StandardFinding]:
+    """Check for ORM raw query methods with dynamic SQL."""
+    findings = []
 
+    # Query for each raw query method pattern
+    for method in RAW_QUERY_METHODS:
+        rows = db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("callee_function LIKE ?", f"%{method}%")
+            .where("file NOT LIKE ?", "%test%")
+            .order_by("file, line")
+        )
+
+        for file, line, func, args in rows:
+            if not args:
+                continue
+
+            # Check for interpolation patterns
+            if not _has_interpolation(args):
+                continue
+
+            # Skip if has safe params
+            if _has_safe_params(args):
+                continue
+
+            findings.append(
+                StandardFinding(
+                    rule_name="sql-injection-orm-raw",
+                    message=f"ORM raw query method {func}() with dynamic SQL construction",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category=METADATA.category,
+                    snippet=truncate(args, 80),
+                    cwe_id="CWE-89",
+                )
+            )
+
+    return findings
+
+
+def _check_user_input_to_sql(db: RuleDB) -> list[StandardFinding]:
+    """Check for user input flowing to SQL execution sinks.
+
+    Uses CTE to find tainted variables then checks if they reach SQL functions.
+    """
+    findings = []
+
+    # Build user input pattern regex
+    user_input_patterns = "|".join(re.escape(p) for p in USER_INPUT_PATTERNS)
+
+    # CTE: Find assignments where source is user input and target looks like SQL variable
+    tainted_vars = (
+        Q("assignments")
+        .select("file", "target_var", "source_expr")
+        .where("source_expr REGEXP ?", user_input_patterns)
+        .where("target_var REGEXP ?", r"(?i)(sql|query|stmt|command|qry)")
+        .where("file NOT LIKE ?", "%test%")
+        .where("file NOT LIKE ?", "%migration%")
+    )
+
+    # Main query: Find SQL execution calls using tainted variables
+    rows = db.query(
+        Q("function_call_args")
+        .with_cte("tainted_vars", tainted_vars)
+        .select(
+            "function_call_args.file",
+            "function_call_args.line",
+            "function_call_args.callee_function",
+            "function_call_args.argument_expr",
+            "tainted_vars.target_var",
+            "tainted_vars.source_expr",
+        )
+        .join("tainted_vars", on=[("file", "file")])
+        .where("function_call_args.callee_function LIKE ? OR function_call_args.callee_function LIKE ?",
+               "%execute%", "%query%")
+    )
+
+    for file, line, func, arg_expr, var, source in rows:
+        # Verify tainted variable actually appears in function arguments
+        if not arg_expr or var not in arg_expr:
+            continue
+
+        # Word boundary check to avoid "id" matching "width", "valid", etc.
+        if not re.search(r'\b' + re.escape(var) + r'\b', arg_expr):
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="sql-injection-user-input",
+                message=f"User input from '{truncate(source, 30)}' flows to SQL function {func}()",
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category=METADATA.category,
+                snippet=f"Tainted variable '{var}' used in {func}()",
+                cwe_id="CWE-89",
+            )
+        )
+
+    return findings
+
+
+def _check_template_literal_sql(db: RuleDB) -> list[StandardFinding]:
+    """Check for template literals containing SQL with interpolation."""
+    findings = []
+
+    rows = db.query(
+        Q("template_literals")
+        .select("file", "line", "content")
+        .where("file NOT LIKE ?", "%test%")
+        .order_by("file, line")
+    )
+
+    for file, line, content in rows:
+        if not content:
+            continue
+
+        # Check if content contains SQL keywords
+        content_upper = content.upper()
+        if not any(kw in content_upper for kw in SQL_KEYWORDS):
+            continue
+
+        # Check for interpolation in template literal
+        if "${" not in content:
+            continue
+
+        # Skip if appears to be parameterized
+        if _has_safe_params(content):
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="sql-injection-template-literal",
+                message="Template literal contains SQL query with interpolation",
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category=METADATA.category,
+                snippet=truncate(content, 100),
+                cwe_id="CWE-89",
+            )
+        )
+
+    return findings
+
+
+def _check_stored_procedure_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for stored procedure calls with dynamic input."""
+    findings = []
+
+    for sp_pattern in STORED_PROC_PATTERNS:
+        rows = db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("callee_function LIKE ? OR argument_expr LIKE ?",
+                   f"%{sp_pattern}%", f"%{sp_pattern}%")
+            .where("file NOT LIKE ?", "%test%")
+            .order_by("file, line")
+        )
+
+        for file, line, func, args in rows:
+            if not args:
+                continue
+
+            # Check for dynamic construction
+            if not _has_interpolation(args):
+                continue
+
+            findings.append(
+                StandardFinding(
+                    rule_name="sql-injection-stored-proc",
+                    message="Stored procedure call with dynamic input construction",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category=METADATA.category,
+                    snippet=truncate(args, 80),
+                    cwe_id="CWE-89",
+                )
+            )
+
+    return findings
+
+
+def _check_dynamic_query_construction(db: RuleDB) -> list[StandardFinding]:
+    """Check sql_queries table for dynamic construction without parameterization."""
+    findings = []
+    seen = set()
+
+    rows = db.query(
+        Q("sql_queries")
+        .select("file_path", "line_number", "query_text", "command")
+        .where("file_path NOT LIKE ?", "%test%")
+        .where("file_path NOT LIKE ?", "%migration%")
+        .order_by("file_path, line_number")
+    )
+
+    for file_path, line_number, query_text, command in rows:
+        if not query_text:
+            continue
+
+        # Check for interpolation patterns
+        if not _has_interpolation(query_text):
+            continue
+
+        # Skip if has safe parameterization
+        if _has_safe_params(query_text):
+            continue
+
+        # Deduplicate
+        key = f"{file_path}:{line_number}"
+        if key in seen:
+            continue
+        seen.add(key)
+
+        findings.append(
+            StandardFinding(
+                rule_name="sql-injection-dynamic-query",
+                message=f"{command or 'SQL'} query with dynamic construction without parameterization",
+                file_path=file_path,
+                line=line_number,
+                severity=Severity.HIGH,
+                category=METADATA.category,
+                snippet=truncate(query_text, 80),
+                cwe_id="CWE-89",
+            )
+        )
+
+    return findings
+
+
+# =============================================================================
+# HELPER FUNCTIONS
+# =============================================================================
+
+def _has_interpolation(text: str) -> bool:
+    """Check if text contains string interpolation/concatenation patterns."""
+    return any(pattern in text for pattern in INTERPOLATION_PATTERNS)
+
+
+def _has_safe_params(text: str) -> bool:
+    """Check if text appears to use safe parameterization."""
+    return any(param in text for param in SAFE_PARAM_INDICATORS)
+
+
+# =============================================================================
+# TAINT REGISTRY (Called by taint analysis engine)
+# =============================================================================
+
+def register_taint_patterns(taint_registry) -> None:
+    """Register SQL injection sinks and sources for taint analysis.
+
+    Called by the taint analysis engine during initialization.
+    """
+    # SQL execution sinks
     sql_sinks = [
-        "execute",
-        "query",
-        "exec",
-        "executemany",
-        "executeQuery",
-        "executeUpdate",
-        "cursor.execute",
-        "conn.execute",
-        "db.execute",
-        "session.execute",
-        "engine.execute",
-        "db.query",
-        "connection.query",
-        "pool.query",
-        "client.query",
-        "knex.raw",
-        "sequelize.query",
-        "executeQuery",
-        "executeUpdate",
-        "prepareStatement",
-        "createStatement",
-        "prepareCall",
+        "execute", "query", "exec", "executemany", "executescript",
+        "executeQuery", "executeUpdate", "cursor.execute", "conn.execute",
+        "db.execute", "session.execute", "engine.execute", "db.query",
+        "connection.query", "pool.query", "client.query", "knex.raw",
+        "sequelize.query", "prepareStatement", "createStatement",
+        "prepareCall", "prisma.$queryRaw", "prisma.$executeRaw",
     ]
 
     for pattern in sql_sinks:
-        for lang in ["python", "javascript", "java", "typescript"]:
+        for lang in ["python", "javascript", "java", "typescript", "go"]:
             taint_registry.register_sink(pattern, "sql", lang)
 
-    sql_sources = [
-        "request.query",
-        "request.params",
-        "request.body",
-        "req.query",
-        "req.params",
-        "req.body",
-        "req.headers",
-        "request.headers",
-        "args.get",
-        "form.get",
-        "request.args",
-        "request.form",
-        "request.values",
+    # User input sources
+    user_sources = [
+        "request.query", "request.params", "request.body", "req.query",
+        "req.params", "req.body", "req.headers", "request.headers",
+        "args.get", "form.get", "request.args", "request.form",
+        "request.values", "request.cookies", "getParameter",
     ]
 
-    for pattern in sql_sources:
+    for pattern in user_sources:
         for lang in ["python", "javascript", "typescript"]:
             taint_registry.register_source(pattern, "user_input", lang)

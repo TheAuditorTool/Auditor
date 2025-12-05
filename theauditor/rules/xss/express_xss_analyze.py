@@ -1,8 +1,28 @@
-"""Express.js-specific XSS Detection."""
+"""Express.js-specific XSS Detection.
 
-import sqlite3
+Detects XSS vulnerabilities specific to Express.js applications:
+- res.send() with HTML containing user input
+- Unsafe template rendering
+- Cookie injection without httpOnly
+- Header injection
+- JSONP callback injection
+"""
 
-from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+from theauditor.rules.base import (
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
+from theauditor.rules.xss.constants import (
+    COMMON_INPUT_SOURCES,
+    SANITIZER_CALL_PATTERNS,
+    contains_user_input,
+    is_sanitized,
+)
 
 METADATA = RuleMetadata(
     name="express_xss",
@@ -17,136 +37,117 @@ METADATA = RuleMetadata(
         "frontend/",
         "client/",
     ],
-    execution_scope="database")
-
-
-EXPRESS_SAFE_METHODS = frozenset(
-    [
-        "res.json",
-        "res.jsonp",
-        "res.status().json",
-        "response.json",
-        "response.jsonp",
-        "response.status().json",
-        "res.redirect",
-        "response.redirect",
-    ]
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
+EXPRESS_DANGEROUS_SINKS = frozenset([
+    "res.send",
+    "res.write",
+    "res.end",
+    "response.send",
+    "response.write",
+    "response.end",
+])
 
-EXPRESS_DANGEROUS_PATTERNS = frozenset(
-    ["res.send", "res.write", "res.end", "response.send", "response.write", "response.end"]
-)
-
-
-EXPRESS_TEMPLATE_ENGINES = frozenset(["ejs", "pug", "handlebars", "mustache", "jade", "hbs"])
-
-
-EXPRESS_INPUT_SOURCES = frozenset(
-    [
-        "req.body",
-        "req.query",
-        "req.params",
-        "req.cookies",
-        "req.headers",
-        "req.get",
-        "req.header",
-        "req.signedCookies",
-        "req.fresh",
-        "req.hostname",
-        "req.ip",
-        "req.ips",
-        "req.originalUrl",
-        "req.path",
-        "req.protocol",
-        "req.route",
-        "req.secure",
-        "req.subdomains",
-        "req.xhr",
-        "req.accepts",
-        "req.acceptsCharsets",
-        "req.acceptsEncodings",
-        "req.acceptsLanguages",
-        "req.is",
-        "req.range",
-    ]
-)
+# Extend common sources with Express-specific sources
+EXPRESS_INPUT_SOURCES = COMMON_INPUT_SOURCES | frozenset([
+    "req.get(",
+    "req.header(",
+    "req.signedCookies",
+    "req.originalUrl",
+    "req.path",
+])
 
 
-def find_express_xss(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Express.js-specific XSS vulnerabilities."""
     findings = []
 
     if not context.db_path:
-        return findings
+        return RuleResult(findings=findings, manifest={})
 
-    conn = sqlite3.connect(context.db_path)
+    with RuleDB(context.db_path, METADATA.name) as db:
+        if not _is_express_app(db):
+            return RuleResult(findings=findings, manifest=db.get_manifest())
 
-    try:
-        if not _is_express_app(conn):
-            return findings
+        findings.extend(_check_unsafe_res_send(db))
+        findings.extend(_check_template_user_input(db))
+        findings.extend(_check_middleware_injection(db))
+        findings.extend(_check_cookie_injection(db))
+        findings.extend(_check_header_injection(db))
+        findings.extend(_check_jsonp_callback(db))
 
-        findings.extend(_check_unsafe_res_send(conn))
-        findings.extend(_check_template_rendering(conn))
-        findings.extend(_check_middleware_injection(conn))
-        findings.extend(_check_cookie_injection(conn))
-        findings.extend(_check_header_injection(conn))
-        findings.extend(_check_jsonp_callback(conn))
-
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _is_express_app(conn) -> bool:
+def _is_express_app(db: RuleDB) -> bool:
     """Check if this is an Express.js application."""
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        SELECT 1 FROM frameworks
-        WHERE name IN ('express', 'express.js')
-          AND language = 'javascript'
-        -- REMOVED LIMIT: was hiding bugs
-        """)
-
-    return cursor.fetchone() is not None
+    rows = db.query(
+        Q("frameworks")
+        .select("name")
+        .where("name IN (?, ?)", "express", "express.js")
+        .where("language = ?", "javascript")
+    )
+    return len(list(rows)) > 0
 
 
-def _check_unsafe_res_send(conn) -> list[StandardFinding]:
+def _has_express_input(expr: str) -> bool:
+    """Check if expression contains Express-specific user input sources."""
+    return any(src in expr for src in EXPRESS_INPUT_SOURCES)
+
+
+def _check_unsafe_res_send(db: RuleDB) -> list[StandardFinding]:
     """Check for res.send() with HTML content containing user input."""
     findings = []
-    cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IN ('res.send', 'response.send')
-          AND f.argument_index = 0
-          AND f.argument_expr IS NOT NULL
-          AND (
-              f.argument_expr LIKE '%`%'
-              OR f.argument_expr LIKE '%<html%'
-              OR f.argument_expr LIKE '%<div%'
-              OR f.argument_expr LIKE '%<script%'
-              OR f.argument_expr LIKE '%<img%'
-              OR f.argument_expr LIKE '%<iframe%'
-          )
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN (?, ?)", "res.send", "response.send")
+        .where("argument_index = ?", 0)
+        .where("argument_expr IS NOT NULL")
+    )
 
-    for file, line, func, args in cursor:
-        has_user_input = any(src in args for src in EXPRESS_INPUT_SOURCES)
+    for file, line, func, args in rows:
+        if not args:
+            continue
 
-        if has_user_input:
+        has_html = any(pattern in args for pattern in [
+            "`", "<html", "<div", "<script", "<img", "<iframe", "<span", "<p>",
+        ])
+        has_user_input = _has_express_input(args)
+        sanitized = is_sanitized(args)
+
+        if sanitized:
+            continue
+
+        if has_html and has_user_input:
+            # HIGH: Definite HTML context with user input
             findings.append(
                 StandardFinding(
                     rule_name="express-xss-res-send-html",
-                    message="XSS: res.send() with HTML containing user input",
+                    message="XSS: res.send() with HTML containing unsanitized user input",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
                     category="xss",
-                    snippet=f"{func}({args[:50]}...)" if len(args) > 50 else f"{func}({args})",
+                    snippet=f"{func}({args[:60]}...)" if len(args) > 60 else f"{func}({args})",
+                    cwe_id="CWE-79",
+                )
+            )
+        elif has_user_input:
+            # MEDIUM: Tainted input without visible HTML - could still be dangerous
+            # e.g., res.send(req.body.content) where content may contain HTML
+            findings.append(
+                StandardFinding(
+                    rule_name="express-xss-res-send-tainted",
+                    message="XSS Risk: res.send() with unsanitized user input (verify content-type)",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="xss",
+                    snippet=f"{func}({args[:60]}...)" if len(args) > 60 else f"{func}({args})",
                     cwe_id="CWE-79",
                 )
             )
@@ -154,67 +155,43 @@ def _check_unsafe_res_send(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_template_rendering(conn) -> list[StandardFinding]:
-    """Check for unsafe template rendering in Express."""
+def _check_template_user_input(db: RuleDB) -> list[StandardFinding]:
+    """Check for user input passed directly to template rendering."""
     findings = []
-    cursor = conn.cursor()
 
-    cursor.execute("""
-        SELECT f1.file, f1.line, f0.argument_expr as template_name, f1.argument_expr as locals_arg
-        FROM function_call_args f1
-        JOIN function_call_args f0
-          ON f1.file = f0.file
-          AND f1.line = f0.line
-          AND f0.argument_index = 0
-        WHERE f1.callee_function IN ('res.render', 'response.render')
-          AND f1.argument_index = 1
-          AND f1.argument_expr IS NOT NULL
-          AND (
-              f1.argument_expr LIKE '%req.body%'
-              OR f1.argument_expr LIKE '%req.query%'
-              OR f1.argument_expr LIKE '%req.params%'
-          )
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN (?, ?)", "res.render", "response.render")
+        .where("argument_index = ?", 1)
+        .where("argument_expr IS NOT NULL")
+    )
 
-    for file, line, template_name, locals_arg in cursor:
-        template = template_name or ""
+    for file, line, func, locals_arg in rows:
+        if not locals_arg:
+            continue
 
-        if ".ejs" in template and "<%- " in locals_arg:
-            findings.append(
-                StandardFinding(
-                    rule_name="express-xss-ejs-unescaped",
-                    message="XSS: EJS template with unescaped user input (<%- syntax)",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="xss",
-                    snippet=f'res.render("{template}", {{...req.body}})',
-                    cwe_id="CWE-79",
-                )
+        has_user_input = _has_express_input(locals_arg)
+        sanitized = is_sanitized(locals_arg)
+        spreads_input = "...req." in locals_arg or "...request." in locals_arg
+
+        if has_user_input and not sanitized:
+            severity = Severity.HIGH if spreads_input else Severity.MEDIUM
+            message = (
+                "XSS: Spreading user input object directly to template (dangerous)"
+                if spreads_input
+                else "XSS: User input passed to template - ensure template escapes properly"
             )
-        elif ".pug" in template and "!{" in locals_arg:
+
             findings.append(
                 StandardFinding(
-                    rule_name="express-xss-pug-unescaped",
-                    message="XSS: Pug template with unescaped user input (!{} syntax)",
+                    rule_name="express-xss-template-input",
+                    message=message,
                     file_path=file,
                     line=line,
-                    severity=Severity.HIGH,
+                    severity=severity,
                     category="xss",
-                    snippet=f'res.render("{template}", {{...req.body}})',
-                    cwe_id="CWE-79",
-                )
-            )
-        elif ".hbs" in template and "{{{" in locals_arg:
-            findings.append(
-                StandardFinding(
-                    rule_name="express-xss-handlebars-unescaped",
-                    message="XSS: Handlebars with triple mustache ({{{}}}) allows XSS",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="xss",
-                    snippet=f'res.render("{template}", {{...req.body}})',
+                    snippet=f"{func}(template, {locals_arg[:40]}...)",
                     cwe_id="CWE-79",
                 )
             )
@@ -222,30 +199,31 @@ def _check_template_rendering(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_middleware_injection(conn) -> list[StandardFinding]:
+def _check_middleware_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for XSS in custom Express middleware."""
     findings = []
-    cursor = conn.cursor()
 
-    user_input_patterns = ["req.body", "req.query", "req.params"]
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function = ?", "app.use")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function = 'app.use'
-          AND f.argument_expr IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    for file, line, _func, middleware in rows:
+        if not middleware:
+            continue
 
-    for file, line, _func, middleware in cursor.fetchall():
-        has_res_write = "res.write" in middleware
-        has_user_input = any(pattern in middleware for pattern in user_input_patterns)
+        has_dangerous_sink = any(sink in middleware for sink in EXPRESS_DANGEROUS_SINKS)
+        has_user_input = _has_express_input(middleware)
+        sanitized = is_sanitized(middleware)
 
-        if has_res_write and has_user_input:
+        if has_dangerous_sink and has_user_input and not sanitized:
             findings.append(
                 StandardFinding(
                     rule_name="express-xss-middleware",
-                    message="XSS: Express middleware writing user input to response",
+                    message="XSS: Express middleware writing unsanitized user input to response",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
@@ -258,150 +236,131 @@ def _check_middleware_injection(conn) -> list[StandardFinding]:
     return findings
 
 
-def _check_cookie_injection(conn) -> list[StandardFinding]:
-    """Check for XSS via cookie injection in Express."""
+def _check_cookie_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for cookies set with user input without httpOnly."""
     findings = []
-    cursor = conn.cursor()
 
-    user_input_patterns = ["req.body", "req.query", "req.params"]
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "argument_expr")
+        .where("callee_function IN (?, ?)", "res.cookie", "response.cookie")
+        .where("argument_index = ?", 1)
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IN ('res.cookie', 'response.cookie')
-          AND f.argument_index = 1
-          AND f.argument_expr IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
-
-    for file, line, cookie_value in cursor.fetchall():
-        has_user_input = any(pattern in cookie_value for pattern in user_input_patterns)
-
-        if not has_user_input:
+    for file, line, cookie_value in rows:
+        if not _has_express_input(cookie_value):
             continue
 
-        cursor.execute(
-            """
-            SELECT f2.argument_expr
-            FROM function_call_args f2
-            WHERE f2.file = ? AND f2.line = ?
-              AND f2.argument_index = 2
-        """,
-            [file, line],
+        options_rows = db.query(
+            Q("function_call_args")
+            .select("argument_expr")
+            .where("file = ?", file)
+            .where("line = ?", line)
+            .where("argument_index = ?", 2)
         )
 
-        options_row = cursor.fetchone()
-        has_httponly = options_row and "httpOnly" in (options_row[0] or "")
+        options_list = list(options_rows)
+        has_httponly = options_list and options_list[0][0] and "httpOnly" in options_list[0][0]
 
         if not has_httponly:
             findings.append(
                 StandardFinding(
                     rule_name="express-xss-cookie",
-                    message="XSS: Cookie set with user input without httpOnly flag",
+                    message="Cookie set with user input without httpOnly flag - enables XSS cookie theft",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
                     category="xss",
                     snippet='res.cookie("name", req.body.value)',
-                    cwe_id="CWE-79",
+                    cwe_id="CWE-1004",
                 )
             )
 
     return findings
 
 
-def _check_header_injection(conn) -> list[StandardFinding]:
+def _check_header_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for header injection that could lead to XSS."""
     findings = []
-    cursor = conn.cursor()
 
-    user_input_patterns = ["req.body", "req.query", "req.params", "req.headers"]
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN (?, ?, ?, ?)",
+               "res.set", "res.setHeader", "response.set", "response.setHeader")
+        .where("argument_index = ?", 1)
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IN ('res.set', 'res.setHeader',
-                                   'response.set', 'response.setHeader')
-          AND f.argument_index = 1
-          AND f.argument_expr IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
-
-    for file, line, func, header_value in cursor.fetchall():
-        has_user_input = any(pattern in header_value for pattern in user_input_patterns)
-
-        if not has_user_input:
+    for file, line, func, header_value in rows:
+        if not _has_express_input(header_value):
             continue
 
-        cursor.execute(
-            """
-            SELECT f2.argument_expr
-            FROM function_call_args f2
-            WHERE f2.file = ? AND f2.line = ?
-              AND f2.argument_index = 0
-        """,
-            [file, line],
+        header_rows = db.query(
+            Q("function_call_args")
+            .select("argument_expr")
+            .where("file = ?", file)
+            .where("line = ?", line)
+            .where("argument_index = ?", 0)
         )
 
-        header_row = cursor.fetchone()
-        if header_row:
-            header_name = header_row[0] or ""
+        header_list = list(header_rows)
+        if not header_list:
+            continue
 
-            dangerous_headers = ["Content-Type", "X-XSS-Protection", "Link", "Refresh"]
-            if any(h.lower() in header_name.lower() for h in dangerous_headers):
-                findings.append(
-                    StandardFinding(
-                        rule_name="express-header-injection",
-                        message=f"Header Injection: {header_name} set with user input",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.MEDIUM,
-                        category="injection",
-                        snippet=f'{func}("{header_name}", req.body...)',
-                        cwe_id="CWE-113",
-                    )
+        header_name = header_list[0][0] or ""
+        dangerous_headers = ["content-type", "x-xss-protection", "link", "refresh", "location"]
+
+        if any(h in header_name.lower() for h in dangerous_headers):
+            findings.append(
+                StandardFinding(
+                    rule_name="express-header-injection",
+                    message=f"Header Injection: {header_name} set with unsanitized user input",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="injection",
+                    snippet=f'{func}({header_name}, req.body...)',
+                    cwe_id="CWE-113",
                 )
+            )
 
     return findings
 
 
-def _check_jsonp_callback(conn) -> list[StandardFinding]:
+def _check_jsonp_callback(db: RuleDB) -> list[StandardFinding]:
     """Check for JSONP callback injection."""
     findings = []
-    cursor = conn.cursor()
 
-    user_input_patterns = ["req.query", "req.params"]
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line")
+        .where("callee_function IN (?, ?)", "res.jsonp", "response.jsonp")
+        .order_by("file, line")
+    )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IN ('res.jsonp', 'response.jsonp')
-          AND f.argument_index = 0
-        ORDER BY f.file, f.line
-    """)
-
-    for file, line, _data in cursor.fetchall():
-        cursor.execute(
-            """
-            SELECT a.target_var, a.source_expr
-            FROM assignments a
-            WHERE a.file = ?
-              AND ABS(a.line - ?) <= 10
-              AND a.target_var IS NOT NULL
-              AND a.source_expr IS NOT NULL
-        """,
-            [file, line],
+    for file, line in rows:
+        assignment_rows = db.query(
+            Q("assignments")
+            .select("target_var", "source_expr")
+            .where("file = ?", file)
+            .where("line BETWEEN ? AND ?", max(1, line - 10), line + 5)
+            .where("target_var IS NOT NULL")
+            .where("source_expr IS NOT NULL")
         )
 
-        for target_var, source_expr in cursor.fetchall():
-            has_callback = "callback" in target_var
-            has_user_input = any(pattern in source_expr for pattern in user_input_patterns)
+        for target_var, source_expr in assignment_rows:
+            is_callback_var = "callback" in target_var.lower()
+            has_user_input = "req.query" in source_expr or "req.params" in source_expr
 
-            if has_callback and has_user_input:
+            if is_callback_var and has_user_input:
                 findings.append(
                     StandardFinding(
                         rule_name="express-jsonp-injection",
-                        message="JSONP Callback Injection: User controls callback name",
+                        message="JSONP Callback Injection: User controls callback function name",
                         file_path=file,
                         line=line,
                         severity=Severity.MEDIUM,
@@ -413,8 +372,3 @@ def _check_jsonp_callback(conn) -> list[StandardFinding]:
                 break
 
     return findings
-
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point."""
-    return find_express_xss(context)

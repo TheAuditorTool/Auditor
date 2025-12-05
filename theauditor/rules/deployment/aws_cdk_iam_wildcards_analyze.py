@@ -7,6 +7,7 @@ patterns in CDK code:
 - AdministratorAccess/PowerUserAccess managed policies
 - Privilege escalation actions (iam:PassRole/*, sts:AssumeRole/*, iam:Create*/*)
 - NotAction usage (inverted logic often grants more than intended)
+- Dynamic add_to_policy() method calls with wildcards
 
 CWE-269: Improper Privilege Management
 """
@@ -83,6 +84,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_dangerous_managed_policies(db))
         findings.extend(_check_privilege_escalation_actions(db))
         findings.extend(_check_not_action_usage(db))
+        findings.extend(_check_add_to_policy(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -362,5 +364,85 @@ def _check_not_action_usage(db: RuleDB) -> list[StandardFinding]:
                     },
                 )
             )
+
+    return findings
+
+
+def _check_add_to_policy(db: RuleDB) -> list[StandardFinding]:
+    """Detect wildcards in dynamic add_to_policy() method calls.
+
+    Catches patterns like:
+        role = iam.Role(...)
+        role.add_to_policy(iam.PolicyStatement(actions=["*"], resources=["*"]))
+
+    This is a critical blind spot - construct properties alone miss dynamic policy additions.
+    """
+    findings: list[StandardFinding] = []
+
+    policy_methods = (
+        "add_to_policy",
+        "addToPolicy",
+        "add_to_principal_policy",
+        "addToPrincipalPolicy",
+        "attach_inline_policy",
+        "attachInlinePolicy",
+    )
+
+    for method_name in policy_methods:
+        rows = db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("callee_function LIKE ?", f"%.{method_name}")
+        )
+
+        for file_path, line, callee, args in rows:
+            if not args:
+                continue
+
+            args_str = args
+
+            has_wildcard_action = "'*'" in args_str or '"*"' in args_str
+            has_actions_context = "actions" in args_str.lower() or "Actions" in args_str
+
+            if has_wildcard_action and has_actions_context:
+                findings.append(
+                    StandardFinding(
+                        rule_name="aws-cdk-iam-add-to-policy-wildcard",
+                        message=f"Dynamic policy addition '{callee}' contains wildcard permissions",
+                        severity=Severity.HIGH,
+                        confidence="high",
+                        file_path=file_path,
+                        line=line,
+                        snippet=f"{callee}(...)" if len(args_str) > 50 else f"{callee}({args_str})",
+                        category="excessive_permissions",
+                        cwe_id="CWE-269",
+                        additional_info={
+                            "method": callee,
+                            "remediation": "Replace wildcard actions with specific actions following least privilege principle.",
+                        },
+                    )
+                )
+
+            for action in PRIVILEGE_ESCALATION_ACTIONS:
+                if action.lower() in args_str.lower():
+                    findings.append(
+                        StandardFinding(
+                            rule_name="aws-cdk-iam-add-to-policy-privilege-escalation",
+                            message=f"Dynamic policy addition '{callee}' contains privilege escalation action: {action}",
+                            severity=Severity.CRITICAL,
+                            confidence="high",
+                            file_path=file_path,
+                            line=line,
+                            snippet=f"{callee}(...)",
+                            category="privilege_escalation",
+                            cwe_id="CWE-269",
+                            additional_info={
+                                "method": callee,
+                                "dangerous_action": action,
+                                "remediation": f"Restrict '{action}' to specific resource ARNs instead of wildcards.",
+                            },
+                        )
+                    )
+                    break
 
     return findings

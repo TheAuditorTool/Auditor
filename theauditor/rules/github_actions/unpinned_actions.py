@@ -133,18 +133,17 @@ def _find_unpinned_actions(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     # Get all steps that use actions with versions
-    sql, params = Q.raw(
-        """
-        SELECT s.step_id, s.step_name, s.uses_action, s.uses_version,
-               s.env, s.with_args, j.workflow_path, j.job_key
-        FROM github_steps s
-        JOIN github_jobs j ON s.job_id = j.job_id
-        WHERE s.uses_action IS NOT NULL
-        AND s.uses_version IS NOT NULL
-        """,
-        [],
+    step_rows = db.query(
+        Q("github_steps")
+        .alias("s")
+        .select(
+            "s.step_id", "s.step_name", "s.uses_action", "s.uses_version",
+            "s.env", "s.with_args", "github_jobs.workflow_path", "github_jobs.job_key"
+        )
+        .join("github_jobs", on=[("job_id", "job_id")])
+        .where("s.uses_action IS NOT NULL")
+        .where("s.uses_version IS NOT NULL")
     )
-    step_rows = db.execute(sql, params)
 
     for step_id, step_name, uses_action, uses_version, step_env, step_with, workflow_path, job_key in step_rows:
         # Skip first-party GitHub actions (trusted)

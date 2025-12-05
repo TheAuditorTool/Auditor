@@ -5,7 +5,8 @@ package versions:
 
 - Wildcards (*, x, X) - CRITICAL: Any version could be installed
 - Latest tags (latest, next, canary) - CRITICAL: Bypasses lockfile
-- Git URLs (github:, git+https://) - HIGH: External source, no registry verification
+- Git URLs without commit hash - HIGH: Not pinned to immutable ref
+- Git URLs with 40-char SHA hash - ALLOWED: Immutable commit pinning is secure
 - File URLs (file:) - HIGH: Local path, not portable
 - HTTP URLs (http://, https://) - CRITICAL: External source without registry
 - Pre-release markers (alpha, beta, rc, dev) - MEDIUM: Potentially unstable
@@ -14,6 +15,8 @@ package versions:
 
 CWE-1104: Use of Unmaintained Third Party Components
 """
+
+import re
 
 from theauditor.rules.base import (
     RuleMetadata,
@@ -206,8 +209,11 @@ def _classify_suspicious_version(version: str) -> tuple[str, Severity, str] | No
         return ("http_url", Severity.CRITICAL, f"HTTP URL '{version[:50]}...' bypasses package registry")
 
     # HIGH: Git URLs - external source, no registry verification
+    # Exception: Allow if pinned to immutable 40-char SHA commit hash
     if any(version_lower.startswith(prefix) for prefix in GIT_URL_PREFIXES):
-        return ("git_url", Severity.HIGH, f"Git URL '{version[:50]}...' bypasses package registry verification")
+        if re.search(r"#[a-f0-9]{40}$", version_lower):
+            return None  # Secure: pinned to immutable commit hash
+        return ("git_url", Severity.HIGH, f"Git URL '{version[:50]}...' not pinned to a commit hash")
 
     # HIGH: File URLs - local path, not portable
     if any(version_lower.startswith(prefix) for prefix in FILE_URL_PREFIXES):

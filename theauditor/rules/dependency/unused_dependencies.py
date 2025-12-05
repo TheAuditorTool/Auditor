@@ -102,6 +102,53 @@ STYLING_PACKAGES: frozenset[str] = frozenset([
     "@fortawesome/fontawesome-free",
 ])
 
+# Python package name to import name mapping
+# PyPI names often differ from the actual import statement
+PYTHON_IMPORT_MAP: dict[str, str] = {
+    "pyyaml": "yaml",
+    "beautifulsoup4": "bs4",
+    "pillow": "pil",
+    "scikit-learn": "sklearn",
+    "python-dateutil": "dateutil",
+    "python-dotenv": "dotenv",
+    "opencv-python": "cv2",
+    "opencv-python-headless": "cv2",
+    "typing-extensions": "typing_extensions",
+    "importlib-metadata": "importlib_metadata",
+    "importlib-resources": "importlib_resources",
+    "attrs": "attr",
+    "ruamel.yaml": "ruamel",
+    "google-cloud-storage": "google",
+    "google-auth": "google",
+    "protobuf": "google",
+}
+
+# Python dev tools that are rarely imported but valid in requirements
+PYTHON_DEV_TOOLS: frozenset[str] = frozenset([
+    "pytest",
+    "pytest-cov",
+    "pytest-asyncio",
+    "pytest-mock",
+    "pytest-xdist",
+    "black",
+    "mypy",
+    "flake8",
+    "pylint",
+    "ruff",
+    "tox",
+    "coverage",
+    "isort",
+    "pre-commit",
+    "pip-tools",
+    "build",
+    "twine",
+    "wheel",
+    "setuptools",
+    "hatch",
+    "flit",
+    "poetry",
+])
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect packages declared in dependencies but never imported.
@@ -282,8 +329,15 @@ def _check_python_unused(db: RuleDB, imported: set[str]) -> list[StandardFinding
     for file_path, pkg_name, is_dev in rows:
         normalized = _normalize_package_name(pkg_name)
 
-        # Skip if actually imported
-        if normalized in imported:
+        # Check PyPI name -> import name mapping (e.g., PyYAML -> yaml)
+        mapped_import = PYTHON_IMPORT_MAP.get(normalized, normalized)
+
+        # Skip if actually imported (check both normalized and mapped names)
+        if normalized in imported or mapped_import in imported:
+            continue
+
+        # Skip Python dev tools (pytest, black, mypy, etc.)
+        if normalized in PYTHON_DEV_TOOLS:
             continue
 
         # Skip CLI/build tools

@@ -1,19 +1,37 @@
-"""SQL-based TypeScript type safety analyzer - ENHANCED with semantic type data."""
-import sqlite3
+"""SQL-based TypeScript type safety analyzer - ENHANCED with semantic type data.
+
+Detects TypeScript type safety issues including:
+- Explicit 'any' types and type assertions
+- Missing return types and parameter types
+- Unsafe type assertions (as any, as unknown)
+- Non-null assertions (!) bypassing null checks
+- Dangerous types (Function, Object, {})
+- Type suppression comments (@ts-ignore, @ts-nocheck)
+- Untyped catch blocks and event handlers
+- Missing generic type parameters
+- Unsafe property access patterns
+- Unknown types requiring narrowing
+
+CWE-843: Type Confusion
+CWE-476: NULL Pointer Dereference
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
-from theauditor.utils.logging import logger
-
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="typescript_type_safety",
     category="type-safety",
+    execution_scope="database",
+    primary_table="type_annotations",
     target_extensions=[".ts", ".tsx"],
     exclude_patterns=[
         "node_modules/",
@@ -24,85 +42,70 @@ METADATA = RuleMetadata(
         "spec/",
         ".next/",
         "coverage/",
-    ])
+    ],
+)
 
 
-def find_type_safety_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect TypeScript type safety issues using semantic type data from TypeScript compiler."""
-    findings = []
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect TypeScript type safety issues using semantic type data.
 
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    try:
-        conn = sqlite3.connect(context.db_path)
-        cursor = conn.cursor()
-
-        cursor.execute("SELECT DISTINCT path FROM files WHERE ext IN ('.ts', '.tsx')")
-        ts_files = {row[0] for row in cursor.fetchall()}
-
+    with RuleDB(context.db_path, METADATA.name) as db:
+        ts_files = _get_typescript_files(db)
         if not ts_files:
-            return findings
+            return RuleResult(findings=[], manifest=db.get_manifest())
 
-        findings.extend(_find_explicit_any_types(cursor, ts_files))
+        findings: list[StandardFinding] = []
+        findings.extend(_find_explicit_any_types(db, ts_files))
+        findings.extend(_find_missing_return_types(db, ts_files))
+        findings.extend(_find_missing_parameter_types(db, ts_files))
+        findings.extend(_find_unsafe_type_assertions(db, ts_files))
+        findings.extend(_find_non_null_assertions(db, ts_files))
+        findings.extend(_find_dangerous_type_patterns(db, ts_files))
+        findings.extend(_find_untyped_json_parse(db, ts_files))
+        findings.extend(_find_untyped_api_responses(db, ts_files))
+        findings.extend(_find_missing_interfaces(db, ts_files))
+        findings.extend(_find_type_suppression_comments(db, ts_files))
+        findings.extend(_find_untyped_catch_blocks(db, ts_files))
+        findings.extend(_find_missing_generic_types(db, ts_files))
+        findings.extend(_find_untyped_event_handlers(db, ts_files))
+        findings.extend(_find_unsafe_property_access(db, ts_files))
+        findings.extend(_find_unknown_types(db, ts_files))
 
-        findings.extend(_find_missing_return_types(cursor, ts_files))
-
-        findings.extend(_find_missing_parameter_types(cursor, ts_files))
-
-        findings.extend(_find_unsafe_type_assertions(cursor, ts_files))
-
-        findings.extend(_find_non_null_assertions(cursor, ts_files))
-
-        findings.extend(_find_dangerous_type_patterns(cursor, ts_files))
-
-        findings.extend(_find_untyped_json_parse(cursor, ts_files))
-
-        findings.extend(_find_untyped_api_responses(cursor, ts_files))
-
-        findings.extend(_find_missing_interfaces(cursor, ts_files))
-
-        findings.extend(_find_type_suppression_comments(cursor, ts_files))
-
-        findings.extend(_find_untyped_catch_blocks(cursor, ts_files))
-
-        findings.extend(_find_missing_generic_types(cursor, ts_files))
-
-        findings.extend(_find_untyped_event_handlers(cursor, ts_files))
-
-        findings.extend(_find_type_mismatches(cursor, ts_files))
-
-        findings.extend(_find_unsafe_property_access(cursor, ts_files))
-
-        findings.extend(_find_unknown_types(cursor, ts_files))
-
-        conn.close()
-
-    except sqlite3.Error as e:
-        logger.warning(f"TypeScript type safety analysis failed: {e}")
-        return findings
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _find_explicit_any_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _get_typescript_files(db: RuleDB) -> set[str]:
+    """Get set of TypeScript file paths from database."""
+    rows = db.query(
+        Q("files")
+        .select("path")
+        .where("ext IN ('.ts', '.tsx')")
+    )
+    return {row[0] for row in rows}
+
+
+def _find_explicit_any_types(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find explicit 'any' type annotations using semantic type data."""
     findings = []
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT file, line, symbol_name, type_annotation, symbol_kind
-        FROM type_annotations
-        WHERE file IN ({placeholders})
-          AND is_any = 1
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("type_annotations")
+        .select("file", "line", "symbol_name", "type_annotation", "symbol_kind")
+        .where("is_any = 1")
     )
 
-    any_types = cursor.fetchall()
-
-    for file, line, name, type_ann, kind in any_types:
+    for file, line, name, type_ann, kind in rows:
+        if file not in ts_files:
+            continue
         findings.append(
             StandardFinding(
                 rule_name="typescript-explicit-any",
@@ -117,73 +120,59 @@ def _find_explicit_any_types(cursor, ts_files: set[str]) -> list[StandardFinding
             )
         )
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-            SELECT a.file, a.line, a.target_var, a.source_expr
-            FROM assignments a
-            WHERE a.file IN ({placeholders})
-              AND a.source_expr IS NOT NULL
-        """,
-        list(ts_files),
+    assignment_rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("source_expr IS NOT NULL")
     )
 
-    any_assertions = []
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in assignment_rows:
+        if file not in ts_files:
+            continue
         if "as any" in expr:
-            any_assertions.append((file, line, var, expr))
-
-    for file, line, var, _expr in any_assertions:
-        findings.append(
-            StandardFinding(
-                rule_name="typescript-any-assertion",
-                message=f"Type assertion to 'any' in '{var}'",
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                confidence=Confidence.HIGH,
-                category="type-safety",
-                snippet="... as any",
-                cwe_id="CWE-843",
+            findings.append(
+                StandardFinding(
+                    rule_name="typescript-any-assertion",
+                    message=f"Type assertion to 'any' in '{var}'",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    confidence=Confidence.HIGH,
+                    category="type-safety",
+                    snippet="... as any",
+                    cwe_id="CWE-843",
+                )
             )
-        )
 
     return findings
 
 
-def _find_missing_return_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_missing_return_types(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find functions without explicit return types using semantic type data."""
     findings = []
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT file, line, symbol_name, return_type
-        FROM type_annotations
-        WHERE file IN ({placeholders})
-          AND symbol_kind = 'function'
-          AND (return_type IS NULL OR return_type = '')
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("type_annotations")
+        .select("file", "line", "symbol_name", "return_type")
+        .where("symbol_kind = 'function'")
+        .where("(return_type IS NULL OR return_type = '')")
     )
 
-    missing_returns = cursor.fetchall()
+    known_exceptions = frozenset([
+        "constructor",
+        "render",
+        "componentDidMount",
+        "componentDidUpdate",
+        "componentWillUnmount",
+        "componentWillMount",
+        "shouldComponentUpdate",
+        "getSnapshotBeforeUpdate",
+        "componentDidCatch",
+    ])
 
-    known_exceptions = frozenset(
-        [
-            "constructor",
-            "render",
-            "componentDidMount",
-            "componentDidUpdate",
-            "componentWillUnmount",
-            "componentWillMount",
-            "shouldComponentUpdate",
-            "getSnapshotBeforeUpdate",
-            "componentDidCatch",
-        ]
-    )
-
-    for file, line, name, _return_type in missing_returns:
+    for file, line, name, _return_type in rows:
+        if file not in ts_files:
+            continue
         if name not in known_exceptions:
             findings.append(
                 StandardFinding(
@@ -202,28 +191,22 @@ def _find_missing_return_types(cursor, ts_files: set[str]) -> list[StandardFindi
     return findings
 
 
-def _find_missing_parameter_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_missing_parameter_types(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find function parameters without type annotations."""
     findings = []
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.file IN ({placeholders})
-          AND f.callee_function IS NOT NULL
-          AND f.argument_expr IS NOT NULL
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
     )
 
-    function_calls = []
-    for file, line, func, args in cursor.fetchall():
-        if "function" in func.lower():
-            function_calls.append((file, line, func, args))
-
-    for file, line, _func, args in function_calls:
+    for file, line, func, args in rows:
+        if file not in ts_files:
+            continue
+        if "function" not in func.lower():
+            continue
         if args and "function(" in args.lower() and ":" not in args and "(" in args and ")" in args:
             findings.append(
                 StandardFinding(
@@ -242,27 +225,22 @@ def _find_missing_parameter_types(cursor, ts_files: set[str]) -> list[StandardFi
     return findings
 
 
-def _find_unsafe_type_assertions(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_unsafe_type_assertions(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find unsafe type assertions (as any, as unknown)."""
     findings = []
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.file IN ({placeholders})
-          AND a.source_expr IS NOT NULL
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("source_expr IS NOT NULL")
     )
 
-    type_assertions = []
-    for file, line, var, expr in cursor.fetchall():
-        if any(pattern in expr for pattern in ["as any", "as unknown", "as Function", "<any>"]):
-            type_assertions.append((file, line, var, expr))
+    for file, line, var, expr in rows:
+        if file not in ts_files:
+            continue
+        if not any(pattern in expr for pattern in ["as any", "as unknown", "as Function", "<any>"]):
+            continue
 
-    for file, line, var, expr in type_assertions:
         severity = Severity.HIGH if "as any" in expr else Severity.MEDIUM
         confidence = Confidence.HIGH if "as any" in expr else Confidence.MEDIUM
         findings.append(
@@ -282,27 +260,22 @@ def _find_unsafe_type_assertions(cursor, ts_files: set[str]) -> list[StandardFin
     return findings
 
 
-def _find_non_null_assertions(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_non_null_assertions(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find non-null assertions (!) that bypass null checks."""
     findings = []
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT a.file, a.line, a.source_expr
-        FROM assignments a
-        WHERE a.file IN ({placeholders})
-          AND a.source_expr IS NOT NULL
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "source_expr")
+        .where("source_expr IS NOT NULL")
     )
 
-    non_null_assertions = []
-    for file, line, expr in cursor.fetchall():
-        if any(pattern in expr for pattern in ["!.", "!)", "!;"]):
-            non_null_assertions.append((file, line, expr))
+    for file, line, expr in rows:
+        if file not in ts_files:
+            continue
+        if not any(pattern in expr for pattern in ["!.", "!)", "!;"]):
+            continue
 
-    for file, line, _expr in non_null_assertions:
         findings.append(
             StandardFinding(
                 rule_name="typescript-non-null-assertion",
@@ -320,33 +293,32 @@ def _find_non_null_assertions(cursor, ts_files: set[str]) -> list[StandardFindin
     return findings
 
 
-def _find_dangerous_type_patterns(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_dangerous_type_patterns(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find dangerous type patterns like Function, Object, {} using semantic type data."""
     findings = []
 
-    dangerous_types = frozenset(["Function", "Object", "{}"])
+    dangerous_types = ("Function", "Object", "{}")
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    for dangerous_type in dangerous_types:
-        cursor.execute(
-            f"""
-            SELECT file, line, symbol_name, type_annotation
-            FROM type_annotations
-            WHERE file IN ({placeholders})
-              AND type_annotation IS NOT NULL
-        """,
-            list(ts_files),
-        )
+    rows = db.query(
+        Q("type_annotations")
+        .select("file", "line", "symbol_name", "type_annotation")
+        .where("type_annotation IS NOT NULL")
+    )
 
-        for file, line, name, type_ann in cursor.fetchall():
+    for file, line, name, type_ann in rows:
+        if file not in ts_files:
+            continue
+
+        for dangerous_type in dangerous_types:
             if (
                 type_ann == dangerous_type
                 or type_ann == f"{dangerous_type}[]"
                 or f"<{dangerous_type}>" in type_ann
             ):
+                rule_suffix = dangerous_type.lower().replace("{", "").replace("}", "empty")
                 findings.append(
                     StandardFinding(
-                        rule_name=f"typescript-dangerous-type-{dangerous_type.lower().replace('{', '').replace('}', 'empty')}",
+                        rule_name=f"typescript-dangerous-type-{rule_suffix}",
                         message=f"Dangerous type '{dangerous_type}' used in {name}",
                         file_path=file,
                         line=line,
@@ -361,105 +333,135 @@ def _find_dangerous_type_patterns(cursor, ts_files: set[str]) -> list[StandardFi
     return findings
 
 
-def _find_untyped_json_parse(cursor, ts_files: set[str]) -> list[StandardFinding]:
-    """Find JSON.parse without type validation."""
+def _find_untyped_json_parse(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
+    """Find JSON.parse without type validation.
+
+    Uses pre-fetch pattern to avoid N+1 queries.
+    """
     findings = []
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.file IN ({placeholders})
-          AND f.callee_function IS NOT NULL
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+        .where("callee_function IS NOT NULL")
     )
 
-    json_parses = []
-    for file, line, func, args in cursor.fetchall():
+    # Collect JSON.parse locations grouped by file
+    json_parse_by_file: dict[str, list[int]] = {}
+    for file, line, func in rows:
+        if file not in ts_files:
+            continue
         if "JSON.parse" in func:
-            json_parses.append((file, line, func, args))
+            if file not in json_parse_by_file:
+                json_parse_by_file[file] = []
+            json_parse_by_file[file].append(line)
 
-    for file, line, _func, _args in json_parses:
-        cursor.execute(
-            """
-                SELECT source_expr
-                FROM assignments a
-                WHERE a.file = ?
-                  AND a.line BETWEEN ? AND ?
-                  AND a.source_expr IS NOT NULL
-        """,
-            (file, line, line + 5),
-        )
+    if not json_parse_by_file:
+        return findings
 
-        validation_count = 0
-        for (source_expr,) in cursor.fetchall():
-            if any(pattern in source_expr for pattern in ["as ", "zod", "joi", "validate"]):
-                validation_count += 1
+    # Pre-fetch ALL assignments for relevant files in ONE query
+    assignment_rows = db.query(
+        Q("assignments")
+        .select("file", "line", "source_expr")
+        .where_in("file", list(json_parse_by_file.keys()))
+        .where("source_expr IS NOT NULL")
+    )
 
-        has_validation = validation_count > 0
+    # Index by (file, line) for O(1) lookup
+    assignments_by_file_line: dict[str, dict[int, str]] = {}
+    for file, line, source_expr in assignment_rows:
+        if file not in assignments_by_file_line:
+            assignments_by_file_line[file] = {}
+        assignments_by_file_line[file][line] = source_expr
 
-        if not has_validation:
-            findings.append(
-                StandardFinding(
-                    rule_name="typescript-untyped-json-parse",
-                    message="JSON.parse result not validated or typed",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    confidence=Confidence.HIGH,
-                    category="type-safety",
-                    snippet="JSON.parse(data)",
-                    cwe_id="CWE-843",
+    # Check proximity in Python - NO queries in loop
+    validation_patterns = ("as ", "zod", "joi", "validate")
+    for file, json_lines in json_parse_by_file.items():
+        file_assignments = assignments_by_file_line.get(file, {})
+        for json_line in json_lines:
+            has_validation = False
+            for check_line in range(json_line, json_line + 6):
+                source_expr = file_assignments.get(check_line)
+                if source_expr and any(p in source_expr for p in validation_patterns):
+                    has_validation = True
+                    break
+
+            if not has_validation:
+                findings.append(
+                    StandardFinding(
+                        rule_name="typescript-untyped-json-parse",
+                        message="JSON.parse result not validated or typed",
+                        file_path=file,
+                        line=json_line,
+                        severity=Severity.HIGH,
+                        confidence=Confidence.HIGH,
+                        category="type-safety",
+                        snippet="JSON.parse(data)",
+                        cwe_id="CWE-843",
+                    )
                 )
-            )
 
     return findings
 
 
-def _find_untyped_api_responses(cursor, ts_files: set[str]) -> list[StandardFinding]:
-    """Find API calls without typed responses."""
+def _find_untyped_api_responses(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
+    """Find API calls without typed responses.
+
+    Uses pre-fetch pattern to avoid N+1 queries.
+    """
     findings = []
 
-    api_patterns = frozenset(["fetch", "axios", "request", "http.get", "http.post", "ajax"])
+    api_patterns = ("fetch", "axios", "request", "http.get", "http.post", "ajax")
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT f.file, f.line, f.callee_function
-        FROM function_call_args f
-        WHERE f.file IN ({placeholders})
-          AND f.callee_function IS NOT NULL
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+        .where("callee_function IS NOT NULL")
     )
 
-    all_calls = cursor.fetchall()
-    for pattern in api_patterns:
-        api_calls = [(file, line, func) for file, line, func in all_calls if pattern in func]
+    # Collect API call locations grouped by file
+    api_calls_by_file: dict[str, list[tuple[int, str]]] = {}
+    for file, line, func in rows:
+        if file not in ts_files:
+            continue
+        for pattern in api_patterns:
+            if pattern in func:
+                if file not in api_calls_by_file:
+                    api_calls_by_file[file] = []
+                api_calls_by_file[file].append((line, pattern))
+                break
 
-        for file, line, _func in api_calls:
-            cursor.execute(
-                """
-                    SELECT target_var, source_expr
-                    FROM assignments a
-                    WHERE a.file = ?
-                      AND a.line BETWEEN ? AND ?
-                      AND (a.target_var IS NOT NULL OR a.source_expr IS NOT NULL)
-            """,
-                (file, line - 2, line + 10),
-            )
+    if not api_calls_by_file:
+        return findings
 
-            typing_count = 0
-            for target_var, source_expr in cursor.fetchall():
-                if (target_var and ": " in target_var) or (
-                    source_expr
-                    and ("as " in source_expr or "<" in source_expr and ">" in source_expr)
-                ):
-                    typing_count += 1
+    # Pre-fetch ALL assignments for relevant files in ONE query
+    assignment_rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where_in("file", list(api_calls_by_file.keys()))
+    )
 
-            has_typing = typing_count > 0
+    # Index by file for range lookups
+    assignments_by_file: dict[str, list[tuple[int, str, str]]] = {}
+    for file, line, target_var, source_expr in assignment_rows:
+        if file not in assignments_by_file:
+            assignments_by_file[file] = []
+        assignments_by_file[file].append((line, target_var or "", source_expr or ""))
+
+    # Check proximity in Python - NO queries in loop
+    for file, api_calls in api_calls_by_file.items():
+        file_assignments = assignments_by_file.get(file, [])
+        for api_line, pattern in api_calls:
+            has_typing = False
+            for assign_line, target_var, source_expr in file_assignments:
+                if not (api_line - 2 <= assign_line <= api_line + 10):
+                    continue
+                if ": " in target_var:
+                    has_typing = True
+                    break
+                if source_expr and ("as " in source_expr or ("<" in source_expr and ">" in source_expr)):
+                    has_typing = True
+                    break
 
             if not has_typing:
                 findings.append(
@@ -467,7 +469,7 @@ def _find_untyped_api_responses(cursor, ts_files: set[str]) -> list[StandardFind
                         rule_name="typescript-untyped-api-response",
                         message=f"API call ({pattern}) without typed response",
                         file_path=file,
-                        line=line,
+                        line=api_line,
                         severity=Severity.HIGH,
                         confidence=Confidence.MEDIUM,
                         category="type-safety",
@@ -479,29 +481,25 @@ def _find_untyped_api_responses(cursor, ts_files: set[str]) -> list[StandardFind
     return findings
 
 
-def _find_missing_interfaces(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_missing_interfaces(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find objects that should have interface definitions."""
     findings = []
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.file IN ({placeholders})
-          AND a.source_expr IS NOT NULL
-          AND a.target_var IS NOT NULL
-          AND LENGTH(a.source_expr) > 50
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("source_expr IS NOT NULL")
+        .where("target_var IS NOT NULL")
+        .where("LENGTH(source_expr) > 50")
     )
 
-    complex_objects = []
-    for file, line, var, expr in cursor.fetchall():
-        if "{" in expr and "}" in expr and ": " not in var:
-            complex_objects.append((file, line, var, expr))
-
-    for file, line, var, expr in complex_objects:
+    for file, line, var, expr in rows:
+        if file not in ts_files:
+            continue
+        if "{" not in expr or "}" not in expr:
+            continue
+        if ": " in var:
+            continue
         if expr.count(":") > 2:
             findings.append(
                 StandardFinding(
@@ -520,126 +518,98 @@ def _find_missing_interfaces(cursor, ts_files: set[str]) -> list[StandardFinding
     return findings
 
 
-def _find_type_suppression_comments(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_type_suppression_comments(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find @ts-ignore, @ts-nocheck, and @ts-expect-error comments."""
     findings = []
 
     suppressions = (
-        (
-            "@ts-ignore",
-            Severity.HIGH,
-            Confidence.HIGH,
-            "Completely disables type checking for next line",
-        ),
-        (
-            "@ts-nocheck",
-            Severity.CRITICAL,
-            Confidence.HIGH,
-            "Disables ALL type checking for entire file",
-        ),
-        (
-            "@ts-expect-error",
-            Severity.MEDIUM,
-            Confidence.MEDIUM,
-            "Suppresses expected errors but may hide real issues",
-        ),
+        ("@ts-ignore", Severity.HIGH, Confidence.HIGH),
+        ("@ts-nocheck", Severity.CRITICAL, Confidence.HIGH),
+        ("@ts-expect-error", Severity.MEDIUM, Confidence.MEDIUM),
     )
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT s.path AS file, s.line, s.name
-        FROM symbols s
-        WHERE s.path IN ({placeholders})
-          AND s.type = 'comment'
-          AND s.name IS NOT NULL
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("symbols")
+        .select("path", "line", "name")
+        .where("type = 'comment'")
+        .where("name IS NOT NULL")
     )
 
-    all_comments = cursor.fetchall()
+    for file, line, comment in rows:
+        if file not in ts_files:
+            continue
 
-    for suppression, severity, confidence, _description in suppressions:
-        suppression_comments = [
-            (file, line, comment) for file, line, comment in all_comments if suppression in comment
-        ]
-
-        for file, line, _comment in suppression_comments:
-            findings.append(
-                StandardFinding(
-                    rule_name=f"typescript-suppression-{suppression.replace('@', '').replace('-', '_')}",
-                    message=f"TypeScript error suppression: {suppression}",
-                    file_path=file,
-                    line=line,
-                    severity=severity,
-                    confidence=confidence,
-                    category="type-safety",
-                    snippet=f"// {suppression}",
-                    cwe_id="CWE-843",
+        for suppression, severity, confidence in suppressions:
+            if suppression in comment:
+                rule_suffix = suppression.replace("@", "").replace("-", "_")
+                findings.append(
+                    StandardFinding(
+                        rule_name=f"typescript-suppression-{rule_suffix}",
+                        message=f"TypeScript error suppression: {suppression}",
+                        file_path=file,
+                        line=line,
+                        severity=severity,
+                        confidence=confidence,
+                        category="type-safety",
+                        snippet=f"// {suppression}",
+                        cwe_id="CWE-843",
+                    )
                 )
-            )
 
     return findings
 
 
-def _find_untyped_catch_blocks(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_untyped_catch_blocks(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find catch blocks without typed errors."""
     findings = []
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT s.path AS file, s.line, s.name
-        FROM symbols s
-        WHERE s.path IN ({placeholders})
-          AND s.type = 'catch'
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("symbols")
+        .select("path", "line", "name")
+        .where("type = 'catch'")
     )
 
-    catch_blocks = cursor.fetchall()
+    for file, line, name in rows:
+        if file not in ts_files:
+            continue
+        if "unknown" in (name or "") or ":" in (name or ""):
+            continue
 
-    for file, line, name in catch_blocks:
-        if "unknown" not in name and ":" not in name:
-            findings.append(
-                StandardFinding(
-                    rule_name="typescript-untyped-catch",
-                    message="Catch block with untyped error (defaults to any)",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    confidence=Confidence.MEDIUM,
-                    category="type-safety",
-                    snippet="catch (error)",
-                    cwe_id="CWE-843",
-                )
+        findings.append(
+            StandardFinding(
+                rule_name="typescript-untyped-catch",
+                message="Catch block with untyped error (defaults to any)",
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                confidence=Confidence.MEDIUM,
+                category="type-safety",
+                snippet="catch (error)",
+                cwe_id="CWE-843",
             )
+        )
 
     return findings
 
 
-def _find_missing_generic_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_missing_generic_types(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find usage of generic types without type parameters using semantic type data."""
     findings = []
 
-    generic_types = frozenset(["Array", "Promise", "Map", "Set", "WeakMap", "WeakSet", "Record"])
+    generic_types = ("Array", "Promise", "Map", "Set", "WeakMap", "WeakSet", "Record")
 
-    placeholders = ",".join(["?" for _ in ts_files])
     for generic in generic_types:
-        cursor.execute(
-            f"""
-            SELECT file, line, symbol_name, type_annotation, type_params
-            FROM type_annotations
-            WHERE file IN ({placeholders})
-              AND type_annotation = ?
-              AND (is_generic = 0 OR type_params IS NULL OR type_params = '')
-        """,
-            list(ts_files) + [generic],
+        rows = db.query(
+            Q("type_annotations")
+            .select("file", "line", "symbol_name", "type_annotation", "type_params")
+            .where("type_annotation = ?", generic)
+            .where("(is_generic = 0 OR type_params IS NULL OR type_params = '')")
         )
 
-        untyped_generics = cursor.fetchall()
+        for file, line, _name, type_ann, _type_params in rows:
+            if file not in ts_files:
+                continue
 
-        for file, line, _name, type_ann, _type_params in untyped_generics:
             findings.append(
                 StandardFinding(
                     rule_name=f"typescript-untyped-{generic.lower()}",
@@ -657,33 +627,29 @@ def _find_missing_generic_types(cursor, ts_files: set[str]) -> list[StandardFind
     return findings
 
 
-def _find_untyped_event_handlers(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_untyped_event_handlers(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find event handlers without proper typing."""
     findings = []
 
-    event_patterns = frozenset(["onClick", "onChange", "onSubmit", "addEventListener", "on("])
+    event_patterns = ("onClick", "onChange", "onSubmit", "addEventListener", "on(")
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.file IN ({placeholders})
-          AND (f.callee_function IS NOT NULL OR f.argument_expr IS NOT NULL)
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
     )
 
-    all_calls = cursor.fetchall()
-    for pattern in event_patterns:
-        event_handlers = [
-            (file, line, func, args)
-            for file, line, func, args in all_calls
-            if (func and pattern in func) or (args and pattern in args)
-        ]
+    for file, line, func, args in rows:
+        if file not in ts_files:
+            continue
 
-        for file, line, _func, args in event_handlers:
-            if args and "event" in args.lower() and ":" not in args:
+        func_str = func or ""
+        args_str = args or ""
+
+        for pattern in event_patterns:
+            if pattern not in func_str and pattern not in args_str:
+                continue
+
+            if "event" in args_str.lower() and ":" not in args_str:
                 findings.append(
                     StandardFinding(
                         rule_name="typescript-untyped-event",
@@ -697,86 +663,28 @@ def _find_untyped_event_handlers(cursor, ts_files: set[str]) -> list[StandardFin
                         cwe_id="CWE-843",
                     )
                 )
+                break
 
     return findings
 
 
-def _find_type_mismatches(cursor, ts_files: set[str]) -> list[StandardFinding]:
-    """Find potential type mismatches in assignments."""
-    findings = []
-
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT a.file, a.line, a.target_var, a.source_expr
-        FROM assignments a
-        WHERE a.file IN ({placeholders})
-          AND a.target_var IS NOT NULL
-          AND a.source_expr IS NOT NULL
-    """,
-        list(ts_files),
-    )
-
-    mismatches = []
-    for file, line, var, expr in cursor.fetchall():
-        var_lower = var.lower()
-        expr_lower = expr.lower()
-
-        if (
-            ("string" in var_lower and "number" in expr_lower)
-            or ("number" in var_lower and "string" in expr_lower)
-            or "boolean" in var_lower
-            and "true" not in expr_lower
-            and "false" not in expr_lower
-        ):
-            mismatches.append((file, line, var, expr))
-
-    for file, line, var, _expr in mismatches:
-        findings.append(
-            StandardFinding(
-                rule_name="typescript-type-mismatch",
-                message=f"Potential type mismatch in assignment to {var}",
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                confidence=Confidence.LOW,
-                category="type-safety",
-                snippet=f"{var} = ...",
-                cwe_id="CWE-843",
-            )
-        )
-
-    return findings
-
-
-def _find_unsafe_property_access(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_unsafe_property_access(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find unsafe property access patterns."""
     findings = []
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT s.path AS file, s.line, s.name
-        FROM symbols s
-        WHERE s.path IN ({placeholders})
-          AND s.name IS NOT NULL
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("symbols")
+        .select("path", "line", "name")
+        .where("name IS NOT NULL")
     )
 
-    bracket_accesses = []
-    for file, line, name in cursor.fetchall():
-        if "[" in name and "]" in name:
-            bracket_accesses.append((file, line, name))
+    for file, line, name in rows:
+        if file not in ts_files:
+            continue
+        if "[" not in name or "]" not in name:
+            continue
 
-    for file, line, name in bracket_accesses:
-        prop_access = name
-
-        if (
-            prop_access
-            and not prop_access.strip().startswith('"')
-            and not prop_access.strip().startswith("'")
-        ):
+        if not name.strip().startswith('"') and not name.strip().startswith("'"):
             findings.append(
                 StandardFinding(
                     rule_name="typescript-unsafe-property-access",
@@ -794,24 +702,20 @@ def _find_unsafe_property_access(cursor, ts_files: set[str]) -> list[StandardFin
     return findings
 
 
-def _find_unknown_types(cursor, ts_files: set[str]) -> list[StandardFinding]:
+def _find_unknown_types(db: RuleDB, ts_files: set[str]) -> list[StandardFinding]:
     """Find 'unknown' types requiring type narrowing using semantic type data."""
     findings = []
 
-    placeholders = ",".join(["?" for _ in ts_files])
-    cursor.execute(
-        f"""
-        SELECT file, line, symbol_name, type_annotation, symbol_kind
-        FROM type_annotations
-        WHERE file IN ({placeholders})
-          AND is_unknown = 1
-    """,
-        list(ts_files),
+    rows = db.query(
+        Q("type_annotations")
+        .select("file", "line", "symbol_name", "type_annotation", "symbol_kind")
+        .where("is_unknown = 1")
     )
 
-    unknown_types = cursor.fetchall()
+    for file, line, name, type_ann, _kind in rows:
+        if file not in ts_files:
+            continue
 
-    for file, line, name, type_ann, _kind in unknown_types:
         findings.append(
             StandardFinding(
                 rule_name="typescript-unknown-type",

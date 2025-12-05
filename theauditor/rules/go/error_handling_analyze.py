@@ -84,6 +84,9 @@ def _check_ignored_errors(db: RuleDB) -> list[StandardFinding]:
 
     Pattern: _ = someFunc() where someFunc returns error.
     This is a common and dangerous anti-pattern in Go code.
+
+    Note: Fire-and-forget calls (e.g., db.Close() without assignment)
+    require go_expression_statements table which needs Go extractor enhancement.
     """
     findings = []
 
@@ -99,16 +102,13 @@ def _check_ignored_errors(db: RuleDB) -> list[StandardFinding]:
     for file_path, line, name, initial_value in blank_rows:
         initial_value = initial_value or ""
 
-        # Check if it's a function call
         if "(" not in initial_value or ")" not in initial_value:
             continue
 
-        # Extract function name
         func_name = initial_value.split("(")[0].strip()
         if "." in func_name:
             func_name = func_name.split(".")[-1]
 
-        # Check if function is known to return error
         error_return_rows = db.query(
             Q("go_error_returns")
             .select("func_name")
@@ -140,10 +140,10 @@ def _check_ignored_errors(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_panic_in_library(db: RuleDB) -> list[StandardFinding]:
-    """Detect panic() calls in non-main packages.
+    """Detect process termination in non-main packages.
 
-    Libraries should return errors, not panic. Panic should only be used
-    in main packages or for truly unrecoverable situations.
+    Libraries should return errors, not terminate the process.
+    Detects: panic(), log.Fatal(), log.Panic()
     """
     findings = []
 
@@ -158,49 +158,71 @@ def _check_panic_in_library(db: RuleDB) -> list[StandardFinding]:
     if not library_files:
         return findings
 
-    # Check variables with panic() in initial value
-    panic_var_rows = db.query(
+    # Check variables with panic(), log.Fatal, log.Panic in initial value
+    termination_rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "initial_value")
-        .where("initial_value LIKE ?", "%panic(%")
+        .where("initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
+               "%panic(%", "%log.Fatal%", "%log.Panic%")
     )
 
-    for file_path, line, initial_value in panic_var_rows:
-        if file_path in library_files:
-            findings.append(
-                StandardFinding(
-                    rule_name="go-panic-in-library",
-                    message="panic() called in library code - return error instead",
-                    file_path=file_path,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category="error_handling",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-248",
-                )
-            )
+    for file_path, line, initial_value in termination_rows:
+        if file_path not in library_files:
+            continue
 
-    # Check defer statements with panic()
-    defer_panic_rows = db.query(
+        value = initial_value or ""
+        if "panic(" in value:
+            term_type = "panic()"
+        elif "log.Fatal" in value:
+            term_type = "log.Fatal()"
+        else:
+            term_type = "log.Panic()"
+
+        findings.append(
+            StandardFinding(
+                rule_name="go-termination-in-library",
+                message=f"{term_type} in library code terminates process - return error instead",
+                file_path=file_path,
+                line=line,
+                severity=Severity.MEDIUM,
+                category="error_handling",
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-248",
+            )
+        )
+
+    # Check defer statements with termination calls
+    defer_termination_rows = db.query(
         Q("go_defer_statements")
         .select("file_path", "line", "deferred_expr")
-        .where("deferred_expr LIKE ?", "%panic(%")
+        .where("deferred_expr LIKE ? OR deferred_expr LIKE ? OR deferred_expr LIKE ?",
+               "%panic(%", "%log.Fatal%", "%log.Panic%")
     )
 
-    for file_path, line, deferred_expr in defer_panic_rows:
-        if file_path in library_files:
-            findings.append(
-                StandardFinding(
-                    rule_name="go-panic-in-library-defer",
-                    message="panic() in deferred function in library code",
-                    file_path=file_path,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category="error_handling",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-248",
-                )
+    for file_path, line, deferred_expr in defer_termination_rows:
+        if file_path not in library_files:
+            continue
+
+        expr = deferred_expr or ""
+        if "panic(" in expr:
+            term_type = "panic()"
+        elif "log.Fatal" in expr:
+            term_type = "log.Fatal()"
+        else:
+            term_type = "log.Panic()"
+
+        findings.append(
+            StandardFinding(
+                rule_name="go-termination-in-library-defer",
+                message=f"{term_type} in deferred function in library code",
+                file_path=file_path,
+                line=line,
+                severity=Severity.MEDIUM,
+                category="error_handling",
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-248",
             )
+        )
 
     return findings
 

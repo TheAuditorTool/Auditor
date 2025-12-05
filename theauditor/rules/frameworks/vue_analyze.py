@@ -130,31 +130,97 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
 
 def _check_v_html_xss(db: RuleDB) -> list[StandardFinding]:
-    """Check for v-html and innerHTML binding - primary XSS vector in Vue."""
-    findings = []
+    """Check for v-html and innerHTML binding - primary XSS vector in Vue.
 
-    rows = db.query(
+    Detection strategy:
+    1. Assignments containing v-html directives (template extraction)
+    2. Vue render function calls (h, createVNode) with innerHTML in props
+    3. Object literals with innerHTML/domProps properties
+    """
+    findings = []
+    seen = set()  # Deduplicate by (file, line)
+
+    # Approach 1: Check assignments for v-html directives (filter in SQL)
+    assignment_rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
+        .where("source_expr LIKE ? OR source_expr LIKE ? OR source_expr LIKE ?",
+               "%v-html%", "%innerHTML%", "%outerHTML%")
         .order_by("file, line")
     )
 
-    for file, line, _target, html_content in rows:
+    for file, line, _target, html_content in assignment_rows:
         if not html_content:
             continue
-
         if any(pattern in html_content for pattern in VUE_XSS_DIRECTIVES):
+            key = (file, line)
+            if key not in seen:
+                seen.add(key)
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-v-html-xss",
+                        message="Use of v-html or innerHTML binding - primary XSS vector in Vue",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="xss",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-79",
+                        snippet=html_content[:80] if len(html_content) > 80 else html_content,
+                    )
+                )
+
+    # Approach 2: Check Vue render functions for innerHTML in props
+    # Vue templates compile to h() or createVNode() with innerHTML in domProps
+    render_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN (?, ?, ?, ?) AND argument_expr LIKE ?",
+               "h", "createVNode", "_createElementVNode", "createElementVNode", "%innerHTML%")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, args in render_rows:
+        key = (file, line)
+        if key not in seen:
+            seen.add(key)
             findings.append(
                 StandardFinding(
                     rule_name="vue-v-html-xss",
-                    message="Use of v-html or innerHTML binding - primary XSS vector in Vue",
+                    message=f"Vue render function {callee}() with innerHTML - XSS risk",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
                     category="xss",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-79",
-                    snippet=html_content[:80] if len(html_content) > 80 else html_content,
+                    snippet=args[:80] if args and len(args) > 80 else args,
+                )
+            )
+
+    # Approach 3: Check object_literals for innerHTML/domProps properties
+    literal_rows = db.query(
+        Q("object_literals")
+        .select("file", "line", "property_name", "property_value")
+        .where("property_name IN (?, ?, ?)", "innerHTML", "outerHTML", "domProps")
+        .order_by("file, line")
+    )
+
+    for file, line, prop_name, prop_value in literal_rows:
+        key = (file, line)
+        if key not in seen:
+            seen.add(key)
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-v-html-xss",
+                    message=f"Object literal with {prop_name} property - XSS risk in Vue",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="xss",
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-79",
+                    snippet=f"{prop_name}: {prop_value[:50]}" if prop_value else prop_name,
                 )
             )
 
@@ -265,9 +331,11 @@ def _check_unescaped_interpolation(db: RuleDB) -> list[StandardFinding]:
     """Check for triple mustache unescaped interpolation (Vue 1.x legacy)."""
     findings = []
 
+    # Filter in SQL for triple mustache pattern
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
+        .where("source_expr LIKE ?", "%{{{%")
         .order_by("file, line")
     )
 
@@ -301,9 +369,11 @@ def _check_dynamic_component_injection(db: RuleDB) -> list[StandardFinding]:
 
     user_input_sources = ["$route", "params", "query", "user", "input", "data"]
 
+    # Filter in SQL for dynamic component pattern
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
+        .where("source_expr LIKE ? AND source_expr LIKE ?", "%<component%", "%:is%")
         .order_by("file, line")
     )
 
@@ -311,7 +381,7 @@ def _check_dynamic_component_injection(db: RuleDB) -> list[StandardFinding]:
         if not component_code:
             continue
 
-        # Check for dynamic component pattern
+        # Verify dynamic component pattern (SQL LIKE is broad)
         if "<component" not in component_code or ":is" not in component_code:
             continue
 
@@ -338,9 +408,11 @@ def _check_unsafe_target_blank(db: RuleDB) -> list[StandardFinding]:
     """Check for unsafe target='_blank' without rel='noopener'."""
     findings = []
 
+    # Filter in SQL for target="_blank" pattern
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
+        .where("source_expr LIKE ?", "%_blank%")
         .order_by("file, line")
     )
 
@@ -348,7 +420,7 @@ def _check_unsafe_target_blank(db: RuleDB) -> list[StandardFinding]:
         if not link_code:
             continue
 
-        # Check for target="_blank"
+        # Verify target="_blank" pattern (SQL LIKE is broad)
         if 'target="_blank"' not in link_code and "target='_blank'" not in link_code:
             continue
 

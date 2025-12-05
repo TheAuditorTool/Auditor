@@ -1,8 +1,24 @@
-"""Vue.js-specific XSS Detection."""
+"""Vue.js-specific XSS Detection.
 
-import sqlite3
+Detects Vue.js-specific cross-site scripting vulnerabilities:
+- v-html directive with user input
+- Dynamic template compilation
+- Render function innerHTML injection
+- Component props used in v-html
+- Slot content XSS
+- Vue filter XSS (Vue 2)
+- Computed properties building HTML
+"""
 
-from theauditor.rules.base import RuleMetadata, Severity, StandardFinding, StandardRuleContext
+from theauditor.rules.base import (
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 from theauditor.rules.xss.constants import (
     VUE_COMPILE_METHODS,
     VUE_INPUT_SOURCES,
@@ -15,69 +31,76 @@ METADATA = RuleMetadata(
     category="xss",
     target_extensions=VUE_TARGET_EXTENSIONS,
     exclude_patterns=["test/", "__tests__/", "node_modules/", "*.spec.js"],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="function_call_args",
+)
 
 
-def find_vue_xss(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Vue.js-specific XSS vulnerabilities."""
-    findings = []
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Vue.js-specific XSS vulnerabilities.
 
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    with sqlite3.connect(context.db_path) as conn:
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        if not _is_vue_app(db):
+            return RuleResult(findings=[], manifest=db.get_manifest())
 
-        if not _is_vue_app(cursor):
-            return findings
+        findings: list[StandardFinding] = []
 
-        findings.extend(_check_vhtml_directive(cursor))
-        findings.extend(_check_template_compilation(cursor))
-        findings.extend(_check_render_functions(cursor))
-        findings.extend(_check_component_props_injection(cursor))
-        findings.extend(_check_slot_injection(cursor))
-        findings.extend(_check_filter_injection(cursor))
-        findings.extend(_check_computed_xss(cursor))
+        findings.extend(_check_vhtml_directive(db))
+        findings.extend(_check_template_compilation(db))
+        findings.extend(_check_render_functions(db))
+        findings.extend(_check_component_props_injection(db))
+        findings.extend(_check_slot_injection(db))
+        findings.extend(_check_filter_injection(db))
+        findings.extend(_check_computed_xss(db))
 
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _is_vue_app(cursor: sqlite3.Cursor) -> bool:
+def _is_vue_app(db: RuleDB) -> bool:
     """Check if this is a Vue.js application."""
-
-    cursor.execute("""
-        SELECT COUNT(*) as cnt FROM frameworks
-        WHERE name IN ('vue', 'vuejs', 'vue.js', 'Vue')
-          AND language = 'javascript'
-    """)
-
-    if cursor.fetchone()["cnt"] > 0:
+    framework_rows = db.query(
+        Q("frameworks")
+        .select("name")
+        .where("name IN (?, ?, ?, ?)", "vue", "vuejs", "vue.js", "Vue")
+        .where("language = ?", "javascript")
+        .limit(1)
+    )
+    if list(framework_rows):
         return True
 
-    cursor.execute("""
-        SELECT COUNT(*) as cnt FROM vue_components
-        -- REMOVED LIMIT: was hiding bugs
-        """)
+    component_rows = db.query(
+        Q("vue_components")
+        .select("name")
+        .limit(1)
+    )
+    return len(list(component_rows)) > 0
 
-    return cursor.fetchone()["cnt"] > 0
 
-
-def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_vhtml_directive(db: RuleDB) -> list[StandardFinding]:
     """Check v-html directives with user input."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT vd.file, vd.line, vd.expression, vd.in_component
-        FROM vue_directives vd
-        WHERE vd.directive_name = 'v-html'
-        ORDER BY vd.file, vd.line
-    """)
+    rows = db.query(
+        Q("vue_directives")
+        .select("file", "line", "expression", "in_component")
+        .where("directive_name = ?", "v-html")
+        .order_by("file, line")
+    )
 
-    for file, line, expression, component in cursor.fetchall():
+    for file, line, expression, component in rows:
         has_user_input = any(src in (expression or "") for src in VUE_INPUT_SOURCES)
 
         if has_user_input and not is_sanitized(expression or ""):
+            snippet = f'v-html="{expression[:60]}"' if len(expression or "") > 60 else f'v-html="{expression}"'
             findings.append(
                 StandardFinding(
                     rule_name="vue-xss-vhtml",
@@ -86,9 +109,7 @@ def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.CRITICAL,
                     category="xss",
-                    snippet=f'v-html="{expression[:60]}"'
-                    if len(expression or "") > 60
-                    else f'v-html="{expression}"',
+                    snippet=snippet,
                     cwe_id="CWE-79",
                 )
             )
@@ -107,7 +128,7 @@ def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                 )
             )
 
-    cursor.execute("""
+    sql, params = Q.raw("""
         SELECT vd1.file, vd1.line, vd1.in_component
         FROM vue_directives vd1
         JOIN vue_directives vd2 ON vd1.file = vd2.file
@@ -117,8 +138,9 @@ def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
           AND vd2.directive_name = 'v-once'
         ORDER BY vd1.file, vd1.line
     """)
+    rows = list(db.execute(sql, params))
 
-    for file, line, _component in cursor.fetchall():
+    for file, line, _component in rows:
         findings.append(
             StandardFinding(
                 rule_name="vue-xss-vhtml-vonce",
@@ -135,19 +157,19 @@ def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_template_compilation(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_template_compilation(db: RuleDB) -> list[StandardFinding]:
     """Check for dynamic template compilation with user input."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 0
-          AND f.callee_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 0")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, callee, template_arg in cursor.fetchall():
+    for file, line, callee, template_arg in rows:
         is_compile_method = any(method in callee for method in VUE_COMPILE_METHODS)
         if not is_compile_method:
             continue
@@ -168,26 +190,23 @@ def _check_template_compilation(cursor: sqlite3.Cursor) -> list[StandardFinding]
                 )
             )
 
-    cursor.execute("""
-        SELECT vc.file, vc.start_line, vc.name
-        FROM vue_components vc
-        WHERE vc.has_template = 1
-    """)
+    component_rows = db.query(
+        Q("vue_components")
+        .select("file", "start_line", "name")
+        .where("has_template = ?", 1)
+    )
 
-    for file, line, comp_name in cursor.fetchall():
-        cursor.execute(
-            """
-            SELECT a.source_expr
-            FROM assignments a
-            WHERE a.file = ?
-              AND a.line >= ?
-              AND a.line <= ? + 50
-              AND a.source_expr IS NOT NULL
-        """,
-            [file, line, line],
+    for file, line, comp_name in component_rows:
+        assignment_rows = db.query(
+            Q("assignments")
+            .select("source_expr")
+            .where("file = ?", file)
+            .where("line >= ?", line)
+            .where("line <= ?", line + 50)
+            .where("source_expr IS NOT NULL")
         )
 
-        for (template_source,) in cursor.fetchall():
+        for (template_source,) in assignment_rows:
             has_template = "template:" in template_source
             has_interpolation = "${" in template_source or "`" in template_source
 
@@ -213,38 +232,34 @@ def _check_template_compilation(cursor: sqlite3.Cursor) -> list[StandardFinding]
     return findings
 
 
-def _check_render_functions(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_render_functions(db: RuleDB) -> list[StandardFinding]:
     """Check render functions for XSS vulnerabilities."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT vc.file, vc.start_line, vc.name, vc.setup_return
-        FROM vue_components vc
-        WHERE vc.type = 'render-function'
-           OR vc.setup_return IS NOT NULL
-    """)
+    component_rows = db.query(
+        Q("vue_components")
+        .select("file", "start_line", "name", "setup_return")
+        .where("type = ? OR setup_return IS NOT NULL", "render-function")
+    )
 
-    for file, line, comp_name, setup_return in cursor.fetchall():
+    dangerous_props = ["innerHTML", "domProps", "v-html"]
+
+    for file, line, comp_name, setup_return in component_rows:
         if setup_return:
             has_render_pattern = "h(" in setup_return or "createVNode" in setup_return
             if not has_render_pattern:
                 continue
 
-        dangerous_props = ["innerHTML", "domProps", "v-html"]
-
-        cursor.execute(
-            """
-            SELECT a.source_expr
-            FROM assignments a
-            WHERE a.file = ?
-              AND a.line >= ?
-              AND a.line <= ? + 100
-              AND a.source_expr IS NOT NULL
-        """,
-            [file, line, line],
+        assignment_rows = db.query(
+            Q("assignments")
+            .select("source_expr")
+            .where("file = ?", file)
+            .where("line >= ?", line)
+            .where("line <= ?", line + 100)
+            .where("source_expr IS NOT NULL")
         )
 
-        for (source,) in cursor.fetchall():
+        for (source,) in assignment_rows:
             has_dangerous_prop = any(prop in source for prop in dangerous_props)
             if not has_dangerous_prop:
                 continue
@@ -265,15 +280,15 @@ def _check_render_functions(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                     )
                 )
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IN ('h', 'createVNode', 'createElementVNode')
-          AND f.argument_expr IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "argument_expr")
+        .where("callee_function IN (?, ?, ?)", "h", "createVNode", "createElementVNode")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, args in cursor.fetchall():
+    for file, line, args in rows:
         if "innerHTML" not in (args or ""):
             continue
 
@@ -296,55 +311,52 @@ def _check_render_functions(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_component_props_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_component_props_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for XSS through component props."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT vc.file, vc.start_line, vc.name, vc.props_definition
-        FROM vue_components vc
-        WHERE vc.props_definition IS NOT NULL
-    """)
+    # JOIN to get v-html directives in components with props - ONE query instead of N+1
+    rows = db.query(
+        Q("vue_directives")
+        .select(
+            "vue_directives.file",
+            "vue_directives.line",
+            "vue_directives.expression",
+            "vue_components.name"
+        )
+        .join("vue_components", on=[("file", "file"), ("in_component", "name")])
+        .where("vue_directives.directive_name = ?", "v-html")
+        .where("vue_directives.expression IS NOT NULL")
+        .where("vue_components.props_definition IS NOT NULL")
+    )
 
-    for file, _line, comp_name, _props_def in cursor.fetchall():
-        cursor.execute(
-            """
-            SELECT vd.line, vd.expression
-            FROM vue_directives vd
-            WHERE vd.file = ?
-              AND vd.in_component = ?
-              AND vd.directive_name = 'v-html'
-              AND vd.expression IS NOT NULL
-        """,
-            [file, comp_name],
+    for file, dir_line, expression, comp_name in rows:
+        if "props." not in (expression or ""):
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="vue-props-vhtml",
+                message=f"XSS: Component {comp_name} uses props directly in v-html",
+                file_path=file,
+                line=dir_line,
+                severity=Severity.HIGH,
+                category="xss",
+                snippet='v-html="props.content"',
+                cwe_id="CWE-79",
+            )
         )
 
-        for dir_line, expression in cursor.fetchall():
-            if "props." not in expression:
-                continue
+    # Check for $attrs in v-html (uncontrolled input)
+    rows = db.query(
+        Q("vue_directives")
+        .select("file", "line", "expression", "in_component")
+        .where("directive_name = ?", "v-html")
+        .where("expression IS NOT NULL")
+        .order_by("file, line")
+    )
 
-            findings.append(
-                StandardFinding(
-                    rule_name="vue-props-vhtml",
-                    message=f"XSS: Component {comp_name} uses props directly in v-html",
-                    file_path=file,
-                    line=dir_line,
-                    severity=Severity.HIGH,
-                    category="xss",
-                    snippet='v-html="props.content"',
-                    cwe_id="CWE-79",
-                )
-            )
-
-    cursor.execute("""
-        SELECT vd.file, vd.line, vd.expression, vd.in_component
-        FROM vue_directives vd
-        WHERE vd.directive_name = 'v-html'
-          AND vd.expression IS NOT NULL
-        ORDER BY vd.file, vd.line
-    """)
-
-    for file, line, expression, _component in cursor.fetchall():
+    for file, line, expression, _component in rows:
         if "$attrs" not in expression:
             continue
 
@@ -364,19 +376,19 @@ def _check_component_props_injection(cursor: sqlite3.Cursor) -> list[StandardFin
     return findings
 
 
-def _check_slot_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_slot_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for XSS through slot content."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT vd.file, vd.line, vd.expression, vd.in_component
-        FROM vue_directives vd
-        WHERE vd.directive_name = 'v-html'
-          AND vd.expression IS NOT NULL
-        ORDER BY vd.file, vd.line
-    """)
+    rows = db.query(
+        Q("vue_directives")
+        .select("file", "line", "expression", "in_component")
+        .where("directive_name = ?", "v-html")
+        .where("expression IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, expression, _component in cursor.fetchall():
+    for file, line, expression, _component in rows:
         has_slot = "$slots" in expression or "slot." in expression
         if not has_slot:
             continue
@@ -394,14 +406,14 @@ def _check_slot_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
             )
         )
 
-    cursor.execute("""
-        SELECT a.file, a.line, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr IS NOT NULL
-        ORDER BY a.file, a.line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "source_expr")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, source in cursor.fetchall():
+    for file, line, source in rows:
         has_scoped_slots = "scopedSlots" in source
         has_inner_html = "innerHTML" in source
 
@@ -424,18 +436,18 @@ def _check_slot_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_filter_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_filter_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for XSS through Vue filters (Vue 2)."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, filter_def in cursor.fetchall():
+    for file, line, func, filter_def in rows:
         is_filter_registration = func.startswith("Vue.filter") or ".filter" in func
         if not is_filter_registration:
             continue
@@ -457,19 +469,19 @@ def _check_filter_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
     return findings
 
 
-def _check_computed_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_computed_xss(db: RuleDB) -> list[StandardFinding]:
     """Check computed properties that might cause XSS."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT vh.file, vh.line, vh.component_name, vh.hook_name, vh.return_value
-        FROM vue_hooks vh
-        WHERE vh.hook_type = 'computed'
-          AND vh.return_value IS NOT NULL
-        ORDER BY vh.file, vh.line
-    """)
+    rows = db.query(
+        Q("vue_hooks")
+        .select("file", "line", "component_name", "hook_name", "return_value")
+        .where("hook_type = ?", "computed")
+        .where("return_value IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, _comp_name, hook_name, return_val in cursor.fetchall():
+    for file, line, _comp_name, hook_name, return_val in rows:
         if any(tag in (return_val or "") for tag in ["<div", "<span", "<script", "<img"]):
             has_user_input = any(src in return_val for src in VUE_INPUT_SOURCES)
 
@@ -487,31 +499,24 @@ def _check_computed_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
                     )
                 )
 
-    cursor.execute("""
-        SELECT vh.file, vh.line, vh.component_name, vh.hook_name
-        FROM vue_hooks vh
-        WHERE vh.hook_type = 'watcher'
-        ORDER BY vh.file, vh.line
-    """)
+    watcher_rows = db.query(
+        Q("vue_hooks")
+        .select("file", "line", "component_name", "hook_name")
+        .where("hook_type = ?", "watcher")
+        .order_by("file, line")
+    )
 
-    for file, line, _comp_name, watched_prop in cursor.fetchall():
-        cursor.execute(
-            """
-            SELECT a.target_var
-            FROM assignments a
-            WHERE a.file = ?
-              AND a.line >= ?
-              AND a.line <= ? + 20
-              AND a.target_var IS NOT NULL
-        """,
-            [file, line, line],
+    for file, line, _comp_name, watched_prop in watcher_rows:
+        assignment_rows = db.query(
+            Q("assignments")
+            .select("target_var")
+            .where("file = ?", file)
+            .where("line >= ?", line)
+            .where("line <= ?", line + 20)
+            .where("target_var IS NOT NULL")
         )
 
-        has_inner_html = False
-        for (target_var,) in cursor.fetchall():
-            if ".innerHTML" in target_var:
-                has_inner_html = True
-                break
+        has_inner_html = any(".innerHTML" in target_var for (target_var,) in assignment_rows)
 
         if has_inner_html:
             findings.append(
@@ -528,8 +533,3 @@ def _check_computed_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
             )
 
     return findings
-
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point."""
-    return find_vue_xss(context)

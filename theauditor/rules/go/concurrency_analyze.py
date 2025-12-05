@@ -132,17 +132,29 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
         if file_path not in pkg_vars:
             continue
 
-        # Check if file has mutex protection
-        mutex_rows = db.query(
+        # Check if file has mutex protection in struct fields
+        struct_mutex_rows = db.query(
             Q("go_struct_fields")
             .select("file_path")
             .where("file_path = ?", file_path)
             .where("field_type LIKE ? OR field_type LIKE ?", "%sync.Mutex%", "%sync.RWMutex%")
             .limit(1)
         )
-        has_mutex = len(list(mutex_rows)) > 0
+        has_struct_mutex = len(list(struct_mutex_rows)) > 0
 
-        if has_mutex:
+        # Check if file has package-level mutex variables
+        global_mutex_rows = db.query(
+            Q("go_variables")
+            .select("file_path")
+            .where("file_path = ?", file_path)
+            .where("is_package_level = ?", 1)
+            .where("var_type LIKE ? OR var_type LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
+                   "%sync.Mutex%", "%sync.RWMutex%", "%sync.Mutex%", "%sync.RWMutex%")
+            .limit(1)
+        )
+        has_global_mutex = len(list(global_mutex_rows)) > 0
+
+        if has_struct_mutex or has_global_mutex:
             continue
 
         # Get captured variables for this goroutine

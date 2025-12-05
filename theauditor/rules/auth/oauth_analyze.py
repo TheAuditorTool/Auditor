@@ -2,6 +2,7 @@
 
 Detects OAuth vulnerabilities including:
 - Missing state parameter for CSRF protection (CWE-352)
+- Missing PKCE for authorization code flows (CWE-287)
 - Unvalidated redirect URIs leading to open redirect (CWE-601)
 - OAuth tokens exposed in URL fragments or parameters (CWE-598)
 - Deprecated implicit flow usage (CWE-598)
@@ -31,7 +32,17 @@ METADATA = RuleMetadata(
 OAUTH_URL_KEYWORDS = frozenset(["oauth", "authorize", "callback", "redirect", "auth", "login"])
 
 
-STATE_KEYWORDS = frozenset(["state", "csrf", "oauthState", "csrfToken", "oauthstate", "csrftoken"])
+STATE_KEYWORDS = frozenset([
+    "state", "csrf", "oauthState", "csrfToken", "oauthstate", "csrftoken",
+    "nonce", "oauth_nonce",  # OIDC replay protection
+])
+
+# PKCE (Proof Key for Code Exchange) - Required for SPAs/mobile apps (RFC 7636)
+PKCE_KEYWORDS = frozenset([
+    "code_challenge", "codechallenge", "codeChallenge",
+    "code_verifier", "codeverifier", "codeVerifier",
+    "pkce", "S256", "plain",  # S256 is recommended, plain is weak but present
+])
 
 
 REDIRECT_KEYWORDS = frozenset([
@@ -56,6 +67,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
     with RuleDB(context.db_path, METADATA.name) as db:
         findings.extend(_check_missing_oauth_state(db))
+        findings.extend(_check_missing_pkce(db))
         findings.extend(_check_redirect_validation(db))
         findings.extend(_check_token_in_url(db))
 
@@ -105,10 +117,15 @@ def _check_missing_oauth_state(db: RuleDB) -> list[StandardFinding]:
             for target_var, source_expr in assign_rows:
                 target_lower = target_var.lower()
                 source_lower = source_expr.lower() if source_expr else ""
+                # Check variable names AND source expressions
                 if any(
                     keyword in target_lower or keyword in source_lower
                     for keyword in STATE_KEYWORDS
                 ):
+                    has_state = True
+                    break
+                # Check for property access patterns: config.state, params.state, .state:
+                if ".state" in target_lower or ": state" in source_lower or '"state"' in source_lower:
                     has_state = True
                     break
 
@@ -124,6 +141,98 @@ def _check_missing_oauth_state(db: RuleDB) -> list[StandardFinding]:
                     cwe_id="CWE-352",
                     confidence=Confidence.MEDIUM,
                     snippet=f"{method} {pattern}",
+                )
+            )
+
+    return findings
+
+
+def _check_missing_pkce(db: RuleDB) -> list[StandardFinding]:
+    """Detect authorization code flows without PKCE (RFC 7636).
+
+    PKCE is required for SPAs and mobile apps to prevent authorization code interception.
+    Public clients (no client_secret) MUST use PKCE. Confidential clients SHOULD use it.
+    """
+    findings = []
+
+    # Look for authorization code flows (response_type=code) without PKCE
+    assign_rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    code_flow_files = {}  # file -> (line, snippet)
+
+    for file, line, target_var, source_expr in assign_rows:
+        expr_lower = source_expr.lower() if source_expr else ""
+        target_lower = target_var.lower()
+
+        # Detect authorization code flow setup
+        if "response_type" in expr_lower and "code" in expr_lower:
+            if file not in code_flow_files:
+                code_flow_files[file] = (line, source_expr[:60])
+        # Also detect OAuth config objects
+        if any(kw in target_lower for kw in ["oauth", "auth", "oidc"]) and "config" in target_lower:
+            if "code" in expr_lower:
+                if file not in code_flow_files:
+                    code_flow_files[file] = (line, source_expr[:60])
+
+    # For each file with code flow, check if PKCE is present
+    for file, (first_line, snippet) in code_flow_files.items():
+        # Check function args for PKCE keywords
+        func_args_rows = db.query(
+            Q("function_call_args")
+            .select("argument_expr")
+            .where("file = ?", file)
+            .limit(200)
+        )
+
+        has_pkce = False
+        for (arg_expr,) in func_args_rows:
+            arg_lower = arg_expr.lower()
+            if any(keyword in arg_lower for keyword in PKCE_KEYWORDS):
+                has_pkce = True
+                break
+
+        if not has_pkce:
+            # Check assignments for PKCE
+            file_assigns = db.query(
+                Q("assignments")
+                .select("target_var", "source_expr")
+                .where("file = ?", file)
+                .limit(200)
+            )
+
+            for target_var, source_expr in file_assigns:
+                target_lower = target_var.lower()
+                source_lower = source_expr.lower() if source_expr else ""
+                if any(
+                    keyword in target_lower or keyword in source_lower
+                    for keyword in PKCE_KEYWORDS
+                ):
+                    has_pkce = True
+                    break
+                # Check property access patterns
+                if ".code_challenge" in target_lower or ".codechallenge" in target_lower:
+                    has_pkce = True
+                    break
+                if '"code_challenge"' in source_lower or "'code_challenge'" in source_lower:
+                    has_pkce = True
+                    break
+
+        if not has_pkce:
+            findings.append(
+                StandardFinding(
+                    rule_name="oauth-missing-pkce",
+                    message="Authorization code flow without PKCE. Add code_challenge (S256) to prevent code interception attacks on SPAs/mobile.",
+                    file_path=file,
+                    line=first_line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    cwe_id="CWE-287",
+                    confidence=Confidence.MEDIUM,
+                    snippet=snippet if len(snippet) <= 60 else snippet[:57] + "...",
                 )
             )
 
@@ -295,19 +404,25 @@ def _check_token_in_url(db: RuleDB) -> list[StandardFinding]:
 
     for file, line, _var, expr in all_assignments:
         expr_lower = expr.lower()
-        if "response_type" in expr_lower and "token" in expr_lower and "code" not in expr_lower:
-            findings.append(
-                StandardFinding(
-                    rule_name="oauth-implicit-flow",
-                    message="OAuth implicit flow detected (response_type=token). Use authorization code flow (response_type=code) instead.",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category="authentication",
-                    cwe_id="CWE-598",
-                    confidence=Confidence.MEDIUM,
-                    snippet=expr[:60] if len(expr) <= 60 else expr[:60] + "...",
-                )
+        # Detect implicit flow: response_type=token, id_token, or id_token token (without code)
+        if "response_type" in expr_lower and "code" not in expr_lower:
+            is_implicit = (
+                "token" in expr_lower  # response_type=token
+                or "id_token" in expr_lower  # response_type=id_token (OIDC implicit)
             )
+            if is_implicit:
+                findings.append(
+                    StandardFinding(
+                        rule_name="oauth-implicit-flow",
+                        message="OAuth/OIDC implicit flow detected. Tokens in URL fragments are exposed in browser history. Use authorization code flow with PKCE instead.",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="authentication",
+                        cwe_id="CWE-598",
+                        confidence=Confidence.MEDIUM,
+                        snippet=expr[:60] if len(expr) <= 60 else expr[:60] + "...",
+                    )
+                )
 
     return findings

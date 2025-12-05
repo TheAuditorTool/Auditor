@@ -11,6 +11,8 @@ Detects JWT vulnerabilities including:
 - Insecure storage in localStorage/sessionStorage (CWE-922)
 - JWT exposure in URL parameters (CWE-598)
 - Cross-origin transmission concerns (CWE-346)
+- JKU header injection (CWE-918) - SSRF via unvalidated key URL
+- KID header injection (CWE-89) - SQLi/path traversal via key ID lookup
 """
 
 from theauditor.rules.base import (
@@ -127,6 +129,8 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_weak_secret_length(db))
         findings.extend(_check_cross_origin_transmission(db))
         findings.extend(_check_react_state_storage(db))
+        findings.extend(_check_jku_injection(db))
+        findings.extend(_check_kid_injection(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -281,10 +285,17 @@ def _check_missing_expiration(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_algorithm_confusion(db: RuleDB) -> list[StandardFinding]:
-    """Check for algorithm confusion vulnerabilities (mixed symmetric/asymmetric)."""
+    """Check for algorithm confusion vulnerabilities.
+
+    Two attack patterns:
+    1. Mixed algorithms: Both symmetric (HS*) and asymmetric (RS*/ES*) allowed
+    2. Public key as secret: Passing a public key where a symmetric secret is expected,
+       tricking the library into using the public key as an HMAC secret
+    """
     findings = []
     jwt_verify_condition = _build_jwt_verify_condition()
 
+    # Check for mixed algorithm configurations
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "argument_expr")
@@ -304,12 +315,45 @@ def _check_algorithm_confusion(db: RuleDB) -> list[StandardFinding]:
             findings.append(
                 StandardFinding(
                     rule_name="jwt-algorithm-confusion",
-                    message="Algorithm confusion vulnerability: both symmetric and asymmetric algorithms allowed",
+                    message="Algorithm confusion vulnerability: both symmetric and asymmetric algorithms allowed. Attacker can forge tokens by signing with public key as HMAC secret.",
                     file_path=file,
                     line=line,
                     severity=Severity.CRITICAL,
                     category="authentication",
                     snippet=options[:200],
+                    cwe_id="CWE-327",
+                )
+            )
+
+    # Check for public key used as secret argument (deeper algorithm confusion)
+    secret_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"({jwt_verify_condition}) AND argument_index = 1")
+        .order_by("file, line")
+    )
+
+    public_key_patterns = [
+        "publickey", "public_key", "pubkey", "pub_key",
+        "-----begin public", "-----begin rsa public",
+        "-----begin certificate", ".pem", ".pub",
+        "getpublickey", "get_public_key", "publickeypem",
+    ]
+
+    for file, line, func, secret_arg in secret_rows:
+        secret_lower = secret_arg.lower()
+
+        # Check if a public key is being passed as the secret
+        if any(pat in secret_lower for pat in public_key_patterns):
+            findings.append(
+                StandardFinding(
+                    rule_name="jwt-public-key-as-secret",
+                    message="Public key passed to JWT verify as secret. If HS* algorithm is used, attacker can forge tokens using the public key as HMAC secret.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    snippet=f"{func}(token, {secret_arg[:40]}...)" if len(secret_arg) > 40 else f"{func}(token, {secret_arg})",
                     cwe_id="CWE-327",
                 )
             )
@@ -622,5 +666,160 @@ def _check_react_state_storage(db: RuleDB) -> list[StandardFinding]:
                     cwe_id="CWE-922",
                 )
             )
+
+    return findings
+
+
+def _check_jku_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for unvalidated JKU (JWK Set URL) header processing.
+
+    The jku header claim specifies a URL to fetch the signing key.
+    If not validated against a whitelist, attackers can point to their own keys.
+    """
+    findings = []
+
+    # Look for JWT header extraction or jku handling
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, target_var, source_expr in rows:
+        if not source_expr:
+            continue
+
+        target_lower = target_var.lower()
+        source_lower = source_expr.lower()
+
+        # Detect jku extraction from JWT header
+        jku_patterns = ["jku", "jwk_url", "jwkurl", "jwks_uri", "jwksuri", "x5u"]
+        if any(pat in target_lower or pat in source_lower for pat in jku_patterns):
+            # Check if it's being used to fetch keys without validation
+            if "header" in source_lower or "decode" in source_lower:
+                findings.append(
+                    StandardFinding(
+                        rule_name="jwt-jku-header-extraction",
+                        message="JKU/x5u header extracted from JWT. Validate URL against whitelist before fetching keys to prevent SSRF attacks.",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="authentication",
+                        snippet=f"{target_var} = {source_expr[:60]}..." if len(source_expr) > 60 else f"{target_var} = {source_expr}",
+                        cwe_id="CWE-918",
+                    )
+                )
+
+    # Check function calls that fetch from jku URLs
+    func_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in func_rows:
+        func_lower = func.lower()
+        args_lower = (args or "").lower()
+
+        # Look for HTTP requests with jku/jwk related arguments
+        is_http_call = any(hf in func_lower for hf in ["fetch", "get", "request", "axios"])
+        has_jku = any(pat in args_lower for pat in ["jku", "jwks", "jwk", ".well-known"])
+
+        if is_http_call and has_jku:
+            findings.append(
+                StandardFinding(
+                    rule_name="jwt-jku-fetch-unvalidated",
+                    message="Fetching JWK/JWKS from URL. Ensure URL is validated against whitelist of trusted issuers.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="authentication",
+                    snippet=f"{func}({args[:50]}...)" if len(args) > 50 else f"{func}({args})",
+                    cwe_id="CWE-918",
+                )
+            )
+
+    return findings
+
+
+def _check_kid_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for KID (Key ID) header used directly in lookups without sanitization.
+
+    The kid header identifies which key to use for verification.
+    If used directly in SQL queries or file paths, it enables SQLi or path traversal.
+    """
+    findings = []
+
+    # Look for kid extraction and subsequent usage
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    kid_files = {}  # file -> list of (line, var_name)
+
+    for file, line, target_var, source_expr in rows:
+        if not source_expr:
+            continue
+
+        target_lower = target_var.lower()
+        source_lower = source_expr.lower()
+
+        # Detect kid extraction from JWT header
+        if "kid" in target_lower or ("kid" in source_lower and "header" in source_lower):
+            if file not in kid_files:
+                kid_files[file] = []
+            kid_files[file].append((line, target_var))
+
+    # For files with kid extraction, check for dangerous usage
+    for file, kid_usages in kid_files.items():
+        # Check for SQL queries in the same file
+        sql_rows = db.query(
+            Q("function_call_args")
+            .select("line", "callee_function", "argument_expr")
+            .where("file = ?", file)
+        )
+
+        for sql_line, func, args in sql_rows:
+            func_lower = func.lower()
+            args_lower = (args or "").lower()
+
+            # Check for SQL query functions
+            sql_funcs = ["query", "execute", "raw", "prepare", "findone", "findall"]
+            if any(sf in func_lower for sf in sql_funcs):
+                # Check if kid variable appears in query
+                for kid_line, kid_var in kid_usages:
+                    if kid_var.lower() in args_lower:
+                        findings.append(
+                            StandardFinding(
+                                rule_name="jwt-kid-sql-injection",
+                                message=f"JWT kid header '{kid_var}' used in SQL query. Sanitize or use parameterized queries to prevent SQLi.",
+                                file_path=file,
+                                line=sql_line,
+                                severity=Severity.CRITICAL,
+                                category="authentication",
+                                snippet=f"{func}(...{kid_var}...)",
+                                cwe_id="CWE-89",
+                            )
+                        )
+
+            # Check for file system operations
+            fs_funcs = ["readfile", "readfilesync", "open", "path.join", "resolve"]
+            if any(ff in func_lower for ff in fs_funcs):
+                for kid_line, kid_var in kid_usages:
+                    if kid_var.lower() in args_lower:
+                        findings.append(
+                            StandardFinding(
+                                rule_name="jwt-kid-path-traversal",
+                                message=f"JWT kid header '{kid_var}' used in file path. Validate against whitelist to prevent path traversal.",
+                                file_path=file,
+                                line=sql_line,
+                                severity=Severity.HIGH,
+                                category="authentication",
+                                snippet=f"{func}(...{kid_var}...)",
+                                cwe_id="CWE-22",
+                            )
+                        )
 
     return findings

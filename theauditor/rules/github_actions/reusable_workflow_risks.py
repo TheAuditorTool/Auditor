@@ -10,6 +10,8 @@ Tables Used:
 Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
 """
 
+import re
+
 from theauditor.rules.base import (
     RuleMetadata,
     RuleResult,
@@ -57,16 +59,48 @@ def find_external_reusable_with_secrets(context: StandardRuleContext) -> list[St
 # DETECTION LOGIC
 # =============================================================================
 
-# Mutable version references that can change without notice
-# These can be force-pushed by upstream at any time, making supply chain attacks trivial
-MUTABLE_VERSIONS = frozenset({
-    # Branch names
+# SHA commit hash pattern - 40 hex characters (immutable reference)
+SHA_COMMIT_PATTERN = re.compile(r"^[a-f0-9]{40}$", re.IGNORECASE)
+
+# Major-only version pattern - v1, v2, v99 (can be force-pushed by maintainer)
+MAJOR_ONLY_VERSION_PATTERN = re.compile(r"^v\d+$", re.IGNORECASE)
+
+# Known branch names that are always mutable
+MUTABLE_BRANCH_NAMES = frozenset({
     "main", "master", "develop", "dev", "trunk", "release", "stable",
-    # Edge/nightly channels
-    "edge", "nightly", "next", "lts", "latest", "canary",
-    # Major version tags (not immutable - can be moved)
-    "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10",
+    "edge", "nightly", "next", "lts", "latest", "canary", "head",
 })
+
+
+def _is_mutable_version(version: str) -> bool:
+    """Determine if a version reference is mutable (can change without notice).
+
+    Immutable: 40-char SHA commit hash, exact semver tags (v1.2.3)
+    Mutable: Branch names, major-only tags (v1, v2), edge/nightly channels
+
+    Args:
+        version: Version string from workflow reference (e.g., "v4", "main", "abc123...")
+
+    Returns:
+        True if version can be changed by upstream maintainer
+    """
+    version_lower = version.lower()
+
+    # SHA commit hash is immutable (pinned to specific commit)
+    if SHA_COMMIT_PATTERN.match(version):
+        return False
+
+    # Known branch names are always mutable
+    if version_lower in MUTABLE_BRANCH_NAMES:
+        return True
+
+    # Major-only versions (v1, v2, v99) can be force-pushed
+    if MAJOR_ONLY_VERSION_PATTERN.match(version):
+        return True
+
+    # Everything else (v1.2.3, v4.0.1) is considered immutable
+    # These are exact git tags that shouldn't change
+    return False
 
 
 def _find_reusable_workflow_risks(db: RuleDB) -> list[StandardFinding]:
@@ -74,22 +108,19 @@ def _find_reusable_workflow_risks(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     # Get all jobs that use reusable workflows with JOIN to get workflow name
-    # Also fetch secrets_config to detect "secrets: inherit" pattern
-    sql, params = Q.raw(
-        """
-        SELECT j.job_id, j.workflow_path, j.job_key, j.job_name,
-               j.reusable_workflow_path, j.secrets_config, w.workflow_name
-        FROM github_jobs j
-        JOIN github_workflows w ON j.workflow_path = w.workflow_path
-        WHERE j.uses_reusable_workflow = 1
-        AND j.reusable_workflow_path IS NOT NULL
-        """,
-        [],
+    job_rows = db.query(
+        Q("github_jobs")
+        .select(
+            "job_id", "workflow_path", "job_key", "job_name",
+            "reusable_workflow_path", "github_workflows.workflow_name"
+        )
+        .join("github_workflows")  # Auto-detects FK: github_jobs.workflow_path -> github_workflows.workflow_path
+        .where("uses_reusable_workflow = ?", 1)
+        .where("reusable_workflow_path IS NOT NULL")
     )
-    job_rows = db.execute(sql, params)
 
     for row in job_rows:
-        job_id, workflow_path, job_key, job_name, reusable_path, secrets_config, workflow_name = row
+        job_id, workflow_path, job_key, job_name, reusable_path, workflow_name = row
 
         # Parse reusable workflow path (e.g., "org/repo/.github/workflows/file.yml@v1")
         if "@" not in reusable_path:
@@ -101,11 +132,12 @@ def _find_reusable_workflow_risks(db: RuleDB) -> list[StandardFinding]:
         if workflow_ref.startswith("./"):
             continue
 
-        # Check if version is mutable
-        is_mutable = version in MUTABLE_VERSIONS
+        # Check if version is mutable (algorithmic - not hardcoded list)
+        is_mutable = _is_mutable_version(version)
 
-        # Detect "secrets: inherit" pattern - most dangerous
-        inherits_all_secrets = secrets_config == "inherit" if secrets_config else False
+        # TODO: secrets_config column not in schema - requires extractor migration
+        # When fixed, query github_jobs.secrets_config and check for "inherit"
+        inherits_all_secrets = False
 
         # Count secrets passed to this job (explicit secret references)
         secret_rows = db.query(

@@ -342,18 +342,14 @@ def _check_ecb_mode(db: RuleDB, add_finding) -> None:
 
 def _check_insecure_random(db: RuleDB, add_finding) -> None:
     """Detect insecure random number generation for cryptographic purposes."""
-    placeholders = ", ".join("?" for _ in INSECURE_RANDOM)
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, argument_expr, caller_function
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-        ORDER BY file, line
-        """,
-        list(INSECURE_RANDOM),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr", "caller_function")
+        .where_in("callee_function", list(INSECURE_RANDOM))
+        .order_by("file, line")
     )
 
-    for row in db.execute(sql, params):
+    for row in rows:
         file, line, method, args, caller = row[0], row[1], row[2], row[3], row[4]
 
         # Check if used in cryptographic context
@@ -519,8 +515,42 @@ def _check_ssl_issues(db: RuleDB, add_finding) -> None:
             )
 
 
+def _calculate_entropy(text: str) -> float:
+    """Calculate Shannon entropy of a string.
+
+    Higher entropy indicates more randomness (like real keys).
+    English text: ~4.0 bits/char, random hex: ~4.0, random base64: ~6.0
+    """
+    import math
+    if not text:
+        return 0.0
+    freq: dict[str, int] = {}
+    for char in text:
+        freq[char] = freq.get(char, 0) + 1
+    entropy = 0.0
+    for count in freq.values():
+        p = count / len(text)
+        entropy -= p * math.log2(p)
+    return entropy
+
+
+# Common placeholder values that are NOT real secrets
+PLACEHOLDER_VALUES = frozenset([
+    "changeme", "change_me", "your-key-here", "your_key_here",
+    "placeholder", "example", "test", "demo", "dummy", "fake",
+    "xxx", "yyy", "zzz", "abc123", "password123", "secret123",
+    "todo", "fixme", "replace_me", "insert_key_here",
+])
+
+
 def _check_hardcoded_keys(db: RuleDB, add_finding) -> None:
-    """Detect hardcoded cryptographic keys and secrets."""
+    """Detect hardcoded cryptographic keys and secrets.
+
+    Uses multi-layered detection:
+    1. Known vendor prefixes (AWS AKIA, Stripe sk_live_, etc.) - HIGH confidence
+    2. Entropy-based detection for long strings - MEDIUM confidence
+    3. Filters out obvious placeholders
+    """
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -545,22 +575,73 @@ def _check_hardcoded_keys(db: RuleDB, add_finding) -> None:
 
         # Check if value is a hardcoded string literal (not a variable reference)
         expr_str = str(expr)
-        is_hardcoded = (
-            (expr_str.startswith('"') or expr_str.startswith("'") or
-             expr_str.startswith('b"') or expr_str.startswith("b'"))
-            and len(expr_str) > 10  # Longer than empty quotes
+        is_string_literal = (
+            expr_str.startswith('"') or expr_str.startswith("'") or
+            expr_str.startswith('b"') or expr_str.startswith("b'")
         )
 
-        if is_hardcoded:
-            add_finding(
-                file=file,
-                line=line,
-                rule_name="python-hardcoded-key",
-                message=f"Hardcoded cryptographic key/secret: {var}",
-                severity=Severity.CRITICAL,
-                confidence=Confidence.HIGH,
-                cwe_id="CWE-798",
-            )
+        if not is_string_literal:
+            continue
+
+        # Extract the actual value (strip quotes)
+        val = expr_str.strip('"\'')
+        if val.startswith("b"):
+            val = val[1:].strip('"\'')
+
+        # Skip empty or very short values
+        if len(val) < 8:
+            continue
+
+        # Skip obvious placeholders
+        val_lower = val.lower()
+        if any(placeholder in val_lower for placeholder in PLACEHOLDER_VALUES):
+            continue
+
+        # Skip environment variable references
+        if "os.getenv" in expr_str or "os.environ" in expr_str or "getenv" in expr_str:
+            continue
+
+        # HIGH confidence: Known vendor key prefixes
+        vendor_patterns = [
+            ("AKIA", 20, "AWS Access Key"),      # AWS Access Key ID
+            ("ASIA", 20, "AWS Temp Key"),        # AWS Temporary Key
+            ("sk_live_", 32, "Stripe Live Key"), # Stripe Live Secret
+            ("sk_test_", 32, "Stripe Test Key"), # Stripe Test Secret
+            ("pk_live_", 32, "Stripe Pub Key"),  # Stripe Publishable
+            ("ghp_", 36, "GitHub PAT"),          # GitHub Personal Access Token
+            ("gho_", 36, "GitHub OAuth"),        # GitHub OAuth Token
+            ("glpat-", 20, "GitLab PAT"),        # GitLab Personal Access Token
+            ("xox", 40, "Slack Token"),          # Slack tokens (xoxb-, xoxp-, etc.)
+        ]
+
+        for prefix, min_len, vendor_name in vendor_patterns:
+            if val.startswith(prefix) and len(val) >= min_len:
+                add_finding(
+                    file=file,
+                    line=line,
+                    rule_name="python-hardcoded-key",
+                    message=f"Hardcoded {vendor_name} detected in {var}",
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-798",
+                )
+                break
+        else:
+            # MEDIUM confidence: Entropy-based detection for longer strings
+            if len(val) >= 20:
+                entropy = _calculate_entropy(val)
+                # High entropy (>3.5) suggests random/key-like content
+                # Low entropy (<3.0) suggests English words or patterns
+                if entropy > 3.5:
+                    add_finding(
+                        file=file,
+                        line=line,
+                        rule_name="python-hardcoded-key",
+                        message=f"Likely hardcoded secret in {var} (high entropy: {entropy:.1f})",
+                        severity=Severity.HIGH,
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-798",
+                    )
 
 
 def _check_key_reuse(db: RuleDB, add_finding) -> None:

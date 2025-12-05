@@ -68,6 +68,31 @@ VUE_INPUT_SOURCES = frozenset(
 )
 
 
+REACT_INPUT_SOURCES = frozenset(
+    [
+        "props.",
+        "this.props.",
+        "state.",
+        "this.state.",
+        "location.search",
+        "location.hash",
+        "match.params",
+        "params.",
+        "query.",
+        "searchParams.",
+        "localStorage.getItem",
+        "sessionStorage.getItem",
+        "document.cookie",
+        "window.name",
+        "event.target.value",
+        "e.target.value",
+        "ref.current.value",
+        "useParams(",
+        "useSearchParams(",
+    ]
+)
+
+
 UNIVERSAL_DANGEROUS_SINKS = frozenset(
     [
         "innerHTML",
@@ -103,11 +128,27 @@ REACT_AUTO_ESCAPED = frozenset(
     ["React.createElement", "jsx", "JSXElement", "createElement", "cloneElement"]
 )
 
+REACT_DANGEROUS_PATTERNS = frozenset([
+    "dangerouslySetInnerHTML",
+    "__html",
+    "href=javascript:",
+    "href={'javascript:",
+    'href={"javascript:',
+])
+
 VUE_AUTO_ESCAPED = frozenset(
     ["createVNode", "h", "createElementVNode", "createTextVNode", "createCommentVNode"]
 )
 
-ANGULAR_AUTO_ESCAPED = frozenset(["sanitize", "DomSanitizer.sanitize", "bypassSecurityTrustHtml"])
+ANGULAR_AUTO_ESCAPED = frozenset(["sanitize", "DomSanitizer.sanitize"])
+
+ANGULAR_BYPASS_SECURITY = frozenset([
+    "bypassSecurityTrustHtml",
+    "bypassSecurityTrustScript",
+    "bypassSecurityTrustStyle",
+    "bypassSecurityTrustUrl",
+    "bypassSecurityTrustResourceUrl",
+])
 
 
 SANITIZER_NAMES = frozenset(
@@ -128,6 +169,15 @@ SANITIZER_NAMES = frozenset(
         "validator.escape",
         "xss.clean",
         "sanitize-html",
+        "isomorphic-dompurify",
+        "xss-filters",
+        "sanitizer.sanitize",
+        "Sanitizer",
+        "setHTML",
+        "bleach.clean",
+        "html.escape",
+        "cgi.escape",
+        "markupsafe.escape",
     ]
 )
 
@@ -150,11 +200,16 @@ SANITIZER_CALL_PATTERNS = frozenset(
         "validator.escape(",
         "xss.clean(",
         "sanitize-html(",
+        "sanitizer.sanitize(",
+        "setHTML(",
+        "bleach.clean(",
+        "html.escape(",
+        "markupsafe.escape(",
     ]
 )
 
 
-VUE_DANGEROUS_DIRECTIVES = frozenset(["v-html", "v-once", "v-pre"])
+VUE_DANGEROUS_DIRECTIVES = frozenset(["v-html"])
 
 VUE_SAFE_DIRECTIVES = frozenset(
     [
@@ -184,7 +239,7 @@ TEMPLATE_ENGINES: dict[str, dict[str, frozenset[str]]] = {
         "safe": frozenset(["{{}}", "{%%}"]),
         "unsafe": frozenset(["|safe", "autoescape off", "mark_safe", "format_html"]),
     },
-    "mako": {"safe": frozenset(["${}"]), "unsafe": frozenset(["|n", "|h", "disable_unicode=True"])},
+    "mako": {"safe": frozenset(["${}", "|h"]), "unsafe": frozenset(["|n", "disable_unicode=True"])},
     "ejs": {"safe": frozenset(["<%= %>"]), "unsafe": frozenset(["<%- %>", "unescape"])},
     "pug": {"safe": frozenset(["#{}"]), "unsafe": frozenset(["!{}", "!{-}", "|"])},
     "handlebars": {"safe": frozenset(["{{}}"]), "unsafe": frozenset(["{{{", "}}}", "SafeString"])},

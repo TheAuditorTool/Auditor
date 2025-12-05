@@ -1,7 +1,9 @@
 """AWS CDK Encryption Detection - database-first rule.
 
 Detects unencrypted storage and data resources in AWS CDK code:
+- S3 Bucket with BucketEncryption.UNENCRYPTED
 - RDS DatabaseInstance without storage_encrypted=True
+- RDS DatabaseInstance in public subnet (encryption irrelevant if exposed)
 - EBS Volume without encrypted=True
 - DynamoDB Table using default encryption (not customer-managed)
 - ElastiCache without at_rest_encryption_enabled or transit_encryption_enabled
@@ -11,6 +13,7 @@ Detects unencrypted storage and data resources in AWS CDK code:
 - SNS Topic without server-side encryption
 
 CWE-311: Missing Encryption of Sensitive Data
+CWE-284: Improper Access Control (public subnet exposure)
 """
 
 from theauditor.rules.base import (
@@ -54,7 +57,9 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_check_s3_encryption(db))
         findings.extend(_check_unencrypted_rds(db))
+        findings.extend(_check_rds_public_subnet(db))
         findings.extend(_check_unencrypted_ebs(db))
         findings.extend(_check_dynamodb_encryption(db))
         findings.extend(_check_elasticache_encryption(db))
@@ -64,6 +69,118 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_sns_encryption(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+def _check_s3_encryption(db: RuleDB) -> list[StandardFinding]:
+    """Detect S3 buckets with encryption explicitly disabled.
+
+    CDK v2 defaults to S3-managed encryption, but explicit UNENCRYPTED is a problem.
+    Also flags buckets without any encryption configuration as informational.
+    """
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+    )
+
+    for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not (
+            "Bucket" in cdk_class
+            and ("s3" in cdk_class.lower() or "aws_s3" in cdk_class)
+        ):
+            continue
+
+        display_name = construct_name or "UnnamedBucket"
+
+        prop_rows = db.query(
+            Q("cdk_construct_properties")
+            .select("property_value_expr", "line")
+            .where("construct_id = ?", construct_id)
+            .where("property_name = ?", "encryption")
+        )
+
+        if prop_rows:
+            prop_value, prop_line = prop_rows[0]
+            if "UNENCRYPTED" in prop_value.upper():
+                findings.append(
+                    StandardFinding(
+                        rule_name="aws-cdk-s3-unencrypted",
+                        message=f"S3 bucket '{display_name}' has encryption explicitly disabled",
+                        severity=Severity.HIGH,
+                        confidence="high",
+                        file_path=file_path,
+                        line=prop_line,
+                        snippet=f"encryption={prop_value}",
+                        category="missing_encryption",
+                        cwe_id="CWE-311",
+                        additional_info={
+                            "construct_id": construct_id,
+                            "construct_name": display_name,
+                            "remediation": "Remove encryption=BucketEncryption.UNENCRYPTED or use S3_MANAGED/KMS_MANAGED.",
+                        },
+                    )
+                )
+
+    return findings
+
+
+def _check_rds_public_subnet(db: RuleDB) -> list[StandardFinding]:
+    """Detect RDS databases placed in public subnets.
+
+    A database in a public subnet is critically exposed regardless of encryption.
+    This is a common infrastructure mistake that leads to data breaches.
+    """
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+    )
+
+    for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not (
+            "DatabaseInstance" in cdk_class
+            and ("rds" in cdk_class.lower() or "aws_rds" in cdk_class)
+        ):
+            continue
+
+        display_name = construct_name or "UnnamedDB"
+
+        prop_rows = db.query(
+            Q("cdk_construct_properties")
+            .select("property_name", "property_value_expr", "line")
+            .where("construct_id = ?", construct_id)
+        )
+
+        for prop_name, prop_value, prop_line in prop_rows:
+            prop_name_lower = prop_name.lower()
+            prop_value_upper = prop_value.upper()
+
+            is_subnet_prop = "subnet" in prop_name_lower or "vpc_subnets" in prop_name_lower
+            is_public = "PUBLIC" in prop_value_upper or "SubnetType.PUBLIC" in prop_value
+
+            if is_subnet_prop and is_public:
+                findings.append(
+                    StandardFinding(
+                        rule_name="aws-cdk-rds-public-subnet",
+                        message=f"RDS instance '{display_name}' is placed in a PUBLIC subnet - critically exposed",
+                        severity=Severity.CRITICAL,
+                        confidence="high",
+                        file_path=file_path,
+                        line=prop_line,
+                        snippet=f"{prop_name}={prop_value}",
+                        category="public_exposure",
+                        cwe_id="CWE-284",
+                        additional_info={
+                            "construct_id": construct_id,
+                            "construct_name": display_name,
+                            "remediation": "Move database to private subnet: vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS)",
+                        },
+                    )
+                )
+
+    return findings
 
 
 def _check_unencrypted_rds(db: RuleDB) -> list[StandardFinding]:

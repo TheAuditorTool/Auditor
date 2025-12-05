@@ -2,10 +2,12 @@
 
 Detects common Go cryptography vulnerabilities:
 1. math/rand in security-sensitive code (use crypto/rand) - CWE-330
-2. Weak hashing algorithms (MD5/SHA1) - CWE-328
+2. Weak hashing/encryption algorithms (MD5/SHA1/DES/RC4) - CWE-327/328
 3. Insecure TLS configuration (InsecureSkipVerify, weak versions) - CWE-295/326
 4. Hardcoded secrets in constants/variables - CWE-798
 """
+
+import re
 
 from theauditor.rules.base import (
     Confidence,
@@ -49,7 +51,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
     with RuleDB(context.db_path, METADATA.name) as db:
         findings.extend(_check_insecure_random(db))
-        findings.extend(_check_weak_hashing(db))
+        findings.extend(_check_weak_crypto(db))
         findings.extend(_check_insecure_tls(db))
         findings.extend(_check_hardcoded_secrets(db))
 
@@ -119,23 +121,37 @@ def _check_insecure_random(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
-def _check_weak_hashing(db: RuleDB) -> list[StandardFinding]:
-    """Detect MD5/SHA1 usage for security purposes.
+def _check_weak_crypto(db: RuleDB) -> list[StandardFinding]:
+    """Detect weak cryptographic algorithms.
 
-    MD5 and SHA1 are cryptographically broken for security use cases
-    like password hashing, digital signatures, or integrity verification.
+    MD5, SHA1, DES, and RC4 are cryptographically broken for security use cases
+    like password hashing, digital signatures, encryption, or integrity verification.
     """
     findings = []
 
-    # Find files importing weak hash algorithms
-    weak_hash_rows = db.query(
+    # Find files importing weak crypto algorithms
+    weak_crypto_rows = db.query(
         Q("go_imports")
         .select("file_path", "line", "path")
-        .where("path = ? OR path = ?", "crypto/md5", "crypto/sha1")
+        .where("path = ? OR path = ? OR path = ? OR path = ?",
+               "crypto/md5", "crypto/sha1", "crypto/des", "crypto/rc4")
     )
 
-    for file_path, import_line, import_path in weak_hash_rows:
-        hash_type = "MD5" if "md5" in import_path else "SHA1"
+    for file_path, import_line, import_path in weak_crypto_rows:
+        if "md5" in import_path:
+            algo_type = "MD5"
+            algo_category = "hash"
+        elif "sha1" in import_path:
+            algo_type = "SHA1"
+            algo_category = "hash"
+        elif "des" in import_path:
+            algo_type = "DES"
+            algo_category = "cipher"
+        elif "rc4" in import_path:
+            algo_type = "RC4"
+            algo_category = "cipher"
+        else:
+            continue
 
         # Check for security-related function context
         security_func_rows = db.query(
@@ -144,8 +160,8 @@ def _check_weak_hashing(db: RuleDB) -> list[StandardFinding]:
             .where("file_path = ?", file_path)
             .where(
                 "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
-                "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?",
-                "%password%", "%auth%", "%verify%", "%hash%", "%sign%"
+                "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?",
+                "%password%", "%auth%", "%verify%", "%hash%", "%sign%", "%encrypt%"
             )
             .limit(1)
         )
@@ -154,16 +170,21 @@ def _check_weak_hashing(db: RuleDB) -> list[StandardFinding]:
         severity = Severity.HIGH if security_context else Severity.MEDIUM
         confidence = Confidence.HIGH if security_context else Confidence.LOW
 
+        if algo_category == "hash":
+            message = f"{algo_type} is cryptographically weak - use SHA-256 or better"
+        else:
+            message = f"{algo_type} is cryptographically broken - use AES-GCM or ChaCha20-Poly1305"
+
         findings.append(
             StandardFinding(
-                rule_name=f"go-weak-hash-{hash_type.lower()}",
-                message=f"{hash_type} is cryptographically weak - use SHA-256 or better",
+                rule_name=f"go-weak-{algo_category}-{algo_type.lower()}",
+                message=message,
                 file_path=file_path,
                 line=import_line,
                 severity=severity,
                 category="crypto",
                 confidence=confidence,
-                cwe_id="CWE-328",
+                cwe_id="CWE-328" if algo_category == "hash" else "CWE-327",
             )
         )
 
@@ -227,15 +248,37 @@ def _check_insecure_tls(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
+# High-entropy patterns for common API keys/secrets
+SECRET_PATTERNS = [
+    (re.compile(r'AKIA[0-9A-Z]{16}'), "AWS Access Key ID"),
+    (re.compile(r'[0-9a-zA-Z/+]{40}'), "AWS Secret Key (40-char base64)"),
+    (re.compile(r'ghp_[0-9a-zA-Z]{36}'), "GitHub Personal Access Token"),
+    (re.compile(r'gho_[0-9a-zA-Z]{36}'), "GitHub OAuth Token"),
+    (re.compile(r'ghu_[0-9a-zA-Z]{36}'), "GitHub User Token"),
+    (re.compile(r'ghs_[0-9a-zA-Z]{36}'), "GitHub Server Token"),
+    (re.compile(r'ghr_[0-9a-zA-Z]{36}'), "GitHub Refresh Token"),
+    (re.compile(r'sk-[0-9a-zA-Z]{48}'), "OpenAI API Key"),
+    (re.compile(r'sk-live-[0-9a-zA-Z]{24,}'), "Stripe Live Secret Key"),
+    (re.compile(r'sk-test-[0-9a-zA-Z]{24,}'), "Stripe Test Secret Key"),
+    (re.compile(r'xox[baprs]-[0-9a-zA-Z-]{10,}'), "Slack Token"),
+    (re.compile(r'AIza[0-9A-Za-z_-]{35}'), "Google API Key"),
+    (re.compile(r'ya29\.[0-9A-Za-z_-]+'), "Google OAuth Token"),
+    (re.compile(r'[0-9a-f]{32}-us[0-9]{1,2}'), "Mailchimp API Key"),
+    (re.compile(r'SG\.[0-9A-Za-z_-]{22}\.[0-9A-Za-z_-]{43}'), "SendGrid API Key"),
+    (re.compile(r'key-[0-9a-zA-Z]{32}'), "Mailgun API Key"),
+]
+
+
 def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
     """Detect hardcoded secrets in constants and variables.
 
-    Secrets should come from environment variables, config files,
-    or secret management systems - never hardcoded in source.
+    Detects:
+    1. Variables/constants with secret-like names
+    2. High-entropy strings matching known API key patterns
     """
     findings = []
 
-    # Check constants with secret-like names
+    # Check 1: Constants with secret-like names
     secret_const_rows = db.query(
         Q("go_constants")
         .select("file_path", "line", "name", "value")
@@ -252,7 +295,6 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
 
     for file_path, line, name, value in secret_const_rows:
         value = value or ""
-        # Skip short values or empty strings
         if len(value) < 5 or value in ('""', "''", '""', "nil"):
             continue
 
@@ -269,7 +311,7 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check package-level variables with secret-like names
+    # Check 2: Package-level variables with secret-like names
     secret_var_rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "name", "initial_value")
@@ -286,7 +328,6 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
 
     for file_path, line, name, initial_value in secret_var_rows:
         value = initial_value or ""
-        # Skip if loaded from environment or config
         if "os.Getenv" in value or "viper" in value.lower():
             continue
 
@@ -302,5 +343,40 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
                 cwe_id="CWE-798",
             )
         )
+
+    # Check 3: High-entropy patterns in ALL string constants (value-based detection)
+    all_const_rows = db.query(
+        Q("go_constants")
+        .select("file_path", "line", "name", "value")
+        .where("value IS NOT NULL")
+        .where("LENGTH(value) > ?", 15)
+    )
+
+    seen_findings: set[tuple[str, int]] = set()
+    for file_path, line, name, value in all_const_rows:
+        value = value or ""
+        # Strip quotes
+        clean_value = value.strip('"').strip("'").strip("`")
+
+        for pattern, secret_type in SECRET_PATTERNS:
+            if pattern.search(clean_value):
+                key = (file_path, line)
+                if key in seen_findings:
+                    continue
+                seen_findings.add(key)
+
+                findings.append(
+                    StandardFinding(
+                        rule_name="go-hardcoded-api-key",
+                        message=f"Hardcoded {secret_type} detected in '{name}'",
+                        file_path=file_path,
+                        line=line,
+                        severity=Severity.CRITICAL,
+                        category="crypto",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-798",
+                    )
+                )
+                break
 
     return findings

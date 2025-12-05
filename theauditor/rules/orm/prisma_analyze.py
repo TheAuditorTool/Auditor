@@ -8,6 +8,7 @@ Detects security vulnerabilities and performance anti-patterns in Prisma ORM usa
 - Unhandled OrThrow methods without error boundaries
 - Missing database indexes on common lookup fields
 - Connection pool misconfiguration
+- Mass assignment via data: req.body passed to create/update (CWE-915)
 
 Tables Used:
 - orm_queries: Prisma query calls with pagination and transaction info
@@ -22,6 +23,7 @@ CWE References:
 - CWE-662: Improper Synchronization
 - CWE-755: Improper Handling of Exceptional Conditions
 - CWE-770: Allocation of Resources Without Limits
+- CWE-915: Improperly Controlled Modification of Dynamically-Determined Object Attributes
 
 Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
 """
@@ -151,6 +153,28 @@ PRISMA_SOURCES = frozenset([
     "orderBy",
 ])
 
+# Unsafe input sources for mass assignment detection
+UNSAFE_INPUT_SOURCES = frozenset([
+    "req.body",
+    "request.body",
+    "body",
+    "params",
+    "req.params",
+    "request.params",
+    "req.query",
+    "request.query",
+    "input",
+])
+
+# Methods vulnerable to mass assignment in Prisma
+MASS_ASSIGNMENT_METHODS = frozenset([
+    "create",
+    "createMany",
+    "update",
+    "updateMany",
+    "upsert",
+])
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Prisma ORM security vulnerabilities and performance anti-patterns.
@@ -175,6 +199,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         _check_missing_indexes(db, findings)
         _check_connection_config(db, findings)
         _check_unindexed_common_fields(db, findings)
+        _check_mass_assignment(db, findings)
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -531,6 +556,64 @@ def _check_unindexed_common_fields(db: RuleDB, findings: list[StandardFinding]) 
                 cwe_id="CWE-400",
             )
         )
+
+
+def _check_mass_assignment(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect mass assignment vulnerabilities - passing req.body directly to data field.
+
+    Prisma's create/update methods accept a data object. If this is populated
+    directly from user input (req.body), attackers can overwrite any field.
+    Example: prisma.user.create({ data: req.body }) allows setting isAdmin: true
+    """
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        if not func or not args:
+            continue
+
+        is_prisma_write = any(f".{method}" in func for method in MASS_ASSIGNMENT_METHODS)
+        if not is_prisma_write:
+            continue
+
+        args_str = str(args)
+        args_lower = args_str.lower()
+
+        has_unsafe_input = any(source.lower() in args_lower for source in UNSAFE_INPUT_SOURCES)
+
+        if not has_unsafe_input:
+            continue
+
+        has_data_spread = "...req.body" in args_str or "...body" in args_str or "...request.body" in args_str
+        has_data_direct = any(
+            f"data: {source}" in args_str or f"data:{source}" in args_str.replace(" ", "")
+            for source in UNSAFE_INPUT_SOURCES
+        )
+        has_spread_in_data = "data: {" in args_str and "..." in args_str
+
+        if has_data_spread or has_data_direct or has_spread_in_data:
+            model = func.split(".")[-2] if func.count(".") >= 2 else "model"
+            method = func.split(".")[-1] if "." in func else func
+
+            findings.append(
+                StandardFinding(
+                    rule_name="prisma-mass-assignment",
+                    message=f"Mass assignment vulnerability: {model}.{method}() receives raw user input in data field",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="orm",
+                    snippet=f"{func}({{ data: ... }})" if len(args_str) > 60 else f"{func}({args_str})",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-915",
+                    additional_info={
+                        "remediation": "Whitelist allowed fields: prisma.user.create({ data: { email: body.email, name: body.name } })",
+                    },
+                )
+            )
 
 
 def register_taint_patterns(taint_registry) -> None:

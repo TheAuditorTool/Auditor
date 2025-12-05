@@ -139,15 +139,16 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
 
 def _check_sql_injection(db: RuleDB) -> list[StandardFinding]:
-    """Detect SQL injection via string formatting in queries.
+    """Detect SQL injection via string formatting and concatenation.
 
-    Looks for fmt.Sprintf building SQL queries without parameterization.
-    Safe patterns (?, $1, :name) are excluded to reduce false positives.
+    Detects:
+    1. fmt.Sprintf building SQL queries with format specifiers
+    2. String concatenation building SQL queries
     """
     findings = []
 
-    # Find variables with fmt.Sprintf building SQL
-    rows = db.query(
+    # Check 1: fmt.Sprintf with SQL keywords
+    sprintf_rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "name", "initial_value")
         .where("initial_value LIKE ?", "%fmt.Sprintf%")
@@ -159,55 +160,122 @@ def _check_sql_injection(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for file_path, line, name, initial_value in rows:
+    for file_path, line, name, initial_value in sprintf_rows:
         value = initial_value or ""
 
-        # Skip if parameterized (safe patterns present)
-        if any(safe in value for safe in GoInjectionPatterns.SAFE_PATTERNS):
+        has_safe_patterns = any(safe in value for safe in GoInjectionPatterns.SAFE_PATTERNS)
+        has_format_specifiers = "%s" in value or "%v" in value or "%d" in value
+
+        # If safe patterns exist BUT format specifiers also exist, still flag (table name injection)
+        if has_safe_patterns and has_format_specifiers:
+            findings.append(
+                StandardFinding(
+                    rule_name="go-sql-injection-partial",
+                    message=f"SQL in '{name}' has parameterization but also format specifiers - possible table/column name injection",
+                    file_path=file_path,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="injection",
+                    confidence=Confidence.LOW,
+                    cwe_id="CWE-89",
+                )
+            )
+        elif not has_safe_patterns:
+            findings.append(
+                StandardFinding(
+                    rule_name="go-sql-injection",
+                    message=f"SQL built with fmt.Sprintf without parameterization in '{name}'",
+                    file_path=file_path,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-89",
+                )
+            )
+
+    # Check 2: String concatenation with SQL keywords
+    concat_rows = db.query(
+        Q("go_variables")
+        .select("file_path", "line", "name", "initial_value")
+        .where("initial_value LIKE ?", "%+%")
+        .where(
+            "UPPER(initial_value) LIKE ? OR UPPER(initial_value) LIKE ? "
+            "OR UPPER(initial_value) LIKE ? OR UPPER(initial_value) LIKE ? "
+            "OR UPPER(initial_value) LIKE ?",
+            "%SELECT %", "%INSERT %", "%UPDATE %", "%DELETE %", "%WHERE %"
+        )
+    )
+
+    for file_path, line, name, initial_value in concat_rows:
+        value = initial_value or ""
+
+        # Skip if it's just fmt.Sprintf (already handled above)
+        if "fmt.Sprintf" in value:
             continue
 
-        findings.append(
-            StandardFinding(
-                rule_name="go-sql-injection",
-                message=f"SQL built with fmt.Sprintf without parameterization in '{name}'",
-                file_path=file_path,
-                line=line,
-                severity=Severity.CRITICAL,
-                category="injection",
-                confidence=Confidence.HIGH,
-                cwe_id="CWE-89",
+        # Must have SQL string literal AND concatenation with non-literal
+        has_sql_string = ('"SELECT' in value or '"INSERT' in value or
+                         '"UPDATE' in value or '"DELETE' in value or
+                         '"WHERE' in value or "'SELECT" in value)
+
+        if has_sql_string:
+            findings.append(
+                StandardFinding(
+                    rule_name="go-sql-injection-concat",
+                    message=f"SQL built with string concatenation in '{name}' - use parameterized queries",
+                    file_path=file_path,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-89",
+                )
             )
-        )
 
     return findings
 
 
 def _check_command_injection(db: RuleDB) -> list[StandardFinding]:
-    """Detect command injection via exec.Command with variables.
+    """Detect command injection via exec.Command and related methods.
 
-    exec.Command with non-literal first argument is dangerous as it
+    Command execution with non-literal first argument is dangerous as it
     allows attackers to inject arbitrary commands.
     """
     findings = []
 
-    # Find exec.Command calls that don't start with string literals
+    # Build OR clause for all command methods
+    command_methods = list(GoInjectionPatterns.COMMAND_METHODS)
+    like_clauses = " OR ".join(["initial_value LIKE ?" for _ in command_methods])
+    like_params = [f"%{method}%" for method in command_methods]
+
     rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "initial_value")
-        .where("initial_value LIKE ?", "%exec.Command%")
+        .where(like_clauses, *like_params)
     )
 
     for file_path, line, initial_value in rows:
         value = initial_value or ""
 
+        # Determine which method was matched
+        matched_method = None
+        for method in command_methods:
+            if method in value:
+                matched_method = method
+                break
+
+        if not matched_method:
+            continue
+
         # Skip if command is a string literal (safe)
-        if 'exec.Command("' in value or "exec.Command('" in value:
+        if f'{matched_method}("' in value or f"{matched_method}('" in value:
             continue
 
         findings.append(
             StandardFinding(
                 rule_name="go-command-injection",
-                message="exec.Command with non-literal command - potential command injection",
+                message=f"{matched_method} with non-literal command - potential command injection",
                 file_path=file_path,
                 line=line,
                 severity=Severity.CRITICAL,

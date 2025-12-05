@@ -172,14 +172,10 @@ def _check_dangerous_imports(db: RuleDB) -> list[StandardFinding]:
     """Flag imports of dangerous memory functions."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file_path, line, import_path, local_name
-        FROM rust_use_statements
-        """,
-        [],
+    rows = db.query(
+        Q("rust_use_statements")
+        .select("file_path", "line", "import_path", "local_name")
     )
-    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, import_path, local_name = row
@@ -216,17 +212,11 @@ def _check_unsafe_blocks_for_patterns(db: RuleDB) -> list[StandardFinding]:
     """Check unsafe blocks for dangerous patterns."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT
-            file_path, line_start, line_end,
-            containing_function, operations_json
-        FROM rust_unsafe_blocks
-        WHERE operations_json IS NOT NULL
-        """,
-        [],
+    rows = db.query(
+        Q("rust_unsafe_blocks")
+        .select("file_path", "line_start", "line_end", "containing_function", "operations_json")
+        .where("operations_json IS NOT NULL")
     )
-    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, _, containing_fn, operations = row

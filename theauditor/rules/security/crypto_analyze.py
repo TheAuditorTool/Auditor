@@ -201,43 +201,28 @@ def _determine_confidence(db: RuleDB, file: str, line: int, func_name: str) -> C
     if func_name and any(kw in func_name.lower() for kw in NON_SECURITY_KEYWORDS):
         return Confidence.LOW
 
-    sql, params = Q.raw(
-        """
-        SELECT callee_function
-        FROM function_call_args
-        WHERE file = ?
-          AND callee_function IS NOT NULL
-        """,
-        [file],
+    # Check for security operations nearby
+    rows = db.query(
+        Q("function_call_args")
+        .select("callee_function", "line")
+        .where("file = ?", file)
+        .where("callee_function IS NOT NULL")
     )
-    rows = db.execute(sql, params)
 
     security_operations = ["encrypt", "decrypt", "hash", "sign", "verify"]
-    for (callee,) in rows:
-        sql2, params2 = Q.raw(
-            """
-            SELECT line FROM function_call_args
-            WHERE file = ? AND callee_function = ?
-            """,
-            [file, callee],
-        )
-        func_rows = db.execute(sql2, params2)
-        if func_rows:
-            func_line = func_rows[0][0]
-            if abs(func_line - line) <= 5:
-                callee_lower = callee.lower()
-                if any(op in callee_lower for op in security_operations):
-                    return Confidence.HIGH
+    for callee, func_line in rows:
+        if abs(func_line - line) <= 5:
+            callee_lower = callee.lower()
+            if any(op in callee_lower for op in security_operations):
+                return Confidence.HIGH
 
-    sql3, params3 = Q.raw(
-        """
-        SELECT target_var FROM assignments
-        WHERE file = ?
-          AND target_var IS NOT NULL
-        """,
-        [file],
+    # Check for security-related variable names
+    var_rows = db.query(
+        Q("assignments")
+        .select("target_var")
+        .where("file = ?", file)
+        .where("target_var IS NOT NULL")
     )
-    var_rows = db.execute(sql3, params3)
 
     for (var_name,) in var_rows:
         var_lower = var_name.lower() if var_name else ""
@@ -251,19 +236,16 @@ def _find_weak_random_generation(db: RuleDB) -> list[StandardFinding]:
     """Find usage of weak random number generators for security purposes."""
     findings: list[StandardFinding] = []
 
-    placeholders = " OR ".join(["callee_function = ?" for _ in WEAK_RANDOM_FUNCTIONS])
-    params_list = list(WEAK_RANDOM_FUNCTIONS)
+    # Build IN clause for weak random functions
+    funcs_list = list(WEAK_RANDOM_FUNCTIONS)
+    placeholders = ",".join(["?"] * len(funcs_list))
 
-    sql, params = Q.raw(
-        f"""
-        SELECT file, line, callee_function, caller_function, argument_expr
-        FROM function_call_args
-        WHERE {placeholders}
-        ORDER BY file, line
-        """,
-        params_list,
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "caller_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *funcs_list)
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     for file, line, callee, caller, args in rows:
         confidence = _determine_confidence(db, file, line, caller)
@@ -292,16 +274,12 @@ def _find_weak_hash_algorithms(db: RuleDB) -> list[StandardFinding]:
     """Find usage of weak/broken hash algorithms."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, callee_function, caller_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "caller_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     for file, line, callee, caller, args in rows:
         callee_str = callee if callee else ""
@@ -344,15 +322,11 @@ def _find_weak_encryption_algorithms(db: RuleDB) -> list[StandardFinding]:
     """Find usage of weak/broken encryption algorithms."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT DISTINCT file, line, callee_function, argument_expr
-        FROM function_call_args
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     seen: set[tuple[str, int, str]] = set()
 
@@ -399,17 +373,13 @@ def _find_missing_salt(db: RuleDB) -> list[StandardFinding]:
     """Find password hashing without salt."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     hash_functions = ["hash", "digest", "bcrypt", "scrypt", "pbkdf2"]
     password_keywords = ["password", "passwd", "pwd"]
@@ -423,16 +393,13 @@ def _find_missing_salt(db: RuleDB) -> list[StandardFinding]:
         if not any(pw in args_lower for pw in password_keywords):
             continue
 
-        sql2, params2 = Q.raw(
-            """
-            SELECT target_var, source_expr, line
-            FROM assignments
-            WHERE file = ?
-              AND target_var IS NOT NULL
-            """,
-            [file],
+        # Check for salt in nearby assignments
+        assign_rows = db.query(
+            Q("assignments")
+            .select("target_var", "source_expr", "line")
+            .where("file = ?", file)
+            .where("target_var IS NOT NULL")
         )
-        assign_rows = db.execute(sql2, params2)
 
         has_salt_nearby = False
         for var, expr, assign_line in assign_rows:
@@ -467,17 +434,13 @@ def _find_static_salt(db: RuleDB) -> list[StandardFinding]:
     """Find hardcoded salt values."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE target_var IS NOT NULL
-          AND source_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     secure_patterns = ["random", "generate", "uuid", "secrets", "urandom"]
 
@@ -514,16 +477,12 @@ def _find_weak_kdf_iterations(db: RuleDB) -> list[StandardFinding]:
     """Find weak key derivation functions with low iterations."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     kdf_functions = ["pbkdf2", "scrypt", "bcrypt"]
 
@@ -567,17 +526,14 @@ def _find_ecb_mode(db: RuleDB) -> list[StandardFinding]:
     """Find usage of ECB mode in encryption."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    # Check function calls for ECB mode
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     crypto_functions = ["cipher", "encrypt", "decrypt", "AES", "DES"]
 
@@ -604,17 +560,14 @@ def _find_ecb_mode(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    sql2, params2 = Q.raw(
-        """
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE target_var IS NOT NULL
-          AND source_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    # Check assignments for ECB mode configuration
+    assign_rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
     )
-    assign_rows = db.execute(sql2, params2)
 
     for file, line, var, expr in assign_rows:
         if "mode" not in var.lower():
@@ -643,16 +596,12 @@ def _find_missing_iv(db: RuleDB) -> list[StandardFinding]:
     """Find encryption operations without initialization vector."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     for file, line, callee, args in rows:
         callee_lower = callee.lower()
@@ -667,16 +616,13 @@ def _find_missing_iv(db: RuleDB) -> list[StandardFinding]:
             has_iv_in_args = any(term in args_lower for term in ["iv", "nonce", "initialization"])
 
         if not has_iv_in_args:
-            sql2, params2 = Q.raw(
-                """
-                SELECT target_var, source_expr, line
-                FROM assignments
-                WHERE file = ?
-                  AND target_var IS NOT NULL
-                """,
-                [file],
+            # Check for IV in nearby assignments
+            assign_rows = db.query(
+                Q("assignments")
+                .select("target_var", "source_expr", "line")
+                .where("file = ?", file)
+                .where("target_var IS NOT NULL")
             )
-            assign_rows = db.execute(sql2, params2)
 
             has_iv_nearby = False
             for var, expr, assign_line in assign_rows:
@@ -709,17 +655,13 @@ def _find_static_iv(db: RuleDB) -> list[StandardFinding]:
     """Find hardcoded initialization vectors."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE target_var IS NOT NULL
-          AND source_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     iv_keywords = ["iv", "nonce", "initialization_vector"]
     literal_starts = ['"', "'", "[0,", "bytes("]
@@ -764,17 +706,14 @@ def _find_predictable_seeds(db: RuleDB) -> list[StandardFinding]:
         "timestamp", "time()", "microtime", "performance.now",
     ]
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE target_var IS NOT NULL
-          AND source_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    # Check assignments for predictable seeds
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     seed_keywords = ["seed", "random"]
 
@@ -804,17 +743,14 @@ def _find_predictable_seeds(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    sql2, params2 = Q.raw(
-        """
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    # Check function calls for seed with timestamp args
+    func_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
-    func_rows = db.execute(sql2, params2)
 
     for file, line, callee, args in func_rows:
         callee_lower = callee.lower()
@@ -843,18 +779,14 @@ def _find_hardcoded_keys(db: RuleDB) -> list[StandardFinding]:
     """Find hardcoded encryption keys."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE target_var IS NOT NULL
-          AND source_expr IS NOT NULL
-          AND LENGTH(source_expr) > 10
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .where("source_expr IS NOT NULL")
+        .where("LENGTH(source_expr) > 10")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     key_keywords = [
         "key", "secret", "cipher_key", "encryption_key",
@@ -899,17 +831,13 @@ def _find_weak_key_size(db: RuleDB) -> list[StandardFinding]:
     """Find usage of weak encryption key sizes."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     keygen_patterns = ["generate_key", "keygen", "new_key", "random", "key"]
 
@@ -963,17 +891,13 @@ def _find_password_in_url(db: RuleDB) -> list[StandardFinding]:
     """Find passwords transmitted in URLs."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     url_functions = ["url", "uri", "query", "params"]
     sensitive_keywords = ["password", "passwd", "pwd", "token", "secret"]
@@ -1008,17 +932,14 @@ def _find_timing_vulnerable_compare(db: RuleDB) -> list[StandardFinding]:
     """Find timing-vulnerable string comparisons for secrets."""
     findings: list[StandardFinding] = []
 
-    sql, params = Q.raw(
-        """
-        SELECT path, name, line, type
-        FROM symbols
-        WHERE name IS NOT NULL
-          AND type = 'comparison'
-        ORDER BY path, line
-        """,
-        [],
+    # Check symbols for comparison operations
+    rows = db.query(
+        Q("symbols")
+        .select("path", "name", "line", "type")
+        .where("name IS NOT NULL")
+        .where("type = ?", "comparison")
+        .order_by("path, line")
     )
-    rows = db.execute(sql, params)
 
     sensitive_keywords = ["password", "token", "secret", "key", "hash", "signature"]
 
@@ -1041,17 +962,14 @@ def _find_timing_vulnerable_compare(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    sql2, params2 = Q.raw(
-        """
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IN ('strcmp', 'strcasecmp', 'memcmp')
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    # Check for strcmp/strcasecmp/memcmp with secrets
+    func_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IN ('strcmp', 'strcasecmp', 'memcmp')")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
     )
-    func_rows = db.execute(sql2, params2)
 
     for file, line, callee, args in func_rows:
         args_lower = args.lower()
@@ -1087,16 +1005,12 @@ def _find_deprecated_libraries(db: RuleDB) -> list[StandardFinding]:
         ("sha1_file", "SHA1 is deprecated"),
     ]
 
-    sql, params = Q.raw(
-        """
-        SELECT file, line, callee_function
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-        ORDER BY file, line
-        """,
-        [],
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
     )
-    rows = db.execute(sql, params)
 
     for file, line, callee in rows:
         for deprecated, reason in deprecated_funcs:

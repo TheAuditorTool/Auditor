@@ -21,7 +21,7 @@ from theauditor.rules.base import (
 from theauditor.rules.fidelity import RuleDB
 from theauditor.rules.query import Q
 
-from .config import RANGE_PREFIXES
+from .config import LOCK_FILES, RANGE_PREFIXES
 
 METADATA = RuleMetadata(
     name="version_pinning",
@@ -65,6 +65,10 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     - File references that may change without version tracking
     - HTTP URLs that could serve different content over time
 
+    Severity is context-aware: if a lockfile exists, version ranges are
+    acceptable (lockfile pins the actual version) and downgraded to LOW.
+    Git/URL dependencies remain HIGH as they bypass lockfile entirely.
+
     Args:
         context: Standard rule context with db_path
 
@@ -77,17 +81,52 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
+        # Check for lockfile presence - affects severity of range findings
+        has_lockfile = _has_lockfile(db)
+
         # Check JavaScript/Node package dependencies
-        findings.extend(_check_js_dependencies(db))
+        findings.extend(_check_js_dependencies(db, has_lockfile))
 
         # Check Python package dependencies
-        findings.extend(_check_python_dependencies(db))
+        findings.extend(_check_python_dependencies(db, has_lockfile))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _check_js_dependencies(db: RuleDB) -> list[StandardFinding]:
-    """Check JavaScript package dependencies for unpinned versions."""
+def _has_lockfile(db: RuleDB) -> bool:
+    """Check if any lockfile exists in the indexed repository.
+
+    Presence of a lockfile (package-lock.json, yarn.lock, poetry.lock, etc.)
+    means version ranges are acceptable because the lockfile pins actual versions.
+
+    Args:
+        db: RuleDB instance
+
+    Returns:
+        True if any lockfile is found in the files table
+    """
+    for lockfile in LOCK_FILES:
+        rows = db.query(
+            Q("files")
+            .select("path")
+            .where("path LIKE ?", f"%/{lockfile}")
+            .limit(1)
+        )
+        if rows:
+            return True
+    return False
+
+
+def _check_js_dependencies(db: RuleDB, has_lockfile: bool) -> list[StandardFinding]:
+    """Check JavaScript package dependencies for unpinned versions.
+
+    Args:
+        db: RuleDB instance
+        has_lockfile: Whether a lockfile exists (downgrades range severity)
+
+    Returns:
+        List of findings for unpinned JS dependencies
+    """
     findings: list[StandardFinding] = []
 
     rows = db.query(
@@ -105,12 +144,17 @@ def _check_js_dependencies(db: RuleDB) -> list[StandardFinding]:
 
         if issue:
             issue_type, severity_boost, description = issue
-            # Lower severity for dev/peer dependencies, but git URLs stay HIGH
-            base_severity = Severity.HIGH if severity_boost else Severity.MEDIUM
-            if is_dev or is_peer:
-                severity = Severity.MEDIUM if severity_boost else Severity.LOW
+
+            # Lockfile context: ranges are acceptable if lockfile exists
+            # Git/URL/file deps still bypass lockfile, keep original severity
+            if issue_type == "range" and has_lockfile:
+                severity = Severity.LOW
+            elif severity_boost:
+                # HIGH severity issues (git, url, alias)
+                severity = Severity.MEDIUM if (is_dev or is_peer) else Severity.HIGH
             else:
-                severity = base_severity
+                # MEDIUM severity issues (file, workspace, range without lockfile)
+                severity = Severity.LOW if (is_dev or is_peer) else Severity.MEDIUM
 
             dep_type = "dev" if is_dev else ("peer" if is_peer else "production")
 
@@ -130,8 +174,16 @@ def _check_js_dependencies(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
-def _check_python_dependencies(db: RuleDB) -> list[StandardFinding]:
-    """Check Python package dependencies for unpinned versions."""
+def _check_python_dependencies(db: RuleDB, has_lockfile: bool) -> list[StandardFinding]:
+    """Check Python package dependencies for unpinned versions.
+
+    Args:
+        db: RuleDB instance
+        has_lockfile: Whether a lockfile exists (downgrades range severity)
+
+    Returns:
+        List of findings for unpinned Python dependencies
+    """
     findings: list[StandardFinding] = []
 
     rows = db.query(
@@ -142,6 +194,7 @@ def _check_python_dependencies(db: RuleDB) -> list[StandardFinding]:
 
     for file_path, pkg_name, version_spec, is_dev, git_url in rows:
         # Check git_url column directly (Python package schema has it)
+        # Git URLs bypass lockfile entirely - keep HIGH severity
         if git_url:
             severity = Severity.MEDIUM if is_dev else Severity.HIGH
             dep_type = "dev" if is_dev else "production"
@@ -168,8 +221,15 @@ def _check_python_dependencies(db: RuleDB) -> list[StandardFinding]:
 
         if issue:
             issue_type, severity_boost, description = issue
-            base_severity = Severity.HIGH if severity_boost else Severity.MEDIUM
-            severity = Severity.MEDIUM if is_dev and severity_boost else (Severity.LOW if is_dev else base_severity)
+
+            # Lockfile context: ranges are acceptable if lockfile exists
+            if issue_type == "range" and has_lockfile:
+                severity = Severity.LOW
+            elif severity_boost:
+                severity = Severity.MEDIUM if is_dev else Severity.HIGH
+            else:
+                severity = Severity.LOW if is_dev else Severity.MEDIUM
+
             dep_type = "dev" if is_dev else "production"
 
             findings.append(

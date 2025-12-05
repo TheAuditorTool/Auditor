@@ -65,10 +65,11 @@ def register_taint_patterns(taint_registry):
 
     # Standard Input (category: user_input)
     # Verified in database: io::stdin
+    # NOTE: "read_line" removed - too generic, matches any buffered reader
     stdin_sources = [
         "io::stdin",
         "std::io::stdin",
-        "read_line",
+        "std::io::Stdin::read_line",  # Specific stdin read_line
         "read_user_input",
         "BufReader::new",  # Often wraps stdin
     ]
@@ -176,16 +177,20 @@ def register_taint_patterns(taint_registry):
         sink_count += 1
 
     # SQL Queries (category: sql)
-    # Verified in database: sqlx::query, sqlx::query_as, execute, execute_sql
+    # Verified in database: sqlx::query, sqlx::query_as, execute_sql
+    # NOTE: Generic "execute" removed - too broad (matches Command::execute, Task::execute, etc.)
     sql_sinks = [
         "sqlx::query",
         "sqlx::query_as",
-        "execute",
+        "sqlx::query_scalar",
         "execute_sql",
         "diesel::sql_query",
         "diesel::insert_into",
         "diesel::update",
         "diesel::delete",
+        "rusqlite::Connection::execute",  # Specific SQLite execute
+        "postgres::Client::execute",  # Specific PostgreSQL execute
+        "tokio_postgres::Client::execute",  # Async PostgreSQL
     ]
     for pattern in sql_sinks:
         taint_registry.register_sink(pattern, "sql", "rust")

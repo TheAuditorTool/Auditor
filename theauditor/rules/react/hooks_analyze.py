@@ -47,7 +47,9 @@ class ReactHooksPatterns:
     ])
 
     HOOKS_WITHOUT_DEPS: frozenset = frozenset([
-        "useState", "useReducer", "useRef", "useContext", "useId", "useDebugValue"
+        "useState", "useReducer", "useRef", "useContext", "useId", "useDebugValue",
+        # React 19 - none of these take dependency arrays
+        "use", "useActionState", "useOptimistic", "useFormStatus",
     ])
 
     CLEANUP_REQUIRED: frozenset = frozenset([
@@ -67,9 +69,13 @@ class ReactHooksPatterns:
     ])
 
     BUILTIN_HOOKS: frozenset = frozenset([
+        # Core hooks
         "useState", "useEffect", "useContext", "useReducer", "useCallback",
         "useMemo", "useRef", "useLayoutEffect", "useImperativeHandle", "useDebugValue",
+        # React 18
         "useId", "useTransition", "useDeferredValue", "useSyncExternalStore",
+        # React 19
+        "use", "useActionState", "useOptimistic", "useFormStatus",
     ])
 
     GLOBAL_VARS: frozenset = frozenset([
@@ -435,37 +441,46 @@ class ReactHooksAnalyzer:
                 )
 
     def _check_effect_race_conditions(self) -> None:
-        """Check for potential race conditions in effects."""
+        """Check for potential race conditions in effects.
+
+        Only flags effects that lack cleanup functions - proper cleanup
+        (AbortController, cancelled flag) prevents race conditions.
+        """
         rows = self.db.query(
             Q("react_hooks")
-            .select("file", "component_name", "dependency_array")
+            .select("file", "component_name", "dependency_array", "has_cleanup")
             .where("hook_name = ?", "useEffect")
             .where("dependency_array IS NOT NULL")
         )
 
-        component_effects: dict[tuple, list[str]] = {}
-        for file, component, deps_array in rows:
+        component_effects: dict[tuple, list[tuple[str, bool]]] = {}
+        for file, component, deps_array, has_cleanup in rows:
             key = (file, component)
             if key not in component_effects:
                 component_effects[key] = []
-            component_effects[key].append(deps_array or "")
+            component_effects[key].append((deps_array or "", bool(has_cleanup)))
 
-        for (file, component), deps_list in component_effects.items():
-            if len(deps_list) <= 2:
+        for (file, component), effects in component_effects.items():
+            if len(effects) <= 2:
                 continue
 
-            id_deps = sum(1 for d in deps_list if "[id]" in d or '["id"]' in d or "id" in d)
-            if id_deps > 1:
+            # Only count effects with ID deps that LACK cleanup (actual race risk)
+            unsafe_id_effects = sum(
+                1 for deps, has_cleanup in effects
+                if not has_cleanup and ("[id]" in deps or '["id"]' in deps or "id" in deps)
+            )
+
+            if unsafe_id_effects > 1:
                 self.findings.append(
                     StandardFinding(
                         rule_name="react-effect-race",
-                        message=f"Component has {len(deps_list)} effects with similar deps that may race",
+                        message=f"Component has {unsafe_id_effects} effects with ID deps lacking cleanup - use AbortController or cancelled flag",
                         file_path=file,
                         line=1,
                         severity=Severity.MEDIUM,
                         category="react-hooks",
-                        snippet=f"{component}: {len(deps_list)} useEffect calls",
-                        confidence=Confidence.LOW,
+                        snippet=f"{component}: {unsafe_id_effects} useEffect calls without cleanup",
+                        confidence=Confidence.MEDIUM,
                         cwe_id="CWE-362",
                     )
                 )

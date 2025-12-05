@@ -1,14 +1,26 @@
-"""Vue Composition API Hooks Analyzer - Database-First Approach."""
+"""Vue Composition API Hooks Analyzer - Fidelity Layer Implementation.
 
-import sqlite3
+Detects Vue Composition API misuse patterns:
+- Hooks called outside setup() context
+- Missing cleanup in lifecycle hooks (memory leaks)
+- Watch/watchEffect without stop handle
+- Deep watchers performance impact
+- Ref/reactive in loops
+- Incorrect lifecycle hook ordering
+- Excessive reactivity declarations
+- Missing error boundaries
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="vue_hooks",
@@ -29,181 +41,171 @@ METADATA = RuleMetadata(
         "__tests__/",
         "*.test.*",
         "*.spec.*",
-    ])
-
-
-COMPOSITION_LIFECYCLE = frozenset(
-    [
-        "onBeforeMount",
-        "onMounted",
-        "onBeforeUpdate",
-        "onUpdated",
-        "onBeforeUnmount",
-        "onUnmounted",
-        "onActivated",
-        "onDeactivated",
-        "onErrorCaptured",
-        "onRenderTracked",
-        "onRenderTriggered",
-        "onServerPrefetch",
-    ]
+    ],
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
 
-REACTIVITY_FUNCTIONS = frozenset(
-    [
-        "ref",
-        "reactive",
-        "computed",
-        "readonly",
-        "shallowRef",
-        "shallowReactive",
-        "shallowReadonly",
-        "toRef",
-        "toRefs",
-        "isRef",
-        "isReactive",
-        "isReadonly",
-        "isProxy",
-    ]
-)
+COMPOSITION_LIFECYCLE = frozenset([
+    "onBeforeMount",
+    "onMounted",
+    "onBeforeUpdate",
+    "onUpdated",
+    "onBeforeUnmount",
+    "onUnmounted",
+    "onActivated",
+    "onDeactivated",
+    "onErrorCaptured",
+    "onRenderTracked",
+    "onRenderTriggered",
+    "onServerPrefetch",
+])
 
 
-WATCH_FUNCTIONS = frozenset(["watch", "watchEffect", "watchPostEffect", "watchSyncEffect"])
+REACTIVITY_FUNCTIONS = frozenset([
+    "ref",
+    "reactive",
+    "computed",
+    "readonly",
+    "shallowRef",
+    "shallowReactive",
+    "shallowReadonly",
+    "toRef",
+    "toRefs",
+    "isRef",
+    "isReactive",
+    "isReadonly",
+    "isProxy",
+])
 
 
-PROVIDE_INJECT = frozenset(["provide", "inject"])
+WATCH_FUNCTIONS = frozenset([
+    "watch",
+    "watchEffect",
+    "watchPostEffect",
+    "watchSyncEffect",
+])
 
 
-CLEANUP_FUNCTIONS = frozenset(
-    [
-        "stop",
-        "unwatch",
-        "cleanup",
-        "dispose",
-        "destroy",
-        "removeEventListener",
-        "clearInterval",
-        "clearTimeout",
-        "unsubscribe",
-        "abort",
-        "close",
-    ]
-)
+SETUP_ONLY_FUNCTIONS = frozenset([
+    "useStore",
+    "useRouter",
+    "useRoute",
+    "useMeta",
+    "useHead",
+    "useI18n",
+    "useNuxt",
+    "useFetch",
+])
 
 
-SETUP_ONLY_FUNCTIONS = frozenset(
-    ["useStore", "useRouter", "useRoute", "useMeta", "useHead", "useI18n", "useNuxt", "useFetch"]
-)
+MEMORY_LEAK_PATTERNS = frozenset([
+    "addEventListener",
+    "setInterval",
+    "setTimeout",
+    "ResizeObserver",
+    "IntersectionObserver",
+    "MutationObserver",
+    "WebSocket",
+    "EventSource",
+    "Worker",
+])
 
 
-MEMORY_LEAK_PATTERNS = frozenset(
-    [
-        "addEventListener",
-        "setInterval",
-        "setTimeout",
-        "ResizeObserver",
-        "IntersectionObserver",
-        "MutationObserver",
-        "WebSocket",
-        "EventSource",
-        "Worker",
-    ]
-)
-
-
-def find_vue_hooks_issues(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Vue Composition API hooks misuse and issues."""
-    findings = []
-
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = []
 
-    try:
-        vue_files = _get_composition_api_files(cursor)
+        vue_files = _get_composition_api_files(db)
         if not vue_files:
-            return findings
+            return RuleResult(findings=findings, manifest=db.get_manifest())
 
-        findings.extend(_find_hooks_outside_setup(cursor, vue_files))
-        findings.extend(_find_missing_cleanup(cursor, vue_files))
-        findings.extend(_find_watch_issues(cursor, vue_files))
-        findings.extend(_find_memory_leaks(cursor, vue_files))
-        findings.extend(_find_incorrect_hook_order(cursor, vue_files))
-        findings.extend(_find_excessive_reactivity(cursor, vue_files))
-        findings.extend(_find_missing_error_boundaries(cursor, vue_files))
+        findings.extend(_find_hooks_outside_setup(db, vue_files))
+        findings.extend(_find_missing_cleanup(db, vue_files))
+        findings.extend(_find_watch_issues(db, vue_files))
+        findings.extend(_find_memory_leaks(db, vue_files))
+        findings.extend(_find_incorrect_hook_order(db, vue_files))
+        findings.extend(_find_excessive_reactivity(db, vue_files))
+        findings.extend(_find_missing_error_boundaries(db, vue_files))
 
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _get_composition_api_files(cursor) -> set[str]:
+def _get_composition_api_files(db: RuleDB) -> set[str]:
     """Get all files using Vue Composition API."""
-    vue_files = set()
+    vue_files: set[str] = set()
 
-    cursor.execute("""
-        SELECT DISTINCT path, name
-        FROM symbols
-        WHERE name IS NOT NULL
-    """)
+    # Find files with Vue-related symbols
+    rows = db.query(
+        Q("symbols")
+        .select("path", "name")
+        .where("name IS NOT NULL")
+    )
 
-    for path, name in cursor.fetchall():
+    vue_patterns = ("ref", "reactive", "computed", "watch", "setup")
+    for path, name in rows:
         name_lower = name.lower()
-        if "vue" in name_lower and any(
-            pattern in name_lower for pattern in ["ref", "reactive", "computed", "watch", "setup"]
-        ):
+        if "vue" in name_lower and any(pattern in name_lower for pattern in vue_patterns):
             vue_files.add(path)
 
-    comp_api_funcs = list(COMPOSITION_LIFECYCLE | REACTIVITY_FUNCTIONS | WATCH_FUNCTIONS)
-    placeholders = ",".join("?" * len(comp_api_funcs))
-
-    cursor.execute(
-        f"""
-        SELECT DISTINCT file
-        FROM function_call_args
-        WHERE callee_function IN ({placeholders})
-    """,
-        comp_api_funcs,
+    # Find files with Composition API function calls
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "callee_function")
     )
-    vue_files.update(row[0] for row in cursor.fetchall())
+
+    comp_api_funcs = COMPOSITION_LIFECYCLE | REACTIVITY_FUNCTIONS | WATCH_FUNCTIONS
+    for file, callee in rows:
+        if callee in comp_api_funcs:
+            vue_files.add(file)
 
     return vue_files
 
 
-def _find_hooks_outside_setup(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find Composition API hooks called outside setup()."""
+def _find_hooks_outside_setup(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find Composition API hooks called outside setup().
+
+    Lifecycle hooks and composables must be called synchronously
+    during setup() or inside other composables.
+    """
     findings = []
 
-    setup_only = list(SETUP_ONLY_FUNCTIONS | COMPOSITION_LIFECYCLE)
-    func_placeholders = ",".join("?" * len(setup_only))
-    file_placeholders = ",".join("?" * len(vue_files))
+    if not vue_files:
+        return findings
 
-    cursor.execute(
-        f"""
-        SELECT file, line, callee_function, caller_function
-        FROM function_call_args
-        WHERE file IN ({file_placeholders})
-          AND callee_function IN ({func_placeholders})
-        ORDER BY file, line
-    """,
-        list(vue_files) + setup_only,
+    setup_only = SETUP_ONLY_FUNCTIONS | COMPOSITION_LIFECYCLE
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "caller_function")
+        .order_by("file, line")
     )
 
-    hooks_outside_setup = []
-    for file, line, hook, context in cursor.fetchall():
-        if not context or ("setup" not in context.lower()):
-            hooks_outside_setup.append((file, line, hook, context))
+    for file, line, hook, caller_context in rows:
+        if file not in vue_files:
+            continue
 
-    for file, line, hook, context in hooks_outside_setup:
+        if hook not in setup_only:
+            continue
+
+        # Check if called inside setup context
+        if caller_context and "setup" in caller_context.lower():
+            continue
+
+        # Vue 3 <script setup>: top-level hooks are valid (no caller_context)
+        if not caller_context and file.endswith(".vue"):
+            continue
+
         if hook in COMPOSITION_LIFECYCLE:
-            message = f"Lifecycle hook {hook} must be called in setup()"
+            message = f"Lifecycle hook '{hook}' must be called synchronously in setup()"
             severity = Severity.HIGH
         else:
-            message = f"Composition API {hook} should be called in setup()"
+            message = f"Composable '{hook}' should be called in setup() context"
             severity = Severity.MEDIUM
 
         findings.append(
@@ -214,235 +216,244 @@ def _find_hooks_outside_setup(cursor, vue_files: set[str]) -> list[StandardFindi
                 line=line,
                 severity=severity,
                 category="vue-composition-api",
-                confidence=Confidence.MEDIUM if context else Confidence.LOW,
+                confidence=Confidence.MEDIUM if caller_context else Confidence.LOW,
                 cwe_id="CWE-665",
+                snippet=f"{hook}(...)",
             )
         )
 
     return findings
 
 
-def _find_missing_cleanup(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find lifecycle hooks with missing cleanup."""
+def _find_missing_cleanup(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find lifecycle hooks with missing cleanup.
+
+    onMounted/onActivated that create subscriptions should have
+    corresponding onUnmounted/onDeactivated cleanup.
+    """
     findings = []
 
-    leak_patterns = list(MEMORY_LEAK_PATTERNS)
-    leak_placeholders = ",".join("?" * len(leak_patterns))
-    file_placeholders = ",".join("?" * len(vue_files))
+    if not vue_files:
+        return findings
 
-    cursor.execute(
-        f"""
-        SELECT DISTINCT f1.file, f1.line, f1.callee_function
-        FROM function_call_args f1
-        WHERE f1.file IN ({file_placeholders})
-          AND f1.callee_function IN ('onMounted', 'onActivated')
-          AND EXISTS (
-              SELECT 1 FROM function_call_args f2
-              WHERE f2.file = f1.file
-                AND f2.callee_function IN ({leak_placeholders})
-                AND ABS(f2.line - f1.line) <= 20
-          )
-          AND NOT EXISTS (
-              SELECT 1 FROM function_call_args f3
-              WHERE f3.file = f1.file
-                AND f3.callee_function IN ('onUnmounted', 'onDeactivated', 'onBeforeUnmount')
-                AND f3.line > f1.line
-          )
-        ORDER BY f1.file, f1.line
-    """,
-        list(vue_files) + leak_patterns,
+    # Get all function calls
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+        .order_by("file, line")
     )
 
-    for file, line, hook in cursor.fetchall():
-        findings.append(
-            StandardFinding(
-                rule_name="vue-missing-cleanup",
-                message=f"{hook} with subscriptions but no cleanup hook",
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category="vue-memory-leak",
-                confidence=Confidence.MEDIUM,
-                cwe_id="CWE-401",
-            )
-        )
+    # Group by file
+    file_calls: dict[str, list[tuple[int, str]]] = {}
+    for file, line, callee in rows:
+        if file not in vue_files:
+            continue
+        if file not in file_calls:
+            file_calls[file] = []
+        file_calls[file].append((line, callee))
+
+    mount_hooks = ("onMounted", "onActivated")
+    cleanup_hooks = ("onUnmounted", "onDeactivated", "onBeforeUnmount")
+
+    for file, calls in file_calls.items():
+        # Find mount hooks
+        for line, callee in calls:
+            if callee not in mount_hooks:
+                continue
+
+            # Check for leak patterns nearby (within 20 lines)
+            has_leak_pattern = False
+            for other_line, other_callee in calls:
+                if other_callee in MEMORY_LEAK_PATTERNS and abs(other_line - line) <= 20:
+                    has_leak_pattern = True
+                    break
+
+            if not has_leak_pattern:
+                continue
+
+            # Check for cleanup hook after this mount hook
+            has_cleanup = False
+            for other_line, other_callee in calls:
+                if other_callee in cleanup_hooks and other_line > line:
+                    has_cleanup = True
+                    break
+
+            if not has_cleanup:
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-missing-cleanup",
+                        message=f"'{callee}' creates subscriptions but no cleanup hook found (memory leak)",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="vue-memory-leak",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-401",
+                        snippet=f"{callee}(() => {{ ... addEventListener/setInterval ... }})",
+                    )
+                )
 
     return findings
 
 
-def _find_watch_issues(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find watch/watchEffect issues."""
+def _find_watch_issues(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find watch/watchEffect issues.
+
+    - Watchers without stop handle (memory leak on component unmount)
+    - Deep watchers on large objects (performance impact)
+    """
     findings = []
 
-    watch_funcs = list(WATCH_FUNCTIONS)
-    watch_placeholders = ",".join("?" * len(watch_funcs))
-    file_placeholders = ",".join("?" * len(vue_files))
+    if not vue_files:
+        return findings
 
-    cursor.execute(
-        f"""
-        SELECT f.file, f.line, f.callee_function
-        FROM function_call_args f
-        WHERE f.file IN ({file_placeholders})
-          AND f.callee_function IN ({watch_placeholders})
-        ORDER BY f.file, f.line
-    """,
-        list(vue_files) + watch_funcs,
+    # Get watch function calls
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
     )
 
-    for file, line, watch_func in cursor.fetchall():
-        cursor.execute(
-            """
-            SELECT target_var
-            FROM assignments
-            WHERE file = ?
-              AND line = ?
-              AND target_var IS NOT NULL
-        """,
-            (file, line),
-        )
+    watch_calls: list[tuple[str, int, str, str | None]] = []
+    for file, line, callee, args in rows:
+        if file not in vue_files:
+            continue
+        if callee in WATCH_FUNCTIONS:
+            watch_calls.append((file, line, callee, args))
 
-        has_stop = False
-        for (target_var,) in cursor.fetchall():
-            if "stop" in target_var:
-                has_stop = True
-                break
+    # Get assignments to check for stop handle capture
+    assignment_rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var")
+        .where("target_var IS NOT NULL")
+    )
 
-        if not has_stop:
+    assignments: dict[tuple[str, int], str] = {}
+    for file, line, target in assignment_rows:
+        assignments[(file, line)] = target
+
+    for file, line, watch_func, args in watch_calls:
+        # Check if result is captured (for stop handle)
+        target = assignments.get((file, line))
+        if not target or "stop" not in target.lower():
             findings.append(
                 StandardFinding(
                     rule_name="vue-watch-no-stop",
-                    message=f"{watch_func} without cleanup - memory leak risk",
+                    message=f"'{watch_func}' return value not captured - cannot stop watcher (memory leak risk)",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
                     category="vue-memory-leak",
                     confidence=Confidence.LOW,
                     cwe_id="CWE-401",
+                    snippet=f"{watch_func}(...) // missing: const stop = {watch_func}(...)",
                 )
             )
 
-    cursor.execute(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE file IN ({file_placeholders})
-          AND callee_function IN ({watch_placeholders})
-          AND argument_expr IS NOT NULL
-        ORDER BY file, line
-    """,
-        list(vue_files) + watch_funcs,
-    )
-
-    for file, line, func, args in cursor.fetchall():
-        if "deep: true" in args:
+        # Check for deep watcher
+        if args and "deep: true" in args:
             findings.append(
                 StandardFinding(
                     rule_name="vue-deep-watch",
-                    message=f"Deep watcher in {func} - performance impact",
+                    message=f"Deep watcher in '{watch_func}' - significant performance impact on large objects",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
                     category="vue-performance",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-1050",
+                    snippet=f"{watch_func}(..., {{ deep: true }})",
                 )
             )
 
     return findings
 
 
-def _find_memory_leaks(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find potential memory leaks from refs/reactive."""
+def _find_memory_leaks(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find potential memory leaks from refs/reactive.
+
+    - Large objects in ref/reactive (performance overhead)
+    - ref/reactive created in loops (memory leak)
+    """
     findings = []
 
-    file_placeholders = ",".join("?" * len(vue_files))
+    if not vue_files:
+        return findings
 
-    cursor.execute(
-        f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE file IN ({file_placeholders})
-          AND callee_function IN ('reactive', 'ref')
-          AND LENGTH(argument_expr) > 500
-        ORDER BY file, line
-    """,
-        list(vue_files),
+    # Check for large objects in ref/reactive
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
     )
 
-    for file, line, func, _args in cursor.fetchall():
-        findings.append(
-            StandardFinding(
-                rule_name="vue-large-reactive",
-                message=f"Large object passed to {func} - performance overhead",
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category="vue-performance",
-                confidence=Confidence.LOW,
-                cwe_id="CWE-1050",
-            )
-        )
+    ref_calls: list[tuple[str, int, str]] = []
+    for file, line, callee, args in rows:
+        if file not in vue_files:
+            continue
 
-    cursor.execute(
-        f"""
-        SELECT f.file, f.line, f.callee_function
-        FROM function_call_args f
-        WHERE f.file IN ({file_placeholders})
-          AND f.callee_function IN ('ref', 'reactive')
-        ORDER BY f.file, f.line
-    """,
-        list(vue_files),
+        if callee in ("ref", "reactive"):
+            ref_calls.append((file, line, callee))
+
+            # Check for large objects (args > 500 chars suggests large inline object)
+            if args and len(args) > 500:
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-large-reactive",
+                        message=f"Large object passed to '{callee}' - consider shallowRef/shallowReactive for performance",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="vue-performance",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-1050",
+                        snippet=f"{callee}({{ /* large object */ }})",
+                    )
+                )
+
+    # Check for ref/reactive in loops
+    loop_rows = db.query(
+        Q("cfg_blocks")
+        .select("file", "block_type", "start_line", "end_line")
+        .where("block_type IS NOT NULL")
     )
 
-    ref_calls = cursor.fetchall()
-
-    cursor.execute(
-        f"""
-        SELECT file, block_type, start_line, end_line
-        FROM cfg_blocks
-        WHERE file IN ({file_placeholders})
-          AND block_type IS NOT NULL
-    """,
-        list(vue_files),
-    )
-
-    loop_blocks = []
-    for file, block_type, start, end in cursor.fetchall():
-        if "loop" in block_type.lower():
+    loop_blocks: list[tuple[str, int, int]] = []
+    for file, block_type, start, end in loop_rows:
+        if file in vue_files and block_type and "loop" in block_type.lower():
             loop_blocks.append((file, start, end))
 
     for file, line, func in ref_calls:
-        in_loop = False
         for loop_file, start, end in loop_blocks:
             if loop_file == file and start <= line <= end:
-                in_loop = True
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-ref-in-loop",
+                        message=f"'{func}' created inside loop - creates new reactive object each iteration (memory leak)",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="vue-memory-leak",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-401",
+                        snippet=f"for (...) {{ {func}(...) }} // move outside loop",
+                    )
+                )
                 break
-
-        if not in_loop:
-            continue
-        findings.append(
-            StandardFinding(
-                rule_name="vue-ref-in-loop",
-                message=f"Creating {func} in loop - memory leak risk",
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category="vue-memory-leak",
-                confidence=Confidence.HIGH,
-                cwe_id="CWE-401",
-            )
-        )
 
     return findings
 
 
-def _find_incorrect_hook_order(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find incorrect lifecycle hook ordering."""
+def _find_incorrect_hook_order(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find incorrect lifecycle hook ordering.
+
+    Hooks should be declared in lifecycle order for readability
+    and to match execution order.
+    """
     findings = []
 
-    lifecycle = list(COMPOSITION_LIFECYCLE)
-    file_placeholders = ",".join("?" * len(vue_files))
-    hook_placeholders = ",".join("?" * len(lifecycle))
+    if not vue_files:
+        return findings
 
     hook_order = {
         "onBeforeMount": 1,
@@ -453,119 +464,128 @@ def _find_incorrect_hook_order(cursor, vue_files: set[str]) -> list[StandardFind
         "onUnmounted": 6,
     }
 
-    cursor.execute(
-        f"""
-        SELECT file, line, callee_function
-        FROM function_call_args
-        WHERE file IN ({file_placeholders})
-          AND callee_function IN ({hook_placeholders})
-        ORDER BY file, line
-    """,
-        list(vue_files) + lifecycle,
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function")
+        .order_by("file, line")
     )
 
-    file_hooks = {}
-    for file, line, hook in cursor.fetchall():
-        if file not in file_hooks:
-            file_hooks[file] = []
-        if hook in hook_order:
-            file_hooks[file].append((line, hook, hook_order[hook]))
+    file_hooks: dict[str, list[tuple[int, str, int]]] = {}
+    for file, line, callee in rows:
+        if file not in vue_files:
+            continue
+        if callee in hook_order:
+            if file not in file_hooks:
+                file_hooks[file] = []
+            file_hooks[file].append((line, callee, hook_order[callee]))
 
     for file, hooks in file_hooks.items():
-        hooks.sort(key=lambda x: x[0])
+        hooks.sort(key=lambda x: x[0])  # Sort by line number
         for i in range(len(hooks) - 1):
-            if hooks[i][2] > hooks[i + 1][2]:
+            current_line, current_hook, current_order = hooks[i]
+            next_line, next_hook, next_order = hooks[i + 1]
+
+            if current_order > next_order:
                 findings.append(
                     StandardFinding(
                         rule_name="vue-hook-order",
-                        message=f"{hooks[i][1]} called after {hooks[i + 1][1]} - incorrect order",
+                        message=f"'{current_hook}' declared after '{next_hook}' - should follow lifecycle order",
                         file_path=file,
-                        line=hooks[i][0],
+                        line=current_line,
                         severity=Severity.MEDIUM,
                         category="vue-composition-api",
                         confidence=Confidence.HIGH,
                         cwe_id="CWE-665",
+                        snippet=f"// Wrong: {current_hook} before {next_hook}",
                     )
                 )
 
     return findings
 
 
-def _find_excessive_reactivity(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find excessive use of reactivity (performance issue)."""
+def _find_excessive_reactivity(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find excessive use of reactivity primitives.
+
+    Too many reactive declarations in a single file suggests
+    the component should be split or use a state management solution.
+    """
     findings = []
 
-    file_placeholders = ",".join("?" * len(vue_files))
+    if not vue_files:
+        return findings
 
-    cursor.execute(
-        f"""
-        SELECT file, COUNT(*) as count
-        FROM function_call_args
-        WHERE file IN ({file_placeholders})
-          AND callee_function IN ('ref', 'reactive', 'computed')
-        GROUP BY file
-        HAVING count > 50
-    """,
-        list(vue_files),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "callee_function")
     )
 
-    for file, count in cursor.fetchall():
-        findings.append(
-            StandardFinding(
-                rule_name="vue-excessive-reactivity",
-                message=f"File has {count} reactive declarations - performance overhead",
-                file_path=file,
-                line=1,
-                severity=Severity.MEDIUM,
-                category="vue-performance",
-                confidence=Confidence.MEDIUM,
-                cwe_id="CWE-1050",
+    file_counts: dict[str, int] = {}
+    for file, callee in rows:
+        if file not in vue_files:
+            continue
+        if callee in ("ref", "reactive", "computed"):
+            file_counts[file] = file_counts.get(file, 0) + 1
+
+    for file, count in file_counts.items():
+        if count > 50:
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-excessive-reactivity",
+                    message=f"File has {count} reactive declarations - consider splitting component or using Pinia",
+                    file_path=file,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="vue-performance",
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-1050",
+                )
             )
-        )
 
     return findings
 
 
-def _find_missing_error_boundaries(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find missing error handling in hooks."""
+def _find_missing_error_boundaries(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find complex components without error handling.
+
+    Components with multiple async hooks should have onErrorCaptured
+    to prevent errors from propagating unhandled.
+    """
     findings = []
 
-    file_placeholders = ",".join("?" * len(vue_files))
+    if not vue_files:
+        return findings
 
-    cursor.execute(
-        f"""
-        SELECT DISTINCT f1.file
-        FROM function_call_args f1
-        WHERE f1.file IN ({file_placeholders})
-          AND f1.callee_function IN ('onMounted', 'onUpdated', 'watchEffect')
-          AND NOT EXISTS (
-              SELECT 1 FROM function_call_args f2
-              WHERE f2.file = f1.file
-                AND f2.callee_function = 'onErrorCaptured'
-          )
-        GROUP BY f1.file
-        HAVING COUNT(DISTINCT f1.callee_function) > 3
-    """,
-        list(vue_files),
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "callee_function")
     )
 
-    for (file,) in cursor.fetchall():
-        findings.append(
-            StandardFinding(
-                rule_name="vue-no-error-boundary",
-                message="Complex component without error boundary (onErrorCaptured)",
-                file_path=file,
-                line=1,
-                severity=Severity.LOW,
-                category="vue-error-handling",
-                confidence=Confidence.LOW,
-                cwe_id="CWE-248",
+    file_hooks: dict[str, set[str]] = {}
+    for file, callee in rows:
+        if file not in vue_files:
+            continue
+        if callee in ("onMounted", "onUpdated", "watchEffect", "onErrorCaptured"):
+            if file not in file_hooks:
+                file_hooks[file] = set()
+            file_hooks[file].add(callee)
+
+    async_hooks = {"onMounted", "onUpdated", "watchEffect"}
+    for file, hooks in file_hooks.items():
+        async_hook_count = len(hooks & async_hooks)
+        has_error_handler = "onErrorCaptured" in hooks
+
+        if async_hook_count > 3 and not has_error_handler:
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-no-error-boundary",
+                    message="Complex component with multiple async hooks but no onErrorCaptured - errors may propagate silently",
+                    file_path=file,
+                    line=1,
+                    severity=Severity.LOW,
+                    category="vue-error-handling",
+                    confidence=Confidence.LOW,
+                    cwe_id="CWE-248",
+                )
             )
-        )
 
     return findings
-
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point."""
-    return find_vue_hooks_issues(context)

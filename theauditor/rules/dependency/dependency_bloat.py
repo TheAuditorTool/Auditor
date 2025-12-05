@@ -19,7 +19,7 @@ from theauditor.rules.base import (
 from theauditor.rules.fidelity import RuleDB
 from theauditor.rules.query import Q
 
-from .config import DEV_ONLY_PACKAGES, DependencyThresholds
+from .config import DEV_ONLY_PACKAGES, DependencyThresholds, LOCK_FILES
 
 METADATA = RuleMetadata(
     name="dependency_bloat",
@@ -84,12 +84,18 @@ def _check_js_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
         dev_count = counts["dev"]
         total_count = prod_count + dev_count
 
+        # Lockfiles naturally have hundreds of transitive deps - use higher threshold
+        is_lockfile = any(file_path.endswith(lf) for lf in LOCK_FILES)
+        threshold = DependencyThresholds.MAX_TRANSITIVE_DEPS if is_lockfile else DependencyThresholds.MAX_DIRECT_DEPS
+        warn_threshold = threshold // 2 if is_lockfile else DependencyThresholds.WARN_PRODUCTION_DEPS
+
         # Check production dependencies
-        if prod_count > DependencyThresholds.MAX_DIRECT_DEPS:
+        if prod_count > threshold:
+            dep_type = "transitive" if is_lockfile else "production"
             findings.append(
                 StandardFinding(
                     rule_name="dependency-bloat-production",
-                    message=f"Excessive production dependencies: {prod_count} (threshold: {DependencyThresholds.MAX_DIRECT_DEPS}). High attack surface.",
+                    message=f"Excessive {dep_type} dependencies: {prod_count} (threshold: {threshold}). High attack surface.",
                     file_path=file_path,
                     line=1,
                     severity=Severity.MEDIUM,
@@ -98,16 +104,17 @@ def _check_js_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
                     cwe_id="CWE-1104",
                 )
             )
-        elif prod_count > DependencyThresholds.WARN_PRODUCTION_DEPS:
+        elif prod_count > warn_threshold:
+            dep_type = "transitive" if is_lockfile else "production"
             findings.append(
                 StandardFinding(
                     rule_name="dependency-bloat-warn",
-                    message=f"High production dependency count: {prod_count} (warning threshold: {DependencyThresholds.WARN_PRODUCTION_DEPS})",
+                    message=f"High {dep_type} dependency count: {prod_count} (warning threshold: {warn_threshold})",
                     file_path=file_path,
                     line=1,
                     severity=Severity.LOW,
                     category="dependency",
-                    snippet=f"{prod_count} production dependencies",
+                    snippet=f"{prod_count} {dep_type} dependencies",
                     cwe_id="CWE-1104",
                 )
             )
@@ -155,9 +162,16 @@ def _check_python_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
         prod_count = counts["prod"]
         dev_count = counts["dev"]
 
-        # Python typically has fewer deps - use lower thresholds
-        python_prod_threshold = DependencyThresholds.MAX_DIRECT_DEPS // 2  # 25
-        python_warn_threshold = DependencyThresholds.WARN_PRODUCTION_DEPS // 2  # 15
+        # Lockfiles (poetry.lock, Pipfile.lock) have transitive deps - use higher threshold
+        is_lockfile = any(file_path.endswith(lf) for lf in LOCK_FILES)
+
+        # Python typically has fewer deps - use lower thresholds for manifests
+        if is_lockfile:
+            python_prod_threshold = DependencyThresholds.MAX_TRANSITIVE_DEPS // 2  # 250
+            python_warn_threshold = DependencyThresholds.MAX_TRANSITIVE_DEPS // 4  # 125
+        else:
+            python_prod_threshold = DependencyThresholds.MAX_DIRECT_DEPS // 2  # 25
+            python_warn_threshold = DependencyThresholds.WARN_PRODUCTION_DEPS // 2  # 15
 
         if prod_count > python_prod_threshold:
             findings.append(

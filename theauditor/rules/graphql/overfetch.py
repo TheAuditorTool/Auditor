@@ -127,6 +127,40 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             )
             exposed_fields = {row[0].lower() for row in field_rows if row[0]}
 
+            # Check if resolvers use field selection to prevent overfetch
+            # Look for .only(), .defer(), .values(), .values_list() usage
+            resolver_rows = db.query(
+                Q("graphql_resolver_mappings")
+                .select("resolver_path", "resolver_line")
+                .where("type_id = ?", type_id)
+            )
+
+            has_field_selection = False
+            for resolver_path, resolver_line in resolver_rows:
+                if not resolver_path:
+                    continue
+                # Check for ORM field selection methods in resolver
+                selection_rows = db.query(
+                    Q("function_call_args")
+                    .select("callee_function")
+                    .where("file = ?", resolver_path)
+                    .where("line >= ?", resolver_line)
+                    .where("line <= ?", resolver_line + 50)
+                )
+                for (callee,) in selection_rows:
+                    if callee and any(method in callee.lower() for method in [
+                        ".only(", ".defer(", ".values(", ".values_list(",
+                        ".select(", ".select_related(", ".prefetch_related(",
+                    ]):
+                        has_field_selection = True
+                        break
+                if has_field_selection:
+                    break
+
+            # Skip overfetch check if resolver uses field selection
+            if has_field_selection:
+                continue
+
             # Find matching ORM models (by name similarity)
             orm_rows = db.query(
                 Q("python_orm_models")

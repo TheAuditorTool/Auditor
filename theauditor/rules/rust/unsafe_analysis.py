@@ -10,8 +10,6 @@ CWE-676: Use of Potentially Dangerous Function - unsafe Rust requires
 manual verification that safety invariants are upheld.
 """
 
-import sqlite3
-
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
@@ -21,7 +19,7 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 from theauditor.rules.fidelity import RuleDB
-from theauditor.utils.logging import logger
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="rust_unsafe",
@@ -37,19 +35,11 @@ def _check_unsafe_without_safety_comment(db: RuleDB) -> list[StandardFinding]:
     """Flag unsafe blocks without SAFETY comments."""
     findings = []
 
-    try:
-        rows = db.execute("""
-            SELECT
-                file_path, line_start, line_end,
-                containing_function, has_safety_comment, reason
-            FROM rust_unsafe_blocks
-            WHERE has_safety_comment = 0
-        """)
-    except sqlite3.OperationalError as e:
-        if "no such table" in str(e):
-            logger.debug("rust_unsafe_blocks table not found - no Rust indexed")
-            return findings
-        raise
+    rows = db.query(
+        Q("rust_unsafe_blocks")
+        .select("file_path", "line_start", "line_end", "containing_function", "has_safety_comment", "reason")
+        .where("has_safety_comment = ?", 0)
+    )
 
     for row in rows:
         file_path, line, _, containing_fn, _, _ = row
@@ -83,21 +73,15 @@ def _check_unsafe_in_public_api(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    try:
-        rows = db.execute("""
-            SELECT DISTINCT
-                ub.file_path, ub.line_start,
-                rf.name as fn_name, rf.visibility, rf.line as fn_line
-            FROM rust_unsafe_blocks ub
-            JOIN rust_functions rf ON ub.file_path = rf.file_path
-                AND ub.containing_function = rf.name
-            WHERE rf.visibility = 'pub'
-              AND rf.is_unsafe = 0
-        """)
-    except sqlite3.OperationalError as e:
-        if "no such table" in str(e):
-            return findings  # Rust tables not present
-        raise
+    rows = db.query(
+        Q("rust_unsafe_blocks")
+        .alias("ub")
+        .select("DISTINCT ub.file_path", "ub.line_start")
+        .join("rust_functions", on=[("file_path", "file_path"), ("containing_function", "name")])
+        .select("rust_functions.name", "rust_functions.visibility", "rust_functions.line")
+        .where("rust_functions.visibility = ?", "pub")
+        .where("rust_functions.is_unsafe = ?", 0)
+    )
 
     for row in rows:
         file_path, _, fn_name, _, fn_line = row
@@ -126,15 +110,10 @@ def _check_unsafe_trait_impls(db: RuleDB) -> list[StandardFinding]:
     """Flag unsafe trait implementations for review."""
     findings = []
 
-    try:
-        rows = db.execute("""
-            SELECT file_path, line, trait_name, impl_type
-            FROM rust_unsafe_traits
-        """)
-    except sqlite3.OperationalError as e:
-        if "no such table" in str(e):
-            return findings  # Rust tables not present
-        raise
+    rows = db.query(
+        Q("rust_unsafe_traits")
+        .select("file_path", "line", "trait_name", "impl_type")
+    )
 
     for row in rows:
         file_path, line, trait_name, impl_type = row
@@ -165,16 +144,12 @@ def _check_unsafe_functions(db: RuleDB) -> list[StandardFinding]:
     """Flag unsafe functions in public API."""
     findings = []
 
-    try:
-        rows = db.execute("""
-            SELECT file_path, line, name, visibility, return_type
-            FROM rust_functions
-            WHERE is_unsafe = 1 AND visibility = 'pub'
-        """)
-    except sqlite3.OperationalError as e:
-        if "no such table" in str(e):
-            return findings  # Rust tables not present
-        raise
+    rows = db.query(
+        Q("rust_functions")
+        .select("file_path", "line", "name", "visibility", "return_type")
+        .where("is_unsafe = ?", 1)
+        .where("visibility = ?", "pub")
+    )
 
     for row in rows:
         file_path, line, fn_name, _, _ = row

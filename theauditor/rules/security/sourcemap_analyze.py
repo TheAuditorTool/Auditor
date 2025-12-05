@@ -22,6 +22,7 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="sourcemap_exposure",
@@ -164,13 +165,13 @@ class SourcemapAnalyzer:
 
     def _check_webpack_configs(self):
         """Check webpack configurations for source map settings."""
-        rows = self.db.execute("""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE target_var IS NOT NULL
-              AND source_expr IS NOT NULL
-            ORDER BY file, line
-        """)
+        rows = self.db.query(
+            Q("assignments")
+            .select("file", "line", "target_var", "source_expr")
+            .where("target_var IS NOT NULL")
+            .where("source_expr IS NOT NULL")
+            .order_by("file, line")
+        )
 
         for file, line, var, expr in rows:
             if "devtool" not in var.lower():
@@ -225,13 +226,13 @@ class SourcemapAnalyzer:
 
     def _check_typescript_configs(self):
         """Check TypeScript configurations for source map settings."""
-        rows = self.db.execute("""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE target_var IS NOT NULL
-              AND source_expr IS NOT NULL
-            ORDER BY file, line
-        """)
+        rows = self.db.query(
+            Q("assignments")
+            .select("file", "line", "target_var", "source_expr")
+            .where("target_var IS NOT NULL")
+            .where("source_expr IS NOT NULL")
+            .order_by("file, line")
+        )
 
         for file, line, var, expr in rows:
             var_lower = var.lower()
@@ -260,13 +261,13 @@ class SourcemapAnalyzer:
 
     def _check_build_tool_configs(self):
         """Check other build tool configurations."""
-        rows = self.db.execute("""
-            SELECT file, line, target_var, source_expr
-            FROM assignments
-            WHERE target_var IS NOT NULL
-              AND source_expr IS NOT NULL
-            ORDER BY file, line
-        """)
+        rows = self.db.query(
+            Q("assignments")
+            .select("file", "line", "target_var", "source_expr")
+            .where("target_var IS NOT NULL")
+            .where("source_expr IS NOT NULL")
+            .order_by("file, line")
+        )
 
         for file, line, var, expr in rows:
             if "sourcemap" not in var.lower():
@@ -293,12 +294,12 @@ class SourcemapAnalyzer:
 
     def _check_sourcemap_plugins(self):
         """Check for source map plugins in build tools."""
-        rows = self.db.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IS NOT NULL
-            ORDER BY file, line
-        """)
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("callee_function IS NOT NULL")
+            .order_by("file, line")
+        )
 
         plugin_patterns = frozenset(["SourceMapDevToolPlugin", "SourceMapPlugin", "sourceMaps"])
 
@@ -325,12 +326,12 @@ class SourcemapAnalyzer:
 
     def _check_express_static(self):
         """Check if Express static serving might expose .map files."""
-        rows = self.db.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE callee_function IS NOT NULL
-            ORDER BY file, line
-        """)
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("callee_function IS NOT NULL")
+            .order_by("file, line")
+        )
 
         static_patterns = frozenset(["express.static", "serve-static", "koa-static"])
 
@@ -355,12 +356,12 @@ class SourcemapAnalyzer:
 
     def _check_sourcemap_generation(self):
         """Check for source map generation in code."""
-        rows = self.db.execute("""
-            SELECT path, line, name
-            FROM symbols
-            WHERE name IS NOT NULL
-            ORDER BY path, line
-        """)
+        rows = self.db.query(
+            Q("symbols")
+            .select("path", "line", "name")
+            .where("name IS NOT NULL")
+            .order_by("path, line")
+        )
 
         generation_patterns = frozenset(
             ["generateSourceMap", "createSourceMap", "writeSourceMap", "sourceMappingURL"]

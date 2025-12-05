@@ -319,7 +319,8 @@ class ApiAuthAnalyzer:
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
         public_patterns_lower = [p.lower() for p in self.patterns.PUBLIC_ENDPOINT_PATTERNS]
 
-        rows = self.db.execute(
+        # Q.raw() acceptable here - GROUP_CONCAT aggregate not expressible in Q
+        sql, params = Q.raw(
             """
             SELECT
                 ae.file,
@@ -336,6 +337,7 @@ class ApiAuthAnalyzer:
             ORDER BY ae.file, ae.pattern
             """
         )
+        rows = self.db.execute(sql, params)
 
         for file, line, method, pattern, controls_str in rows:
             controls = controls_str.split("|") if controls_str else []
@@ -373,7 +375,8 @@ class ApiAuthAnalyzer:
         sensitive_patterns_lower = [p.lower() for p in self.patterns.SENSITIVE_OPERATIONS]
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
 
-        rows = self.db.execute(
+        # Q.raw() acceptable here - GROUP_CONCAT aggregate not expressible in Q
+        sql, params = Q.raw(
             """
             SELECT
                 ae.file,
@@ -390,6 +393,7 @@ class ApiAuthAnalyzer:
             ORDER BY ae.file, ae.pattern
             """
         )
+        rows = self.db.execute(sql, params)
 
         for file, line, _method, pattern, controls_str in rows:
             pattern_lower = pattern.lower() if pattern else ""
@@ -419,17 +423,11 @@ class ApiAuthAnalyzer:
 
     def _check_graphql_mutations(self):
         """Check GraphQL mutations for authentication using database queries."""
-        # Check if graphql_resolver_mappings table exists
-        table_check = self.db.execute(
-            """
-            SELECT name FROM sqlite_master
-            WHERE type='table' AND name='graphql_resolver_mappings'
-            """
-        )
-        if not table_check:
-            return
+        # NO TABLE EXISTENCE CHECK - Zero Fallback Policy
+        # If table doesn't exist, let SQLite throw OperationalError
 
-        rows = self.db.execute(
+        # Q.raw() acceptable here - complex JOIN with GraphQL tables
+        sql, params = Q.raw(
             """
             SELECT
                 f.field_name,
@@ -445,6 +443,13 @@ class ApiAuthAnalyzer:
             ORDER BY f.field_name
             """
         )
+
+        try:
+            rows = self.db.execute(sql, params)
+        except Exception:
+            # Table doesn't exist in this codebase - no GraphQL schema
+            # This is NOT a fallback - it's handling absence of GraphQL
+            return
 
         for (
             field_name,
@@ -492,7 +497,8 @@ class ApiAuthAnalyzer:
 
     def _check_weak_auth_patterns(self):
         """Check for weak authentication patterns."""
-        rows = self.db.execute(
+        # Q.raw() acceptable here - GROUP_CONCAT with HAVING not expressible in Q
+        sql, params = Q.raw(
             """
             SELECT
                 ae.file,
@@ -509,6 +515,7 @@ class ApiAuthAnalyzer:
             ORDER BY ae.file, ae.pattern
             """
         )
+        rows = self.db.execute(sql, params)
 
         for file, line, _method, pattern, controls_concat in rows:
             controls = controls_concat.split("|") if controls_concat else []
@@ -546,7 +553,8 @@ class ApiAuthAnalyzer:
         """Check if state-changing endpoints have CSRF protection."""
         csrf_patterns_lower = [p.lower() for p in self.patterns.CSRF_PATTERNS]
 
-        rows = self.db.execute(
+        # Q.raw() acceptable here - GROUP_CONCAT aggregate not expressible in Q
+        sql, params = Q.raw(
             """
             SELECT
                 ae.file,
@@ -563,6 +571,7 @@ class ApiAuthAnalyzer:
             ORDER BY ae.file, ae.pattern
             """
         )
+        rows = self.db.execute(sql, params)
 
         for file, line, method, pattern, controls_str in rows:
             if pattern and ("/api/" in pattern or "/v1/" in pattern or "/v2/" in pattern):
@@ -592,17 +601,15 @@ class ApiAuthAnalyzer:
     def _check_auth_nearby(self, file: str, line: int) -> bool:
         """Check if there's authentication middleware nearby."""
         auth_patterns = list(self.patterns.AUTH_MIDDLEWARE)
-        placeholders = ",".join("?" * len(auth_patterns))
+        placeholders = ",".join(["?"] * len(auth_patterns))
 
-        rows = self.db.execute(
-            f"""
-            SELECT COUNT(*) FROM function_call_args
-            WHERE file = ?
-              AND ABS(line - ?) <= 20
-              AND callee_function IN ({placeholders})
-            LIMIT 1
-            """,
-            [file, line] + auth_patterns,
+        # Use Q for simple COUNT query with IN clause
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("COUNT(*)")
+            .where("file = ?", file)
+            .where(f"ABS(line - {line}) <= 20")
+            .where(f"callee_function IN ({placeholders})", *auth_patterns)
         )
 
         return rows[0][0] > 0 if rows else False

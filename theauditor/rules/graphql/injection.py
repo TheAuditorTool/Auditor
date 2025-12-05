@@ -29,7 +29,9 @@ METADATA = RuleMetadata(
 )
 
 # SQL injection indicators - string formatting patterns
-SQL_INJECTION_PATTERNS = ("%s", ".format", 'f"', "f'", "${", "`${")
+# NOTE: %s alone is SAFE (DB-API parameterized placeholder)
+# We detect dangerous interpolation: .format(), f-strings, template literals, % operator, concatenation
+SQL_INJECTION_PATTERNS = (".format(", 'f"', "f'", "${", "`${", '" % ', "' % ", '" +', "' +", '+ "', "+ '")
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:

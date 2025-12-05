@@ -100,7 +100,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                     .where("line_number <= ?", loop_end)
                 )
 
-                db_queries = list(query_rows)
+                # Filter out batched queries (WHERE IN clauses indicate DataLoader-style batching)
+                db_queries = [
+                    q for q in query_rows
+                    if q[0] and " in (" not in q[0].lower() and " in(" not in q[0].lower()
+                ]
                 if db_queries:
                     query_lines = [q[1] for q in db_queries]
 

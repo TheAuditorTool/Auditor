@@ -150,6 +150,39 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             if resolver_protected:
                 continue
 
+            # Check for manual auth patterns in resolver body (if context.user, if not request.user, etc.)
+            manual_auth_found = False
+            for resolver_path, resolver_line in resolver_rows:
+                if not resolver_path:
+                    continue
+                # Look for conditional checks on auth-related variables within resolver scope
+                condition_rows = db.query(
+                    Q("cfg_blocks")
+                    .select("condition")
+                    .where("file = ?", resolver_path)
+                    .where("start_line >= ?", resolver_line)
+                    .where("start_line <= ?", resolver_line + 50)
+                    .where("block_type = ?", "if")
+                )
+                for (condition,) in condition_rows:
+                    if condition:
+                        cond_lower = condition.lower()
+                        # Check for common manual auth patterns
+                        if any(auth_var in cond_lower for auth_var in [
+                            "context.user", "request.user", "current_user",
+                            "is_authenticated", "user.is_authenticated",
+                            "not user", "not context.user", "not request.user",
+                            "user is none", "user == none", "user is not none",
+                            ".has_permission", ".is_staff", ".is_superuser",
+                        ]):
+                            manual_auth_found = True
+                            break
+                if manual_auth_found:
+                    break
+
+            if manual_auth_found:
+                continue
+
             findings.append(
                 StandardFinding(
                     rule_name=METADATA.name,

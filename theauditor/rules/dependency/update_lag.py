@@ -294,23 +294,44 @@ def _default_file_path(manager: str) -> str:
 def _calculate_major_versions_behind(locked: str, latest: str) -> int:
     """Calculate how many major versions behind locked is from latest.
 
+    Handles SemVer 0.x.y correctly: in the 0.x.y range, minor version bumps
+    are considered breaking changes per SemVer spec. So 0.1.0 -> 0.2.0 is
+    treated as 1 major version behind for severity purposes.
+
     Args:
         locked: Currently locked version string
         latest: Latest available version string
 
     Returns:
-        Number of major versions behind, or 0 if calculation fails
+        Number of major versions behind, or 0 if unparseable/not behind
     """
+    locked_clean = locked.lstrip("v^~<>=")
+    latest_clean = latest.lstrip("v^~<>=")
+
+    locked_parts = locked_clean.split(".")
+    latest_parts = latest_clean.split(".")
+
+    if len(locked_parts) < 1 or len(latest_parts) < 1:
+        return 0  # Malformed version - skip
+
     try:
-        locked_clean = locked.lstrip("v^~<>=")
-        latest_clean = latest.lstrip("v^~<>=")
+        locked_major = int(locked_parts[0])
+        latest_major = int(latest_parts[0])
+    except ValueError:
+        return 0  # Non-numeric major (calver, etc.) - skip
 
-        locked_major = int(locked_clean.split(".")[0])
-        latest_major = int(latest_clean.split(".")[0])
+    # Handle 0.x.y: minor bump in 0.x is effectively major (SemVer spec)
+    if locked_major == 0 and latest_major == 0:
+        if len(locked_parts) >= 2 and len(latest_parts) >= 2:
+            try:
+                locked_minor = int(locked_parts[1])
+                latest_minor = int(latest_parts[1])
+                if latest_minor > locked_minor:
+                    return 1  # Treat as 1 major version behind
+            except ValueError:
+                pass  # Fall through to normal calculation
 
-        return max(0, latest_major - locked_major)
-    except (ValueError, IndexError):
-        return 0
+    return max(0, latest_major - locked_major)
 
 
 def _calculate_minor_versions_behind(locked: str, latest: str) -> int:
@@ -323,21 +344,21 @@ def _calculate_minor_versions_behind(locked: str, latest: str) -> int:
         latest: Latest available version string
 
     Returns:
-        Number of minor versions behind, or 0 if calculation fails
+        Number of minor versions behind, or 0 if unparseable/not behind
     """
+    locked_clean = locked.lstrip("v^~<>=")
+    latest_clean = latest.lstrip("v^~<>=")
+
+    locked_parts = locked_clean.split(".")
+    latest_parts = latest_clean.split(".")
+
+    if len(locked_parts) < 2 or len(latest_parts) < 2:
+        return 0  # Need at least major.minor
+
     try:
-        locked_clean = locked.lstrip("v^~<>=")
-        latest_clean = latest.lstrip("v^~<>=")
-
-        locked_parts = locked_clean.split(".")
-        latest_parts = latest_clean.split(".")
-
-        if len(locked_parts) < 2 or len(latest_parts) < 2:
-            return 0
-
         locked_minor = int(locked_parts[1])
         latest_minor = int(latest_parts[1])
+    except ValueError:
+        return 0  # Non-numeric minor - skip
 
-        return max(0, latest_minor - locked_minor)
-    except (ValueError, IndexError):
-        return 0
+    return max(0, latest_minor - locked_minor)

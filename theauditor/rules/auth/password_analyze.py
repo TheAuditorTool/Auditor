@@ -4,8 +4,9 @@ Detects password vulnerabilities including:
 - Weak hash algorithms (MD5/SHA1) for passwords (CWE-327)
 - Hardcoded passwords in source code (CWE-259)
 - Weak/default passwords (CWE-521)
-- Insufficient password complexity requirements (CWE-521)
+- Insufficient password length (NIST 800-63B: 8+ min, 12+ recommended) (CWE-521)
 - Password exposure in URL parameters (CWE-598)
+- Timing-unsafe password comparisons (CWE-208)
 """
 
 from theauditor.rules.base import (
@@ -90,6 +91,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_hardcoded_passwords(db))
         findings.extend(_check_weak_complexity(db))
         findings.extend(_check_password_in_url(db))
+        findings.extend(_check_timing_unsafe_comparison(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -278,12 +280,13 @@ def _check_weak_complexity(db: RuleDB) -> list[StandardFinding]:
             continue
 
         if ".length" in args_lower:
-            weak_comparisons = ["> 4", "> 5", "> 6", "> 7", ">= 6", ">= 7", ">= 8"]
+            # NIST 800-63B: Minimum 8 characters, recommended 12+
+            weak_comparisons = ["> 4", "> 5", "> 6", "> 7", ">= 4", ">= 5", ">= 6", ">= 7"]
             if any(weak in args_lower for weak in weak_comparisons):
                 findings.append(
                     StandardFinding(
                         rule_name="password-weak-length-requirement",
-                        message="Weak password length requirement (< 12 characters). Enforce minimum 12+ characters.",
+                        message="Weak password length requirement. NIST 800-63B: minimum 8 characters, recommend 12+. Avoid composition rules; use breached password checks instead.",
                         file_path=file,
                         line=line,
                         severity=Severity.MEDIUM,
@@ -309,12 +312,12 @@ def _check_weak_complexity(db: RuleDB) -> list[StandardFinding]:
         if not has_password_length:
             continue
 
-        weak_patterns = ["> 6", "> 7", "> 8", ">= 8"]
+        weak_patterns = ["> 6", "> 7", ">= 6", ">= 7"]
         if any(pattern in expr_lower for pattern in weak_patterns):
             findings.append(
                 StandardFinding(
                     rule_name="password-weak-validation",
-                    message="Password validation only checks length. Enforce complexity: length, uppercase, lowercase, numbers, symbols.",
+                    message="Password length requirement too weak. NIST 800-63B: minimum 8 characters, recommend 12+. Check against breached password lists (zxcvbn, HaveIBeenPwned) instead of composition rules.",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
@@ -386,6 +389,116 @@ def _check_password_in_url(db: RuleDB) -> list[StandardFinding]:
                     cwe_id="CWE-598",
                     confidence=Confidence.MEDIUM,
                     snippet=f"{func}(...password...)",
+                )
+            )
+
+    return findings
+
+
+def _check_timing_unsafe_comparison(db: RuleDB) -> list[StandardFinding]:
+    """Detect timing-unsafe password/hash comparisons.
+
+    Direct string comparison (== or !=) on passwords/hashes leaks timing information,
+    enabling attackers to guess passwords character-by-character.
+    Use crypto.timingSafeEqual (Node) or secrets.compare_digest (Python) instead.
+    """
+    findings = []
+
+    # Check assignments for direct comparisons with password/hash variables
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .order_by("file, line")
+    )
+
+    # Patterns indicating direct comparison in assignment context
+    # e.g., isValid = password == storedHash, match = hash === dbHash
+    sensitive_vars = frozenset([
+        "password", "passwd", "pwd", "hash", "hashed", "digest",
+        "storedpassword", "storedhash", "dbpassword", "dbhash",
+        "inputpassword", "inputhash", "userhash", "userpassword",
+    ])
+
+    for file, line, target_var, source_expr in rows:
+        if not source_expr:
+            continue
+
+        expr_lower = source_expr.lower()
+        target_lower = target_var.lower()
+
+        # Look for comparison operators with sensitive variables
+        has_comparison = " == " in source_expr or " === " in source_expr or " != " in source_expr
+        if not has_comparison:
+            continue
+
+        # Check if sensitive terms appear in the comparison
+        has_sensitive = any(sv in expr_lower for sv in sensitive_vars)
+        if not has_sensitive:
+            continue
+
+        # Skip if using safe comparison functions
+        safe_functions = ["timingsafeequal", "compare_digest", "constanttimeequal", "safeeq"]
+        if any(sf in expr_lower for sf in safe_functions):
+            continue
+
+        # Skip obvious boolean result checks
+        if target_lower in ("result", "success", "valid", "ok", "match", "isvalid", "ismatch"):
+            findings.append(
+                StandardFinding(
+                    rule_name="password-timing-unsafe-comparison",
+                    message="Direct string comparison on password/hash leaks timing info. Use crypto.timingSafeEqual (Node) or secrets.compare_digest (Python).",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    cwe_id="CWE-208",
+                    confidence=Confidence.MEDIUM,
+                    snippet=source_expr[:60] if len(source_expr) <= 60 else source_expr[:57] + "...",
+                )
+            )
+
+    # Also check function calls that might be doing comparisons
+    func_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in func_rows:
+        func_lower = func.lower()
+        args_lower = (args or "").lower()
+
+        # Look for comparison-related functions with password args
+        comparison_funcs = ["compare", "equals", "match", "verify"]
+        is_comparison_func = any(cf in func_lower for cf in comparison_funcs)
+
+        if not is_comparison_func:
+            continue
+
+        has_password_arg = any(kw in args_lower for kw in PASSWORD_KEYWORDS)
+        has_hash_arg = "hash" in args_lower or "digest" in args_lower
+
+        if not (has_password_arg or has_hash_arg):
+            continue
+
+        # Skip known safe comparison functions
+        safe_functions = ["timingsafeequal", "compare_digest", "bcrypt.compare", "argon2.verify", "scrypt.verify"]
+        if any(sf in func_lower for sf in safe_functions):
+            continue
+
+        # Direct .compare() or .equals() on hash could be unsafe
+        if ".compare(" in func_lower or ".equals(" in func_lower:
+            findings.append(
+                StandardFinding(
+                    rule_name="password-timing-unsafe-method",
+                    message=f"Method {func} may not be timing-safe for password comparison. Use dedicated timing-safe comparison functions.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="authentication",
+                    cwe_id="CWE-208",
+                    confidence=Confidence.LOW,
+                    snippet=f"{func}({args[:30]}...)" if len(args) > 30 else f"{func}({args})",
                 )
             )
 
