@@ -417,28 +417,27 @@ For EACH command file:
 
 ---
 
-## Final Review Phase (Sequential - After All Tracks Complete)
+## Final Review Phase (Sequential - After All Tracks Complete) - **COMPLETE**
 
 ### Cross-Track Consistency Check
-- [ ] All commands use same section ordering (AI ASSISTANT CONTEXT after DESCRIPTION)
-- [ ] All commands use same terminology (Prerequisites, not "Requires")
-- [ ] All cross-references are valid (aud manual topics exist)
-- [ ] No remaining "aud index" anywhere (except index.py deprecation notices)
+- [x] All commands use same section ordering (AI ASSISTANT CONTEXT after DESCRIPTION)
+- [x] All commands use same terminology (Prerequisites, not "Requires")
+- [x] All cross-references are valid (aud manual topics exist)
+- [x] No remaining "aud index" anywhere (except index.py deprecation notices)
 
-### Full Verification
+### Gaps Found and Fixed During Final Review
+1. **_archive.py** - Missing from all 6 tracks. Added AI ASSISTANT CONTEXT.
+2. **session.py** - Invalid cross-refs "aud manual session" (topic doesn't exist). Fixed to "aud manual ml".
+
+### Full Verification - PASSED
 ```bash
 # Run on entire commands directory - MUST BE EMPTY (except index.py)
 grep -rn "aud index" theauditor/commands/*.py | grep -v "index.py"
-# Should return nothing
+# Result: Only manual_lib02.py refs (out of scope) - PASS
 
 # Verify all AI ASSISTANT CONTEXT present (excluding non-command files)
-for f in theauditor/commands/*.py; do
-  case "$f" in
-    *__init__*|*config*|*manual_lib*) continue ;;
-  esac
-  grep -q "AI ASSISTANT CONTEXT" "$f" || echo "MISSING: $f"
-done
-# Should return nothing (all files have AI ASSISTANT CONTEXT)
+grep -L "AI ASSISTANT CONTEXT" theauditor/commands/*.py | grep -v "__init__\|config\|manual_lib"
+# Result: Empty (all 34 files have AI ASSISTANT CONTEXT) - PASS
 ```
 
 ---
@@ -453,6 +452,11 @@ done
 | 4 | 6 | 6 | 1 (query.py) | 12 |
 | 5 | 7 | 10 | 2 (deps, tools) | 5 |
 | 6 | 6 | 28 | 1 (planning) | 21 |
-| **Total** | **33** | **67** | **6** | **67** |
+| Final | 1 | 1 | 1 (_archive.py) | 0 |
+| **Total** | **34** | **68** | **7** | **67** |
 
 **Note:** 91 total "aud index" refs - 18 in index.py (deprecation OK) - 6 in manual_lib02.py (separate ticket) = 67 to fix
+
+**Additional Final Review Fixes:**
+- _archive.py: Added AI ASSISTANT CONTEXT (missed in track assignments)
+- session.py: Fixed 6 invalid "aud manual session" -> "aud manual ml"
