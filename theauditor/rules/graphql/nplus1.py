@@ -1,116 +1,131 @@
-"""GraphQL N+1 Query Detection - CFG-Based Loop Analysis."""
+"""GraphQL N+1 Query Detection.
 
-import sqlite3
+Detects N+1 query patterns in GraphQL resolvers where database queries
+execute inside loops. This is a common performance anti-pattern that
+causes query count to scale linearly with result set size.
+
+CWE-1073: Non-SQL Invocation of SQL-Stored Procedure
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="graphql_nplus1",
     category="performance",
     target_extensions=[".graphql", ".gql", ".graphqls", ".py", ".js", ".ts"],
-    execution_scope="database")
+    exclude_patterns=["node_modules/", ".venv/", "test/", "__pycache__/"],
+    execution_scope="database",
+    primary_table="graphql_resolver_mappings",
+)
+
+# Loop block types that indicate iteration
+LOOP_BLOCK_TYPES = frozenset(["for", "while", "loop", "for_each", "foreach", "for_of", "for_in"])
 
 
-def check_graphql_nplus1(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect N+1 query patterns in GraphQL resolvers."""
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect N+1 query patterns in GraphQL resolvers.
+
+    Identifies list-returning fields where the resolver contains
+    loops with database queries inside, indicating potential N+1 issues.
+
+    Args:
+        context: Rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
     if not context.db_path:
-        return []
+        return RuleResult(findings=[], manifest={})
 
-    findings = []
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = []
 
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table' AND name='graphql_resolver_mappings'
-    """)
-    if not cursor.fetchone():
-        return findings
-
-    cursor.execute("""
-        SELECT
-            f.field_id,
-            f.field_name,
-            f.return_type,
-            t.type_name,
-            rm.resolver_path,
-            rm.resolver_line
-        FROM graphql_fields f
-        JOIN graphql_types t ON t.type_id = f.type_id
-        LEFT JOIN graphql_resolver_mappings rm ON rm.field_id = f.field_id
-        WHERE f.is_list = 1
-        AND rm.resolver_path IS NOT NULL
-    """)
-
-    for row in cursor.fetchall():
-        field_name = row["field_name"]
-        type_name = row["type_name"]
-        resolver_path = row["resolver_path"]
-        resolver_line = row["resolver_line"]
-        return_type = row["return_type"]
-
-        cursor.execute(
-            """
-            SELECT cb.block_id, cb.kind, cb.start_line, cb.end_line
-            FROM cfg_blocks cb
-            WHERE cb.file = ?
-            AND cb.start_line >= ?
-            AND cb.start_line <= ? + 100
-            AND cb.kind IN ('for', 'while', 'loop', 'for_each')
-        """,
-            (resolver_path, resolver_line, resolver_line),
+        # Get list-returning fields with resolvers
+        rows = db.query(
+            Q("graphql_fields")
+            .select(
+                "graphql_fields.field_id",
+                "graphql_fields.field_name",
+                "graphql_fields.return_type",
+                "graphql_types.type_name",
+                "graphql_resolver_mappings.resolver_path",
+                "graphql_resolver_mappings.resolver_line",
+            )
+            .join("graphql_types", on=[("type_id", "type_id")])
+            .left_join("graphql_resolver_mappings", on=[("field_id", "field_id")])
+            .where("graphql_fields.is_list = ?", 1)
+            .where("graphql_resolver_mappings.resolver_path IS NOT NULL")
         )
 
-        loop_blocks = cursor.fetchall()
+        for row in rows:
+            field_id, field_name, return_type, type_name, resolver_path, resolver_line = row
 
-        for loop in loop_blocks:
-            loop_start = loop["start_line"]
-            loop_end = loop["end_line"]
+            if not resolver_path or not resolver_line:
+                continue
 
-            cursor.execute(
-                """
-                SELECT query_text, line, command
-                FROM sql_queries
-                WHERE file = ?
-                AND line >= ?
-                AND line <= ?
-            """,
-                (resolver_path, loop_start, loop_end),
+            # Find loop blocks within resolver scope (100 lines)
+            loop_rows = db.query(
+                Q("cfg_blocks")
+                .select("id", "block_type", "start_line", "end_line")
+                .where("file = ?", resolver_path)
+                .where("start_line >= ?", resolver_line)
+                .where("start_line <= ?", resolver_line + 100)
             )
 
-            db_queries = cursor.fetchall()
+            for loop_row in loop_rows:
+                block_id, block_type, loop_start, loop_end = loop_row
 
-            if db_queries:
-                query_lines = [q["line"] for q in db_queries]
+                # Skip if not a loop construct
+                if not block_type or block_type.lower() not in LOOP_BLOCK_TYPES:
+                    continue
 
-                finding = StandardFinding(
-                    rule_name="graphql_nplus1",
-                    message=f"Potential N+1 query in {type_name}.{field_name} resolver - DB query inside loop",
-                    file_path=resolver_path,
-                    line=loop_start,
-                    severity=Severity.MEDIUM,
-                    category="performance",
-                    confidence=Confidence.MEDIUM,
-                    snippet=f"Loop at lines {loop_start}-{loop_end} contains DB query at line(s): {query_lines}",
-                    cwe_id="CWE-1073",
-                    additional_info={
-                        "graphql_field": f"{type_name}.{field_name}",
-                        "return_type": return_type,
-                        "loop_lines": f"{loop_start}-{loop_end}",
-                        "query_count": len(db_queries),
-                        "query_lines": query_lines,
-                        "recommendation": "Use DataLoader or batch queries to avoid N+1 pattern",
-                    },
+                if not loop_start or not loop_end:
+                    continue
+
+                # Check for database queries inside this loop
+                query_rows = db.query(
+                    Q("sql_queries")
+                    .select("query_text", "line_number", "command")
+                    .where("file_path = ?", resolver_path)
+                    .where("line_number >= ?", loop_start)
+                    .where("line_number <= ?", loop_end)
                 )
-                findings.append(finding)
-                break
 
-    conn.close()
-    return findings
+                db_queries = list(query_rows)
+                if db_queries:
+                    query_lines = [q[1] for q in db_queries]
+
+                    findings.append(
+                        StandardFinding(
+                            rule_name=METADATA.name,
+                            message=f"N+1 query pattern in {type_name}.{field_name} resolver - DB query inside loop",
+                            file_path=resolver_path,
+                            line=loop_start,
+                            severity=Severity.MEDIUM,
+                            category=METADATA.category,
+                            confidence=Confidence.MEDIUM,
+                            snippet=f"Loop at lines {loop_start}-{loop_end} contains DB queries at: {query_lines}",
+                            cwe_id="CWE-1073",
+                            additional_info={
+                                "graphql_field": f"{type_name}.{field_name}",
+                                "return_type": return_type,
+                                "loop_type": block_type,
+                                "loop_lines": f"{loop_start}-{loop_end}",
+                                "query_count": len(db_queries),
+                                "query_lines": query_lines,
+                                "recommendation": "Use DataLoader or batch queries to avoid N+1 pattern",
+                            },
+                        )
+                    )
+                    break  # One finding per field is enough
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())

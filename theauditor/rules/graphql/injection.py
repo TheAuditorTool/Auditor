@@ -1,116 +1,131 @@
-"""GraphQL Injection Detection - Database-First Taint Analysis."""
+"""GraphQL Injection Detection - Database-First Taint Analysis.
 
-import sqlite3
+Detects GraphQL arguments flowing to SQL queries without parameterization.
+Traces from GraphQL schema field arguments through resolver functions to
+SQL query construction, flagging string interpolation patterns.
+
+CWE-89: SQL Injection
+CWE-943: Improper Neutralization of Special Elements in Data Query Logic
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="graphql_injection",
     category="security",
     target_extensions=[".graphql", ".gql", ".graphqls", ".py", ".js", ".ts"],
-    execution_scope="database")
+    exclude_patterns=["node_modules/", ".venv/", "test/", "__pycache__/"],
+    execution_scope="database",
+    primary_table="graphql_resolver_mappings",
+)
+
+# SQL injection indicators - string formatting patterns
+SQL_INJECTION_PATTERNS = ("%s", ".format", 'f"', "f'", "${", "`${")
 
 
-def check_graphql_injection(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect GraphQL injection via taint analysis."""
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect GraphQL injection via taint analysis.
+
+    Traces GraphQL field arguments through resolvers to SQL queries,
+    detecting unsafe string interpolation patterns.
+
+    Args:
+        context: Rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
     if not context.db_path:
-        return []
+        return RuleResult(findings=[], manifest={})
 
-    findings = []
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = []
 
-    cursor.execute("""
-        SELECT name FROM sqlite_master
-        WHERE type='table' AND name='graphql_resolver_mappings'
-    """)
-    if not cursor.fetchone():
-        return findings
-
-    cursor.execute("""
-        SELECT
-            fa.arg_name,
-            fa.arg_type,
-            f.field_name,
-            t.type_name,
-            rm.resolver_path,
-            rm.resolver_line,
-            fa.field_id
-        FROM graphql_field_args fa
-        JOIN graphql_fields f ON f.field_id = fa.field_id
-        JOIN graphql_types t ON t.type_id = f.type_id
-        LEFT JOIN graphql_resolver_mappings rm ON rm.field_id = fa.field_id
-        WHERE rm.resolver_path IS NOT NULL
-    """)
-
-    for row in cursor.fetchall():
-        arg_name = row["arg_name"]
-        field_name = row["field_name"]
-        type_name = row["type_name"]
-        resolver_path = row["resolver_path"]
-        resolver_line = row["resolver_line"]
-
-        cursor.execute(
-            """
-            SELECT query_text, line, command
-            FROM sql_queries
-            WHERE file = ?
-            AND line > ?
-            AND line < ? + 50
-        """,
-            (resolver_path, resolver_line, resolver_line),
+        # Query GraphQL field arguments with their resolvers
+        # Join path: field_args -> fields -> types, plus resolver mappings
+        rows = db.query(
+            Q("graphql_field_args")
+            .select(
+                "graphql_field_args.arg_name",
+                "graphql_field_args.arg_type",
+                "graphql_field_args.field_id",
+                "graphql_fields.field_name",
+                "graphql_types.type_name",
+                "graphql_resolver_mappings.resolver_path",
+                "graphql_resolver_mappings.resolver_line",
+            )
+            .join("graphql_fields", on=[("field_id", "field_id")])
+            .join("graphql_types", on="graphql_fields.type_id = graphql_types.type_id")
+            .left_join("graphql_resolver_mappings", on=[("field_id", "field_id")])
+            .where("graphql_resolver_mappings.resolver_path IS NOT NULL")
         )
 
-        sql_queries = cursor.fetchall()
+        for row in rows:
+            arg_name, arg_type, field_id, field_name, type_name, resolver_path, resolver_line = row
 
-        for sql_row in sql_queries:
-            query_text = sql_row["query_text"]
-            query_line = sql_row["line"]
-            command = sql_row["command"]
+            # Find SQL queries within resolver function scope (50 lines)
+            sql_rows = db.query(
+                Q("sql_queries")
+                .select("query_text", "line_number", "command")
+                .where("file_path = ?", resolver_path)
+                .where("line_number > ?", resolver_line)
+                .where("line_number < ?", resolver_line + 50)
+            )
 
-            if any(pattern in query_text for pattern in ["%s", ".format", 'f"', "f'"]):
-                cursor.execute(
-                    """
-                    SELECT argument_expr
-                    FROM function_call_args
-                    WHERE file = ?
-                    AND line BETWEEN ? AND ?
-                """,
-                    (resolver_path, resolver_line, query_line),
+            for sql_row in sql_rows:
+                query_text, query_line, command = sql_row
+
+                if not query_text:
+                    continue
+
+                # Check for string interpolation patterns indicating injection risk
+                if not any(pattern in query_text for pattern in SQL_INJECTION_PATTERNS):
+                    continue
+
+                # Verify the GraphQL argument appears in function call context
+                # between resolver start and SQL query
+                arg_rows = db.query(
+                    Q("function_call_args")
+                    .select("argument_expr")
+                    .where("file = ?", resolver_path)
+                    .where("line >= ?", resolver_line)
+                    .where("line <= ?", query_line)
                 )
 
-                found_arg_in_context = any(
-                    row["argument_expr"] and arg_name in row["argument_expr"]
-                    for row in cursor.fetchall()
+                arg_in_context = any(
+                    expr and arg_name in expr
+                    for (expr,) in arg_rows
                 )
 
-                if found_arg_in_context:
-                    finding = StandardFinding(
-                        rule_name="graphql_injection",
-                        message=f"GraphQL argument '{arg_name}' from {type_name}.{field_name} flows to SQL query without sanitization",
-                        file_path=resolver_path,
-                        line=query_line,
-                        severity=Severity.CRITICAL,
-                        category="security",
-                        confidence=Confidence.HIGH,
-                        snippet=query_text[:200] if query_text else "",
-                        cwe_id="CWE-89",
-                        additional_info={
-                            "graphql_field": f"{type_name}.{field_name}",
-                            "argument": arg_name,
-                            "sql_command": command,
-                            "query_snippet": query_text[:100] if query_text else "",
-                            "recommendation": "Use parameterized queries instead of string formatting",
-                        },
+                if arg_in_context:
+                    findings.append(
+                        StandardFinding(
+                            rule_name=METADATA.name,
+                            message=f"GraphQL argument '{arg_name}' from {type_name}.{field_name} flows to SQL query without parameterization",
+                            file_path=resolver_path,
+                            line=query_line,
+                            severity=Severity.CRITICAL,
+                            category=METADATA.category,
+                            confidence=Confidence.HIGH,
+                            snippet=query_text[:200] if len(query_text) > 200 else query_text,
+                            cwe_id="CWE-89",
+                            additional_info={
+                                "graphql_field": f"{type_name}.{field_name}",
+                                "argument": arg_name,
+                                "argument_type": arg_type,
+                                "sql_command": command,
+                                "recommendation": "Use parameterized queries instead of string interpolation",
+                            },
+                        )
                     )
-                    findings.append(finding)
 
-    conn.close()
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())

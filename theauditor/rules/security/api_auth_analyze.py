@@ -1,22 +1,27 @@
 """API Authentication Security Analyzer - Database-First Approach."""
 
-import sqlite3
+import json
 from dataclasses import dataclass
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="api_authentication",
     category="security",
     target_extensions=[".py", ".js", ".ts"],
     exclude_patterns=["test/", "spec.", "__tests__"],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="api_endpoints",
+)
 
 
 @dataclass(frozen=True)
@@ -293,39 +298,29 @@ class ApiAuthPatterns:
 class ApiAuthAnalyzer:
     """Analyzer for API authentication security issues."""
 
-    def __init__(self, context: StandardRuleContext):
+    def __init__(self, db: RuleDB):
         """Initialize analyzer with database context."""
-        self.context = context
+        self.db = db
         self.patterns = ApiAuthPatterns()
-        self.findings = []
+        self.findings: list[StandardFinding] = []
 
     def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
-
-        conn = sqlite3.connect(self.context.db_path)
-        self.cursor = conn.cursor()
-
-        try:
-            self._check_missing_auth_on_mutations()
-            self._check_sensitive_endpoints()
-            self._check_graphql_mutations()
-            self._check_weak_auth_patterns()
-            self._check_csrf_protection()
-
-        finally:
-            conn.close()
+        self._check_missing_auth_on_mutations()
+        self._check_sensitive_endpoints()
+        self._check_graphql_mutations()
+        self._check_weak_auth_patterns()
+        self._check_csrf_protection()
 
         return self.findings
 
     def _check_missing_auth_on_mutations(self):
         """Check for state-changing endpoints without authentication."""
-
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
         public_patterns_lower = [p.lower() for p in self.patterns.PUBLIC_ENDPOINT_PATTERNS]
 
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT
                 ae.file,
                 ae.line,
@@ -339,9 +334,10 @@ class ApiAuthAnalyzer:
             WHERE UPPER(ae.method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
             GROUP BY ae.file, ae.line, ae.method, ae.pattern
             ORDER BY ae.file, ae.pattern
-        """)
+            """
+        )
 
-        for file, line, method, pattern, controls_str in self.cursor.fetchall():
+        for file, line, method, pattern, controls_str in rows:
             controls = controls_str.split("|") if controls_str else []
 
             controls_lower = [str(c).lower() for c in controls if c]
@@ -377,7 +373,8 @@ class ApiAuthAnalyzer:
         sensitive_patterns_lower = [p.lower() for p in self.patterns.SENSITIVE_OPERATIONS]
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
 
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT
                 ae.file,
                 ae.line,
@@ -391,9 +388,10 @@ class ApiAuthAnalyzer:
             WHERE ae.pattern IS NOT NULL
             GROUP BY ae.file, ae.line, ae.method, ae.pattern
             ORDER BY ae.file, ae.pattern
-        """)
+            """
+        )
 
-        for file, line, _method, pattern, controls_str in self.cursor.fetchall():
+        for file, line, _method, pattern, controls_str in rows:
             pattern_lower = pattern.lower() if pattern else ""
             if not any(sensitive in pattern_lower for sensitive in sensitive_patterns_lower):
                 continue
@@ -421,15 +419,18 @@ class ApiAuthAnalyzer:
 
     def _check_graphql_mutations(self):
         """Check GraphQL mutations for authentication using database queries."""
-
-        self.cursor.execute("""
+        # Check if graphql_resolver_mappings table exists
+        table_check = self.db.execute(
+            """
             SELECT name FROM sqlite_master
             WHERE type='table' AND name='graphql_resolver_mappings'
-        """)
-        if not self.cursor.fetchone():
+            """
+        )
+        if not table_check:
             return
 
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT
                 f.field_name,
                 f.line AS field_line,
@@ -442,7 +443,8 @@ class ApiAuthAnalyzer:
             LEFT JOIN graphql_resolver_mappings rm ON rm.field_id = f.field_id
             WHERE t.type_name = 'Mutation'
             ORDER BY f.field_name
-        """)
+            """
+        )
 
         for (
             field_name,
@@ -451,22 +453,17 @@ class ApiAuthAnalyzer:
             resolver_path,
             resolver_line,
             directives_json,
-        ) in self.cursor.fetchall():
+        ) in rows:
             has_auth_directive = False
             if directives_json:
-                import json
-
-                try:
-                    directives = json.loads(directives_json)
-                    for directive in directives:
-                        if any(
-                            auth in directive.get("name", "")
-                            for auth in ["@auth", "@authenticated", "@requireAuth", "@authorize"]
-                        ):
-                            has_auth_directive = True
-                            break
-                except json.JSONDecodeError:
-                    pass
+                directives = json.loads(directives_json)
+                for directive in directives:
+                    if any(
+                        auth in directive.get("name", "")
+                        for auth in ["@auth", "@authenticated", "@requireAuth", "@authorize"]
+                    ):
+                        has_auth_directive = True
+                        break
 
             if has_auth_directive:
                 continue
@@ -495,8 +492,8 @@ class ApiAuthAnalyzer:
 
     def _check_weak_auth_patterns(self):
         """Check for weak authentication patterns."""
-
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT
                 ae.file,
                 ae.line,
@@ -510,9 +507,10 @@ class ApiAuthAnalyzer:
             GROUP BY ae.file, ae.line, ae.method, ae.pattern
             HAVING controls_str IS NOT NULL
             ORDER BY ae.file, ae.pattern
-        """)
+            """
+        )
 
-        for file, line, _method, pattern, controls_concat in self.cursor.fetchall():
+        for file, line, _method, pattern, controls_concat in rows:
             controls = controls_concat.split("|") if controls_concat else []
             controls_str = " ".join(str(c).lower() for c in controls if c)
 
@@ -548,7 +546,8 @@ class ApiAuthAnalyzer:
         """Check if state-changing endpoints have CSRF protection."""
         csrf_patterns_lower = [p.lower() for p in self.patterns.CSRF_PATTERNS]
 
-        self.cursor.execute("""
+        rows = self.db.execute(
+            """
             SELECT
                 ae.file,
                 ae.line,
@@ -562,9 +561,10 @@ class ApiAuthAnalyzer:
             WHERE UPPER(ae.method) IN ('POST', 'PUT', 'PATCH', 'DELETE')
             GROUP BY ae.file, ae.line, ae.method, ae.pattern
             ORDER BY ae.file, ae.pattern
-        """)
+            """
+        )
 
-        for file, line, method, pattern, controls_str in self.cursor.fetchall():
+        for file, line, method, pattern, controls_str in rows:
             if pattern and ("/api/" in pattern or "/v1/" in pattern or "/v2/" in pattern):
                 continue
 
@@ -594,18 +594,18 @@ class ApiAuthAnalyzer:
         auth_patterns = list(self.patterns.AUTH_MIDDLEWARE)
         placeholders = ",".join("?" * len(auth_patterns))
 
-        self.cursor.execute(
+        rows = self.db.execute(
             f"""
             SELECT COUNT(*) FROM function_call_args
             WHERE file = ?
               AND ABS(line - ?) <= 20
               AND callee_function IN ({placeholders})
             LIMIT 1
-        """,
+            """,
             [file, line] + auth_patterns,
         )
 
-        return self.cursor.fetchone()[0] > 0
+        return rows[0][0] > 0 if rows else False
 
     def _determine_severity(self, pattern: str, method: str) -> Severity:
         """Determine severity based on endpoint pattern and method."""
@@ -650,35 +650,24 @@ class ApiAuthAnalyzer:
         return Confidence.MEDIUM
 
 
-"""
-FLAGGED: Missing database features for better API auth detection:
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect API authentication security issues.
 
-1. HTTP header extraction:
-   - Can't detect Authorization headers directly
-   - Need to extract x-api-key, Bearer token patterns
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
 
-2. Decorator extraction:
-   - Can't detect @login_required or similar decorators
-   - Need decorator parsing in indexer
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    findings: list[StandardFinding] = []
 
-3. Middleware chain:
-   - Can't see full middleware stack for an endpoint
-   - Need middleware ordering/chaining information
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
 
-4. Route inheritance:
-   - Can't detect auth at router level that applies to all routes
-   - Need route hierarchy information
-
-5. GraphQL schema:
-   - Can't parse GraphQL schema for auth directives
-   - Need GraphQL-specific parsing
-"""
-
-
-def find_apiauth_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect API authentication security issues."""
-    analyzer = ApiAuthAnalyzer(context)
-    return analyzer.analyze()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        analyzer = ApiAuthAnalyzer(db)
+        findings = analyzer.analyze()
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def register_taint_patterns(taint_registry):
@@ -693,3 +682,11 @@ def register_taint_patterns(taint_registry):
 
     for pattern in patterns.PUBLIC_ENDPOINT_PATTERNS:
         taint_registry.register_source(pattern, "public_endpoint", "api")
+
+
+__all__ = [
+    "analyze",
+    "METADATA",
+    "register_taint_patterns",
+    "ApiAuthPatterns",
+]

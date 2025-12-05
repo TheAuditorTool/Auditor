@@ -1,21 +1,21 @@
-"""Go Concurrency Issue Analyzer - Database-First Approach.
+"""Go Concurrency Issue Analyzer.
 
-This is a Go-specific analyzer that detects common concurrency bugs:
-1. Captured loop variables in goroutines (data race)
-2. Package-level variable access from goroutines without sync
-3. Shared map access from multiple goroutines
+Detects common Go concurrency bugs:
+1. Captured loop variables in goroutines (data race) - CRITICAL
+2. Package-level variable access from goroutines without sync - HIGH
+3. Multiple goroutines without synchronization primitives - MEDIUM
 """
-
-import sqlite3
-from dataclasses import dataclass
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="go_concurrency",
@@ -27,37 +27,36 @@ METADATA = RuleMetadata(
         "testdata/",
         "_test.go",
     ],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="go_captured_vars",
+)
 
 
-@dataclass(frozen=True)
-class GoConcurrencyPatterns:
-    """Pattern definitions for Go concurrency issue detection."""
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Go concurrency issues.
 
-    SYNC_PRIMITIVES = frozenset(
-        [
-            "sync.Mutex",
-            "sync.RWMutex",
-            "sync.WaitGroup",
-            "sync.Once",
-            "sync.Cond",
-            "sync.Map",
-            "atomic.",
-        ]
-    )
+    Args:
+        context: Provides db_path and project context
 
-    CHANNEL_OPS = frozenset(
-        [
-            "<-",
-            "make(chan",
-        ]
-    )
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    findings: list[StandardFinding] = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_check_captured_loop_variables(db))
+        findings.extend(_check_package_var_goroutine_access(db))
+        findings.extend(_check_goroutine_without_sync(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-class GoConcurrencyAnalyzer:
-    """Analyzer for Go concurrency issues.
+def _check_captured_loop_variables(db: RuleDB) -> list[StandardFinding]:
+    """CRITICAL: Detect captured loop variables in goroutines.
 
-    Key detection: Captured loop variables in goroutines.
     This is the #1 source of data races in Go code:
 
         for i, v := range items {
@@ -65,195 +64,167 @@ class GoConcurrencyAnalyzer:
                 process(v)  // v is captured - RACE CONDITION!
             }()
         }
+
+    HIGH CONFIDENCE because:
+    1. go_captured_vars filters to anonymous goroutines
+    2. is_loop_var is set by walking up to enclosing for/range
+    3. This pattern is almost always a bug
     """
+    findings = []
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context."""
-        self.context = context
-        self.patterns = GoConcurrencyPatterns()
-        self.findings = []
+    rows = db.query(
+        Q("go_captured_vars")
+        .select("file_path", "line", "goroutine_id", "var_name")
+        .where("is_loop_var = ?", 1)
+        .order_by("file_path, line")
+    )
 
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
+    for file_path, line, goroutine_id, var_name in rows:
+        findings.append(
+            StandardFinding(
+                rule_name="go-race-captured-loop-var",
+                message=f"Loop variable '{var_name}' captured in goroutine - data race",
+                file_path=file_path,
+                line=line,
+                severity=Severity.CRITICAL,
+                category="concurrency",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-362",
+                additional_info={
+                    "goroutine_id": goroutine_id,
+                    "var_name": var_name,
+                    "fix": f"Pass '{var_name}' as parameter: go func({var_name} T) {{ ... }}({var_name})",
+                },
+            )
+        )
 
-        conn = sqlite3.connect(self.context.db_path)
-        conn.row_factory = sqlite3.Row
-        self.cursor = conn.cursor()
+    return findings
 
-        try:
-            self._check_captured_loop_variables()
-            self._check_package_var_goroutine_access()
-            self._check_goroutine_without_sync()
 
-        finally:
-            conn.close()
+def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
+    """Detect goroutines accessing package-level variables without sync."""
+    findings = []
 
-        return self.findings
+    # Get all package-level variables by file
+    pkg_var_rows = db.query(
+        Q("go_variables")
+        .select("file_path", "name")
+        .where("is_package_level = ?", 1)
+    )
 
-    def _check_captured_loop_variables(self):
-        """CRITICAL: Detect captured loop variables in goroutines.
+    pkg_vars: dict[str, set[str]] = {}
+    for file_path, name in pkg_var_rows:
+        if file_path not in pkg_vars:
+            pkg_vars[file_path] = set()
+        pkg_vars[file_path].add(name)
 
-        This is a HIGH CONFIDENCE finding because:
-        1. go_captured_vars already filters to anonymous goroutines
-        2. is_loop_var is set by walking up to enclosing for/range
-        3. This pattern is almost always a bug
-        """
-        self.cursor.execute("""
-            SELECT file_path, line, goroutine_id, var_name, is_loop_var
-            FROM go_captured_vars
-            WHERE is_loop_var = 1
-            ORDER BY file_path, line
-        """)
+    if not pkg_vars:
+        return findings
 
-        for row in self.cursor.fetchall():
-            self.findings.append(
+    # Get anonymous goroutines
+    goroutine_rows = db.query(
+        Q("go_goroutines")
+        .select("file_path", "line", "containing_func")
+        .where("is_anonymous = ?", 1)
+    )
+
+    for file_path, line, containing_func in goroutine_rows:
+        if file_path not in pkg_vars:
+            continue
+
+        # Check if file has mutex protection
+        mutex_rows = db.query(
+            Q("go_struct_fields")
+            .select("file_path")
+            .where("file_path = ?", file_path)
+            .where("field_type LIKE ? OR field_type LIKE ?", "%sync.Mutex%", "%sync.RWMutex%")
+            .limit(1)
+        )
+        has_mutex = len(list(mutex_rows)) > 0
+
+        if has_mutex:
+            continue
+
+        # Get captured variables for this goroutine
+        captured_rows = db.query(
+            Q("go_captured_vars")
+            .select("var_name")
+            .where("file_path = ?", file_path)
+            .where("line = ?", line)
+        )
+
+        captured = {var_name for (var_name,) in captured_rows}
+        pkg_var_access = captured.intersection(pkg_vars[file_path])
+
+        for var_name in pkg_var_access:
+            findings.append(
                 StandardFinding(
-                    rule_name="go-race-captured-loop-var",
-                    message=f"Loop variable '{row['var_name']}' captured in goroutine - data race!",
-                    file_path=row["file_path"],
-                    line=row["line"],
-                    severity=Severity.CRITICAL,
+                    rule_name="go-race-pkg-var",
+                    message=f"Package variable '{var_name}' accessed in goroutine without visible sync",
+                    file_path=file_path,
+                    line=line,
+                    severity=Severity.HIGH,
                     category="concurrency",
-                    confidence=Confidence.HIGH,
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-362",
+                )
+            )
+
+    return findings
+
+
+def _check_goroutine_without_sync(db: RuleDB) -> list[StandardFinding]:
+    """Detect files with multiple goroutines but no sync primitives."""
+    findings = []
+
+    # Find files with 2+ goroutines
+    goroutine_count_rows = db.query(
+        Q("go_goroutines")
+        .select("file_path", "COUNT(*) as goroutine_count")
+        .group_by("file_path")
+    )
+
+    multi_goroutine_files: dict[str, int] = {}
+    for file_path, count in goroutine_count_rows:
+        if count >= 2:
+            multi_goroutine_files[file_path] = count
+
+    for file_path, count in multi_goroutine_files.items():
+        # Check for sync package import
+        sync_import_rows = db.query(
+            Q("go_imports")
+            .select("path")
+            .where("file_path = ?", file_path)
+            .where("path = ? OR path = ?", "sync", "sync/atomic")
+            .limit(1)
+        )
+        has_sync_import = len(list(sync_import_rows)) > 0
+
+        # Check for channel usage
+        channel_rows = db.query(
+            Q("go_channels")
+            .select("file_path")
+            .where("file_path = ?", file_path)
+            .limit(1)
+        )
+        has_channels = len(list(channel_rows)) > 0
+
+        if not has_sync_import and not has_channels:
+            findings.append(
+                StandardFinding(
+                    rule_name="go-goroutines-no-sync",
+                    message=f"File has {count} goroutines but no sync primitives or channels",
+                    file_path=file_path,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="concurrency",
+                    confidence=Confidence.LOW,
                     cwe_id="CWE-362",
                     additional_info={
-                        "goroutine_id": row["goroutine_id"],
-                        "var_name": row["var_name"],
-                        "fix": f"Pass '{row['var_name']}' as parameter: go func({row['var_name']} T) {{ ... }}({row['var_name']})",
+                        "goroutine_count": count,
+                        "suggestion": "Consider using sync.Mutex, sync.WaitGroup, or channels for coordination",
                     },
                 )
             )
 
-    def _check_package_var_goroutine_access(self):
-        """Detect goroutines that might access package-level variables."""
-
-        self.cursor.execute("""
-            SELECT file_path, name
-            FROM go_variables
-            WHERE is_package_level = 1
-        """)
-
-        pkg_vars = {}
-        for row in self.cursor.fetchall():
-            key = row["file_path"]
-            if key not in pkg_vars:
-                pkg_vars[key] = set()
-            pkg_vars[key].add(row["name"])
-
-        if not pkg_vars:
-            return
-
-        self.cursor.execute("""
-            SELECT g.file_path, g.line, g.containing_func, g.is_anonymous
-            FROM go_goroutines g
-            WHERE g.is_anonymous = 1
-        """)
-
-        goroutines = self.cursor.fetchall()
-
-        for goroutine in goroutines:
-            file_path = goroutine["file_path"]
-
-            if file_path not in pkg_vars:
-                continue
-
-            self.cursor.execute(
-                """
-                SELECT COUNT(*) as cnt FROM go_struct_fields
-                WHERE file_path = ?
-                  AND (field_type LIKE '%sync.Mutex%'
-                       OR field_type LIKE '%sync.RWMutex%')
-            """,
-                (file_path,),
-            )
-
-            has_mutex = self.cursor.fetchone()["cnt"] > 0
-
-            if not has_mutex:
-                self.cursor.execute(
-                    """
-                    SELECT var_name FROM go_captured_vars
-                    WHERE file_path = ? AND line = ?
-                """,
-                    (file_path, goroutine["line"]),
-                )
-
-                captured = {row["var_name"] for row in self.cursor.fetchall()}
-                pkg_var_access = captured.intersection(pkg_vars[file_path])
-
-                if pkg_var_access:
-                    for var_name in pkg_var_access:
-                        self.findings.append(
-                            StandardFinding(
-                                rule_name="go-race-pkg-var",
-                                message=f"Package variable '{var_name}' accessed in goroutine without visible sync",
-                                file_path=file_path,
-                                line=goroutine["line"],
-                                severity=Severity.HIGH,
-                                category="concurrency",
-                                confidence=Confidence.MEDIUM,
-                                cwe_id="CWE-362",
-                            )
-                        )
-
-    def _check_goroutine_without_sync(self):
-        """Detect files with multiple goroutines but no sync primitives."""
-
-        self.cursor.execute("""
-            SELECT file_path, COUNT(*) as goroutine_count
-            FROM go_goroutines
-            GROUP BY file_path
-            HAVING goroutine_count >= 2
-        """)
-
-        multi_goroutine_files = {
-            row["file_path"]: row["goroutine_count"] for row in self.cursor.fetchall()
-        }
-
-        for file_path, count in multi_goroutine_files.items():
-            self.cursor.execute(
-                """
-                SELECT COUNT(*) as cnt FROM go_imports
-                WHERE file_path = ?
-                  AND (path = 'sync' OR path = 'sync/atomic')
-            """,
-                (file_path,),
-            )
-
-            has_sync_import = self.cursor.fetchone()["cnt"] > 0
-
-            self.cursor.execute(
-                """
-                SELECT COUNT(*) as cnt FROM go_channels
-                WHERE file_path = ?
-            """,
-                (file_path,),
-            )
-
-            has_channels = self.cursor.fetchone()["cnt"] > 0
-
-            if not has_sync_import and not has_channels:
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="go-goroutines-no-sync",
-                        message=f"File has {count} goroutines but no sync primitives or channels",
-                        file_path=file_path,
-                        line=1,
-                        severity=Severity.MEDIUM,
-                        category="concurrency",
-                        confidence=Confidence.LOW,
-                        cwe_id="CWE-362",
-                        additional_info={
-                            "goroutine_count": count,
-                            "suggestion": "Consider using sync.Mutex, sync.WaitGroup, or channels for coordination",
-                        },
-                    )
-                )
-
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Go concurrency issues."""
-    analyzer = GoConcurrencyAnalyzer(context)
-    return analyzer.analyze()
+    return findings

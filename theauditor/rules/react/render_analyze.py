@@ -1,138 +1,114 @@
-"""React Render Analyzer - Database-Driven Implementation."""
+"""React Render Analyzer - Detects rendering performance issues and anti-patterns.
 
-import sqlite3
+Checks for:
+- Expensive operations (sort/filter/map) in render path
+- Direct state/props mutations
+- Inline functions causing re-renders
+- Missing key props in lists
+- Object creation in render path
+- Using array index as key
+- Unnecessary derived state
+- Anonymous functions passed as props
+- Components with excessive state/effects
+- Inline style objects
+"""
+
 from dataclasses import dataclass
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="react_render_issues",
     category="react",
     target_extensions=[".jsx", ".tsx", ".js", ".ts"],
     target_file_patterns=["frontend/", "client/", "src/"],
-    exclude_patterns=["node_modules/", "__tests__/", "*.test.jsx", "*.test.tsx", "migrations/"])
+    exclude_patterns=["node_modules/", "__tests__/", "*.test.jsx", "*.test.tsx", "*.spec.jsx", "*.spec.tsx", "migrations/"],
+    execution_scope="database",
+    primary_table="react_components",
+)
 
 
 @dataclass(frozen=True)
 class ReactRenderPatterns:
     """Immutable pattern definitions for React rendering issues."""
 
-    EXPENSIVE_OPERATIONS = frozenset(
-        [
-            "sort",
-            "filter",
-            "map",
-            "reduce",
-            "find",
-            "findIndex",
-            "forEach",
-            "reverse",
-            "concat",
-            "slice",
-            "splice",
-        ]
-    )
+    EXPENSIVE_OPERATIONS: frozenset = frozenset([
+        "sort", "filter", "map", "reduce", "find", "findIndex",
+        "forEach", "reverse", "concat", "slice", "splice",
+    ])
 
-    MUTATING_METHODS = frozenset(
-        ["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]
-    )
+    MUTATING_METHODS: frozenset = frozenset([
+        "push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"
+    ])
 
-    OBJECT_CREATORS = frozenset(
-        [
-            "Object.create",
-            "Object.assign",
-            "Object.freeze",
-            "Array.from",
-            "Array.of",
-            "new Array",
-            "new Object",
-            "new Map",
-            "new Set",
-            "new Date",
-            "Date.now",
-        ]
-    )
+    OBJECT_CREATORS: frozenset = frozenset([
+        "Object.create", "Object.assign", "Object.freeze",
+        "Array.from", "Array.of", "new Array", "new Object",
+        "new Map", "new Set", "new Date", "Date.now",
+    ])
 
-    INLINE_FUNCTION_PATTERNS = frozenset(
-        ["() =>", "function()", "function ()", "=>", "bind(", ".bind("]
-    )
-
-    EVENT_HANDLERS = frozenset(
-        [
-            "onClick",
-            "onChange",
-            "onSubmit",
-            "onFocus",
-            "onBlur",
-            "onMouseEnter",
-            "onMouseLeave",
-            "onKeyDown",
-            "onKeyUp",
-            "onScroll",
-            "onLoad",
-            "onError",
-            "onDragStart",
-            "onDrop",
-        ]
-    )
-
-    PERF_PROPS = frozenset(["key", "ref", "children", "style", "className"])
+    EVENT_HANDLERS: frozenset = frozenset([
+        "onClick", "onChange", "onSubmit", "onFocus", "onBlur",
+        "onMouseEnter", "onMouseLeave", "onKeyDown", "onKeyUp",
+        "onScroll", "onLoad", "onError", "onDragStart", "onDrop",
+    ])
 
 
 class ReactRenderAnalyzer:
     """Analyzer for React rendering performance and optimization."""
 
-    def __init__(self, context: StandardRuleContext):
+    def __init__(self, db: RuleDB):
         """Initialize analyzer with database context."""
-        self.context = context
+        self.db = db
         self.patterns = ReactRenderPatterns()
-        self.findings = []
+        self.findings: list[StandardFinding] = []
 
     def analyze(self) -> list[StandardFinding]:
         """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
-
-        conn = sqlite3.connect(self.context.db_path)
-        self.cursor = conn.cursor()
-
-        try:
-            self._check_expensive_operations()
-            self._check_array_mutations()
-            self._check_inline_functions()
-            self._check_missing_keys()
-            self._check_object_creation()
-            self._check_index_as_key()
-            self._check_derived_state()
-            self._check_anonymous_functions_in_props()
-            self._check_excessive_renders()
-            self._check_style_objects()
-
-        finally:
-            conn.close()
+        self._check_expensive_operations()
+        self._check_array_mutations()
+        self._check_inline_functions()
+        self._check_missing_keys()
+        self._check_object_creation()
+        self._check_index_as_key()
+        self._check_derived_state()
+        self._check_anonymous_functions_in_props()
+        self._check_excessive_renders()
+        self._check_style_objects()
 
         return self.findings
 
-    def _check_expensive_operations(self):
+    def _check_expensive_operations(self) -> None:
         """Check for expensive operations in render methods."""
+        components = list(self.db.query(
+            Q("react_components")
+            .select("file", "name", "start_line", "end_line")
+        ))
 
-        self.cursor.execute("""
-            SELECT DISTINCT f.file, f.line, f.callee_function,
-                   f.caller_function, c.name
-            FROM function_call_args f
-            JOIN react_components c ON f.file = c.file
-            WHERE f.line BETWEEN c.start_line AND c.end_line
-            LIMIT 1000
-        """)
+        component_ranges: dict[str, list[tuple]] = {}
+        for file, name, start, end in components:
+            if file not in component_ranges:
+                component_ranges[file] = []
+            component_ranges[file].append((name, start or 0, end or 0))
 
-        for row in self.cursor.fetchall():
-            file, line, callee, caller, component = row
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "caller_function")
+            .limit(1000)
+        )
+
+        for file, line, callee, caller in rows:
+            if not callee:
+                continue
 
             if caller and ("useMemo" in caller or "useCallback" in caller):
                 continue
@@ -143,41 +119,51 @@ class ReactRenderAnalyzer:
                     operation = op
                     break
 
-            if operation:
+            if not operation:
+                continue
+
+            component_name = None
+            if file in component_ranges:
+                for name, start, end in component_ranges[file]:
+                    if start <= line <= end:
+                        component_name = name
+                        break
+
+            if component_name:
                 self.findings.append(
                     StandardFinding(
                         rule_name="react-expensive-operation",
-                        message=f"Expensive {operation} operation in render path",
+                        message=f"Expensive {operation}() operation in render path of {component_name}",
                         file_path=file,
                         line=line,
                         severity=Severity.MEDIUM,
                         category="react-performance",
-                        snippet=f"{callee} in {component}",
+                        snippet=f"{callee} in {component_name}",
                         confidence=Confidence.MEDIUM,
                         cwe_id="CWE-1050",
                     )
                 )
 
-    def _check_array_mutations(self):
+    def _check_array_mutations(self) -> None:
         """Check for direct array/object mutations."""
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("argument_expr IS NOT NULL")
+            .limit(500)
+        )
 
-        self.cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE argument_expr IS NOT NULL
-            LIMIT 500
-        """)
+        for file, line, callee, args in rows:
+            if not callee or not args:
+                continue
 
-        for row in self.cursor.fetchall():
-            file, line, callee, args = row
-
-            args_str = str(args) if args else ""
-            if not ("state" in args_str or "props" in args_str):
+            args_str = str(args)
+            if "state" not in args_str and "props" not in args_str:
                 continue
 
             method_found = None
             for method in self.patterns.MUTATING_METHODS:
-                if callee and f".{method}" in callee:
+                if f".{method}" in callee:
                     method_found = method
                     break
 
@@ -185,30 +171,27 @@ class ReactRenderAnalyzer:
                 self.findings.append(
                     StandardFinding(
                         rule_name="react-direct-mutation",
-                        message=f"Direct state/props mutation using {method_found}",
+                        message=f"Direct state/props mutation using {method_found}()",
                         file_path=file,
                         line=line,
                         severity=Severity.HIGH,
                         category="react-state",
-                        snippet=f"{callee}",
+                        snippet=callee,
                         confidence=Confidence.HIGH if "state" in args_str else Confidence.MEDIUM,
                         cwe_id="CWE-682",
                     )
                 )
 
-    def _check_inline_functions(self):
+    def _check_inline_functions(self) -> None:
         """Check for inline arrow functions in render."""
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "argument_expr", "callee_function")
+            .where("argument_expr IS NOT NULL")
+            .limit(500)
+        )
 
-        self.cursor.execute("""
-            SELECT file, line, argument_expr, callee_function
-            FROM function_call_args
-            WHERE argument_expr IS NOT NULL
-            LIMIT 500
-        """)
-
-        for row in self.cursor.fetchall():
-            file, line, args, callee = row
-
+        for file, line, args, callee in rows:
             if callee and callee.startswith("use"):
                 continue
 
@@ -227,107 +210,108 @@ class ReactRenderAnalyzer:
                 self.findings.append(
                     StandardFinding(
                         rule_name="react-inline-function",
-                        message="Inline function in render will cause re-renders",
+                        message="Inline function in event handler will cause unnecessary re-renders",
                         file_path=file,
                         line=line,
                         severity=Severity.LOW,
                         category="react-performance",
-                        snippet="Inline arrow function or bind",
+                        snippet="Inline arrow function or bind()",
                         confidence=Confidence.MEDIUM,
                         cwe_id="CWE-1050",
                     )
                 )
 
-    def _check_missing_keys(self):
-        """Check for missing key props in lists."""
+    def _check_missing_keys(self) -> None:
+        """Check for missing key props in lists rendered with .map()."""
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("callee_function LIKE ?", "%.map%")
+            .limit(500)
+        )
 
-        self.cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            LIMIT 500
-        """)
+        for file, line, callee, args in rows:
+            args_str = str(args) if args else ""
 
-        for row in self.cursor.fetchall():
-            file, line, callee, args = row
-
-            if not (callee and ".map" in callee):
+            if "key=" in args_str or "key:" in args_str:
                 continue
 
-            args_str = str(args) if args else ""
-            if args_str and "key" in args_str:
+            if "<" not in args_str and "return" not in args_str:
                 continue
 
             self.findings.append(
                 StandardFinding(
                     rule_name="react-missing-key",
-                    message="Array.map without key prop in JSX",
+                    message="Array.map() rendering JSX without key prop",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
                     category="react-performance",
-                    snippet=f"{callee}",
+                    snippet=callee or ".map()",
                     confidence=Confidence.LOW,
                     cwe_id="CWE-1050",
                 )
             )
 
-    def _check_object_creation(self):
-        """Check for object/array creation in render."""
+    def _check_object_creation(self) -> None:
+        """Check for object/array creation in render path."""
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function")
+            .where("callee_function IS NOT NULL")
+            .limit(500)
+        )
 
-        self.cursor.execute("""
-            SELECT file, line, callee_function
-            FROM function_call_args
-            WHERE callee_function IS NOT NULL
-            LIMIT 500
-        """)
-
-        for row in self.cursor.fetchall():
-            file, line, callee = row
-
-            if callee and "use" in callee.lower():
+        for file, line, callee in rows:
+            if not callee:
                 continue
 
-            if callee in self.patterns.OBJECT_CREATORS:
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="react-object-creation",
-                        message=f"Creating new {callee} in render path",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.LOW,
-                        category="react-performance",
-                        snippet=f"{callee}",
-                        confidence=Confidence.LOW,
-                        cwe_id="CWE-1050",
+            if "use" in callee.lower():
+                continue
+
+            for creator in self.patterns.OBJECT_CREATORS:
+                if creator in callee:
+                    self.findings.append(
+                        StandardFinding(
+                            rule_name="react-object-creation",
+                            message=f"Creating new object with {creator} in render path",
+                            file_path=file,
+                            line=line,
+                            severity=Severity.LOW,
+                            category="react-performance",
+                            snippet=callee,
+                            confidence=Confidence.LOW,
+                            cwe_id="CWE-1050",
+                        )
                     )
-                )
+                    break
 
-    def _check_index_as_key(self):
-        """Check for using array index as key."""
+    def _check_index_as_key(self) -> None:
+        """Check for using array index as key prop."""
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "argument_expr")
+            .where("callee_function LIKE ?", "%.map%")
+            .where("argument_expr IS NOT NULL")
+            .limit(500)
+        )
 
-        self.cursor.execute("""
-            SELECT file, line, callee_function, argument_expr
-            FROM function_call_args
-            WHERE argument_expr IS NOT NULL
-            LIMIT 500
-        """)
-
-        for row in self.cursor.fetchall():
-            file, line, callee, args = row
-
-            if not (callee and ".map" in callee):
-                continue
-
+        for file, line, callee, args in rows:
             args_str = str(args) if args else ""
+
             has_index_key = (
-                "key={index}" in args_str or "key={i}" in args_str or "key={idx}" in args_str
+                "key={index}" in args_str
+                or "key={i}" in args_str
+                or "key={idx}" in args_str
+                or "key: index" in args_str
+                or "key: i," in args_str
             )
 
             if has_index_key:
                 self.findings.append(
                     StandardFinding(
                         rule_name="react-index-key",
-                        message="Using array index as key prop can cause issues",
+                        message="Using array index as key prop can cause rendering issues with list reordering",
                         file_path=file,
                         line=line,
                         severity=Severity.MEDIUM,
@@ -338,34 +322,31 @@ class ReactRenderAnalyzer:
                     )
                 )
 
-    def _check_derived_state(self):
-        """Check for unnecessary derived state."""
+    def _check_derived_state(self) -> None:
+        """Check for unnecessary derived state from props."""
+        use_state_rows = self.db.query(
+            Q("react_hooks")
+            .select("file", "line", "component_name")
+            .where("hook_name = ?", "useState")
+            .limit(200)
+        )
 
-        self.cursor.execute("""
-            SELECT file, line, component_name
-            FROM react_hooks
-            WHERE hook_name = 'useState'
-            LIMIT 200
-        """)
-        use_states = self.cursor.fetchall()
+        use_effect_rows = self.db.query(
+            Q("react_hooks")
+            .select("file", "line", "component_name", "dependency_array")
+            .where("hook_name = ?", "useEffect")
+            .where("dependency_array IS NOT NULL")
+            .limit(200)
+        )
 
-        self.cursor.execute("""
-            SELECT file, line, component_name, dependency_array
-            FROM react_hooks
-            WHERE hook_name = 'useEffect'
-              AND dependency_array IS NOT NULL
-            LIMIT 200
-        """)
-        use_effects = self.cursor.fetchall()
-
-        effects_by_component = {}
-        for file, line, component, deps in use_effects:
+        effects_by_component: dict[tuple, list[tuple]] = {}
+        for file, line, component, deps in use_effect_rows:
             key = (file, component)
             if key not in effects_by_component:
                 effects_by_component[key] = []
             effects_by_component[key].append((line, deps))
 
-        for file, line, component in use_states:
+        for file, line, component in use_state_rows:
             key = (file, component)
             if key not in effects_by_component:
                 continue
@@ -377,7 +358,7 @@ class ReactRenderAnalyzer:
                         self.findings.append(
                             StandardFinding(
                                 rule_name="react-derived-state",
-                                message="Possible unnecessary derived state from props",
+                                message="Possible unnecessary derived state from props - consider computing during render instead",
                                 file_path=file,
                                 line=line,
                                 severity=Severity.LOW,
@@ -389,92 +370,114 @@ class ReactRenderAnalyzer:
                         )
                         break
 
-    def _check_anonymous_functions_in_props(self):
-        """Check for anonymous functions passed as props."""
+    def _check_anonymous_functions_in_props(self) -> None:
+        """Check for anonymous functions passed as props to child components."""
+        components = list(self.db.query(
+            Q("react_components")
+            .select("file", "name", "start_line", "end_line", "has_jsx")
+            .where("has_jsx = ?", 1)
+        ))
 
-        self.cursor.execute("""
-            SELECT f.file, f.line, f.argument_expr, f.callee_function, c.name
-            FROM function_call_args f
-            JOIN react_components c ON f.file = c.file
-            WHERE c.has_jsx = 1
-              AND f.line BETWEEN c.start_line AND c.end_line
-              AND f.argument_expr IS NOT NULL
-            LIMIT 500
-        """)
+        component_ranges: dict[str, list[tuple]] = {}
+        for file, name, start, end, has_jsx in components:
+            if file not in component_ranges:
+                component_ranges[file] = []
+            component_ranges[file].append((name, start or 0, end or 0))
 
-        for row in self.cursor.fetchall():
-            file, line, args, callee, component = row
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "argument_expr", "callee_function")
+            .where("argument_expr IS NOT NULL")
+            .limit(500)
+        )
 
+        for file, line, args, callee in rows:
             if callee and callee.startswith("use"):
                 continue
 
             args_str = str(args) if args else ""
             has_anonymous = "=>" in args_str or "function" in args_str
 
-            if has_anonymous and len(args_str) < 50:
+            if not has_anonymous or len(args_str) >= 50:
+                continue
+
+            component_name = None
+            if file in component_ranges:
+                for name, start, end in component_ranges[file]:
+                    if start <= line <= end:
+                        component_name = name
+                        break
+
+            if component_name:
                 self.findings.append(
                     StandardFinding(
                         rule_name="react-anonymous-prop",
-                        message="Anonymous function in props causes re-renders",
+                        message="Anonymous function in props causes child re-renders - extract to useCallback",
                         file_path=file,
                         line=line,
                         severity=Severity.LOW,
                         category="react-performance",
-                        snippet=f"Anonymous function in {component}",
+                        snippet=f"Anonymous function in {component_name}",
                         confidence=Confidence.LOW,
                         cwe_id="CWE-1050",
                     )
                 )
 
-    def _check_excessive_renders(self):
+    def _check_excessive_renders(self) -> None:
         """Check for components that might render too often."""
-        self.cursor.execute("""
-            SELECT file, component_name,
-                   COUNT(CASE WHEN hook_name = 'useState' THEN 1 END) as state_count,
-                   COUNT(CASE WHEN hook_name = 'useEffect' THEN 1 END) as effect_count
-            FROM react_hooks
-            GROUP BY file, component_name
-            HAVING state_count > 5 AND effect_count > 3
-        """)
+        rows = self.db.query(
+            Q("react_hooks")
+            .select("file", "component_name", "hook_name")
+        )
 
-        for row in self.cursor.fetchall():
-            file, component, states, effects = row
+        component_hooks: dict[tuple, dict] = {}
+        for file, component, hook_name in rows:
+            key = (file, component)
+            if key not in component_hooks:
+                component_hooks[key] = {"useState": 0, "useEffect": 0}
+            if hook_name == "useState":
+                component_hooks[key]["useState"] += 1
+            elif hook_name == "useEffect":
+                component_hooks[key]["useEffect"] += 1
 
-            self.findings.append(
-                StandardFinding(
-                    rule_name="react-excessive-renders",
-                    message=f"Component with {states} states and {effects} effects may render excessively",
-                    file_path=file,
-                    line=1,
-                    severity=Severity.MEDIUM,
-                    category="react-performance",
-                    snippet=f"{component}: {states} useState, {effects} useEffect",
-                    confidence=Confidence.LOW,
-                    cwe_id="CWE-1050",
+        for (file, component), counts in component_hooks.items():
+            states = counts["useState"]
+            effects = counts["useEffect"]
+
+            if states > 5 and effects > 3:
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-excessive-renders",
+                        message=f"Component with {states} states and {effects} effects may render excessively - consider consolidating state",
+                        file_path=file,
+                        line=1,
+                        severity=Severity.MEDIUM,
+                        category="react-performance",
+                        snippet=f"{component}: {states} useState, {effects} useEffect",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-1050",
+                    )
                 )
-            )
 
-    def _check_style_objects(self):
-        """Check for inline style objects."""
+    def _check_style_objects(self) -> None:
+        """Check for inline style objects that cause re-renders."""
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "argument_expr")
+            .where("argument_expr IS NOT NULL")
+            .limit(500)
+        )
 
-        self.cursor.execute("""
-            SELECT file, line, argument_expr
-            FROM function_call_args
-            WHERE argument_expr IS NOT NULL
-            LIMIT 500
-        """)
-
-        for row in self.cursor.fetchall():
-            file, line, args = row
-
+        for file, line, args in rows:
             args_str = str(args) if args else ""
+
             has_inline_style = "style={{" in args_str or "style={ {" in args_str
 
             if has_inline_style:
                 self.findings.append(
                     StandardFinding(
                         rule_name="react-inline-style",
-                        message="Inline style object causes unnecessary re-renders",
+                        message="Inline style object causes unnecessary re-renders - extract to constant or useMemo",
                         file_path=file,
                         line=line,
                         severity=Severity.LOW,
@@ -486,7 +489,19 @@ class ReactRenderAnalyzer:
                 )
 
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect React rendering performance issues and anti-patterns."""
-    analyzer = ReactRenderAnalyzer(context)
-    return analyzer.analyze()
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect React rendering performance issues and anti-patterns.
+
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
+
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        analyzer = ReactRenderAnalyzer(db)
+        findings = analyzer.analyze()
+        return RuleResult(findings=findings, manifest=db.get_manifest())

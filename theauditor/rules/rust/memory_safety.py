@@ -5,9 +5,6 @@ Detects dangerous memory operations that may lead to undefined behavior:
 - Box::leak and similar memory leaks
 - ManuallyDrop misuse
 - Raw pointer dereferencing patterns
-
-Uses RuleDB for fidelity tracking. Rust-specific tables use db.execute()
-since they may not be in Q class schema.
 """
 
 from theauditor.rules.base import (
@@ -19,6 +16,7 @@ from theauditor.rules.base import (
     StandardRuleContext,
 )
 from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="rust_memory_safety",
@@ -26,8 +24,8 @@ METADATA = RuleMetadata(
     target_extensions=[".rs"],
     exclude_patterns=["test/", "tests/", "benches/"],
     execution_scope="database",
+    primary_table="rust_unsafe_blocks",
 )
-
 
 DANGEROUS_IMPORTS = {
     "std::mem::transmute": {
@@ -97,7 +95,6 @@ DANGEROUS_IMPORTS = {
     },
 }
 
-
 DANGEROUS_METHODS = {
     "leak": {
         "severity": "medium",
@@ -124,7 +121,6 @@ DANGEROUS_METHODS = {
         "message": "as_mut_ptr creates mutable raw pointer",
         "cwe": "CWE-119",
     },
-    # ManuallyDrop methods - critical for memory safety
     "ManuallyDrop::new": {
         "severity": "medium",
         "message": "ManuallyDrop::new disables automatic drop - ensure manual cleanup",
@@ -155,23 +151,35 @@ SEVERITY_MAP = {
 }
 
 
-def _table_exists(db: RuleDB, table_name: str) -> bool:
-    """Check if a table exists in the database."""
-    rows = db.execute(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-        [table_name],
-    )
-    return len(rows) > 0
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Rust memory safety issues.
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
+    findings: list[StandardFinding] = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_check_dangerous_imports(db))
+        findings.extend(_check_unsafe_blocks_for_patterns(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def _check_dangerous_imports(db: RuleDB) -> list[StandardFinding]:
     """Flag imports of dangerous memory functions."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    rows = db.execute("""
+    sql, params = Q.raw(
+        """
         SELECT file_path, line, import_path, local_name
         FROM rust_use_statements
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, import_path, local_name = row
@@ -206,15 +214,19 @@ def _check_dangerous_imports(db: RuleDB) -> list[StandardFinding]:
 
 def _check_unsafe_blocks_for_patterns(db: RuleDB) -> list[StandardFinding]:
     """Check unsafe blocks for dangerous patterns."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    rows = db.execute("""
+    sql, params = Q.raw(
+        """
         SELECT
             file_path, line_start, line_end,
             containing_function, operations_json
         FROM rust_unsafe_blocks
         WHERE operations_json IS NOT NULL
-    """)
+        """,
+        [],
+    )
+    rows = db.execute(sql, params)
 
     for row in rows:
         file_path, line, _, containing_fn, operations = row
@@ -244,29 +256,3 @@ def _check_unsafe_blocks_for_patterns(db: RuleDB) -> list[StandardFinding]:
                 )
 
     return findings
-
-
-def analyze(context: StandardRuleContext) -> RuleResult:
-    """Detect Rust memory safety issues.
-
-    Returns RuleResult with findings and fidelity manifest.
-    """
-    findings = []
-
-    if not context.db_path:
-        return RuleResult(findings=findings, manifest={})
-
-    with RuleDB(context.db_path, METADATA.name) as db:
-        if _table_exists(db, "rust_use_statements"):
-            findings.extend(_check_dangerous_imports(db))
-
-        if _table_exists(db, "rust_unsafe_blocks"):
-            findings.extend(_check_unsafe_blocks_for_patterns(db))
-
-        return RuleResult(findings=findings, manifest=db.get_manifest())
-
-
-# Legacy alias for orchestrator discovery
-def find_memory_safety_issues(context: StandardRuleContext) -> RuleResult:
-    """Detect Rust memory safety issues."""
-    return analyze(context)

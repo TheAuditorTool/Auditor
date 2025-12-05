@@ -1,137 +1,170 @@
-"""GraphQL Mutation Authentication Check - Database-First Approach."""
+"""GraphQL Mutation Authentication Detection.
 
-import sqlite3
-from dataclasses import dataclass
+Detects GraphQL mutations that lack authentication directives or
+resolver protection. Unprotected mutations allow unauthorized users
+to modify data, leading to privilege escalation and data tampering.
+
+CWE-306: Missing Authentication for Critical Function
+CWE-862: Missing Authorization
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="graphql_mutation_auth",
     category="security",
     target_extensions=[".graphql", ".gql", ".graphqls", ".py", ".js", ".ts"],
-    execution_scope="database")
+    exclude_patterns=["node_modules/", ".venv/", "test/", "__pycache__/"],
+    execution_scope="database",
+    primary_table="graphql_fields",
+)
+
+# Authentication directive patterns (without @ prefix for matching)
+AUTH_DIRECTIVES = frozenset([
+    "auth",
+    "authenticated",
+    "requireauth",
+    "require_auth",
+    "authorize",
+    "authorized",
+    "protected",
+    "secure",
+    "isauthenticated",
+    "is_authenticated",
+    "login_required",
+    "permission",
+    "role",
+    "hasrole",
+    "has_role",
+])
+
+# Mutations that typically don't need auth (public operations)
+PUBLIC_MUTATIONS = frozenset([
+    "login",
+    "signin",
+    "sign_in",
+    "signup",
+    "sign_up",
+    "register",
+    "createaccount",
+    "create_account",
+    "forgotpassword",
+    "forgot_password",
+    "resetpassword",
+    "reset_password",
+    "verifyemail",
+    "verify_email",
+    "refreshtoken",
+    "refresh_token",
+])
 
 
-@dataclass(frozen=True)
-class MutationAuthPatterns:
-    """Authentication directive and decorator patterns."""
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Check for mutations without authentication.
 
-    AUTH_DIRECTIVES = frozenset(
-        [
-            "@auth",
-            "@authenticated",
-            "@requireAuth",
-            "@authorize",
-            "@protected",
-            "@secure",
-            "@isAuthenticated",
-            "@authenticated",
-        ]
-    )
+    Identifies GraphQL mutation fields that lack authentication
+    directives like @auth, @authenticated, @protected, etc.
 
-    AUTH_DECORATORS = frozenset(
-        [
-            "auth_required",
-            "login_required",
-            "authenticated",
-            "requireAuth",
-            "require_auth",
-            "authorize",
-            "protected",
-        ]
-    )
+    Args:
+        context: Rule context with db_path
 
-
-def check_mutation_auth(context: StandardRuleContext) -> list[StandardFinding]:
-    """Check for mutations without authentication."""
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
     if not context.db_path:
-        return []
+        return RuleResult(findings=[], manifest={})
 
-    findings = []
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = []
 
-    cursor.execute("""
-        SELECT type_id
-        FROM graphql_types
-        WHERE type_name = 'Mutation'
-    """)
+        # Get all mutation fields with their schema paths
+        rows = db.query(
+            Q("graphql_fields")
+            .select(
+                "graphql_fields.field_id",
+                "graphql_fields.field_name",
+                "graphql_fields.line",
+                "graphql_types.schema_path",
+            )
+            .join("graphql_types", on=[("type_id", "type_id")])
+            .where("graphql_types.type_name = ?", "Mutation")
+        )
 
-    mutation_type = cursor.fetchone()
-    if not mutation_type:
-        return findings
+        for row in rows:
+            field_id, field_name, line, schema_path = row
 
-    mutation_type_id = mutation_type["type_id"]
+            # Skip public mutations that don't require auth
+            if field_name and field_name.lower() in PUBLIC_MUTATIONS:
+                continue
 
-    cursor.execute(
-        """
-        SELECT field_id, field_name, directives_json, line
-        FROM graphql_fields
-        WHERE type_id = ?
-    """,
-        (mutation_type_id,),
-    )
+            # Check if this field has an auth directive
+            directive_rows = db.query(
+                Q("graphql_field_directives")
+                .select("directive_name")
+                .where("field_id = ?", field_id)
+            )
 
-    for field_row in cursor.fetchall():
-        field_id = field_row["field_id"]
-        field_name = field_row["field_name"]
-        directives_json = field_row["directives_json"]
-        line = field_row["line"] or 0
+            has_auth_directive = any(
+                any(auth in (directive_name or "").lower() for auth in AUTH_DIRECTIVES)
+                for (directive_name,) in directive_rows
+            )
 
-        has_auth_directive = False
-        if directives_json:
-            import json
+            if has_auth_directive:
+                continue
 
-            try:
-                directives = json.loads(directives_json)
-                for directive in directives:
-                    if any(
-                        auth_dir in directive.get("name", "")
-                        for auth_dir in MutationAuthPatterns.AUTH_DIRECTIVES
-                    ):
-                        has_auth_directive = True
+            # Check if resolver has auth decorators (via resolver mappings)
+            resolver_rows = db.query(
+                Q("graphql_resolver_mappings")
+                .select("resolver_path", "resolver_line")
+                .where("field_id = ?", field_id)
+            )
+
+            resolver_protected = False
+            for resolver_path, resolver_line in resolver_rows:
+                if not resolver_path:
+                    continue
+                # Check for auth decorators in function call context before resolver
+                decorator_rows = db.query(
+                    Q("function_call_args")
+                    .select("callee_function")
+                    .where("file = ?", resolver_path)
+                    .where("line >= ?", max(1, resolver_line - 5))
+                    .where("line <= ?", resolver_line)
+                )
+                for (callee,) in decorator_rows:
+                    if callee and any(auth in callee.lower() for auth in AUTH_DIRECTIVES):
+                        resolver_protected = True
                         break
-            except json.JSONDecodeError:
-                pass
+                if resolver_protected:
+                    break
 
-        if has_auth_directive:
-            continue
+            if resolver_protected:
+                continue
 
-        cursor.execute(
-            """
-            SELECT resolver_path
-            FROM graphql_resolver_mappings
-            WHERE field_id = ?
-        """,
-            (field_id,),
-        )
+            findings.append(
+                StandardFinding(
+                    rule_name=METADATA.name,
+                    message=f"Mutation '{field_name}' lacks authentication directive or resolver protection",
+                    file_path=schema_path or "",
+                    line=line or 0,
+                    severity=Severity.HIGH,
+                    category=METADATA.category,
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-306",
+                    additional_info={
+                        "mutation": field_name,
+                        "recommendation": "Add @auth, @authenticated, or @protected directive, or protect resolver with authentication decorator",
+                    },
+                )
+            )
 
-        cursor.fetchone()
-
-        finding = StandardFinding(
-            rule_name="graphql_mutation_auth",
-            message=f"Mutation '{field_name}' lacks authentication directive or resolver protection",
-            file_path=str(context.file_path),
-            line=line,
-            severity=Severity.HIGH,
-            category="security",
-            confidence=Confidence.MEDIUM,
-            snippet="",
-            cwe_id="CWE-306",
-            additional_info={
-                "field_name": field_name,
-                "type": "Mutation",
-                "recommendation": "Add @auth/@authenticated directive or protect resolver with authentication decorator",
-            },
-        )
-        findings.append(finding)
-
-    conn.close()
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())

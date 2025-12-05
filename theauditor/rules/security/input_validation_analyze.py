@@ -1,287 +1,167 @@
-"""Input Validation Analyzer - Schema Contract Compliant Implementation."""
+"""Input Validation Analyzer - Fidelity-Compliant Implementation.
 
-import sqlite3
+Detects input validation vulnerabilities:
+- Prototype pollution
+- NoSQL injection
+- Missing validation
+- Template injection
+- Type confusion
+- Schema bypass
+- GraphQL injection
+- Path traversal
+- Type juggling
+- ORM injection
+"""
+
 from dataclasses import dataclass
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="input_validation",
     category="security",
     execution_scope="database",
     target_extensions=[".py", ".js", ".ts"],
-    exclude_patterns=["test/", "spec.", "__tests__"])
+    exclude_patterns=["test/", "spec.", "__tests__"],
+    primary_table="function_call_args",
+)
 
 
 @dataclass(frozen=True)
 class ValidationPatterns:
     """Immutable pattern definitions for input validation detection."""
 
-    VALIDATION_FUNCTIONS = frozenset(
-        [
-            "validate",
-            "verify",
-            "sanitize",
-            "clean",
-            "check",
-            "isValid",
-            "isEmail",
-            "isURL",
-            "isAlphanumeric",
-            "joi.validate",
-            "schema.validate",
-            "joi.assert",
-            "joi.attempt",
-            "yup.validate",
-            "schema.validateSync",
-            "yup.reach",
-            "yup.cast",
-            "z.parse",
-            "schema.parse",
-            "schema.safeParse",
-            "z.string",
-            "validationResult",
-            "checkSchema",
-            "check",
-            "body",
-            "validateOrReject",
-            "validateSync",
-            "validator.validate",
-            "ajv.compile",
-            "ajv.validate",
-            "schema.validate",
-        ]
-    )
+    VALIDATION_FUNCTIONS = frozenset([
+        "validate", "verify", "sanitize", "clean", "check",
+        "isValid", "isEmail", "isURL", "isAlphanumeric",
+        "joi.validate", "schema.validate", "joi.assert", "joi.attempt",
+        "yup.validate", "schema.validateSync", "yup.reach", "yup.cast",
+        "z.parse", "schema.parse", "schema.safeParse", "z.string",
+        "validationResult", "checkSchema", "check", "body",
+        "validateOrReject", "validateSync", "validator.validate",
+        "ajv.compile", "ajv.validate", "schema.validate",
+    ])
 
-    MERGE_FUNCTIONS = frozenset(
-        [
-            "Object.assign",
-            "merge",
-            "extend",
-            "deepMerge",
-            "deepExtend",
-            "_.merge",
-            "_.extend",
-            "_.assign",
-            "_.defaults",
-            "jQuery.extend",
-            "$.extend",
-            "angular.merge",
-            "angular.extend",
-            "Object.setPrototypeOf",
-            "Reflect.setPrototypeOf",
-            "lodash.merge",
-            "lodash.assign",
-            "deep-extend",
-            "node-extend",
-        ]
-    )
+    MERGE_FUNCTIONS = frozenset([
+        "Object.assign", "merge", "extend", "deepMerge", "deepExtend",
+        "_.merge", "_.extend", "_.assign", "_.defaults",
+        "jQuery.extend", "$.extend", "angular.merge", "angular.extend",
+        "Object.setPrototypeOf", "Reflect.setPrototypeOf",
+        "lodash.merge", "lodash.assign", "deep-extend", "node-extend",
+    ])
 
-    NOSQL_OPERATORS = frozenset(
-        [
-            "$ne",
-            "$gt",
-            "$lt",
-            "$gte",
-            "$lte",
-            "$in",
-            "$nin",
-            "$exists",
-            "$regex",
-            "$not",
-            "$where",
-            "$expr",
-            "$jsonSchema",
-            "$text",
-            "$or",
-            "$and",
-            "$nor",
-            "$elemMatch",
-        ]
-    )
+    NOSQL_OPERATORS = frozenset([
+        "$ne", "$gt", "$lt", "$gte", "$lte", "$in", "$nin",
+        "$exists", "$regex", "$not", "$where", "$expr",
+        "$jsonSchema", "$text", "$or", "$and", "$nor", "$elemMatch",
+    ])
 
-    TEMPLATE_ENGINES = frozenset(
-        [
-            "render",
-            "compile",
-            "renderFile",
-            "renderString",
-            "ejs.render",
-            "ejs.renderFile",
-            "ejs.compile",
-            "pug.render",
-            "pug.renderFile",
-            "pug.compile",
-            "handlebars.compile",
-            "hbs.compile",
-            "hbs.renderView",
-            "mustache.render",
-            "mustache.compile",
-            "nunjucks.render",
-            "nunjucks.renderString",
-            "jade.render",
-            "jade.compile",
-            "jade.renderFile",
-            "doT.template",
-            "dust.render",
-            "swig.render",
-        ]
-    )
+    TEMPLATE_ENGINES = frozenset([
+        "render", "compile", "renderFile", "renderString",
+        "ejs.render", "ejs.renderFile", "ejs.compile",
+        "pug.render", "pug.renderFile", "pug.compile",
+        "handlebars.compile", "hbs.compile", "hbs.renderView",
+        "mustache.render", "mustache.compile",
+        "nunjucks.render", "nunjucks.renderString",
+        "jade.render", "jade.compile", "jade.renderFile",
+        "doT.template", "dust.render", "swig.render",
+    ])
 
-    TYPE_CHECKS = frozenset(
-        [
-            "typeof",
-            "instanceof",
-            "constructor",
-            "Array.isArray",
-            "Number.isInteger",
-            "Number.isNaN",
-            "isNaN",
-            "isFinite",
-            "Object.prototype.toString",
-        ]
-    )
+    TYPE_CHECKS = frozenset([
+        "typeof", "instanceof", "constructor", "Array.isArray",
+        "Number.isInteger", "Number.isNaN", "isNaN", "isFinite",
+        "Object.prototype.toString",
+    ])
 
-    GRAPHQL_OPS = frozenset(
-        [
-            "graphql",
-            "execute",
-            "graphqlHTTP",
-            "GraphQLSchema",
-            "apollo-server",
-            "graphql-yoga",
-            "makeExecutableSchema",
-            "buildSchema",
-            "parse",
-            "parseValue",
-            "graphql-tag",
-        ]
-    )
+    GRAPHQL_OPS = frozenset([
+        "graphql", "execute", "graphqlHTTP", "GraphQLSchema",
+        "apollo-server", "graphql-yoga", "makeExecutableSchema",
+        "buildSchema", "parse", "parseValue", "graphql-tag",
+    ])
 
-    DB_WRITE_OPS = frozenset(
-        [
-            "create",
-            "insert",
-            "update",
-            "save",
-            "upsert",
-            "findOneAndUpdate",
-            "findByIdAndUpdate",
-            "updateOne",
-            "updateMany",
-            "bulkWrite",
-            "bulkCreate",
-            "insertMany",
-        ]
-    )
+    DB_WRITE_OPS = frozenset([
+        "create", "insert", "update", "save", "upsert",
+        "findOneAndUpdate", "findByIdAndUpdate", "updateOne",
+        "updateMany", "bulkWrite", "bulkCreate", "insertMany",
+    ])
 
-    INPUT_SOURCES = frozenset(
-        [
-            "req.body",
-            "req.query",
-            "req.params",
-            "request.body",
-            "request.query",
-            "request.params",
-            "ctx.request.body",
-            "ctx.query",
-            "ctx.params",
-            "event.body",
-            "event.queryStringParameters",
-        ]
-    )
+    INPUT_SOURCES = frozenset([
+        "req.body", "req.query", "req.params",
+        "request.body", "request.query", "request.params",
+        "ctx.request.body", "ctx.query", "ctx.params",
+        "event.body", "event.queryStringParameters",
+    ])
 
-    DANGEROUS_SINKS = frozenset(
-        [
-            "eval",
-            "Function",
-            "exec",
-            "spawn",
-            "execFile",
-            "vm.runInContext",
-            "vm.runInNewContext",
-            "require",
-            "setTimeout",
-            "setInterval",
-            "setImmediate",
-        ]
-    )
+    DANGEROUS_SINKS = frozenset([
+        "eval", "Function", "exec", "spawn", "execFile",
+        "vm.runInContext", "vm.runInNewContext", "require",
+        "setTimeout", "setInterval", "setImmediate",
+    ])
 
-    ORM_METHODS = frozenset(
-        [
-            "findOne",
-            "find",
-            "findAll",
-            "findById",
-            "findByPk",
-            "where",
-            "query",
-            "raw",
-            "sequelize.query",
-            "knex.raw",
-            "mongoose.find",
-            "typeorm.query",
-        ]
-    )
+    ORM_METHODS = frozenset([
+        "findOne", "find", "findAll", "findById", "findByPk",
+        "where", "query", "raw", "sequelize.query", "knex.raw",
+        "mongoose.find", "typeorm.query",
+    ])
 
-    WEAK_PATTERNS = frozenset(
-        [
-            "return true",
-            "return 1",
-            "() => true",
-            "validate: true",
-            "required: false",
-            "optional: true",
-        ]
-    )
+    WEAK_PATTERNS = frozenset([
+        "return true", "return 1", "() => true",
+        "validate: true", "required: false", "optional: true",
+    ])
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect input validation vulnerabilities.
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
+    findings: list[StandardFinding] = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        analyzer = InputValidationAnalyzer(db)
+        findings = analyzer.run_all_checks()
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 class InputValidationAnalyzer:
     """Analyzer for input validation vulnerabilities."""
 
-    def __init__(self, context: StandardRuleContext):
+    def __init__(self, db: RuleDB):
         """Initialize analyzer with database context."""
-        self.context = context
+        self.db = db
         self.patterns = ValidationPatterns()
-        self.findings = []
-        self.seen_issues = set()
+        self.findings: list[StandardFinding] = []
+        self.seen_issues: set[str] = set()
 
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
-
-        conn = sqlite3.connect(self.context.db_path)
-        self.cursor = conn.cursor()
-
-        try:
-            self._detect_prototype_pollution()
-            self._detect_nosql_injection()
-            self._detect_missing_validation()
-            self._detect_template_injection()
-            self._detect_type_confusion()
-
-            self._detect_incomplete_validation()
-            self._detect_schema_bypass()
-            self._detect_validation_library_misuse()
-            self._detect_framework_bypasses()
-            self._detect_graphql_injection()
-
-            self._detect_second_order_injection()
-            self._detect_business_logic_bypass()
-            self._detect_path_traversal()
-            self._detect_type_juggling()
-            self._detect_orm_injection()
-
-        finally:
-            conn.close()
-
+    def run_all_checks(self) -> list[StandardFinding]:
+        """Run all validation checks."""
+        self._detect_prototype_pollution()
+        self._detect_nosql_injection()
+        self._detect_missing_validation()
+        self._detect_template_injection()
+        self._detect_type_confusion()
+        self._detect_incomplete_validation()
+        self._detect_schema_bypass()
+        self._detect_validation_library_misuse()
+        self._detect_framework_bypasses()
+        self._detect_graphql_injection()
+        self._detect_second_order_injection()
+        self._detect_business_logic_bypass()
+        self._detect_path_traversal()
+        self._detect_type_juggling()
+        self._detect_orm_injection()
         return self.findings
 
     def _add_finding(
@@ -294,7 +174,7 @@ class InputValidationAnalyzer:
         confidence: Confidence,
         cwe_id: str,
         snippet: str = "",
-    ):
+    ) -> None:
         """Add finding with deduplication."""
         issue_key = f"{file}:{line}:{rule_name}"
         if issue_key not in self.seen_issues:
@@ -313,22 +193,25 @@ class InputValidationAnalyzer:
                 )
             )
 
-    def _detect_prototype_pollution(self):
+    def _detect_prototype_pollution(self) -> None:
         """Detect prototype pollution vulnerabilities."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
-
-        user_input_keywords = frozenset(
-            ["req.body", "request.body", "ctx.request.body", "userInput", "data"]
+            """,
+            [],
         )
+        rows = self.db.execute(sql, params)
 
-        for file, line, func, args in self.cursor.fetchall():
+        user_input_keywords = frozenset([
+            "req.body", "request.body", "ctx.request.body", "userInput", "data"
+        ])
+
+        for file, line, func, args in rows:
             if not any(merge in func for merge in self.patterns.MERGE_FUNCTIONS):
                 continue
 
@@ -348,22 +231,24 @@ class InputValidationAnalyzer:
                     snippet=f"{func}({args[:50]}...)",
                 )
 
-    def _detect_nosql_injection(self):
+    def _detect_nosql_injection(self) -> None:
         """Detect NoSQL injection vulnerabilities."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            [],
+        )
+        rows = self.db.execute(sql, params)
 
         input_keywords = frozenset(["req.", "request.", "body", "query", "params"])
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             if not expr:
                 continue
-
             if not any(keyword in expr for keyword in input_keywords):
                 continue
 
@@ -385,23 +270,25 @@ class InputValidationAnalyzer:
                     snippet=f"{var} = {expr[:50]}",
                 )
 
-        self.cursor.execute("""
+        sql2, params2 = Q.raw(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            [],
+        )
+        func_rows = self.db.execute(sql2, params2)
 
         db_methods = frozenset([".find", ".update", ".delete"])
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in func_rows:
             if not any(method in func for method in db_methods):
                 continue
-
             if "$" not in args:
                 continue
-
             if any(op in str(args) for op in self.patterns.NOSQL_OPERATORS):
                 self._add_finding(
                     rule_name="nosql-injection-query",
@@ -414,30 +301,31 @@ class InputValidationAnalyzer:
                     snippet=f"{func}({args[:50]})",
                 )
 
-    def _detect_missing_validation(self):
+    def _detect_missing_validation(self) -> None:
         """Detect database operations without validation."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
-
-        user_input_patterns = frozenset(
-            ["req.body", "req.query", "req.params", "request.body", "request.query"]
+            """,
+            [],
         )
+        rows = self.db.execute(sql, params)
 
-        for file, line, func, args in self.cursor.fetchall():
+        user_input_patterns = frozenset([
+            "req.body", "req.query", "req.params", "request.body", "request.query"
+        ])
+
+        for file, line, func, args in rows:
             if not any(f".{db_op}" in func for db_op in self.patterns.DB_WRITE_OPS):
                 continue
-
             if not any(pattern in args for pattern in user_input_patterns):
                 continue
 
             has_validation = self._check_validation_nearby(file, line)
-
             if not has_validation:
                 self._add_finding(
                     rule_name="missing-validation",
@@ -450,28 +338,29 @@ class InputValidationAnalyzer:
                     snippet=f"{func}({args[:50]})",
                 )
 
-    def _detect_template_injection(self):
+    def _detect_template_injection(self) -> None:
         """Detect server-side template injection vulnerabilities."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            [],
+        )
+        rows = self.db.execute(sql, params)
 
         user_input_keywords = frozenset(["req.", "request.", "userInput", "body", "query"])
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             if not any(template in func for template in self.patterns.TEMPLATE_ENGINES):
                 continue
-
             if not any(keyword in args for keyword in user_input_keywords):
                 continue
 
             is_compile = "compile" in func.lower()
-
             self._add_finding(
                 rule_name="template-injection",
                 message=f"Template injection risk in {func} with user input",
@@ -483,20 +372,23 @@ class InputValidationAnalyzer:
                 snippet=f"{func}({args[:50]})",
             )
 
-    def _detect_type_confusion(self):
+    def _detect_type_confusion(self) -> None:
         """Detect type confusion vulnerabilities."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            [],
+        )
+        rows = self.db.execute(sql, params)
 
         type_check_patterns = frozenset(["typeof ", "instanceof "])
         primitive_checks = frozenset(['=== "string"', '=== "number"', '=== "boolean"'])
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             if not expr:
                 continue
 
@@ -521,27 +413,30 @@ class InputValidationAnalyzer:
                     snippet=f"{var} = {expr[:50]}",
                 )
 
-    def _detect_incomplete_validation(self):
+    def _detect_incomplete_validation(self) -> None:
         """Detect validation that doesn't cover all fields."""
+        validation_funcs = tuple(self.patterns.VALIDATION_FUNCTIONS)
+        db_write_ops = tuple(self.patterns.DB_WRITE_OPS)
 
-        self.cursor.execute(
-            """
+        placeholders_val = ",".join("?" * len(validation_funcs))
+        placeholders_db = ",".join("?" * len(db_write_ops))
+
+        sql, params = Q.raw(
+            f"""
             SELECT f1.file, f1.line, f1.callee_function, f2.callee_function, f2.line
             FROM function_call_args f1
             JOIN function_call_args f2 ON f1.file = f2.file
-            WHERE f1.callee_function IN ({})
-              AND f2.callee_function IN ({})
+            WHERE f1.callee_function IN ({placeholders_val})
+              AND f2.callee_function IN ({placeholders_db})
               AND f2.line > f1.line
               AND f2.line - f1.line <= 20
             ORDER BY f1.file, f1.line
-        """.format(
-                ",".join("?" * len(self.patterns.VALIDATION_FUNCTIONS)),
-                ",".join("?" * len(self.patterns.DB_WRITE_OPS)),
-            ),
-            tuple(self.patterns.VALIDATION_FUNCTIONS) + tuple(self.patterns.DB_WRITE_OPS),
+            """,
+            list(validation_funcs) + list(db_write_ops),
         )
+        rows = self.db.execute(sql, params)
 
-        for file, val_line, val_func, db_func, _db_line in self.cursor.fetchall():
+        for file, val_line, val_func, db_func, _db_line in rows:
             self._add_finding(
                 rule_name="incomplete-validation",
                 message=f"Validation at line {val_line} may not cover all fields used in {db_func}",
@@ -553,27 +448,28 @@ class InputValidationAnalyzer:
                 snippet=f"{val_func} -> {db_func}",
             )
 
-    def _detect_schema_bypass(self):
+    def _detect_schema_bypass(self) -> None:
         """Detect validation that allows additional properties."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            [],
+        )
+        rows = self.db.execute(sql, params)
 
         db_methods = frozenset([".create", ".update"])
         spread_indicators = frozenset(["...", "Object.assign", "spread"])
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             if not any(method in func for method in db_methods):
                 continue
-
             if not any(indicator in args for indicator in spread_indicators):
                 continue
-
             if "..." in str(args):
                 self._add_finding(
                     rule_name="schema-bypass",
@@ -586,28 +482,29 @@ class InputValidationAnalyzer:
                     snippet=f"{func}({args[:50]})",
                 )
 
-    def _detect_validation_library_misuse(self):
+    def _detect_validation_library_misuse(self) -> None:
         """Detect common validation library misconfigurations."""
-
         validation_funcs = tuple(self.patterns.VALIDATION_FUNCTIONS)
         placeholders = ",".join("?" * len(validation_funcs))
 
-        self.cursor.execute(
+        sql, params = Q.raw(
             f"""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IN ({placeholders})
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """,
-            validation_funcs,
+            """,
+            list(validation_funcs),
         )
+        rows = self.db.execute(sql, params)
 
-        weak_configs = frozenset(
-            ["required: false", "optional: true", "allowUnknown: true", "stripUnknown: false"]
-        )
+        weak_configs = frozenset([
+            "required: false", "optional: true",
+            "allowUnknown: true", "stripUnknown: false"
+        ])
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             if not any(weak in args for weak in weak_configs):
                 continue
 
@@ -616,7 +513,6 @@ class InputValidationAnalyzer:
                 if "allowUnknown" in str(args)
                 else "Weak validation config"
             )
-
             self._add_finding(
                 rule_name="validation-misconfiguration",
                 message=f"{config_issue} in {func}",
@@ -628,10 +524,10 @@ class InputValidationAnalyzer:
                 snippet=f"{func}({args[:50]})",
             )
 
-    def _detect_framework_bypasses(self):
+    def _detect_framework_bypasses(self) -> None:
         """Detect framework-specific validation bypasses."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT
                 ae.file,
                 ae.method,
@@ -645,14 +541,16 @@ class InputValidationAnalyzer:
             WHERE ae.method IN ('POST', 'PUT', 'PATCH', 'DELETE')
             GROUP BY ae.file, ae.line, ae.method, ae.pattern
             ORDER BY ae.file, ae.pattern
-        """)
+            """,
+            [],
+        )
+        rows = self.db.execute(sql, params)
 
-        for file, method, route, endpoint_line, controls_str in self.cursor.fetchall():
+        for file, method, route, endpoint_line, controls_str in rows:
             if controls_str:
                 continue
 
             line = endpoint_line if endpoint_line else 1
-
             self._add_finding(
                 rule_name="missing-middleware",
                 message=f"{method} endpoint {route} has no validation middleware",
@@ -664,23 +562,27 @@ class InputValidationAnalyzer:
                 snippet=f"{method} {route}",
             )
 
-    def _detect_graphql_injection(self):
+    def _detect_graphql_injection(self) -> None:
         """Detect GraphQL injection vulnerabilities."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            [],
+        )
+        rows = self.db.execute(sql, params)
 
-        user_query_patterns = frozenset(["req.body.query", "request.body.query", "userQuery"])
+        user_query_patterns = frozenset([
+            "req.body.query", "request.body.query", "userQuery"
+        ])
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             if not any(graphql in func for graphql in self.patterns.GRAPHQL_OPS):
                 continue
-
             if not any(pattern in args for pattern in user_query_patterns):
                 continue
 
@@ -695,15 +597,15 @@ class InputValidationAnalyzer:
                 snippet=f"{func}({args[:50]})",
             )
 
-    def _detect_second_order_injection(self):
+    def _detect_second_order_injection(self) -> None:
         """Detect second-order injection vulnerabilities."""
-
         template_funcs = tuple(self.patterns.TEMPLATE_ENGINES)
         placeholders = ",".join("?" * len(template_funcs))
 
-        self.cursor.execute(
+        sql, params = Q.raw(
             f"""
-            SELECT a.file, a.line, a.target_var, a.source_expr, f.callee_function, f.line, f.argument_expr
+            SELECT a.file, a.line, a.target_var, a.source_expr,
+                   f.callee_function, f.line, f.argument_expr
             FROM assignments a
             JOIN function_call_args f ON a.file = f.file
             WHERE a.source_expr IS NOT NULL
@@ -712,22 +614,15 @@ class InputValidationAnalyzer:
               AND f.line > a.line
               AND f.line - a.line <= 50
             ORDER BY a.file, a.line
-        """,
-            template_funcs,
+            """,
+            list(template_funcs),
         )
+        rows = self.db.execute(sql, params)
 
-        for (
-            file,
-            _retrieve_line,
-            var,
-            source_expr,
-            use_func,
-            use_line,
-            use_args,
-        ) in self.cursor.fetchall():
+        for (file, _retrieve_line, var, source_expr,
+             use_func, use_line, use_args) in rows:
             if ".find" not in source_expr:
                 continue
-
             if not use_args or var not in use_args:
                 continue
 
@@ -742,45 +637,47 @@ class InputValidationAnalyzer:
                 snippet=f"{var} used in {use_func}",
             )
 
-    def _detect_business_logic_bypass(self):
+    def _detect_business_logic_bypass(self) -> None:
         """Detect business logic validation issues."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
               AND source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            [],
+        )
+        rows = self.db.execute(sql, params)
 
         numeric_var_keywords = frozenset(["amount", "quantity", "price", "balance"])
         user_input_keywords = frozenset(["req.", "request."])
 
         candidates = []
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             var_lower = var.lower()
             if not any(keyword in var_lower for keyword in numeric_var_keywords):
                 continue
-
             if not any(keyword in expr for keyword in user_input_keywords):
                 continue
-
             candidates.append((file, line, var, expr))
 
         for file, line, var, expr in candidates:
-            self.cursor.execute(
+            sql2, params2 = Q.raw(
                 """
                 SELECT source_expr FROM assignments
                 WHERE file = ?
                   AND ABS(line - ?) <= 10
                   AND source_expr IS NOT NULL
-            """,
-                (file, line),
+                """,
+                [file, line],
             )
+            nearby_rows = self.db.execute(sql2, params2)
 
             has_negative_check = False
             negative_patterns = frozenset(["< 0", "<= 0", "Math.abs", "Math.max"])
-            for (nearby_expr,) in self.cursor.fetchall():
+            for (nearby_expr,) in nearby_rows:
                 if any(pattern in nearby_expr for pattern in negative_patterns):
                     has_negative_check = True
                     break
@@ -797,24 +694,26 @@ class InputValidationAnalyzer:
                     snippet=f"{var} = {expr[:50]}",
                 )
 
-    def _detect_path_traversal(self):
+    def _detect_path_traversal(self) -> None:
         """Detect path traversal vulnerabilities."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
               AND source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            [],
+        )
+        rows = self.db.execute(sql, params)
 
         req_file_patterns = frozenset(["req.", "filename", "path", "file"])
         var_file_keywords = frozenset(["path", "file", "dir"])
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             if not any(pattern in expr for pattern in req_file_patterns):
                 continue
-
             if not ("filename" in expr or ".path" in expr or ".file" in expr):
                 continue
 
@@ -834,19 +733,22 @@ class InputValidationAnalyzer:
                     snippet=f"{var} = {expr[:50]}",
                 )
 
-    def _detect_type_juggling(self):
+    def _detect_type_juggling(self) -> None:
         """Detect type juggling vulnerabilities."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE source_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            [],
+        )
+        rows = self.db.execute(sql, params)
 
         security_keywords = frozenset(["true", "false", "admin", "role"])
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             if "==" not in expr or "===" in expr:
                 continue
 
@@ -865,21 +767,24 @@ class InputValidationAnalyzer:
                 snippet=f"{var} = {expr[:50]}",
             )
 
-    def _detect_orm_injection(self):
+    def _detect_orm_injection(self) -> None:
         """Detect ORM-specific injection vulnerabilities."""
-
-        self.cursor.execute("""
+        sql, params = Q.raw(
+            """
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
               AND argument_expr IS NOT NULL
             ORDER BY file, line
-        """)
+            """,
+            [],
+        )
+        rows = self.db.execute(sql, params)
 
         user_input_patterns = frozenset(["req.", "request."])
         concat_indicators = frozenset(["+", "`"])
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             if not any(orm in func for orm in self.patterns.ORM_METHODS):
                 continue
 
@@ -903,30 +808,23 @@ class InputValidationAnalyzer:
 
     def _check_validation_nearby(self, file: str, line: int) -> bool:
         """Check if validation exists near a line."""
-
         validation_funcs = tuple(self.patterns.VALIDATION_FUNCTIONS)
         placeholders = ",".join("?" * len(validation_funcs))
 
-        self.cursor.execute(
+        sql, params = Q.raw(
             f"""
             SELECT COUNT(*) FROM function_call_args
             WHERE file = ?
               AND line BETWEEN ? AND ?
               AND callee_function IN ({placeholders})
-        """,
-            (file, line - 20, line) + validation_funcs,
+            """,
+            [file, line - 20, line] + list(validation_funcs),
         )
-
-        return self.cursor.fetchone()[0] > 0
-
-
-def find_input_validation_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect input validation vulnerabilities."""
-    analyzer = InputValidationAnalyzer(context)
-    return analyzer.analyze()
+        rows = self.db.execute(sql, params)
+        return rows[0][0] > 0 if rows else False
 
 
-def register_taint_patterns(taint_registry):
+def register_taint_patterns(taint_registry) -> None:
     """Register input validation taint patterns."""
     patterns = ValidationPatterns()
 

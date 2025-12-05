@@ -1,23 +1,36 @@
-"""Source Map Exposure Analyzer - Hybrid Database + File I/O Approach."""
+"""Source Map Exposure Analyzer.
 
-import sqlite3
+Detects source map exposure vulnerabilities:
+- Webpack devtool configurations that expose source code
+- TypeScript sourceMap settings in production
+- Exposed .map files in build directories
+- Inline source maps embedded in production JS
+- Static file serving without .map filtering
+
+CWE-540: Inclusion of Sensitive Information in Source Code
+"""
+
 from dataclasses import dataclass
 from pathlib import Path
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
 
 METADATA = RuleMetadata(
     name="sourcemap_exposure",
     category="security",
     execution_scope="database",
     target_extensions=[".js", ".ts", ".mjs", ".cjs", ".map"],
-    exclude_patterns=["node_modules/", "test/", "spec/", "__tests__/"])
+    exclude_patterns=["node_modules/", "test/", "spec/", "__tests__/"],
+    primary_table="assignments",
+)
 
 
 @dataclass(frozen=True)
@@ -127,44 +140,31 @@ class SourcemapPatterns:
 class SourcemapAnalyzer:
     """Analyzer for source map exposure vulnerabilities."""
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with context."""
+    def __init__(self, context: StandardRuleContext, db: RuleDB):
+        """Initialize analyzer with context and database connection."""
         self.context = context
+        self.db = db
         self.patterns = SourcemapPatterns()
         self.findings = []
         self.seen_files = set()
 
-    def analyze(self) -> list[StandardFinding]:
+    def run(self) -> list[StandardFinding]:
         """Main analysis entry point using hybrid approach."""
-
-        if self.context.db_path:
-            self._analyze_database()
+        self._check_webpack_configs()
+        self._check_typescript_configs()
+        self._check_build_tool_configs()
+        self._check_sourcemap_plugins()
+        self._check_express_static()
+        self._check_sourcemap_generation()
 
         if hasattr(self.context, "project_path") and self.context.project_path:
             self._analyze_build_artifacts()
 
         return self.findings
 
-    def _analyze_database(self):
-        """Analyze database for source map configurations."""
-        conn = sqlite3.connect(self.context.db_path)
-        self.cursor = conn.cursor()
-
-        try:
-            self._check_webpack_configs()
-            self._check_typescript_configs()
-            self._check_build_tool_configs()
-            self._check_sourcemap_plugins()
-            self._check_express_static()
-            self._check_sourcemap_generation()
-
-        finally:
-            conn.close()
-
     def _check_webpack_configs(self):
         """Check webpack configurations for source map settings."""
-
-        self.cursor.execute("""
+        rows = self.db.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
@@ -172,7 +172,7 @@ class SourcemapAnalyzer:
             ORDER BY file, line
         """)
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             if "devtool" not in var.lower():
                 continue
 
@@ -225,7 +225,7 @@ class SourcemapAnalyzer:
 
     def _check_typescript_configs(self):
         """Check TypeScript configurations for source map settings."""
-        self.cursor.execute("""
+        rows = self.db.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
@@ -233,7 +233,7 @@ class SourcemapAnalyzer:
             ORDER BY file, line
         """)
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             var_lower = var.lower()
             if not ("sourcemap" in var_lower or "inlinesourcemap" in var_lower):
                 continue
@@ -260,8 +260,7 @@ class SourcemapAnalyzer:
 
     def _check_build_tool_configs(self):
         """Check other build tool configurations."""
-
-        self.cursor.execute("""
+        rows = self.db.execute("""
             SELECT file, line, target_var, source_expr
             FROM assignments
             WHERE target_var IS NOT NULL
@@ -269,7 +268,7 @@ class SourcemapAnalyzer:
             ORDER BY file, line
         """)
 
-        for file, line, var, expr in self.cursor.fetchall():
+        for file, line, var, expr in rows:
             if "sourcemap" not in var.lower():
                 continue
 
@@ -294,7 +293,7 @@ class SourcemapAnalyzer:
 
     def _check_sourcemap_plugins(self):
         """Check for source map plugins in build tools."""
-        self.cursor.execute("""
+        rows = self.db.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
@@ -303,7 +302,7 @@ class SourcemapAnalyzer:
 
         plugin_patterns = frozenset(["SourceMapDevToolPlugin", "SourceMapPlugin", "sourceMaps"])
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             if not any(plugin in func for plugin in plugin_patterns):
                 continue
 
@@ -326,7 +325,7 @@ class SourcemapAnalyzer:
 
     def _check_express_static(self):
         """Check if Express static serving might expose .map files."""
-        self.cursor.execute("""
+        rows = self.db.execute("""
             SELECT file, line, callee_function, argument_expr
             FROM function_call_args
             WHERE callee_function IS NOT NULL
@@ -335,7 +334,7 @@ class SourcemapAnalyzer:
 
         static_patterns = frozenset(["express.static", "serve-static", "koa-static"])
 
-        for file, line, func, args in self.cursor.fetchall():
+        for file, line, func, args in rows:
             if not any(pattern in func for pattern in static_patterns):
                 continue
 
@@ -356,7 +355,7 @@ class SourcemapAnalyzer:
 
     def _check_sourcemap_generation(self):
         """Check for source map generation in code."""
-        self.cursor.execute("""
+        rows = self.db.execute("""
             SELECT path, line, name
             FROM symbols
             WHERE name IS NOT NULL
@@ -368,7 +367,7 @@ class SourcemapAnalyzer:
         )
         test_patterns = frozenset(["test", "spec"])
 
-        for file, line, name in self.cursor.fetchall():
+        for file, line, name in rows:
             if not any(pattern in name for pattern in generation_patterns):
                 continue
 
@@ -593,10 +592,25 @@ class SourcemapAnalyzer:
                     continue
 
 
-def find_sourcemap_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect source map exposure vulnerabilities."""
-    analyzer = SourcemapAnalyzer(context)
-    return analyzer.analyze()
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect source map exposure vulnerabilities.
+
+    Checks for:
+    1. Webpack devtool configurations exposing source code
+    2. TypeScript sourceMap settings in production
+    3. Build tool source map generation
+    4. Exposed .map files in build directories
+    5. Static file serving without .map filtering
+
+    Returns RuleResult with findings and fidelity manifest.
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        analyzer = SourcemapAnalyzer(context, db)
+        findings = analyzer.run()
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def register_taint_patterns(taint_registry):

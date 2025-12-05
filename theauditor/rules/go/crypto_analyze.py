@@ -1,15 +1,22 @@
-"""Go Cryptography Misuse Analyzer - Database-First Approach."""
+"""Go Cryptography Misuse Analyzer.
 
-import sqlite3
-from dataclasses import dataclass
+Detects common Go cryptography vulnerabilities:
+1. math/rand in security-sensitive code (use crypto/rand) - CWE-330
+2. Weak hashing algorithms (MD5/SHA1) - CWE-328
+3. Insecure TLS configuration (InsecureSkipVerify, weak versions) - CWE-295/326
+4. Hardcoded secrets in constants/variables - CWE-798
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="go_crypto",
@@ -21,317 +28,279 @@ METADATA = RuleMetadata(
         "testdata/",
         "_test.go",
     ],
-    execution_scope="database")
+    execution_scope="database",
+    primary_table="go_imports",
+)
 
 
-@dataclass(frozen=True)
-class GoCryptoPatterns:
-    """Immutable pattern definitions for Go crypto misuse detection."""
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Go cryptography misuse.
 
-    INSECURE_RANDOM = frozenset(
-        [
-            "math/rand",
-        ]
+    Args:
+        context: Provides db_path and project context
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    findings: list[StandardFinding] = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_check_insecure_random(db))
+        findings.extend(_check_weak_hashing(db))
+        findings.extend(_check_insecure_tls(db))
+        findings.extend(_check_hardcoded_secrets(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+def _check_insecure_random(db: RuleDB) -> list[StandardFinding]:
+    """Detect math/rand usage in security-sensitive code.
+
+    math/rand is not cryptographically secure. When used alongside
+    crypto imports or in functions with security-related names,
+    it likely indicates a vulnerability.
+    """
+    findings = []
+
+    # Find files importing math/rand
+    math_rand_rows = db.query(
+        Q("go_imports")
+        .select("file_path", "line")
+        .where("path = ?", "math/rand")
     )
 
-    SECURE_RANDOM = frozenset(
-        [
-            "crypto/rand",
-        ]
-    )
+    math_rand_files = {file_path: line for file_path, line in math_rand_rows}
 
-    WEAK_HASHES = frozenset(
-        [
-            "crypto/md5",
-            "crypto/sha1",
-        ]
-    )
+    if not math_rand_files:
+        return findings
 
-    STRONG_HASHES = frozenset(
-        [
-            "crypto/sha256",
-            "crypto/sha512",
-            "golang.org/x/crypto/sha3",
-            "golang.org/x/crypto/blake2b",
-            "golang.org/x/crypto/argon2",
-            "golang.org/x/crypto/bcrypt",
-            "golang.org/x/crypto/scrypt",
-        ]
-    )
+    for file_path, import_line in math_rand_files.items():
+        # Check if file also imports crypto-related packages
+        crypto_import_rows = db.query(
+            Q("go_imports")
+            .select("path")
+            .where("file_path = ?", file_path)
+            .where("path LIKE ? OR path LIKE ? OR path LIKE ?", "%crypto%", "%password%", "%auth%")
+            .limit(1)
+        )
+        has_crypto = len(list(crypto_import_rows)) > 0
 
-    INSECURE_TLS = frozenset(
-        [
-            "InsecureSkipVerify",
-            "MinVersion",
-            "tls.VersionSSL30",
-            "tls.VersionTLS10",
-            "tls.VersionTLS11",
-        ]
-    )
-
-    SECRET_PATTERNS = frozenset(
-        [
-            "password",
-            "secret",
-            "api_key",
-            "apikey",
-            "api-key",
-            "token",
-            "credential",
-            "private_key",
-            "privatekey",
-            "auth",
-        ]
-    )
-
-
-class GoCryptoAnalyzer:
-    """Analyzer for Go cryptography misuse."""
-
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context."""
-        self.context = context
-        self.patterns = GoCryptoPatterns()
-        self.findings = []
-
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point."""
-        if not self.context.db_path:
-            return []
-
-        conn = sqlite3.connect(self.context.db_path)
-        conn.row_factory = sqlite3.Row
-        self.cursor = conn.cursor()
-
-        try:
-            self._check_insecure_random()
-            self._check_weak_hashing()
-            self._check_insecure_tls()
-            self._check_hardcoded_secrets()
-
-        finally:
-            conn.close()
-
-        return self.findings
-
-    def _check_insecure_random(self):
-        """Detect math/rand usage for security-sensitive operations."""
-
-        self.cursor.execute("""
-            SELECT DISTINCT file_path, line, path as import_path
-            FROM go_imports
-            WHERE path = 'math/rand'
-        """)
-
-        math_rand_files = {row["file_path"]: row["line"] for row in self.cursor.fetchall()}
-
-        if not math_rand_files:
-            return
-
-        for file_path, import_line in math_rand_files.items():
-            self.cursor.execute(
-                """
-                SELECT path FROM go_imports
-                WHERE file_path = ?
-                  AND (path LIKE '%crypto%' OR path LIKE '%password%' OR path LIKE '%auth%')
-            """,
-                (file_path,),
+        # Check for security-related function names
+        security_func_rows = db.query(
+            Q("go_functions")
+            .select("name")
+            .where("file_path = ?", file_path)
+            .where(
+                "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
+                "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?",
+                "%token%", "%secret%", "%password%", "%key%", "%auth%", "%session%"
             )
+            .limit(1)
+        )
+        has_security_funcs = len(list(security_func_rows)) > 0
 
-            has_crypto = self.cursor.fetchone() is not None
-
-            self.cursor.execute(
-                """
-                SELECT name FROM go_functions
-                WHERE file_path = ?
-                  AND (LOWER(name) LIKE '%token%'
-                       OR LOWER(name) LIKE '%secret%'
-                       OR LOWER(name) LIKE '%password%'
-                       OR LOWER(name) LIKE '%key%'
-                       OR LOWER(name) LIKE '%auth%'
-                       OR LOWER(name) LIKE '%session%')
-            """,
-                (file_path,),
-            )
-
-            has_security_funcs = self.cursor.fetchone() is not None
-
-            if has_crypto or has_security_funcs:
-                self.findings.append(
-                    StandardFinding(
-                        rule_name="go-insecure-random",
-                        message="math/rand used in file with crypto/security code - use crypto/rand",
-                        file_path=file_path,
-                        line=import_line,
-                        severity=Severity.HIGH,
-                        category="crypto",
-                        confidence=Confidence.HIGH if has_crypto else Confidence.MEDIUM,
-                        cwe_id="CWE-330",
-                    )
-                )
-
-    def _check_weak_hashing(self):
-        """Detect MD5/SHA1 usage for security purposes."""
-
-        self.cursor.execute("""
-            SELECT DISTINCT file_path, line, path as import_path
-            FROM go_imports
-            WHERE path IN ('crypto/md5', 'crypto/sha1')
-        """)
-
-        for row in self.cursor.fetchall():
-            file_path = row["file_path"]
-            import_line = row["line"]
-            hash_type = "MD5" if "md5" in row["import_path"] else "SHA1"
-
-            self.cursor.execute(
-                """
-                SELECT name FROM go_functions
-                WHERE file_path = ?
-                  AND (LOWER(name) LIKE '%password%'
-                       OR LOWER(name) LIKE '%auth%'
-                       OR LOWER(name) LIKE '%verify%'
-                       OR LOWER(name) LIKE '%hash%'
-                       OR LOWER(name) LIKE '%sign%')
-            """,
-                (file_path,),
-            )
-
-            security_context = self.cursor.fetchone() is not None
-
-            severity = Severity.HIGH if security_context else Severity.MEDIUM
-            confidence = Confidence.HIGH if security_context else Confidence.LOW
-
-            self.findings.append(
+        if has_crypto or has_security_funcs:
+            findings.append(
                 StandardFinding(
-                    rule_name=f"go-weak-hash-{hash_type.lower()}",
-                    message=f"{hash_type} is cryptographically weak - use SHA-256 or better",
+                    rule_name="go-insecure-random",
+                    message="math/rand used in file with crypto/security code - use crypto/rand",
                     file_path=file_path,
                     line=import_line,
-                    severity=severity,
-                    category="crypto",
-                    confidence=confidence,
-                    cwe_id="CWE-328",
-                )
-            )
-
-    def _check_insecure_tls(self):
-        """Detect InsecureSkipVerify and weak TLS versions."""
-
-        self.cursor.execute("""
-            SELECT file_path, line, initial_value
-            FROM go_variables
-            WHERE initial_value LIKE '%InsecureSkipVerify%true%'
-               OR initial_value LIKE '%InsecureSkipVerify:%true%'
-        """)
-
-        for row in self.cursor.fetchall():
-            self.findings.append(
-                StandardFinding(
-                    rule_name="go-insecure-tls-skip-verify",
-                    message="InsecureSkipVerify: true disables TLS certificate validation",
-                    file_path=row["file_path"],
-                    line=row["line"],
-                    severity=Severity.CRITICAL,
-                    category="crypto",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-295",
-                )
-            )
-
-        self.cursor.execute("""
-            SELECT file_path, line, initial_value
-            FROM go_variables
-            WHERE initial_value LIKE '%tls.VersionSSL30%'
-               OR initial_value LIKE '%tls.VersionTLS10%'
-               OR initial_value LIKE '%tls.VersionTLS11%'
-        """)
-
-        for row in self.cursor.fetchall():
-            self.findings.append(
-                StandardFinding(
-                    rule_name="go-weak-tls-version",
-                    message="Weak TLS version configured - use TLS 1.2 or higher",
-                    file_path=row["file_path"],
-                    line=row["line"],
                     severity=Severity.HIGH,
                     category="crypto",
-                    confidence=Confidence.HIGH,
-                    cwe_id="CWE-326",
+                    confidence=Confidence.HIGH if has_crypto else Confidence.MEDIUM,
+                    cwe_id="CWE-330",
                 )
             )
 
-    def _check_hardcoded_secrets(self):
-        """Detect hardcoded secrets in constants and variables."""
+    return findings
 
-        self.cursor.execute("""
-            SELECT file_path, line, name, value
-            FROM go_constants
-            WHERE value IS NOT NULL
-              AND value != ''
-              AND (LOWER(name) LIKE '%password%'
-                   OR LOWER(name) LIKE '%secret%'
-                   OR LOWER(name) LIKE '%api_key%'
-                   OR LOWER(name) LIKE '%apikey%'
-                   OR LOWER(name) LIKE '%token%'
-                   OR LOWER(name) LIKE '%private%key%'
-                   OR LOWER(name) LIKE '%credential%')
-        """)
 
-        for row in self.cursor.fetchall():
-            value = row["value"] or ""
+def _check_weak_hashing(db: RuleDB) -> list[StandardFinding]:
+    """Detect MD5/SHA1 usage for security purposes.
 
-            if len(value) < 5 or value in ('""', "''", '""', "nil"):
-                continue
+    MD5 and SHA1 are cryptographically broken for security use cases
+    like password hashing, digital signatures, or integrity verification.
+    """
+    findings = []
 
-            self.findings.append(
-                StandardFinding(
-                    rule_name="go-hardcoded-secret",
-                    message=f"Potential hardcoded secret in constant '{row['name']}'",
-                    file_path=row["file_path"],
-                    line=row["line"],
-                    severity=Severity.HIGH,
-                    category="crypto",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-798",
-                )
+    # Find files importing weak hash algorithms
+    weak_hash_rows = db.query(
+        Q("go_imports")
+        .select("file_path", "line", "path")
+        .where("path = ? OR path = ?", "crypto/md5", "crypto/sha1")
+    )
+
+    for file_path, import_line, import_path in weak_hash_rows:
+        hash_type = "MD5" if "md5" in import_path else "SHA1"
+
+        # Check for security-related function context
+        security_func_rows = db.query(
+            Q("go_functions")
+            .select("name")
+            .where("file_path = ?", file_path)
+            .where(
+                "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
+                "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?",
+                "%password%", "%auth%", "%verify%", "%hash%", "%sign%"
             )
+            .limit(1)
+        )
+        security_context = len(list(security_func_rows)) > 0
 
-        self.cursor.execute("""
-            SELECT file_path, line, name, initial_value
-            FROM go_variables
-            WHERE is_package_level = 1
-              AND initial_value IS NOT NULL
-              AND initial_value != ''
-              AND (LOWER(name) LIKE '%password%'
-                   OR LOWER(name) LIKE '%secret%'
-                   OR LOWER(name) LIKE '%api_key%'
-                   OR LOWER(name) LIKE '%apikey%'
-                   OR LOWER(name) LIKE '%token%'
-                   OR LOWER(name) LIKE '%private%key%')
-        """)
+        severity = Severity.HIGH if security_context else Severity.MEDIUM
+        confidence = Confidence.HIGH if security_context else Confidence.LOW
 
-        for row in self.cursor.fetchall():
-            value = row["initial_value"] or ""
-
-            if "os.Getenv" in value or "viper" in value.lower():
-                continue
-
-            self.findings.append(
-                StandardFinding(
-                    rule_name="go-hardcoded-secret-var",
-                    message=f"Potential hardcoded secret in package variable '{row['name']}'",
-                    file_path=row["file_path"],
-                    line=row["line"],
-                    severity=Severity.HIGH,
-                    category="crypto",
-                    confidence=Confidence.MEDIUM,
-                    cwe_id="CWE-798",
-                )
+        findings.append(
+            StandardFinding(
+                rule_name=f"go-weak-hash-{hash_type.lower()}",
+                message=f"{hash_type} is cryptographically weak - use SHA-256 or better",
+                file_path=file_path,
+                line=import_line,
+                severity=severity,
+                category="crypto",
+                confidence=confidence,
+                cwe_id="CWE-328",
             )
+        )
+
+    return findings
 
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Go cryptography misuse."""
-    analyzer = GoCryptoAnalyzer(context)
-    return analyzer.analyze()
+def _check_insecure_tls(db: RuleDB) -> list[StandardFinding]:
+    """Detect InsecureSkipVerify and weak TLS versions.
+
+    InsecureSkipVerify: true completely disables certificate validation,
+    making the connection vulnerable to MITM attacks.
+
+    TLS versions < 1.2 have known vulnerabilities and should not be used.
+    """
+    findings = []
+
+    # Check for InsecureSkipVerify: true
+    skip_verify_rows = db.query(
+        Q("go_variables")
+        .select("file_path", "line", "initial_value")
+        .where("initial_value LIKE ? OR initial_value LIKE ?",
+               "%InsecureSkipVerify%true%", "%InsecureSkipVerify:%true%")
+    )
+
+    for file_path, line, initial_value in skip_verify_rows:
+        findings.append(
+            StandardFinding(
+                rule_name="go-insecure-tls-skip-verify",
+                message="InsecureSkipVerify: true disables TLS certificate validation",
+                file_path=file_path,
+                line=line,
+                severity=Severity.CRITICAL,
+                category="crypto",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-295",
+            )
+        )
+
+    # Check for weak TLS versions
+    weak_tls_rows = db.query(
+        Q("go_variables")
+        .select("file_path", "line", "initial_value")
+        .where("initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
+               "%tls.VersionSSL30%", "%tls.VersionTLS10%", "%tls.VersionTLS11%")
+    )
+
+    for file_path, line, initial_value in weak_tls_rows:
+        findings.append(
+            StandardFinding(
+                rule_name="go-weak-tls-version",
+                message="Weak TLS version configured - use TLS 1.2 or higher",
+                file_path=file_path,
+                line=line,
+                severity=Severity.HIGH,
+                category="crypto",
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-326",
+            )
+        )
+
+    return findings
+
+
+def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
+    """Detect hardcoded secrets in constants and variables.
+
+    Secrets should come from environment variables, config files,
+    or secret management systems - never hardcoded in source.
+    """
+    findings = []
+
+    # Check constants with secret-like names
+    secret_const_rows = db.query(
+        Q("go_constants")
+        .select("file_path", "line", "name", "value")
+        .where("value IS NOT NULL")
+        .where("value != ?", "")
+        .where(
+            "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
+            "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
+            "OR LOWER(name) LIKE ?",
+            "%password%", "%secret%", "%api_key%", "%apikey%",
+            "%token%", "%private%key%", "%credential%"
+        )
+    )
+
+    for file_path, line, name, value in secret_const_rows:
+        value = value or ""
+        # Skip short values or empty strings
+        if len(value) < 5 or value in ('""', "''", '""', "nil"):
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="go-hardcoded-secret",
+                message=f"Potential hardcoded secret in constant '{name}'",
+                file_path=file_path,
+                line=line,
+                severity=Severity.HIGH,
+                category="crypto",
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-798",
+            )
+        )
+
+    # Check package-level variables with secret-like names
+    secret_var_rows = db.query(
+        Q("go_variables")
+        .select("file_path", "line", "name", "initial_value")
+        .where("is_package_level = ?", 1)
+        .where("initial_value IS NOT NULL")
+        .where("initial_value != ?", "")
+        .where(
+            "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
+            "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?",
+            "%password%", "%secret%", "%api_key%", "%apikey%",
+            "%token%", "%private%key%"
+        )
+    )
+
+    for file_path, line, name, initial_value in secret_var_rows:
+        value = initial_value or ""
+        # Skip if loaded from environment or config
+        if "os.Getenv" in value or "viper" in value.lower():
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="go-hardcoded-secret-var",
+                message=f"Potential hardcoded secret in package variable '{name}'",
+                file_path=file_path,
+                line=line,
+                severity=Severity.HIGH,
+                category="crypto",
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-798",
+            )
+        )
+
+    return findings

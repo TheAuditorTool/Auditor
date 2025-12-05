@@ -1,226 +1,242 @@
-"""SQL-based WebSocket security analyzer."""
+"""WebSocket security analyzer using fidelity layer.
 
-import sqlite3
+Detects WebSocket security issues:
+- Missing authentication on connection handlers (CWE-862)
+- Missing input validation on message handlers (CWE-20)
+- Missing rate limiting on message handlers (CWE-770)
+- Broadcasting sensitive data (CWE-200)
+- Missing TLS encryption - ws:// instead of wss:// (CWE-319)
+"""
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="websocket_security",
     category="security",
     target_extensions=[".py", ".js", ".ts", ".jsx", ".tsx"],
-    exclude_patterns=["test/", "spec.", "__tests__/", "node_modules/"])
-
-
-CONNECTION_PATTERNS = frozenset(
-    [
-        "WebSocket",
-        "WebSocketServer",
-        "ws.Server",
-        "io.Server",
-        "socketio.Server",
-        "websocket.serve",
-        "websockets.serve",
-        'on("connection")',
-        'on("connect")',
-        "onconnection",
-        "onconnect",
-    ]
+    exclude_patterns=["test/", "spec.", "__tests__/", "node_modules/"],
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
+# WebSocket connection establishment patterns (function/method names)
+CONNECTION_PATTERNS = frozenset([
+    "WebSocket",
+    "WebSocketServer",
+    "ws.Server",
+    "io.Server",
+    "socketio.Server",
+    "websocket.serve",
+    "websockets.serve",
+    "onconnection",
+    "onconnect",
+    "on_connection",
+    "on_connect",
+    # Modern Python frameworks
+    "WebSocketRoute",
+    "websocket_route",
+    "AsyncWebsocketConsumer",
+    "WebsocketConsumer",
+    "channels.routing",
+    # FastAPI/Starlette
+    "websocket_endpoint",
+    "WebSocketEndpoint",
+    # Django Channels
+    "connect",
+    "websocket_connect",
+    # Socket.IO
+    "sio.on",
+    "socketio.on",
+])
 
-AUTH_PATTERNS = frozenset(
-    [
-        "auth",
-        "authenticate",
-        "verify",
-        "token",
-        "jwt",
-        "session",
-        "passport",
-        "check_permission",
-        "validate_user",
-        "authorize",
-    ]
-)
+# Authentication-related patterns
+AUTH_PATTERNS = frozenset([
+    "auth",
+    "authenticate",
+    "verify",
+    "token",
+    "jwt",
+    "session",
+    "passport",
+    "check_permission",
+    "validate_user",
+    "authorize",
+    "is_authenticated",
+    "require_auth",
+    "login_required",
+])
+
+# Message receiving patterns (function/method names)
+MESSAGE_PATTERNS = frozenset([
+    "onmessage",
+    "on_message",
+    "message_handler",
+    "recv",
+    "receive",
+    "ondata",
+    "on_data",
+    "handle_message",
+    "receive_json",
+    "receive_text",
+    "receive_bytes",
+    # Django Channels
+    "websocket_receive",
+    # FastAPI/Starlette
+    "receive_text",
+    "receive_bytes",
+    "iter_text",
+    "iter_bytes",
+])
+
+# Input validation patterns
+VALIDATION_PATTERNS = frozenset([
+    "validate",
+    "verify",
+    "check",
+    "schema",
+    "sanitize",
+    "clean",
+    "joi",
+    "yup",
+    "zod",
+    "jsonschema",
+    "parse",
+    "assert",
+    "pydantic",
+    "marshmallow",
+])
+
+# Rate limiting patterns
+RATE_LIMIT_PATTERNS = frozenset([
+    "rate",
+    "limit",
+    "throttle",
+    "quota",
+    "flood",
+    "spam",
+    "cooldown",
+    "bucket",
+    "ratelimit",
+    "rate_limit",
+    "slowapi",
+    "limiter",
+])
+
+# Broadcasting patterns
+BROADCAST_PATTERNS = frozenset([
+    "broadcast",
+    "emit",
+    "send_all",
+    "publish",
+    "clients.forEach",
+    "wss.clients",
+    "io.emit",
+    "socket.broadcast",
+    "sendToAll",
+    "group_send",
+    "channel_layer",
+])
+
+# Sensitive data patterns
+SENSITIVE_PATTERNS = frozenset([
+    "password",
+    "secret",
+    "token",
+    "key",
+    "auth",
+    "session",
+    "email",
+    "ssn",
+    "credit",
+    "private",
+    "personal",
+    "confidential",
+    "api_key",
+    "access_token",
+    "refresh_token",
+])
 
 
-MESSAGE_PATTERNS = frozenset(
-    [
-        'on("message")',
-        "onmessage",
-        "on_message",
-        "message_handler",
-        "recv",
-        "receive",
-        'on("data")',
-        "ondata",
-        "handle_message",
-    ]
-)
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect WebSocket security issues in indexed codebase.
 
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
 
-VALIDATION_PATTERNS = frozenset(
-    [
-        "validate",
-        "verify",
-        "check",
-        "schema",
-        "sanitize",
-        "clean",
-        "joi",
-        "yup",
-        "zod",
-        "jsonschema",
-        "parse",
-        "assert",
-    ]
-)
-
-
-RATE_LIMIT_PATTERNS = frozenset(
-    [
-        "rate",
-        "limit",
-        "throttle",
-        "quota",
-        "flood",
-        "spam",
-        "cooldown",
-        "bucket",
-        "ratelimit",
-        "rate_limit",
-    ]
-)
-
-
-BROADCAST_PATTERNS = frozenset(
-    [
-        "broadcast",
-        "emit",
-        "send_all",
-        "publish",
-        "clients.forEach",
-        "wss.clients",
-        "io.emit",
-        "socket.broadcast",
-        "sendToAll",
-    ]
-)
-
-
-SENSITIVE_PATTERNS = frozenset(
-    [
-        "password",
-        "secret",
-        "token",
-        "key",
-        "auth",
-        "session",
-        "email",
-        "ssn",
-        "credit",
-        "private",
-        "personal",
-        "confidential",
-        "api_key",
-        "access_token",
-        "refresh_token",
-    ]
-)
-
-
-def find_websocket_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect WebSocket security issues using SQL queries."""
-    findings = []
+    Returns:
+        RuleResult with findings list and fidelity manifest
+    """
+    findings: list[StandardFinding] = []
 
     if not context.db_path:
-        return findings
+        return RuleResult(findings=findings, manifest={})
 
-    try:
-        conn = sqlite3.connect(context.db_path)
-        cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings.extend(_find_websocket_no_auth(db))
+        findings.extend(_find_websocket_no_validation(db))
+        findings.extend(_find_websocket_no_rate_limit(db))
+        findings.extend(_find_websocket_broadcast_sensitive(db))
+        findings.extend(_find_websocket_no_tls(db))
 
-        findings.extend(_find_websocket_no_auth(cursor))
-
-        findings.extend(_find_websocket_no_validation(cursor))
-
-        findings.extend(_find_websocket_no_rate_limit(cursor))
-
-        findings.extend(_find_websocket_broadcast_sensitive(cursor))
-
-        findings.extend(_find_websocket_no_tls(cursor))
-
-        conn.close()
-
-    except Exception:
-        pass
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
+def _find_websocket_no_auth(db: RuleDB) -> list[StandardFinding]:
     """Find WebSocket connections without authentication."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-        ORDER BY file, line
-    """)
+    # Get all function calls to find WebSocket handlers
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    websocket_handlers = []
-    for row in cursor.fetchall():
-        file, line, func, args = row
-
+    websocket_handlers: list[tuple[str, int, str, str | None]] = []
+    for file, line, func, args in rows:
         if any(pattern in func for pattern in CONNECTION_PATTERNS):
             websocket_handlers.append((file, line, func, args))
 
     for file, line, func, _args in websocket_handlers:
-        cursor.execute(
-            """
-            SELECT callee_function, line
-            FROM function_call_args
-            WHERE file = ?
-              AND callee_function IS NOT NULL
-        """,
-            (file,),
+        # Check for auth patterns in nearby function calls
+        nearby_calls = db.query(
+            Q("function_call_args")
+            .select("callee_function", "line")
+            .where("file = ?", file)
+            .where("callee_function IS NOT NULL")
         )
 
-        nearby_auth = []
-        for callee, func_line in cursor.fetchall():
-            if line - 30 <= func_line <= line + 30 and any(
-                auth in callee for auth in AUTH_PATTERNS
-            ):
-                nearby_auth.append((callee, func_line))
-
-        has_auth = len(nearby_auth) > 0
+        has_auth = False
+        for callee, func_line in nearby_calls:
+            if line - 30 <= func_line <= line + 30:
+                if any(auth in callee.lower() for auth in AUTH_PATTERNS):
+                    has_auth = True
+                    break
 
         if not has_auth:
-            cursor.execute(
-                """
-                SELECT name, line
-                FROM symbols
-                WHERE path = ?
-                  AND name IS NOT NULL
-            """,
-                (file,),
+            # Also check symbols in same file for auth-related names
+            nearby_symbols = db.query(
+                Q("symbols")
+                .select("name", "line")
+                .where("path = ?", file)
+                .where("name IS NOT NULL")
             )
 
-            nearby_sym = []
-            for name, sym_line in cursor.fetchall():
-                if line - 30 <= sym_line <= line + 30 and any(
-                    auth in name for auth in AUTH_PATTERNS
-                ):
-                    nearby_sym.append((name, sym_line))
-
-            has_auth = len(nearby_sym) > 0
+            for name, sym_line in nearby_symbols:
+                if line - 30 <= sym_line <= line + 30:
+                    if any(auth in name.lower() for auth in AUTH_PATTERNS):
+                        has_auth = True
+                        break
 
         if not has_auth:
             findings.append(
@@ -237,40 +253,36 @@ def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
                 )
             )
 
-    cursor.execute("""
-        SELECT path AS file, line, name
-        FROM symbols
-        WHERE type = 'function'
-          AND name IS NOT NULL
-    """)
-
+    # Check Python-style WebSocket handlers (function definitions)
     handler_patterns = ["websocket", "ws_handler", "socket_handler", "on_connect"]
-    python_handlers = []
-    for row in cursor.fetchall():
-        file, line, name = row
-        name_lower = name.lower()
-        if any(pattern in name_lower for pattern in handler_patterns):
-            python_handlers.append((file, line, name))
+    python_handlers = db.query(
+        Q("symbols")
+        .select("path", "line", "name")
+        .where("type = ?", "function")
+        .where("name IS NOT NULL")
+    )
 
     for file, line, name in python_handlers:
-        cursor.execute(
-            """
-            SELECT callee_function, line
-            FROM function_call_args
-            WHERE file = ?
-              AND callee_function IS NOT NULL
-        """,
-            (file,),
+        name_lower = name.lower()
+        if not any(pattern in name_lower for pattern in handler_patterns):
+            continue
+
+        # Check for auth in function body
+        body_calls = db.query(
+            Q("function_call_args")
+            .select("callee_function", "line")
+            .where("file = ?", file)
+            .where("callee_function IS NOT NULL")
         )
 
-        auth_in_body = []
-        for callee, func_line in cursor.fetchall():
-            if line <= func_line <= line + 50 and any(auth in callee for auth in AUTH_PATTERNS):
-                auth_in_body.append((callee, func_line))
+        has_auth = False
+        for callee, func_line in body_calls:
+            if line <= func_line <= line + 50:
+                if any(auth in callee.lower() for auth in AUTH_PATTERNS):
+                    has_auth = True
+                    break
 
-        has_auth = len(auth_in_body) > 0
-
-        if not has_auth and ("connect" in name.lower() or "handshake" in name.lower()):
+        if not has_auth and ("connect" in name_lower or "handshake" in name_lower):
             findings.append(
                 StandardFinding(
                     rule_name="websocket-no-auth-handshake",
@@ -288,39 +300,37 @@ def _find_websocket_no_auth(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_websocket_no_validation(cursor) -> list[StandardFinding]:
+def _find_websocket_no_validation(db: RuleDB) -> list[StandardFinding]:
     """Find WebSocket message handlers without validation."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-    """)
+    # Get function calls for message handlers
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+    )
 
-    message_handlers = []
-    for row in cursor.fetchall():
-        file, line, func, args = row
+    message_handlers: list[tuple[str, int, str, str | None]] = []
+    for file, line, func, args in rows:
         if any(pattern in func for pattern in MESSAGE_PATTERNS):
             message_handlers.append((file, line, func, args))
 
-    for file, line, _func, _args in message_handlers:
-        cursor.execute(
-            """
-            SELECT callee_function, line
-            FROM function_call_args
-            WHERE file = ?
-              AND callee_function IS NOT NULL
-        """,
-            (file,),
+    for file, line, func, _args in message_handlers:
+        # Check for validation patterns nearby
+        nearby_calls = db.query(
+            Q("function_call_args")
+            .select("callee_function", "line")
+            .where("file = ?", file)
+            .where("callee_function IS NOT NULL")
         )
 
-        validation_nearby = []
-        for callee, func_line in cursor.fetchall():
-            if line <= func_line <= line + 20 and any(val in callee for val in VALIDATION_PATTERNS):
-                validation_nearby.append((callee, func_line))
-
-        has_validation = len(validation_nearby) > 0
+        has_validation = False
+        for callee, func_line in nearby_calls:
+            if line <= func_line <= line + 20:
+                if any(val in callee.lower() for val in VALIDATION_PATTERNS):
+                    has_validation = True
+                    break
 
         if not has_validation:
             findings.append(
@@ -337,38 +347,33 @@ def _find_websocket_no_validation(cursor) -> list[StandardFinding]:
                 )
             )
 
-    cursor.execute("""
-        SELECT path AS file, line, name
-        FROM symbols
-        WHERE type = 'function'
-          AND name IS NOT NULL
-    """)
-
+    # Check Python-style message handlers
     msg_handler_patterns = ["message", "recv", "receive", "on_data"]
-    python_message_handlers = []
-    for row in cursor.fetchall():
-        file, line, name = row
-        name_lower = name.lower()
-        if any(pattern in name_lower for pattern in msg_handler_patterns):
-            python_message_handlers.append((file, line, name))
+    python_handlers = db.query(
+        Q("symbols")
+        .select("path", "line", "name")
+        .where("type = ?", "function")
+        .where("name IS NOT NULL")
+    )
 
-    for file, line, name in python_message_handlers:
-        cursor.execute(
-            """
-            SELECT callee_function, line
-            FROM function_call_args
-            WHERE file = ?
-              AND callee_function IS NOT NULL
-        """,
-            (file,),
+    for file, line, name in python_handlers:
+        name_lower = name.lower()
+        if not any(pattern in name_lower for pattern in msg_handler_patterns):
+            continue
+
+        body_calls = db.query(
+            Q("function_call_args")
+            .select("callee_function", "line")
+            .where("file = ?", file)
+            .where("callee_function IS NOT NULL")
         )
 
-        py_validation_nearby = []
-        for callee, func_line in cursor.fetchall():
-            if line <= func_line <= line + 30 and any(val in callee for val in VALIDATION_PATTERNS):
-                py_validation_nearby.append((callee, func_line))
-
-        has_validation = len(py_validation_nearby) > 0
+        has_validation = False
+        for callee, func_line in body_calls:
+            if line <= func_line <= line + 30:
+                if any(val in callee.lower() for val in VALIDATION_PATTERNS):
+                    has_validation = True
+                    break
 
         if not has_validation:
             findings.append(
@@ -388,90 +393,64 @@ def _find_websocket_no_validation(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_websocket_no_rate_limit(cursor) -> list[StandardFinding]:
+def _find_websocket_no_rate_limit(db: RuleDB) -> list[StandardFinding]:
     """Find WebSocket handlers without rate limiting."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT DISTINCT file, callee_function
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-    """)
+    # Find files with WebSocket message handling
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "callee_function", "line")
+        .where("callee_function IS NOT NULL")
+    )
 
-    message_keywords = ["message", "recv", 'on("message")', "onmessage"]
-    ws_files = set()
-    for file, callee in cursor.fetchall():
+    message_keywords = ["message", "recv", "onmessage", "on_message", "receive"]
+    ws_file_lines: dict[str, int] = {}
+
+    for file, callee, line in rows:
         callee_lower = callee.lower()
         if any(kw in callee_lower for kw in message_keywords):
-            ws_files.add(file)
+            if file not in ws_file_lines or line < ws_file_lines[file]:
+                ws_file_lines[file] = line
 
-    for file in ws_files:
-        cursor.execute(
-            """
-            SELECT callee_function
-            FROM function_call_args
-            WHERE file = ?
-              AND callee_function IS NOT NULL
-            LIMIT 100
-        """,
-            (file,),
+    for file, first_line in ws_file_lines.items():
+        # Check for rate limiting in file
+        file_calls = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("file = ?", file)
+            .where("callee_function IS NOT NULL")
+            .limit(100)
         )
 
         has_rate_limit = False
-        for (callee,) in cursor.fetchall():
-            if any(rl in callee for rl in RATE_LIMIT_PATTERNS):
+        for (callee,) in file_calls:
+            if any(rl in callee.lower() for rl in RATE_LIMIT_PATTERNS):
                 has_rate_limit = True
                 break
 
         if not has_rate_limit:
-            cursor.execute(
-                """
-                SELECT name
-                FROM symbols
-                WHERE path = ?
-                  AND name IS NOT NULL
-                LIMIT 100
-            """,
-                (file,),
+            # Also check symbols
+            file_symbols = db.query(
+                Q("symbols")
+                .select("name")
+                .where("path = ?", file)
+                .where("name IS NOT NULL")
+                .limit(100)
             )
 
-            for (name,) in cursor.fetchall():
-                if any(rl in name for rl in RATE_LIMIT_PATTERNS):
+            for (name,) in file_symbols:
+                if any(rl in name.lower() for rl in RATE_LIMIT_PATTERNS):
                     has_rate_limit = True
                     break
 
         if not has_rate_limit:
-            cursor.execute(
-                """
-                SELECT line
-                FROM function_call_args
-                WHERE file = ?
-                  AND callee_function IS NOT NULL
-            """,
-                (file,),
-            )
-
-            all_lines = []
-            for (func_line,) in cursor.fetchall():
-                cursor.execute(
-                    "SELECT callee_function FROM function_call_args WHERE file = ? AND line = ? LIMIT 1",
-                    (file, func_line),
-                )
-                callee_row = cursor.fetchone()
-                if callee_row:
-                    callee = callee_row[0]
-                    callee_lower = callee.lower()
-                    if "message" in callee_lower or "recv" in callee_lower:
-                        all_lines.append(func_line)
-
-            line = min(all_lines) if all_lines else 0
-
             findings.append(
                 StandardFinding(
                     rule_name="websocket-no-rate-limiting",
                     message="WebSocket message handling without rate limiting",
                     file_path=file,
-                    line=line,
+                    line=first_line,
                     severity=Severity.HIGH,
                     category="security",
                     confidence=Confidence.LOW,
@@ -483,19 +462,19 @@ def _find_websocket_no_rate_limit(cursor) -> list[StandardFinding]:
     return findings
 
 
-def _find_websocket_broadcast_sensitive(cursor) -> list[StandardFinding]:
+def _find_websocket_broadcast_sensitive(db: RuleDB) -> list[StandardFinding]:
     """Find broadcasting of sensitive data via WebSocket."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-    """)
+    # Find broadcast calls
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+    )
 
-    broadcasts = []
-    for row in cursor.fetchall():
-        file, line, func, args = row
+    broadcasts: list[tuple[str, int, str, str | None]] = []
+    for file, line, func, args in rows:
         if any(bc in func for bc in BROADCAST_PATTERNS):
             broadcasts.append((file, line, func, args))
 
@@ -503,7 +482,7 @@ def _find_websocket_broadcast_sensitive(cursor) -> list[StandardFinding]:
         if not args:
             continue
 
-        args_lower = args.lower() if args else ""
+        args_lower = args.lower()
         contains_sensitive = any(sens in args_lower for sens in SENSITIVE_PATTERNS)
 
         if contains_sensitive:
@@ -521,74 +500,72 @@ def _find_websocket_broadcast_sensitive(cursor) -> list[StandardFinding]:
                 )
             )
         else:
-            broadcast_vars = []
-            if args:
-                import re
+            # Check if broadcast variables contain sensitive data
+            # Extract potential variable names from args (simple word tokenization)
+            potential_vars = [
+                word for word in args.replace("(", " ").replace(")", " ").replace(",", " ").split()
+                if word.isidentifier()
+            ]
 
-                potential_vars = re.findall(r"\b[a-zA-Z_][a-zA-Z0-9_]*\b", args)
-                broadcast_vars = potential_vars
-
-            if broadcast_vars:
-                cursor.execute(
-                    """
-                    SELECT target_var, source_expr
-                    FROM assignments
-                    WHERE file = ?
-                      AND line < ?
-                      AND target_var IS NOT NULL
-                      AND source_expr IS NOT NULL
-                """,
-                    (file, line),
+            if potential_vars:
+                assignments = db.query(
+                    Q("assignments")
+                    .select("target_var", "source_expr")
+                    .where("file = ?", file)
+                    .where("line < ?", line)
+                    .where("target_var IS NOT NULL")
+                    .where("source_expr IS NOT NULL")
                 )
 
-                sensitive_vars = []
-                for var, expr in cursor.fetchall():
-                    if var in broadcast_vars:
+                sensitive_found = False
+                for var, expr in assignments:
+                    if var in potential_vars:
                         expr_lower = expr.lower()
                         if any(sens in expr_lower for sens in SENSITIVE_PATTERNS):
-                            sensitive_vars.append((var, expr))
+                            sensitive_found = True
+                            break
 
-            if sensitive_vars:
-                findings.append(
-                    StandardFinding(
-                        rule_name="websocket-broadcast-sensitive-data",
-                        message="Broadcasting variable containing sensitive data",
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        category="security",
-                        confidence=Confidence.MEDIUM,
-                        snippet=f"{func}(variable)",
-                        cwe_id="CWE-200",
+                if sensitive_found:
+                    findings.append(
+                        StandardFinding(
+                            rule_name="websocket-broadcast-sensitive-data",
+                            message="Broadcasting variable containing sensitive data",
+                            file_path=file,
+                            line=line,
+                            severity=Severity.CRITICAL,
+                            category="security",
+                            confidence=Confidence.MEDIUM,
+                            snippet=f"{func}(variable)",
+                            cwe_id="CWE-200",
+                        )
                     )
-                )
 
     return findings
 
 
-def _find_websocket_no_tls(cursor) -> list[StandardFinding]:
+def _find_websocket_no_tls(db: RuleDB) -> list[StandardFinding]:
     """Find WebSocket connections without TLS (ws:// instead of wss://)."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    cursor.execute("""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE source_expr IS NOT NULL
-    """)
+    # Check assignments for ws:// URLs
+    assignments = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("source_expr IS NOT NULL")
+    )
 
-    insecure_urls = []
-    for file, line, var, expr in cursor.fetchall():
+    for file, line, var, expr in assignments:
         if not expr:
             continue
 
+        # Skip if using secure wss:// or not a ws:// URL
         if "ws://" not in expr or "wss://" in expr:
             continue
 
+        # Allow localhost/127.0.0.1 for development
         if "ws://localhost" in expr or "ws://127.0.0.1" in expr:
             continue
-        insecure_urls.append((file, line, var, expr))
 
-    for file, line, var, expr in insecure_urls:
         findings.append(
             StandardFinding(
                 rule_name="websocket-no-tls",
@@ -603,36 +580,45 @@ def _find_websocket_no_tls(cursor) -> list[StandardFinding]:
             )
         )
 
-    cursor.execute("""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE callee_function IS NOT NULL
-    """)
+    # Check WebSocket server configurations without TLS
+    server_calls = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+    )
 
-    unencrypted_servers = []
-    for file, line, func, args in cursor.fetchall():
-        if not ("WebSocketServer" in func or "ws.Server" in func):
+    for file, line, func, args in server_calls:
+        if "WebSocketServer" not in func and "ws.Server" not in func:
             continue
 
         if args is None:
-            unencrypted_servers.append((file, line, func, args))
-        else:
-            if "https" not in args and "tls" not in args and "ssl" not in args:
-                unencrypted_servers.append((file, line, func, args))
-
-    for file, line, func, _args in unencrypted_servers:
-        findings.append(
-            StandardFinding(
-                rule_name="websocket-no-tls",
-                message="WebSocket server without TLS configuration",
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category="security",
-                confidence=Confidence.HIGH,
-                snippet=f"{func}(...)",
-                cwe_id="CWE-319",
+            # No args - likely missing TLS config
+            findings.append(
+                StandardFinding(
+                    rule_name="websocket-no-tls",
+                    message="WebSocket server without TLS configuration",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="security",
+                    confidence=Confidence.HIGH,
+                    snippet=f"{func}(...)",
+                    cwe_id="CWE-319",
+                )
             )
-        )
+        elif "https" not in args and "tls" not in args and "ssl" not in args:
+            findings.append(
+                StandardFinding(
+                    rule_name="websocket-no-tls",
+                    message="WebSocket server without TLS configuration",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="security",
+                    confidence=Confidence.HIGH,
+                    snippet=f"{func}(...)",
+                    cwe_id="CWE-319",
+                )
+            )
 
     return findings
