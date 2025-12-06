@@ -7,18 +7,18 @@ Use this directory to define **semantic context YAML files** for `aud context`. 
 1. **Generate findings**  
    Run `aud full` (recommended) or `aud detect-patterns` so `.pf/repo_index.db` + `findings_consolidated` exist.
 
-2. **Copy the template**  
+2. **Copy the template**
    ```
-   cd theauditor/insights/semantic_rules
-   cp refactoring.yaml my_security_context.yaml
+   cd theauditor/context/semantic_rules
+   cp template.yaml my_security_context.yaml
    ```
 
 3. **Customize**  
    Edit the YAML’s `patterns` to describe which findings are obsolete, current, or transitional. Use the comments inside `refactoring.yaml` (OAuth/JWT example) as guidance.
 
-4. **Run aud context**  
+4. **Run aud context**
    ```
-   aud context --file theauditor/insights/semantic_rules/my_security_context.yaml
+   aud context --file theauditor/context/semantic_rules/my_security_context.yaml
    # optional extras
    aud context --file ... --verbose
    aud context --file ... --output semantic_report.json
@@ -52,7 +52,7 @@ Use this directory to define **semantic context YAML files** for `aud context`. 
 
 ## How TheAuditor uses this YAML
 
-1. `aud context` loads your semantic context (via `theauditor/insights/semantic_context.py`).
+1. `aud context` loads your semantic context (via `theauditor/context/semantic_context.py`).
 2. For each finding in `findings_consolidated`, it checks the regex+scope rules:
    - **obsolete** → flagged as deprioritized
    - **current** → still important
@@ -82,4 +82,4 @@ See `templates_instructions.md` for:
 - Multiple examples (security, API, schema)
 - Validation and troubleshooting tips
 
-Questions? Open an issue on the repo or extend the documentation with your own templates. This directory is meant to stay example-rich so every team can bootstrap their own semantic contexts quickly. Remember: you provide the business logic, TheAuditor reports the facts.*** End Patch
+Questions? Open an issue on the repo or extend the documentation with your own templates. This directory is meant to stay example-rich so every team can bootstrap their own semantic contexts quickly. Remember: you provide the business logic, TheAuditor reports the facts.
