@@ -184,8 +184,16 @@ class BaseDatabaseManager:
                 logger.error(f"    [{i}] {row}")
             raise
         except Exception as e:
-            if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
-                logger.debug(f"Flush: {table_name} FAILED - {e}")
+            logger.critical(f"\n BATCH INSERT ERROR in table '{table_name}'")
+            logger.error(f"  Error: {e}")
+            logger.error(f"  Query: {query}")
+            logger.error(f"  Batch size: {len(batch)}")
+            logger.error("  Sample rows (first 3):")
+            for i, row in enumerate(batch[:3]):
+                logger.error(f"    [{i}] {row}")
+                for j, val in enumerate(row):
+                    if isinstance(val, dict):
+                        logger.error(f"        DICT FOUND at position {j}: {val}")
             raise
 
         self.generic_batches[table_name] = []

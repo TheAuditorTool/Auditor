@@ -350,8 +350,12 @@ class ManifestExtractor(BaseExtractor):
 
         package = data.get("package", {})
         package_name = package.get("name")
-        package_version = package.get("version")
-        edition = package.get("edition")
+
+        raw_version = package.get("version")
+        package_version = "workspace" if isinstance(raw_version, dict) and raw_version.get("workspace") else raw_version
+
+        raw_edition = package.get("edition")
+        edition = "workspace" if isinstance(raw_edition, dict) and raw_edition.get("workspace") else raw_edition
 
         result["cargo_package_configs"].append(
             {
