@@ -79,7 +79,7 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
             )
         deps.extend(python_deps)
 
-    # Parse Docker files using package_managers module
+    
     docker_mgr = get_manager("docker")
     if docker_mgr:
         docker_compose_files = list(root.glob("docker-compose*.yml")) + list(
@@ -102,7 +102,7 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
             console.print(f"Debug: Found {cargo_toml}", highlight=False)
         deps.extend(_parse_cargo_toml(cargo_toml))
 
-    # Parse go.mod files using package_managers module
+    
     go_mgr = get_manager("go")
     if go_mgr:
         go_mod_files = list(root.glob("**/go.mod"))
@@ -166,7 +166,7 @@ def _read_npm_deps_from_database(db_path: Path, root: Path, debug: bool) -> list
 
 
 def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> list[dict[str, Any]]:
-    """Read Python dependencies from python_package_configs table."""
+    """Read Python dependencies from normalized python_package_dependencies table."""
     import sqlite3
 
     conn = sqlite3.connect(db_path, timeout=60)
@@ -175,69 +175,40 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
 
     try:
         cursor.execute("""
-            SELECT file_path, file_type, project_name, project_version,
-                   dependencies, optional_dependencies
-            FROM python_package_configs
+            SELECT file_path, name, version_spec, is_dev, group_name, extras, git_url
+            FROM python_package_dependencies
         """)
 
         deps = []
 
-        for (
-            file_path,
-            _file_type,
-            _proj_name,
-            _proj_version,
-            deps_json,
-            optional_deps_json,
-        ) in cursor.fetchall():
-            if not deps_json:
+        for file_path, name, version_spec, is_dev, group_name, extras_json, git_url in cursor.fetchall():
+            if not name:
                 continue
 
-            try:
-                dependencies = json.loads(deps_json)
-                optional_dependencies = json.loads(optional_deps_json) if optional_deps_json else {}
+            dep_obj = {
+                "name": _canonicalize_name(name),
+                "version": version_spec or "",
+                "manager": "py",
+                "files": [],
+                "source": file_path,
+            }
 
-                for dep_info in dependencies:
-                    raw_name = dep_info.get("name", "")
-                    dep_obj = {
-                        "name": _canonicalize_name(raw_name) if raw_name else "",
-                        "version": dep_info.get("version", ""),
-                        "manager": "py",
-                        "files": [],
-                        "source": file_path,
-                    }
+            if is_dev:
+                dep_obj["dev"] = True
 
-                    if dep_info.get("extras"):
-                        dep_obj["extras"] = dep_info["extras"]
+            if group_name:
+                dep_obj["optional_group"] = group_name
 
-                    if dep_info.get("git_url"):
-                        dep_obj["git_url"] = dep_info["git_url"]
+            if extras_json:
+                try:
+                    dep_obj["extras"] = json.loads(extras_json)
+                except json.JSONDecodeError:
+                    pass
 
-                    deps.append(dep_obj)
+            if git_url:
+                dep_obj["git_url"] = git_url
 
-                for group_name, group_deps in optional_dependencies.items():
-                    for dep_info in group_deps:
-                        raw_name = dep_info.get("name", "")
-                        dep_obj = {
-                            "name": _canonicalize_name(raw_name) if raw_name else "",
-                            "version": dep_info.get("version", ""),
-                            "manager": "py",
-                            "files": [],
-                            "source": file_path,
-                            "optional_group": group_name,
-                        }
-
-                        if dep_info.get("extras"):
-                            dep_obj["extras"] = dep_info["extras"]
-
-                        if dep_info.get("git_url"):
-                            dep_obj["git_url"] = dep_info["git_url"]
-
-                        deps.append(dep_obj)
-
-            except json.JSONDecodeError as e:
-                logger.error(f"WARNING: Corrupted JSON in database for {file_path}: {e}")
-                continue
+            deps.append(dep_obj)
 
         conn.close()
         return deps
@@ -247,7 +218,7 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
 
         if "no such table" in str(e):
             if debug:
-                console.print("Debug: python_package_configs table not found (run indexer first)")
+                console.print("Debug: python_package_dependencies table not found (run indexer first)")
             return []
 
         raise
@@ -433,7 +404,7 @@ async def _check_latest_batch_async(
                         elif manager == "py":
                             latest = await _fetch_pypi_async(client, dep["name"], allow_prerelease)
                         elif manager in ("docker", "cargo", "go"):
-                            # Use package_managers module for docker, cargo, and go
+                            
                             mgr = get_manager(manager)
                             if mgr:
                                 dep_obj = Dependency.from_dict(dep)
@@ -722,7 +693,7 @@ def _parse_pypi_version(version_str: str) -> tuple:
 
 def _calculate_version_delta(locked: str, latest: str) -> str:
     """Calculate semantic version delta."""
-    # Use docker_mgr's tag parser for version extraction
+    
     docker_mgr = get_manager("docker")
     if docker_mgr:
         locked_parsed = docker_mgr._parse_docker_tag(locked)
@@ -879,7 +850,7 @@ def upgrade_all_deps(
                 )
                 upgraded["pyproject.toml"] += count
 
-    # Docker upgrades using package_managers module
+    
     if "docker" in ecosystems:
         docker_mgr = get_manager("docker")
         if docker_mgr:
@@ -931,7 +902,7 @@ def upgrade_all_deps(
                     count = docker_mgr.upgrade_file(dockerfile, latest_info, dep_objs)
                     upgraded["dockerfile"] += count
 
-    # Cargo upgrades using package_managers module
+    
     if "cargo" in ecosystems:
         cargo_mgr = get_manager("cargo")
         if cargo_mgr:
@@ -961,7 +932,7 @@ def upgrade_all_deps(
                     count = cargo_mgr.upgrade_file(cargo_toml, latest_info, dep_objs)
                     upgraded["Cargo.toml"] += count
 
-    # Go upgrades using package_managers module
+    
     if "go" in ecosystems:
         go_mgr = get_manager("go")
         if go_mgr:

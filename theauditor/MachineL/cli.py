@@ -188,7 +188,14 @@ def suggest(
 
     if root_cause_clf is None:
         logger.info(f"No models found in {model_dir}. Run 'aud learn' first.")
-        return {"success": False, "error": "Models not found"}
+        return {"success": False, "error": "Models not found. Run 'aud learn' first."}
+
+    workset_file = Path(workset_path)
+    if not workset_file.exists():
+        return {
+            "success": False,
+            "error": f"Workset not found at {workset_path}. Run 'aud workset --all' or 'aud workset --diff HEAD~1' first to create it.",
+        }
 
     try:
         with open(workset_path) as f:
@@ -201,6 +208,8 @@ def suggest(
             if excluded_count > 0:
                 logger.info(f"Excluded {excluded_count} non-source files from suggestions")
 
+    except json.JSONDecodeError as e:
+        return {"success": False, "error": f"Invalid workset JSON: {e}"}
     except Exception as e:
         return {"success": False, "error": f"Failed to load workset: {e}"}
 
@@ -223,7 +232,7 @@ def suggest(
 
     import numpy as np
 
-    # Validate feature count compatibility with saved model
+    
     expected_features = scaler.n_features_in_
     actual_features = feature_matrix.shape[1]
     if expected_features != actual_features:
@@ -238,14 +247,14 @@ def suggest(
             f"current code generates {actual_features}. Run 'aud learn' to retrain.",
         }
 
-    # 2025: Pipelines handle scaling internally for classifiers
-    # Only need explicit scaling for the risk regressor
+    
+    
     features_scaled = scaler.transform(feature_matrix)
 
-    # Classifiers (pipelines) take raw features
+    
     root_cause_scores = root_cause_clf.predict_proba(feature_matrix)[:, 1]
     next_edit_scores = next_edit_clf.predict_proba(feature_matrix)[:, 1]
-    # Risk regressor needs scaled features
+    
     risk_scores = np.clip(risk_reg.predict(features_scaled), 0, 1)
 
     if root_cause_calibrator is not None:
@@ -253,8 +262,8 @@ def suggest(
     if next_edit_calibrator is not None:
         next_edit_scores = next_edit_calibrator.transform(next_edit_scores)
 
-    # Note: HistGradientBoostingClassifier doesn't expose estimators_ for uncertainty
-    # We'll use score variance as a simpler uncertainty proxy in the future
+    
+    
     root_cause_std = np.zeros(len(file_paths))
     next_edit_std = np.zeros(len(file_paths))
 

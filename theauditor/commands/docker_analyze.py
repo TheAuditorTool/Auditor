@@ -196,8 +196,23 @@ def docker_analyze(db_path, output, severity, check_vulns):
 
     NOTE: Base image vulnerability checks require network access and may be rate-limited
     by external APIs. Use --no-check-vulns for air-gapped environments.
+
+    DEPRECATION: This standalone command is deprecated. Docker security analysis is now
+    performed automatically via rules during 'aud full'. The analysis uses
+    rules/deployment/docker_analyze.py which queries the docker_images and
+    dockerfile_instructions tables populated by the Docker extractor.
+
+    Run 'aud full' to perform Docker security analysis as part of the complete pipeline.
     """
-    from theauditor.docker_analyzer import analyze_docker_images
+    console.print("[DEPRECATED] Docker analysis is now part of 'aud full' pipeline.", highlight=False)
+    console.print("", highlight=False)
+    console.print("Docker security analysis runs automatically via rules:", highlight=False)
+    console.print("  - rules/deployment/docker_analyze.py", highlight=False)
+    console.print("", highlight=False)
+    console.print("To analyze Dockerfiles:", highlight=False)
+    console.print("  1. Run 'aud full' to index and analyze", highlight=False)
+    console.print("  2. Check findings in .pf/raw/ output files", highlight=False)
+    console.print("", highlight=False)
 
     if not Path(db_path).exists():
         err_console.print(
@@ -206,10 +221,32 @@ def docker_analyze(db_path, output, severity, check_vulns):
         err_console.print("[error]Run 'aud full' first to create the database[/error]", )
         return ExitCodes.TASK_INCOMPLETE
 
-    console.print("Analyzing Docker images for security issues...")
-    if check_vulns:
-        console.print("  Including vulnerability scan of base images...")
-    findings = analyze_docker_images(db_path, check_vulnerabilities=check_vulns)
+    import sqlite3
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+
+    try:
+        cursor.execute("SELECT COUNT(*) FROM docker_images")
+        image_count = cursor.fetchone()[0]
+    except sqlite3.OperationalError:
+        image_count = 0
+
+    try:
+        cursor.execute("SELECT COUNT(*) FROM dockerfile_instructions")
+        instruction_count = cursor.fetchone()[0]
+    except sqlite3.OperationalError:
+        instruction_count = 0
+
+    conn.close()
+
+    console.print(f"Database contains:", highlight=False)
+    console.print(f"  - {image_count} Docker images", highlight=False)
+    console.print(f"  - {instruction_count} Dockerfile instructions", highlight=False)
+    console.print("", highlight=False)
+    console.print("Run 'aud full' to regenerate findings.", highlight=False)
+
+    findings = []
 
     if severity != "all":
         severity_order = {"critical": 4, "high": 3, "medium": 2, "low": 1}

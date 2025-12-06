@@ -142,16 +142,11 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
 
     Note: Requires 'aud full' to be run first."""
 
-    import importlib.util
-
-    spec = importlib.util.spec_from_file_location(
-        "impact_analyzer", Path(__file__).parent.parent / "insights" / "impact_analyzer.py"
+    from theauditor.MachineL.impact_analyzer import (
+        analyze_impact,
+        format_impact_report,
+        format_planning_context,
     )
-    impact_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(impact_module)
-    analyze_impact = impact_module.analyze_impact
-    format_impact_report = impact_module.format_impact_report
-    format_planning_context = impact_module.format_planning_context
     import json as json_lib
     import sqlite3
 
