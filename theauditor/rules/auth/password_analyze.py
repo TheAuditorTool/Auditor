@@ -39,41 +39,45 @@ STRONG_HASH_ALGORITHMS = frozenset(["bcrypt", "scrypt", "argon2", "pbkdf2"])
 PASSWORD_KEYWORDS = frozenset(["password", "passwd", "pwd", "passphrase", "pass"])
 
 
-WEAK_PASSWORDS = frozenset([
-    "password",
-    "admin",
-    "123456",
-    "changeme",
-    "default",
-    "test",
-    "demo",
-    "sample",
-    "password123",
-    "admin123",
-    "root",
-    "toor",
-    "secret",
-    "qwerty",
-    "letmein",
-])
+WEAK_PASSWORDS = frozenset(
+    [
+        "password",
+        "admin",
+        "123456",
+        "changeme",
+        "default",
+        "test",
+        "demo",
+        "sample",
+        "password123",
+        "admin123",
+        "root",
+        "toor",
+        "secret",
+        "qwerty",
+        "letmein",
+    ]
+)
 
 
-PASSWORD_PLACEHOLDERS = frozenset([
-    "your_password_here",
-    "your_password",
-    "password_here",
-    "change_me",
-    "changeme",
-    "placeholder",
-    "<password>",
-    "${password}",
-    "{{password}}",
-])
+PASSWORD_PLACEHOLDERS = frozenset(
+    [
+        "your_password_here",
+        "your_password",
+        "password_here",
+        "change_me",
+        "changeme",
+        "placeholder",
+        "<password>",
+        "${password}",
+        "{{password}}",
+    ]
+)
 
 
-ENV_PATTERNS = frozenset([
-    "process.env", "import.meta.env", "os.environ", "getenv", "config", "process.argv"
-])
+ENV_PATTERNS = frozenset(
+    ["process.env", "import.meta.env", "os.environ", "getenv", "config", "process.argv"]
+)
 
 
 URL_FUNCTION_KEYWORDS = frozenset(["url", "uri", "query", "querystring"])
@@ -152,9 +156,7 @@ def _check_weak_password_hashing(db: RuleDB) -> list[StandardFinding]:
         algo = "MD5" if "md5" in args_lower else "SHA1"
 
         nearby_rows = db.query(
-            Q("assignments")
-            .select("target_var", "source_expr", "line")
-            .where("file = ?", file)
+            Q("assignments").select("target_var", "source_expr", "line").where("file = ?", file)
         )
 
         nearby_password = False
@@ -192,9 +194,7 @@ def _check_hardcoded_passwords(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, var, expr in rows:
@@ -280,7 +280,6 @@ def _check_weak_complexity(db: RuleDB) -> list[StandardFinding]:
             continue
 
         if ".length" in args_lower:
-            # NIST 800-63B: Minimum 8 characters, recommended 12+
             weak_comparisons = ["> 4", "> 5", "> 6", "> 7", ">= 4", ">= 5", ">= 6", ">= 7"]
             if any(weak in args_lower for weak in weak_comparisons):
                 findings.append(
@@ -298,9 +297,7 @@ def _check_weak_complexity(db: RuleDB) -> list[StandardFinding]:
                 )
 
     assign_rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, _var, expr in assign_rows:
@@ -336,9 +333,7 @@ def _check_password_in_url(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     url_param_patterns = ["?password=", "&password=", "?passwd=", "&passwd=", "?pwd=", "&pwd="]
@@ -404,20 +399,28 @@ def _check_timing_unsafe_comparison(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Check assignments for direct comparisons with password/hash variables
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
-    # Patterns indicating direct comparison in assignment context
-    # e.g., isValid = password == storedHash, match = hash === dbHash
-    sensitive_vars = frozenset([
-        "password", "passwd", "pwd", "hash", "hashed", "digest",
-        "storedpassword", "storedhash", "dbpassword", "dbhash",
-        "inputpassword", "inputhash", "userhash", "userpassword",
-    ])
+    sensitive_vars = frozenset(
+        [
+            "password",
+            "passwd",
+            "pwd",
+            "hash",
+            "hashed",
+            "digest",
+            "storedpassword",
+            "storedhash",
+            "dbpassword",
+            "dbhash",
+            "inputpassword",
+            "inputhash",
+            "userhash",
+            "userpassword",
+        ]
+    )
 
     for file, line, target_var, source_expr in rows:
         if not source_expr:
@@ -426,22 +429,18 @@ def _check_timing_unsafe_comparison(db: RuleDB) -> list[StandardFinding]:
         expr_lower = source_expr.lower()
         target_lower = target_var.lower()
 
-        # Look for comparison operators with sensitive variables
         has_comparison = " == " in source_expr or " === " in source_expr or " != " in source_expr
         if not has_comparison:
             continue
 
-        # Check if sensitive terms appear in the comparison
         has_sensitive = any(sv in expr_lower for sv in sensitive_vars)
         if not has_sensitive:
             continue
 
-        # Skip if using safe comparison functions
         safe_functions = ["timingsafeequal", "compare_digest", "constanttimeequal", "safeeq"]
         if any(sf in expr_lower for sf in safe_functions):
             continue
 
-        # Skip obvious boolean result checks
         if target_lower in ("result", "success", "valid", "ok", "match", "isvalid", "ismatch"):
             findings.append(
                 StandardFinding(
@@ -453,11 +452,12 @@ def _check_timing_unsafe_comparison(db: RuleDB) -> list[StandardFinding]:
                     category="authentication",
                     cwe_id="CWE-208",
                     confidence=Confidence.MEDIUM,
-                    snippet=source_expr[:60] if len(source_expr) <= 60 else source_expr[:57] + "...",
+                    snippet=source_expr[:60]
+                    if len(source_expr) <= 60
+                    else source_expr[:57] + "...",
                 )
             )
 
-    # Also check function calls that might be doing comparisons
     func_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -468,7 +468,6 @@ def _check_timing_unsafe_comparison(db: RuleDB) -> list[StandardFinding]:
         func_lower = func.lower()
         args_lower = (args or "").lower()
 
-        # Look for comparison-related functions with password args
         comparison_funcs = ["compare", "equals", "match", "verify"]
         is_comparison_func = any(cf in func_lower for cf in comparison_funcs)
 
@@ -481,12 +480,16 @@ def _check_timing_unsafe_comparison(db: RuleDB) -> list[StandardFinding]:
         if not (has_password_arg or has_hash_arg):
             continue
 
-        # Skip known safe comparison functions
-        safe_functions = ["timingsafeequal", "compare_digest", "bcrypt.compare", "argon2.verify", "scrypt.verify"]
+        safe_functions = [
+            "timingsafeequal",
+            "compare_digest",
+            "bcrypt.compare",
+            "argon2.verify",
+            "scrypt.verify",
+        ]
         if any(sf in func_lower for sf in safe_functions):
             continue
 
-        # Direct .compare() or .equals() on hash could be unsafe
         if ".compare(" in func_lower or ".equals(" in func_lower:
             findings.append(
                 StandardFinding(

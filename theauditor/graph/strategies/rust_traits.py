@@ -36,10 +36,6 @@ class RustTraitStrategy(GraphStrategy):
             "unique_nodes": 0,
         }
 
-        # NO TABLE CHECK - ZERO FALLBACK POLICY
-        # If rust_impl_blocks doesn't exist, the query will fail loud
-        # This exposes missing data at index time, not silently at query time
-
         self._build_implements_trait_edges(cursor, nodes, edges, stats)
         self._build_trait_method_edges(cursor, nodes, edges, stats)
 
@@ -165,9 +161,6 @@ class RustTraitStrategy(GraphStrategy):
         stats: dict[str, int],
     ) -> None:
         """Build edges from impl methods to trait method signatures."""
-
-        # NO TABLE CHECK - ZERO FALLBACK POLICY
-        # If rust_trait_methods doesn't exist, the query will fail loud
 
         cursor.execute("""
             SELECT

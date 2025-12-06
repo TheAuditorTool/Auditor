@@ -10,7 +10,7 @@ class TaintPath:
         self.source = source
         self.sink = sink
         self.path = path
-        # Vulnerability type comes from sink dict. NO FALLBACKS. NO GUESSING.
+
         self.vulnerability_type = sink.get("vulnerability_type", "Data Exposure")
 
         self.flow_sensitive = False

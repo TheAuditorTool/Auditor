@@ -1,4 +1,5 @@
 """DiffScorer - Score code diffs using TheAuditor's SAST pipeline."""
+
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -46,7 +47,6 @@ class DiffScorer:
 
         blind_edit = file_path not in files_read
 
-        # Run analysis directly on content string (no temp file I/O)
         taint_score = self._run_taint(new_code)
         pattern_score = self._run_patterns(new_code)
         fce_score = self._check_completeness(file_path)

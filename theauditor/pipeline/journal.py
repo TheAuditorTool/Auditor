@@ -17,14 +17,12 @@ class JournalWriter:
         Raises:
             OSError: If journal file cannot be opened (permissions, disk space, etc.)
         """
-        self.journal_path = Path(journal_path).resolve()  # Force absolute path
+        self.journal_path = Path(journal_path).resolve()
         self.history_dir = Path(history_dir).resolve() if history_dir else None
         self.session_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
         self.journal_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # No try/except - if journal fails, crash immediately.
-        # An auditor without an audit trail is lying about its execution.
         self.file_handle = open(self.journal_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
 
     def write_event(self, event_type: str, data: dict[str, Any]) -> bool:

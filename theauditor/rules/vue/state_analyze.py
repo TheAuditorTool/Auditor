@@ -22,40 +22,44 @@ METADATA = RuleMetadata(
 )
 
 
-VUEX_PATTERNS = frozenset([
-    "createStore",
-    "useStore",
-    "$store",
-    "this.$store",
-    "mapState",
-    "mapGetters",
-    "mapActions",
-    "mapMutations",
-    "commit",
-    "dispatch",
-    "subscribe",
-    "subscribeAction",
-    "registerModule",
-    "unregisterModule",
-    "hasModule",
-])
+VUEX_PATTERNS = frozenset(
+    [
+        "createStore",
+        "useStore",
+        "$store",
+        "this.$store",
+        "mapState",
+        "mapGetters",
+        "mapActions",
+        "mapMutations",
+        "commit",
+        "dispatch",
+        "subscribe",
+        "subscribeAction",
+        "registerModule",
+        "unregisterModule",
+        "hasModule",
+    ]
+)
 
 
-PINIA_PATTERNS = frozenset([
-    "defineStore",
-    "createPinia",
-    "setActivePinia",
-    "storeToRefs",
-    "acceptHMRUpdate",
-    "useStore",
-    "$patch",
-    "$reset",
-    "$subscribe",
-    "$onAction",
-    "$dispose",
-    "getActivePinia",
-    "setMapStoreSuffix",
-])
+PINIA_PATTERNS = frozenset(
+    [
+        "defineStore",
+        "createPinia",
+        "setActivePinia",
+        "storeToRefs",
+        "acceptHMRUpdate",
+        "useStore",
+        "$patch",
+        "$reset",
+        "$subscribe",
+        "$onAction",
+        "$dispose",
+        "getActivePinia",
+        "setMapStoreSuffix",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -86,22 +90,14 @@ def _get_store_files(db: RuleDB) -> set[str]:
     """Get all Vuex/Pinia store files."""
     store_files: set[str] = set()
 
-    file_rows = db.query(
-        Q("files")
-        .select("path")
-        .where("path IS NOT NULL")
-    )
+    file_rows = db.query(Q("files").select("path").where("path IS NOT NULL"))
 
     for (path,) in file_rows:
         path_lower = path.lower()
         if any(pattern in path_lower for pattern in ["store", "vuex", "pinia", "state"]):
             store_files.add(path)
 
-    symbol_rows = db.query(
-        Q("symbols")
-        .select("path", "name")
-        .where("name IS NOT NULL")
-    )
+    symbol_rows = db.query(Q("symbols").select("path", "name").where("name IS NOT NULL"))
 
     for path, name in symbol_rows:
         if "$store" in name or "defineStore" in name or "createStore" in name:
@@ -147,7 +143,6 @@ def _find_direct_state_mutations(db: RuleDB, store_files: set[str]) -> list[Stan
                 )
             )
 
-
     return findings
 
 
@@ -155,7 +150,17 @@ def _find_async_mutations(db: RuleDB, store_files: set[str]) -> list[StandardFin
     """Find async operations in mutations (anti-pattern)."""
     findings: list[StandardFinding] = []
 
-    async_ops = ["setTimeout", "setInterval", "fetch", "axios", "Promise", "async", "await", "then", "catch"]
+    async_ops = [
+        "setTimeout",
+        "setInterval",
+        "fetch",
+        "axios",
+        "Promise",
+        "async",
+        "await",
+        "then",
+        "catch",
+    ]
 
     for file in store_files:
         file_lower = file.lower()
@@ -197,10 +202,7 @@ def _find_missing_namespacing(db: RuleDB, store_files: set[str]) -> list[Standar
             continue
 
         symbol_rows = db.query(
-            Q("symbols")
-            .select("path", "name")
-            .where("path = ?", file)
-            .where("name IS NOT NULL")
+            Q("symbols").select("path", "name").where("path = ?", file).where("name IS NOT NULL")
         )
 
         symbols = [name for _, name in symbol_rows]
@@ -250,7 +252,6 @@ def _find_subscription_leaks(db: RuleDB, store_files: set[str]) -> list[Standard
                     .where("target_var IS NOT NULL")
                 )
 
-                # If ANY variable captured the return value, assume cleanup intent
                 if list(assign_rows):
                     continue
 
@@ -291,7 +292,12 @@ def _find_circular_getters(db: RuleDB, store_files: set[str]) -> list[StandardFi
 
             has_getter_ref = False
             for file2, line2, name2 in all_symbols:
-                if file2 == file_path and line2 > line and line2 < line + 10 and "getters." in name2:
+                if (
+                    file2 == file_path
+                    and line2 > line
+                    and line2 < line + 10
+                    and "getters." in name2
+                ):
                     has_getter_ref = True
                     break
 
@@ -377,10 +383,7 @@ def _find_large_stores(db: RuleDB, store_files: set[str]) -> list[StandardFindin
 
     for file in store_files:
         symbol_rows = db.query(
-            Q("symbols")
-            .select("path", "name")
-            .where("path = ?", file)
-            .where("name IS NOT NULL")
+            Q("symbols").select("path", "name").where("path = ?", file).where("name IS NOT NULL")
         )
 
         state_count = 0

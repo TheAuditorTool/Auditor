@@ -17,7 +17,7 @@ if platform.system() == "Windows":
     try:
         subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=2)
     except (subprocess.TimeoutExpired, OSError):
-        pass  # Codepage change is nice-to-have, not critical
+        pass
     import codecs
 
     sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
@@ -142,7 +142,6 @@ class RichGroup(click.Group):
 class RichCommand(click.Command):
     """Rich-enabled help formatter for individual commands."""
 
-    # Section markers recognized in docstrings
     SECTIONS = [
         "AI ASSISTANT CONTEXT",
         "DESCRIPTION",
@@ -161,16 +160,14 @@ class RichCommand(click.Command):
 
     def format_help(self, ctx, formatter):
         """Render help with Rich components."""
-        # Header with command name
+
         console.print()
         console.rule(f"[bold]aud {ctx.info_name}[/bold]", characters="-")
 
-        # Parse and render docstring sections
         if self.help:
             sections = self._parse_docstring(self.help)
             self._render_sections(console, sections)
 
-        # Render options
         self._render_options(console, ctx)
 
         console.print()
@@ -184,18 +181,15 @@ class RichCommand(click.Command):
         for line in lines:
             stripped = line.strip()
 
-            # Check for section header (uppercase, ends with colon or standalone)
             section_found = False
             for section_name in self.SECTIONS:
                 if stripped.upper().startswith(section_name.upper()):
-                    # Handle "SECTION:" or "SECTION" formats
                     current_section = section_name.lower().replace(" ", "_")
                     sections[current_section] = ""
                     section_found = True
                     break
 
             if not section_found:
-                # Add to current section
                 if current_section in sections:
                     sections[current_section] += line + "\n"
                 else:
@@ -206,13 +200,11 @@ class RichCommand(click.Command):
     def _render_sections(self, console: Console, sections: dict):
         """Render parsed sections with Rich formatting."""
 
-        # Summary (first line, prominent)
         if sections.get("summary"):
             summary = sections["summary"].strip()
             if summary:
                 console.print(f"\n{summary}\n")
 
-        # AI Assistant Context (panel - key section for AI tools)
         if sections.get("ai_assistant_context"):
             panel = Panel(
                 sections["ai_assistant_context"].strip(),
@@ -222,21 +214,18 @@ class RichCommand(click.Command):
             )
             console.print(panel)
 
-        # What It Detects (for security commands)
         if sections.get("what_it_detects"):
             console.print("\n[bold]What It Detects:[/bold]")
             for line in sections["what_it_detects"].strip().split("\n"):
                 if line.strip():
                     console.print(f"  {line}")
 
-        # Data Flow Analysis Method
         if sections.get("data_flow_analysis_method"):
             console.print("\n[bold]Data Flow Analysis Method:[/bold]")
             for line in sections["data_flow_analysis_method"].strip().split("\n"):
                 if line.strip():
                     console.print(f"  {line}")
 
-        # Examples (code block style with syntax highlighting)
         if sections.get("examples"):
             console.print("\n[bold]Examples:[/bold]")
             for line in sections["examples"].strip().split("\n"):
@@ -248,7 +237,6 @@ class RichCommand(click.Command):
                 elif stripped:
                     console.print(f"  {line}")
 
-        # Common Workflows (named scenarios)
         if sections.get("common_workflows"):
             console.print("\n[bold]Common Workflows:[/bold]")
             for line in sections["common_workflows"].strip().split("\n"):
@@ -260,7 +248,6 @@ class RichCommand(click.Command):
                 elif stripped:
                     console.print(f"    {line}")
 
-        # Output Files (file paths with descriptions)
         if sections.get("output_files"):
             console.print("\n[bold]Output Files:[/bold]")
             for line in sections["output_files"].strip().split("\n"):
@@ -271,14 +258,12 @@ class RichCommand(click.Command):
                     else:
                         console.print(f"  {line}")
 
-        # Performance (timing expectations)
         if sections.get("performance"):
             console.print("\n[bold]Performance:[/bold]")
             for line in sections["performance"].strip().split("\n"):
                 if line.strip():
                     console.print(f"  [dim]{line.strip()}[/dim]")
 
-        # Exit Codes (meaningful codes for scripting)
         if sections.get("exit_codes"):
             console.print("\n[bold]Exit Codes:[/bold]")
             for line in sections["exit_codes"].strip().split("\n"):
@@ -290,21 +275,18 @@ class RichCommand(click.Command):
                     else:
                         console.print(f"  {stripped}")
 
-        # Related Commands (cross-references)
         if sections.get("related_commands"):
             console.print("\n[bold]Related Commands:[/bold]")
             for line in sections["related_commands"].strip().split("\n"):
                 if line.strip():
                     console.print(f"  [dim]{line.strip()}[/dim]")
 
-        # See Also (manual references)
         if sections.get("see_also"):
             console.print("\n[bold]See Also:[/bold]")
             for line in sections["see_also"].strip().split("\n"):
                 if line.strip():
                     console.print(f"  [cyan]{line.strip()}[/cyan]")
 
-        # Troubleshooting (problem -> solution format)
         if sections.get("troubleshooting"):
             console.print("\n[bold]Troubleshooting:[/bold]")
             for line in sections["troubleshooting"].strip().split("\n"):
@@ -314,7 +296,6 @@ class RichCommand(click.Command):
                 elif stripped:
                     console.print(f"  [yellow]{stripped}[/yellow]")
 
-        # Note (important caveats)
         if sections.get("note"):
             console.print()
             console.print(
@@ -340,10 +321,8 @@ class RichCommand(click.Command):
             opts = ", ".join(param.opts)
             help_text = param.help or ""
 
-            # Show option name
             console.print(f"  [cyan]{opts}[/cyan]")
 
-            # Show help text indented
             if help_text:
                 console.print(f"      {help_text}")
 
@@ -352,7 +331,6 @@ class RichCommand(click.Command):
         try:
             return super().make_context(info_name, args, parent, **extra)
         except click.MissingParameter as e:
-            # Show help instead of terse error
             ctx = click.Context(self, info_name=info_name, parent=parent)
             self.format_help(ctx, None)
             console.print(f"\n[yellow]Required:[/yellow] {e.param.name}")

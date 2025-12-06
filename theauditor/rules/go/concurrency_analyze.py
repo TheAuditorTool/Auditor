@@ -105,11 +105,8 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
     """Detect goroutines accessing package-level variables without sync."""
     findings = []
 
-    # Get all package-level variables by file
     pkg_var_rows = db.query(
-        Q("go_variables")
-        .select("file_path", "name")
-        .where("is_package_level = ?", 1)
+        Q("go_variables").select("file_path", "name").where("is_package_level = ?", 1)
     )
 
     pkg_vars: dict[str, set[str]] = {}
@@ -121,7 +118,6 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
     if not pkg_vars:
         return findings
 
-    # Get anonymous goroutines
     goroutine_rows = db.query(
         Q("go_goroutines")
         .select("file_path", "line", "containing_func")
@@ -132,7 +128,6 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
         if file_path not in pkg_vars:
             continue
 
-        # Check if file has mutex protection in struct fields
         struct_mutex_rows = db.query(
             Q("go_struct_fields")
             .select("file_path")
@@ -142,14 +137,18 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
         )
         has_struct_mutex = len(list(struct_mutex_rows)) > 0
 
-        # Check if file has package-level mutex variables
         global_mutex_rows = db.query(
             Q("go_variables")
             .select("file_path")
             .where("file_path = ?", file_path)
             .where("is_package_level = ?", 1)
-            .where("var_type LIKE ? OR var_type LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
-                   "%sync.Mutex%", "%sync.RWMutex%", "%sync.Mutex%", "%sync.RWMutex%")
+            .where(
+                "var_type LIKE ? OR var_type LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
+                "%sync.Mutex%",
+                "%sync.RWMutex%",
+                "%sync.Mutex%",
+                "%sync.RWMutex%",
+            )
             .limit(1)
         )
         has_global_mutex = len(list(global_mutex_rows)) > 0
@@ -157,7 +156,6 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
         if has_struct_mutex or has_global_mutex:
             continue
 
-        # Get captured variables for this goroutine
         captured_rows = db.query(
             Q("go_captured_vars")
             .select("var_name")
@@ -189,11 +187,8 @@ def _check_goroutine_without_sync(db: RuleDB) -> list[StandardFinding]:
     """Detect files with multiple goroutines but no sync primitives."""
     findings = []
 
-    # Find files with 2+ goroutines
     goroutine_count_rows = db.query(
-        Q("go_goroutines")
-        .select("file_path", "COUNT(*) as goroutine_count")
-        .group_by("file_path")
+        Q("go_goroutines").select("file_path", "COUNT(*) as goroutine_count").group_by("file_path")
     )
 
     multi_goroutine_files: dict[str, int] = {}
@@ -202,7 +197,6 @@ def _check_goroutine_without_sync(db: RuleDB) -> list[StandardFinding]:
             multi_goroutine_files[file_path] = count
 
     for file_path, count in multi_goroutine_files.items():
-        # Check for sync package import
         sync_import_rows = db.query(
             Q("go_imports")
             .select("path")
@@ -212,12 +206,8 @@ def _check_goroutine_without_sync(db: RuleDB) -> list[StandardFinding]:
         )
         has_sync_import = len(list(sync_import_rows)) > 0
 
-        # Check for channel usage
         channel_rows = db.query(
-            Q("go_channels")
-            .select("file_path")
-            .where("file_path = ?", file_path)
-            .limit(1)
+            Q("go_channels").select("file_path").where("file_path = ?", file_path).limit(1)
         )
         has_channels = len(list(channel_rows)) > 0
 

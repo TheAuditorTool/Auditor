@@ -15,7 +15,6 @@ Usage:
 import sqlite3
 from pathlib import Path
 
-# Rust standard library prelude types
 _STD_PRELUDE = frozenset(
     {
         "Option",

@@ -1,0 +1,1909 @@
+[
+  {
+    "file": "./theauditor/indexer/database/core_database.py",
+    "line": 38,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG"
+    ],
+    "category": "Known bug",
+    "clean": "Duplicate found in current batch - skip (extractor bug)",
+    "raw": "# Duplicate found in current batch - skip (extractor bug)"
+  },
+  {
+    "file": "./theauditor/indexer/orchestrator.py",
+    "line": 56,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG"
+    ],
+    "category": "Known bug",
+    "clean": "Any extractor accessing self.db_manager will raise AttributeError (good - exposes bugs)",
+    "raw": "# Any extractor accessing self.db_manager will raise AttributeError (good - exposes bugs)"
+  },
+  {
+    "file": "./theauditor/indexer/schema.py",
+    "line": 271,
+    "primary_marker": "BROKEN",
+    "tags": [
+      "BROKEN"
+    ],
+    "category": "Known broken code",
+    "clean": "Run validation on import - raises if broken",
+    "raw": "# Run validation on import - raises if broken"
+  },
+  {
+    "file": "./theauditor/linters/linters.py",
+    "line": 180,
+    "primary_marker": "BROKEN",
+    "tags": [
+      "BROKEN"
+    ],
+    "category": "Known broken code",
+    "clean": "NO try-except. If DB is broken, we crash. Zero Fallback policy.",
+    "raw": "# NO try-except. If DB is broken, we crash. Zero Fallback policy."
+  },
+  {
+    "file": "./theauditor/rules/bash/dangerous_patterns_analyze.py",
+    "line": 139,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG",
+      "DEBUG"
+    ],
+    "category": "Known bug",
+    "clean": "Check debug mode secret leakage (CWE-532)",
+    "raw": "# Check debug mode secret leakage (CWE-532)"
+  },
+  {
+    "file": "./theauditor/rules/dependency/ghost_dependencies.py",
+    "line": 133,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG",
+      "DEBUG"
+    ],
+    "category": "Known bug",
+    "clean": "Debugging and profiling",
+    "raw": "# Debugging and profiling"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/fastapi_analyze.py",
+    "line": 50,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG",
+      "DEBUG"
+    ],
+    "category": "Known bug",
+    "clean": "Debug endpoint patterns that should not be in production",
+    "raw": "# Debug endpoint patterns that should not be in production"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/flask_analyze.py",
+    "line": 211,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG",
+      "DEBUG"
+    ],
+    "category": "Known bug",
+    "clean": "Check app.run(debug=True)",
+    "raw": "# Check app.run(debug=True)"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/flask_analyze.py",
+    "line": 236,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG",
+      "DEBUG"
+    ],
+    "category": "Known bug",
+    "clean": "Check app.config['DEBUG'] = True or app.config.update(DEBUG=True)",
+    "raw": "# Check app.config['DEBUG'] = True or app.config.update(DEBUG=True)"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/flask_analyze.py",
+    "line": 247,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG",
+      "DEBUG"
+    ],
+    "category": "Known bug",
+    "clean": "Check for app.config['DEBUG'] = True",
+    "raw": "# Check for app.config['DEBUG'] = True"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/flask_analyze.py",
+    "line": 263,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG",
+      "DEBUG"
+    ],
+    "category": "Known bug",
+    "clean": "Check app.config.update(DEBUG=True) or similar function calls",
+    "raw": "# Check app.config.update(DEBUG=True) or similar function calls"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/flask_analyze.py",
+    "line": 626,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG",
+      "DEBUG"
+    ],
+    "category": "Known bug",
+    "clean": "Check for WERKZEUG_DEBUG_PIN or use_debugger = True",
+    "raw": "# Check for WERKZEUG_DEBUG_PIN or use_debugger = True"
+  },
+  {
+    "file": "./theauditor/rules/python/python_crypto_analyze.py",
+    "line": 43,
+    "primary_marker": "BROKEN",
+    "tags": [
+      "BROKEN"
+    ],
+    "category": "Known broken code",
+    "clean": "Broken cryptographic algorithms - should never be used",
+    "raw": "# Broken cryptographic algorithms - should never be used"
+  },
+  {
+    "file": "./theauditor/rules/python/python_crypto_analyze.py",
+    "line": 287,
+    "primary_marker": "BROKEN",
+    "tags": [
+      "BROKEN"
+    ],
+    "category": "Known broken code",
+    "clean": "Check args for broken algorithm names",
+    "raw": "# Check args for broken algorithm names"
+  },
+  {
+    "file": "./theauditor/taint/core.py",
+    "line": 851,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG",
+      "DEBUG"
+    ],
+    "category": "Known bug",
+    "clean": "Per-engine breakdown for debugging",
+    "raw": "# Per-engine breakdown for debugging"
+  },
+  {
+    "file": "./theauditor/utils/error_handler.py",
+    "line": 39,
+    "primary_marker": "BUG",
+    "tags": [
+      "BUG",
+      "DEBUG"
+    ],
+    "category": "Known bug",
+    "clean": "Also write to error.log file for persistent debugging",
+    "raw": "# Also write to error.log file for persistent debugging"
+  },
+  {
+    "file": "./theauditor/rules/github_actions/reusable_workflow_risks.py",
+    "line": 138,
+    "primary_marker": "TODO",
+    "tags": [
+      "TODO"
+    ],
+    "category": "Deferred task",
+    "clean": "TODO: secrets_config column not in schema - requires extractor migration",
+    "raw": "# TODO: secrets_config column not in schema - requires extractor migration"
+  },
+  {
+    "file": "./theauditor/session/activity_metrics.py",
+    "line": 233,
+    "primary_marker": "TODO",
+    "tags": [
+      "TODO"
+    ],
+    "category": "Deferred task",
+    "clean": "Only meta tools (TodoWrite, AskUserQuestion)",
+    "raw": "# Only meta tools (TodoWrite, AskUserQuestion)"
+  },
+  {
+    "file": "./theauditor/MachineL/models.py",
+    "line": 190,
+    "primary_marker": "OPTIMIZE",
+    "tags": [
+      "OPTIMIZE"
+    ],
+    "category": "Performance improvement needed",
+    "clean": "OPTIMIZED: Pre-allocate numpy array (59 base features + 50 text features = 109 total)",
+    "raw": "# OPTIMIZED: Pre-allocate numpy array (59 base features + 50 text features = 109 total)"
+  },
+  {
+    "file": "./theauditor/ast_extractors/module_resolver.py",
+    "line": 171,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Try with extensions if no suffix",
+    "raw": "# Try with extensions if no suffix"
+  },
+  {
+    "file": "./theauditor/commands/full.py",
+    "line": 272,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Extract just the phase description (strip \"N. \" prefix)",
+    "raw": "# Extract just the phase description (strip \"N. \" prefix)"
+  },
+  {
+    "file": "./theauditor/context/deadcode_graph.py",
+    "line": 688,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Check if any callee matches imported (suffix/contains)",
+    "raw": "# Check if any callee matches imported (suffix/contains)"
+  },
+  {
+    "file": "./theauditor/context/deadcode_graph.py",
+    "line": 697,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "If still no match, check suffix match on caller",
+    "raw": "# If still no match, check suffix match on caller"
+  },
+  {
+    "file": "./theauditor/context/query.py",
+    "line": 151,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Build suffix pattern for fuzzy matching",
+    "raw": "# Build suffix pattern for fuzzy matching"
+  },
+  {
+    "file": "./theauditor/context/query.py",
+    "line": 161,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Priority 1 = exact match, Priority 2 = suffix match",
+    "raw": "# Priority 1 = exact match, Priority 2 = suffix match"
+  },
+  {
+    "file": "./theauditor/context/query.py",
+    "line": 170,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Suffix match - priority 2",
+    "raw": "# Suffix match - priority 2"
+  },
+  {
+    "file": "./theauditor/context/query.py",
+    "line": 187,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Suffix match - priority 2",
+    "raw": "# Suffix match - priority 2"
+  },
+  {
+    "file": "./theauditor/fce/registry.py",
+    "line": 213,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Extension to language prefix mapping",
+    "raw": "# Extension to language prefix mapping"
+  },
+  {
+    "file": "./theauditor/graph/analyzer.py",
+    "line": 107,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G3: Filter out _reverse edges to restore directionality. Without this filter, A->B and B->A_reverse make the graph undirected, causing impact analysis to report that changing a utility impacts controllers AND that changing controllers impacts the utility (false positive).",
+    "raw": "# GRAPH FIX G3: Filter out _reverse edges to restore directionality.\n# Without this filter, A->B and B->A_reverse make the graph undirected,\n# causing impact analysis to report that changing a utility impacts controllers\n# AND that changing controllers impacts the utility (false positive)."
+  },
+  {
+    "file": "./theauditor/graph/builder.py",
+    "line": 825,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX: Reverse lookup - if call is `login()` but stored as `ClassName.login` Search for functions ending with `.callee` in function_defs",
+    "raw": "# FIX: Reverse lookup - if call is `login()` but stored as `ClassName.login`\n# Search for functions ending with `.callee` in function_defs"
+  },
+  {
+    "file": "./theauditor/graph/dfg_builder.py",
+    "line": 323,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G3: Resolve call-site name to definition name Instead of guessing with string splits, ask the database. This bridges 'accountService.createAccount' -> 'AccountService.createAccount'",
+    "raw": "# GRAPH FIX G3: Resolve call-site name to definition name\n# Instead of guessing with string splits, ask the database.\n# This bridges 'accountService.createAccount' -> 'AccountService.createAccount'"
+  },
+  {
+    "file": "./theauditor/graph/dfg_builder.py",
+    "line": 330,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G4: Resolve positional arg name to actual parameter name Convert 'arg0' to 'data' so the graph connects inside the function.",
+    "raw": "# GRAPH FIX G4: Resolve positional arg name to actual parameter name\n# Convert 'arg0' to 'data' so the graph connects inside the function."
+  },
+  {
+    "file": "./theauditor/graph/dfg_builder.py",
+    "line": 817,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "2. Try suffix match (Handle the Class.method vs instance.method mismatch)",
+    "raw": "# 2. Try suffix match (Handle the Class.method vs instance.method mismatch)"
+  },
+  {
+    "file": "./theauditor/graph/dfg_builder.py",
+    "line": 863,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G2: Return None instead of \"complex_expression\" \"complex_expression\" caused intra-function collisions when multiple complex args in same call got identical node IDs. Better no edge than false edge.",
+    "raw": "# GRAPH FIX G2: Return None instead of \"complex_expression\"\n# \"complex_expression\" caused intra-function collisions when multiple\n# complex args in same call got identical node IDs. Better no edge than false edge."
+  },
+  {
+    "file": "./theauditor/graph/dfg_builder.py",
+    "line": 876,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G2: Return None instead of \"complex_expression\"",
+    "raw": "# GRAPH FIX G2: Return None instead of \"complex_expression\""
+  },
+  {
+    "file": "./theauditor/graph/dfg_builder.py",
+    "line": 886,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G2: Return None instead of \"complex_expression\"",
+    "raw": "# GRAPH FIX G2: Return None instead of \"complex_expression\""
+  },
+  {
+    "file": "./theauditor/graph/store.py",
+    "line": 72,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G4: Removed explicit BEGIN TRANSACTION. Python sqlite3 manages transactions automatically (isolation_level default). Explicit BEGIN causes OperationalError when nested.",
+    "raw": "# GRAPH FIX G4: Removed explicit BEGIN TRANSACTION.\n# Python sqlite3 manages transactions automatically (isolation_level default).\n# Explicit BEGIN causes OperationalError when nested."
+  },
+  {
+    "file": "./theauditor/graph/store.py",
+    "line": 77,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G9: Delete orphaned incoming edges before deleting nodes. When file A is re-indexed, we must delete: 1. Nodes from file A 2. Edges FROM file A (outgoing) 3. Edges TO nodes in file A from OTHER files (incoming) Without #3, we get dangling edges pointing to deleted nodes.",
+    "raw": "# GRAPH FIX G9: Delete orphaned incoming edges before deleting nodes.\n# When file A is re-indexed, we must delete:\n# 1. Nodes from file A\n# 2. Edges FROM file A (outgoing)\n# 3. Edges TO nodes in file A from OTHER files (incoming)\n# Without #3, we get dangling edges pointing to deleted nodes."
+  },
+  {
+    "file": "./theauditor/graph/strategies/interceptors.py",
+    "line": 473,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback If \"controller\" in path didn't match, don't guess",
+    "raw": "# GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback\n# If \"controller\" in path didn't match, don't guess"
+  },
+  {
+    "file": "./theauditor/graph/strategies/interceptors.py",
+    "line": 485,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback If path matching failed, don't guess - fall through to method_name lookup",
+    "raw": "# GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback\n# If path matching failed, don't guess - fall through to method_name lookup"
+  },
+  {
+    "file": "./theauditor/graph/strategies/interceptors.py",
+    "line": 498,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback If \"controller\" in path didn't match, don't guess",
+    "raw": "# GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback\n# If \"controller\" in path didn't match, don't guess"
+  },
+  {
+    "file": "./theauditor/graph/strategies/interceptors.py",
+    "line": 501,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #18: Handle TypeScript class methods stored as \"ClassName.methodName\" When handler is \"controller.list\", we need to find \"AccountController.list\" by searching for symbols ending with \".list\" in the matching file path.",
+    "raw": "# FIX #18: Handle TypeScript class methods stored as \"ClassName.methodName\"\n# When handler is \"controller.list\", we need to find \"AccountController.list\"\n# by searching for symbols ending with \".list\" in the matching file path."
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_express.py",
+    "line": 197,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G14: Normalize path for consistent lookups across tables",
+    "raw": "# GRAPH FIX G14: Normalize path for consistent lookups across tables"
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_express.py",
+    "line": 216,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "PERF FIX: Build suffix index for O(1) lookup instead of O(N) iteration",
+    "raw": "# PERF FIX: Build suffix index for O(1) lookup instead of O(N) iteration"
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_express.py",
+    "line": 217,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Maps \".methodName\" -> list of symbols ending with that suffix",
+    "raw": "# Maps \".methodName\" -> list of symbols ending with that suffix"
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_express.py",
+    "line": 234,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G14: Normalize path for consistent lookups",
+    "raw": "# GRAPH FIX G14: Normalize path for consistent lookups"
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_express.py",
+    "line": 302,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #18: Handle TypeScript class methods stored as \"ClassName.methodName\" When handler is \"controller.list\", we need to find \"AccountController.list\"",
+    "raw": "# FIX #18: Handle TypeScript class methods stored as \"ClassName.methodName\"\n# When handler is \"controller.list\", we need to find \"AccountController.list\""
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_express.py",
+    "line": 304,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "PERF FIX: Use suffix index for O(1) lookup instead of O(N) iteration",
+    "raw": "# PERF FIX: Use suffix index for O(1) lookup instead of O(N) iteration"
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_express.py",
+    "line": 316,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX",
+      "CLEANUP"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G6: Add file prefix to ghost IDs for proper cleanup.",
+    "raw": "# GRAPH FIX G6: Add file prefix to ghost IDs for proper cleanup."
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_express.py",
+    "line": 317,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Without file prefix, store.py cannot delete ghosts on re-index.",
+    "raw": "# Without file prefix, store.py cannot delete ghosts on re-index."
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_express.py",
+    "line": 322,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX",
+      "CLEANUP"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G6: Use actual file for cleanup",
+    "raw": "# GRAPH FIX G6: Use actual file for cleanup"
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_orm.py",
+    "line": 14,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G14: Irregular plural lookup table. Naive pluralization (child -> childs) breaks node ID matching when actual code uses correct plurals (user.children). This table handles common cases.",
+    "raw": "# GRAPH FIX G14: Irregular plural lookup table.\n# Naive pluralization (child -> childs) breaks node ID matching when actual\n# code uses correct plurals (user.children). This table handles common cases."
+  },
+  {
+    "file": "./theauditor/graph/strategies/node_orm.py",
+    "line": 99,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G4: Removed try/except - violates Zero Fallback (Fail Loud) Table check is valid feature detection, but real errors must crash",
+    "raw": "# GRAPH FIX G4: Removed try/except - violates Zero Fallback (Fail Loud)\n# Table check is valid feature detection, but real errors must crash"
+  },
+  {
+    "file": "./theauditor/graph/strategies/python_orm.py",
+    "line": 289,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G5: Handle Django/SQLAlchemy ORM patterns before generic split \"User.objects.create()\" → split(\"(\")[0] = \"User.objects.create\" → NOT in model_names Need to extract model name from ORM method chains",
+    "raw": "# GRAPH FIX G5: Handle Django/SQLAlchemy ORM patterns before generic split\n# \"User.objects.create()\" → split(\"(\")[0] = \"User.objects.create\" → NOT in model_names\n# Need to extract model name from ORM method chains"
+  },
+  {
+    "file": "./theauditor/graph/strategies/python_orm.py",
+    "line": 308,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G15: Handle custom managers (Django) Scenario: User.active_users.all() -> candidate = \"User.active_users.all\" The first token before \".\" should be the model name This catches: User.custom_manager.filter(), Order.pending.count(), etc.",
+    "raw": "# GRAPH FIX G15: Handle custom managers (Django)\n# Scenario: User.active_users.all() -> candidate = \"User.active_users.all\"\n# The first token before \".\" should be the model name\n# This catches: User.custom_manager.filter(), Order.pending.count(), etc."
+  },
+  {
+    "file": "./theauditor/graph/strategies/python_orm.py",
+    "line": 380,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G5: Chunk queries to avoid SQLite 999 variable limit. Large codebases with 250+ models would exceed limit and crash.",
+    "raw": "# GRAPH FIX G5: Chunk queries to avoid SQLite 999 variable limit.\n# Large codebases with 250+ models would exceed limit and crash."
+  },
+  {
+    "file": "./theauditor/graph/strategies/resolution.py",
+    "line": 61,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #17: Handle TypeScript path aliases like \"@controllers/auth\" -> \"controllers/auth\" TypeScript projects use tsconfig.json paths to alias directories: \"@controllers/*\" -> \"src/controllers/*\" By stripping the leading \"@\", we align the alias with the physical path. Example: \"@controllers/account\" -> \"controllers/account\" \"backend/src/controllers/account\" ends with \"controllers/account\" -> MATCH",
+    "raw": "# FIX #17: Handle TypeScript path aliases like \"@controllers/auth\" -> \"controllers/auth\"\n# TypeScript projects use tsconfig.json paths to alias directories:\n#   \"@controllers/*\" -> \"src/controllers/*\"\n# By stripping the leading \"@\", we align the alias with the physical path.\n# Example: \"@controllers/account\" -> \"controllers/account\"\n#          \"backend/src/controllers/account\" ends with \"controllers/account\" -> MATCH"
+  },
+  {
+    "file": "./theauditor/graph/strategies/resolution.py",
+    "line": 77,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "5. Suffix Check with Boundary Enforcement \"src/guards/auth\" (was auth.guard.ts) ends with \"guards/auth\" -> MATCH \"src/interceptors/auth\" (was auth.interceptor.ts) ends with \"guards/auth\" -> NO MATCH",
+    "raw": "# 5. Suffix Check with Boundary Enforcement\n# \"src/guards/auth\" (was auth.guard.ts) ends with \"guards/auth\" -> MATCH\n# \"src/interceptors/auth\" (was auth.interceptor.ts) ends with \"guards/auth\" -> NO MATCH"
+  },
+  {
+    "file": "./theauditor/graph/strategies/resolution.py",
+    "line": 86,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G14: Handle implicit index resolution (Node/TypeScript convention) Import: './models' -> cleans to 'models' Symbol: 'src/models/index.ts' -> cleans to 'src/models/index'",
+    "raw": "# GRAPH FIX G14: Handle implicit index resolution (Node/TypeScript convention)\n# Import: './models' -> cleans to 'models'\n# Symbol: 'src/models/index.ts' -> cleans to 'src/models/index'"
+  },
+  {
+    "file": "./theauditor/graph/strategies/resolution.py",
+    "line": 89,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Without this fix, the suffix check fails because 'src/models/index' doesn't end with 'models'",
+    "raw": "# Without this fix, the suffix check fails because 'src/models/index' doesn't end with 'models'"
+  },
+  {
+    "file": "./theauditor/indexer/database/base_database.py",
+    "line": 199,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "=== CRITICAL ARCHITECTURE FIX: FILES MUST EXIST FIRST === We must flush 'files' and 'config_files' before processing any complex logic (CFG, Python parent tables) because those tables have FK to 'files'. Without this, FK violations occur because children reference non-existent parents.",
+    "raw": "# === CRITICAL ARCHITECTURE FIX: FILES MUST EXIST FIRST ===\n# We must flush 'files' and 'config_files' before processing any complex\n# logic (CFG, Python parent tables) because those tables have FK to 'files'.\n# Without this, FK violations occur because children reference non-existent parents."
+  },
+  {
+    "file": "./theauditor/indexer/database/base_database.py",
+    "line": 472,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "3. Python Test Fixtures -> python_fixture_params",
+    "raw": "# 3. Python Test Fixtures -> python_fixture_params"
+  },
+  {
+    "file": "./theauditor/indexer/database/base_database.py",
+    "line": 493,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "(file, fixture_id, param_name, param_value, param_order)",
+    "raw": "# (file, fixture_id, param_name, param_value, param_order)"
+  },
+  {
+    "file": "./theauditor/indexer/database/base_database.py",
+    "line": 676,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Strip leading ./ (linters often prefix with this)",
+    "raw": "# Strip leading ./ (linters often prefix with this)"
+  },
+  {
+    "file": "./theauditor/indexer/extractors/generic.py",
+    "line": 236,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "ZERO FALLBACK FIX: Log error instead of silent swallow",
+    "raw": "# ZERO FALLBACK FIX: Log error instead of silent swallow"
+  },
+  {
+    "file": "./theauditor/indexer/normalization.py",
+    "line": 45,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G15: Normalize file paths (backslash -> forward slash) during migration to ensure consistent path format for Graph Builder lookups",
+    "raw": "# GRAPH FIX G15: Normalize file paths (backslash -> forward slash) during migration\n# to ensure consistent path format for Graph Builder lookups"
+  },
+  {
+    "file": "./theauditor/indexer/orchestrator.py",
+    "line": 594,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "ZERO FALLBACK FIX: Always log errors visibly and record in database",
+    "raw": "# ZERO FALLBACK FIX: Always log errors visibly and record in database"
+  },
+  {
+    "file": "./theauditor/indexer/runner.py",
+    "line": 73,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "ZERO FALLBACK FIX: Log error visibly instead of silent pass",
+    "raw": "# ZERO FALLBACK FIX: Log error visibly instead of silent pass"
+  },
+  {
+    "file": "./theauditor/indexer/schemas/graphs_schema.py",
+    "line": 62,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX: Constraint removed. Duplicates are handled by store.py DELETE-before-INSERT logic, not DB constraints. Taint analysis needs ALL edges including same source->target at different lines.",
+    "raw": "# GRAPH FIX: Constraint removed.\n# Duplicates are handled by store.py DELETE-before-INSERT logic, not DB constraints.\n# Taint analysis needs ALL edges including same source->target at different lines."
+  },
+  {
+    "file": "./theauditor/indexer/storage/core_storage.py",
+    "line": 62,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX: Handle dicts (refs/resolved_imports) properly",
+    "raw": "# FIX: Handle dicts (refs/resolved_imports) properly"
+  },
+  {
+    "file": "./theauditor/indexer/storage/core_storage.py",
+    "line": 99,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "GRAPH FIX G16: Normalize resolved paths (backslash -> forward slash) to ensure consistent path format for Graph Builder joins",
+    "raw": "# GRAPH FIX G16: Normalize resolved paths (backslash -> forward slash)\n# to ensure consistent path format for Graph Builder joins"
+  },
+  {
+    "file": "./theauditor/indexer/storage/node_storage.py",
+    "line": 659,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "If extracted path ends with canonical path, it's a prefix issue",
+    "raw": "# If extracted path ends with canonical path, it's a prefix issue"
+  },
+  {
+    "file": "./theauditor/indexer/storage/node_storage.py",
+    "line": 696,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "WINDOWS FIX: rsplit(\":\", 2) splits drive letter colon too! \"C:/path/file.ts:func\" -> ['C', '/path/file.ts', 'func'] So we need to handle 3-part case for Windows paths",
+    "raw": "# WINDOWS FIX: rsplit(\":\", 2) splits drive letter colon too!\n# \"C:/path/file.ts:func\" -> ['C', '/path/file.ts', 'func']\n# So we need to handle 3-part case for Windows paths"
+  },
+  {
+    "file": "./theauditor/indexer/storage/node_storage.py",
+    "line": 708,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FK FIX: Normalize path to match files table format",
+    "raw": "# FK FIX: Normalize path to match files table format"
+  },
+  {
+    "file": "./theauditor/indexer/storage/node_storage.py",
+    "line": 740,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "WINDOWS FIX: rsplit(\":\", 2) splits drive letter colon too!",
+    "raw": "# WINDOWS FIX: rsplit(\":\", 2) splits drive letter colon too!"
+  },
+  {
+    "file": "./theauditor/indexer/storage/node_storage.py",
+    "line": 750,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FK FIX: Normalize path to match files table format",
+    "raw": "# FK FIX: Normalize path to match files table format"
+  },
+  {
+    "file": "./theauditor/pipeline/pipelines.py",
+    "line": 90,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Already formatted by loguru - print with indent, no \"Error:\" prefix",
+    "raw": "# Already formatted by loguru - print with indent, no \"Error:\" prefix"
+  },
+  {
+    "file": "./theauditor/pipeline/pipelines.py",
+    "line": 93,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Raw error message - add \"Error:\" prefix",
+    "raw": "# Raw error message - add \"Error:\" prefix"
+  },
+  {
+    "file": "./theauditor/pipeline/pipelines.py",
+    "line": 1346,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Format: \"    Label: value\" with cyan numbers, dim prefix",
+    "raw": "# Format: \"    Label: value\" with cyan numbers, dim prefix"
+  },
+  {
+    "file": "./theauditor/rules/auth/session_analyze.py",
+    "line": 394,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Check if this is a session/auth cookie (worth protecting with prefixes)",
+    "raw": "# Check if this is a session/auth cookie (worth protecting with prefixes)"
+  },
+  {
+    "file": "./theauditor/rules/auth/session_analyze.py",
+    "line": 403,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Check for __Host- prefix (strongest protection)",
+    "raw": "# Check for __Host- prefix (strongest protection)"
+  },
+  {
+    "file": "./theauditor/rules/dependency/dependency_bloat.py",
+    "line": 240,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Check prefix patterns (like @types/)",
+    "raw": "# Check prefix patterns (like @types/)"
+  },
+  {
+    "file": "./theauditor/rules/dependency/ghost_dependencies.py",
+    "line": 155,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Core modules (both bare and node: prefix)",
+    "raw": "# Core modules (both bare and node: prefix)"
+  },
+  {
+    "file": "./theauditor/rules/dependency/ghost_dependencies.py",
+    "line": 335,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Node.js builtin with prefix",
+    "raw": "# Node.js builtin with prefix"
+  },
+  {
+    "file": "./theauditor/rules/dependency/ghost_dependencies.py",
+    "line": 407,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Check without node: prefix",
+    "raw": "# Check without node: prefix"
+  },
+  {
+    "file": "./theauditor/rules/dependency/peer_conflicts.py",
+    "line": 266,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Strip v prefix",
+    "raw": "# Strip v prefix"
+  },
+  {
+    "file": "./theauditor/rules/dependency/typosquatting.py",
+    "line": 311,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Check suspicious prefixes",
+    "raw": "# Check suspicious prefixes"
+  },
+  {
+    "file": "./theauditor/rules/dependency/version_pinning.py",
+    "line": 290,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Check for range prefixes (MEDIUM severity - allows auto-updates)",
+    "raw": "# Check for range prefixes (MEDIUM severity - allows auto-updates)"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/react_analyze.py",
+    "line": 91,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Frontend environment variable prefixes (exposed to client)",
+    "raw": "# Frontend environment variable prefixes (exposed to client)"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/react_analyze.py",
+    "line": 609,
+    "primary_marker": "CLEANUP",
+    "tags": [
+      "CLEANUP"
+    ],
+    "category": "Needs cleanup",
+    "clean": "Check for cleanup indicators",
+    "raw": "# Check for cleanup indicators"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/vue_analyze.py",
+    "line": 55,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Vue environment variable prefixes (exposed to client)",
+    "raw": "# Vue environment variable prefixes (exposed to client)"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/vue_analyze.py",
+    "line": 299,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Check for Vue env prefixes",
+    "raw": "# Check for Vue env prefixes"
+  },
+  {
+    "file": "./theauditor/rules/github_actions/reusable_workflow_risks.py",
+    "line": 139,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "When fixed, query github_jobs.secrets_config and check for \"inherit\"",
+    "raw": "# When fixed, query github_jobs.secrets_config and check for \"inherit\""
+  },
+  {
+    "file": "./theauditor/rules/github_actions/script_injection.py",
+    "line": 74,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Prefix match for any input Alternative path",
+    "raw": "# Prefix match for any input\n# Alternative path"
+  },
+  {
+    "file": "./theauditor/rules/github_actions/script_injection.py",
+    "line": 78,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Prefix match for any payload field",
+    "raw": "# Prefix match for any payload field"
+  },
+  {
+    "file": "./theauditor/rules/github_actions/unpinned_actions.py",
+    "line": 50,
+    "primary_marker": "REVIEW",
+    "tags": [
+      "REVIEW"
+    ],
+    "category": "Needs review",
+    "clean": "These are maintained by GitHub with security review processes",
+    "raw": "# These are maintained by GitHub with security review processes"
+  },
+  {
+    "file": "./theauditor/rules/graphql/mutation_auth.py",
+    "line": 31,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Authentication directive patterns (without @ prefix for matching)",
+    "raw": "# Authentication directive patterns (without @ prefix for matching)"
+  },
+  {
+    "file": "./theauditor/rules/node/async_concurrency_analyze.py",
+    "line": 628,
+    "primary_marker": "CLEANUP",
+    "tags": [
+      "CLEANUP"
+    ],
+    "category": "Needs cleanup",
+    "clean": "Check for cleanup in same file",
+    "raw": "# Check for cleanup in same file"
+  },
+  {
+    "file": "./theauditor/rules/node/async_concurrency_analyze.py",
+    "line": 682,
+    "primary_marker": "CLEANUP",
+    "tags": [
+      "CLEANUP"
+    ],
+    "category": "Needs cleanup",
+    "clean": "Check for cleanup handlers",
+    "raw": "# Check for cleanup handlers"
+  },
+  {
+    "file": "./theauditor/rules/node/runtime_issue_analyze.py",
+    "line": 484,
+    "primary_marker": "REVIEW",
+    "tags": [
+      "REVIEW"
+    ],
+    "category": "Needs review",
+    "clean": "Low confidence - needs manual review",
+    "raw": "# Low confidence - needs manual review"
+  },
+  {
+    "file": "./theauditor/rules/python/async_concurrency_analyze.py",
+    "line": 137,
+    "primary_marker": "CLEANUP",
+    "tags": [
+      "CLEANUP"
+    ],
+    "category": "Needs cleanup",
+    "clean": "Thread/process cleanup methods",
+    "raw": "# Thread/process cleanup methods"
+  },
+  {
+    "file": "./theauditor/rules/python/async_concurrency_analyze.py",
+    "line": 493,
+    "primary_marker": "CLEANUP",
+    "tags": [
+      "CLEANUP"
+    ],
+    "category": "Needs cleanup",
+    "clean": "Workers created without cleanup",
+    "raw": "# Workers created without cleanup"
+  },
+  {
+    "file": "./theauditor/rules/python/python_crypto_analyze.py",
+    "line": 604,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "HIGH confidence: Known vendor key prefixes",
+    "raw": "# HIGH confidence: Known vendor key prefixes"
+  },
+  {
+    "file": "./theauditor/rules/react/hooks_analyze.py",
+    "line": 467,
+    "primary_marker": "CLEANUP",
+    "tags": [
+      "CLEANUP"
+    ],
+    "category": "Needs cleanup",
+    "clean": "Only count effects with ID deps that LACK cleanup (actual race risk)",
+    "raw": "# Only count effects with ID deps that LACK cleanup (actual race risk)"
+  },
+  {
+    "file": "./theauditor/rules/vue/hooks_analyze.py",
+    "line": 274,
+    "primary_marker": "CLEANUP",
+    "tags": [
+      "CLEANUP"
+    ],
+    "category": "Needs cleanup",
+    "clean": "Check for cleanup hook after this mount hook",
+    "raw": "# Check for cleanup hook after this mount hook"
+  },
+  {
+    "file": "./theauditor/rules/vue/lifecycle_analyze.py",
+    "line": 309,
+    "primary_marker": "CLEANUP",
+    "tags": [
+      "CLEANUP"
+    ],
+    "category": "Needs cleanup",
+    "clean": "Check if file has any cleanup hooks/functions",
+    "raw": "# Check if file has any cleanup hooks/functions"
+  },
+  {
+    "file": "./theauditor/rules/vue/lifecycle_analyze.py",
+    "line": 522,
+    "primary_marker": "CLEANUP",
+    "tags": [
+      "CLEANUP"
+    ],
+    "category": "Needs cleanup",
+    "clean": "Check if timer is stored for cleanup",
+    "raw": "# Check if timer is stored for cleanup"
+  },
+  {
+    "file": "./theauditor/rules/vue/state_analyze.py",
+    "line": 253,
+    "primary_marker": "CLEANUP",
+    "tags": [
+      "CLEANUP"
+    ],
+    "category": "Needs cleanup",
+    "clean": "If ANY variable captured the return value, assume cleanup intent",
+    "raw": "# If ANY variable captured the return value, assume cleanup intent"
+  },
+  {
+    "file": "./theauditor/taint/core.py",
+    "line": 618,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX: Accept REACHABLE status (new semantic) in addition to VULNERABLE (legacy) FlowResolver now marks unsanitized paths as REACHABLE, not VULNERABLE",
+    "raw": "# FIX: Accept REACHABLE status (new semantic) in addition to VULNERABLE (legacy)\n# FlowResolver now marks unsanitized paths as REACHABLE, not VULNERABLE"
+  },
+  {
+    "file": "./theauditor/taint/flow_resolver.py",
+    "line": 254,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Final test/fixture filter on validated set",
+    "raw": "# Final test/fixture filter on validated set"
+  },
+  {
+    "file": "./theauditor/taint/flow_resolver.py",
+    "line": 582,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "SEMANTIC FIX: Forward analysis proves REACHABILITY, not VULNERABILITY. FlowResolver finds paths from sources to sinks. If no sanitizer is detected, the path is REACHABLE (a candidate for exploitation), not a confirmed exploit. Only IFDS (backward analysis) can confirm actual VULNERABILITY.",
+    "raw": "# SEMANTIC FIX: Forward analysis proves REACHABILITY, not VULNERABILITY.\n# FlowResolver finds paths from sources to sinks. If no sanitizer is detected,\n# the path is REACHABLE (a candidate for exploitation), not a confirmed exploit.\n# Only IFDS (backward analysis) can confirm actual VULNERABILITY."
+  },
+  {
+    "file": "./theauditor/taint/flow_resolver.py",
+    "line": 954,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Fixes false positives where validators are DEFINED in middleware/validate.ts but USED in routes/*.ts. Function names like validateBody, validateParams are strong indicators of sanitization regardless of file location.",
+    "raw": "# Fixes false positives where validators are DEFINED in middleware/validate.ts\n# but USED in routes/*.ts. Function names like validateBody, validateParams\n# are strong indicators of sanitization regardless of file location."
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 215,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #9: Exclude node_modules to prevent traversal into libraries",
+    "raw": "# FIX #9: Exclude node_modules to prevent traversal into libraries"
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 216,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #16: Include line column for sanitizer proximity detection",
+    "raw": "# FIX #16: Include line column for sanitizer proximity detection"
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 242,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #16: Inject line from column (not from metadata JSON)",
+    "raw": "# FIX #16: Inject line from column (not from metadata JSON)"
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 253,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #9: Exclude node_modules to prevent traversal into libraries",
+    "raw": "# FIX #9: Exclude node_modules to prevent traversal into libraries"
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 254,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #16: Include line column for sanitizer proximity detection",
+    "raw": "# FIX #16: Include line column for sanitizer proximity detection"
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 280,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #16: Inject line from column (not from metadata JSON)",
+    "raw": "# FIX #16: Inject line from column (not from metadata JSON)"
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 291,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #9: Exclude node_modules from call graph traversal too",
+    "raw": "# FIX #9: Exclude node_modules from call graph traversal too"
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 292,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #16: Include line column for sanitizer proximity detection",
+    "raw": "# FIX #16: Include line column for sanitizer proximity detection"
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 317,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #16: Inject line from column (not from metadata JSON)",
+    "raw": "# FIX #16: Inject line from column (not from metadata JSON)"
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 627,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #19: Pass hop_file so registry checks language-specific sanitizers",
+    "raw": "# FIX #19: Pass hop_file so registry checks language-specific sanitizers"
+  },
+  {
+    "file": "./theauditor/taint/ifds_analyzer.py",
+    "line": 649,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "FIX #19: Pass hop_file so registry checks language-specific sanitizers",
+    "raw": "# FIX #19: Pass hop_file so registry checks language-specific sanitizers"
+  },
+  {
+    "file": "./theauditor/workset.py",
+    "line": 128,
+    "primary_marker": "FIX",
+    "tags": [
+      "FIX"
+    ],
+    "category": "Needs fixing",
+    "clean": "Path-like import without ./ prefix",
+    "raw": "# Path-like import without ./ prefix"
+  },
+  {
+    "file": "./theauditor/rules/go/error_handling_analyze.py",
+    "line": 194,
+    "primary_marker": "DEFER",
+    "tags": [
+      "DEFER"
+    ],
+    "category": "Explicitly deferred",
+    "clean": "Check defer statements with termination calls",
+    "raw": "# Check defer statements with termination calls"
+  },
+  {
+    "file": "./theauditor/rules/go/error_handling_analyze.py",
+    "line": 238,
+    "primary_marker": "DEFER",
+    "tags": [
+      "DEFER"
+    ],
+    "category": "Explicitly deferred",
+    "clean": "Get files with defer statements",
+    "raw": "# Get files with defer statements"
+  },
+  {
+    "file": "./theauditor/rules/graphql/overfetch.py",
+    "line": 131,
+    "primary_marker": "DEFER",
+    "tags": [
+      "DEFER"
+    ],
+    "category": "Explicitly deferred",
+    "clean": "Look for .only(), .defer(), .values(), .values_list() usage",
+    "raw": "# Look for .only(), .defer(), .values(), .values_list() usage"
+  },
+  {
+    "file": "./theauditor/cache/ast_cache.py",
+    "line": 39,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Atomic write: temp file first, then rename",
+    "raw": "# Atomic write: temp file first, then rename"
+  },
+  {
+    "file": "./theauditor/cache/ast_cache.py",
+    "line": 48,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Clean up temp file on failure",
+    "raw": "# Clean up temp file on failure"
+  },
+  {
+    "file": "./theauditor/indexer/database/base_database.py",
+    "line": 403,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "--- PYTHON SPECIAL HANDLING (Parent-Child Temp IDs) --- 1. Python Protocols -> python_protocol_methods",
+    "raw": "# --- PYTHON SPECIAL HANDLING (Parent-Child Temp IDs) ---\n# 1. Python Protocols -> python_protocol_methods"
+  },
+  {
+    "file": "./theauditor/indexer/database/base_database.py",
+    "line": 411,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "All but last element (temp_id)",
+    "raw": "# All but last element (temp_id)"
+  },
+  {
+    "file": "./theauditor/indexer/database/python_database.py",
+    "line": 579,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Last element is temp_id for mapping",
+    "raw": "# Last element is temp_id for mapping"
+  },
+  {
+    "file": "./theauditor/indexer/database/python_database.py",
+    "line": 671,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Last element is temp_id for mapping",
+    "raw": "# Last element is temp_id for mapping"
+  },
+  {
+    "file": "./theauditor/indexer/database/python_database.py",
+    "line": 813,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Last element is temp_id for mapping",
+    "raw": "# Last element is temp_id for mapping"
+  },
+  {
+    "file": "./theauditor/indexer/database/python_database.py",
+    "line": 883,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Last element is temp_id for mapping",
+    "raw": "# Last element is temp_id for mapping"
+  },
+  {
+    "file": "./theauditor/indexer/database/python_database.py",
+    "line": 924,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Last element is temp_id for mapping",
+    "raw": "# Last element is temp_id for mapping"
+  },
+  {
+    "file": "./theauditor/linters/eslint.py",
+    "line": 185,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Clean up temp file",
+    "raw": "# Clean up temp file"
+  },
+  {
+    "file": "./theauditor/rules/bash/dangerous_patterns_analyze.py",
+    "line": 103,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Check unsafe temp files",
+    "raw": "# Check unsafe temp files"
+  },
+  {
+    "file": "./theauditor/rules/deployment/compose_analyze.py",
+    "line": 716,
+    "primary_marker": "DEPRECATED",
+    "tags": [
+      "DEPRECATED"
+    ],
+    "category": "Should be removed",
+    "clean": "Check: Vulnerable/deprecated images",
+    "raw": "# Check: Vulnerable/deprecated images"
+  },
+  {
+    "file": "./theauditor/rules/deployment/docker_analyze.py",
+    "line": 100,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP",
+      "TEMPORARY"
+    ],
+    "category": "Temporary code",
+    "clean": "AWS Temporary Access Key JWT token Stripe live key Stripe test key Stripe restricted key Twilio Account SID Twilio API Key npm token PyPI token GitLab PAT",
+    "raw": "# AWS Temporary Access Key\n# JWT token\n# Stripe live key\n# Stripe test key\n# Stripe restricted key\n# Twilio Account SID\n# Twilio API Key\n# npm token\n# PyPI token\n# GitLab PAT"
+  },
+  {
+    "file": "./theauditor/rules/deployment/nginx_analyze.py",
+    "line": 122,
+    "primary_marker": "DEPRECATED",
+    "tags": [
+      "DEPRECATED"
+    ],
+    "category": "Should be removed",
+    "clean": "Korean cipher, deprecated",
+    "raw": "# Korean cipher, deprecated"
+  },
+  {
+    "file": "./theauditor/rules/deployment/nginx_analyze.py",
+    "line": 123,
+    "primary_marker": "DEPRECATED",
+    "tags": [
+      "DEPRECATED"
+    ],
+    "category": "Should be removed",
+    "clean": "Deprecated, patent issues Very weak Korean cipher, less tested",
+    "raw": "# Deprecated, patent issues\n# Very weak\n# Korean cipher, less tested"
+  },
+  {
+    "file": "./theauditor/rules/frameworks/vue_analyze.py",
+    "line": 174,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Vue templates compile to h() or createVNode() with innerHTML in domProps",
+    "raw": "# Vue templates compile to h() or createVNode() with innerHTML in domProps"
+  },
+  {
+    "file": "./theauditor/rules/go/injection_analyze.py",
+    "line": 299,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Find unsafe template type conversions",
+    "raw": "# Find unsafe template type conversions"
+  },
+  {
+    "file": "./theauditor/rules/graphql/injection.py",
+    "line": 33,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "We detect dangerous interpolation: .format(), f-strings, template literals, % operator, concatenation",
+    "raw": "# We detect dangerous interpolation: .format(), f-strings, template literals, % operator, concatenation"
+  },
+  {
+    "file": "./theauditor/rules/node/runtime_issue_analyze.py",
+    "line": 312,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Check for template literals with user input near exec",
+    "raw": "# Check for template literals with user input near exec"
+  },
+  {
+    "file": "./theauditor/rules/node/runtime_issue_analyze.py",
+    "line": 320,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Look for template literals with interpolation",
+    "raw": "# Look for template literals with interpolation"
+  },
+  {
+    "file": "./theauditor/rules/node/runtime_issue_analyze.py",
+    "line": 324,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Check for user input in template",
+    "raw": "# Check for user input in template"
+  },
+  {
+    "file": "./theauditor/rules/python/python_crypto_analyze.py",
+    "line": 505,
+    "primary_marker": "DEPRECATED",
+    "tags": [
+      "DEPRECATED"
+    ],
+    "category": "Should be removed",
+    "clean": "Check for deprecated protocols",
+    "raw": "# Check for deprecated protocols"
+  },
+  {
+    "file": "./theauditor/rules/python/python_crypto_analyze.py",
+    "line": 607,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP",
+      "TEMPORARY"
+    ],
+    "category": "Temporary code",
+    "clean": "AWS Temporary Key Stripe Live Secret Stripe Test Secret Stripe Publishable GitHub Personal Access Token GitHub OAuth Token GitLab Personal Access Token Slack tokens (xoxb-, xoxp-, etc.)",
+    "raw": "# AWS Temporary Key\n# Stripe Live Secret\n# Stripe Test Secret\n# Stripe Publishable\n# GitHub Personal Access Token\n# GitHub OAuth Token\n# GitLab Personal Access Token\n# Slack tokens (xoxb-, xoxp-, etc.)"
+  },
+  {
+    "file": "./theauditor/rules/python/python_injection_analyze.py",
+    "line": 120,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Template injection patterns",
+    "raw": "# Template injection patterns"
+  },
+  {
+    "file": "./theauditor/rules/python/python_injection_analyze.py",
+    "line": 481,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "render_template_string is always dangerous",
+    "raw": "# render_template_string is always dangerous"
+  },
+  {
+    "file": "./theauditor/rules/secrets/hardcoded_secret_analyze.py",
+    "line": 274,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Path traversal attempt - skip Let I/O errors crash per Zero Fallback policy",
+    "raw": "# Path traversal attempt - skip\n# Let I/O errors crash per Zero Fallback policy"
+  },
+  {
+    "file": "./theauditor/rules/sql/sql_injection_analyze.py",
+    "line": 60,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "JS template literal interpolation Python str.format() Python % formatting (with space to avoid %s params) Python % formatting with named params String concatenation String concatenation String concatenation (single quotes) String concatenation (single quotes) Python f-string (double quotes) Python f-string (single quotes)",
+    "raw": "# JS template literal interpolation\n# Python str.format()\n# Python % formatting (with space to avoid %s params)\n# Python % formatting with named params\n# String concatenation\n# String concatenation\n# String concatenation (single quotes)\n# String concatenation (single quotes)\n# Python f-string (double quotes)\n# Python f-string (single quotes)"
+  },
+  {
+    "file": "./theauditor/rules/sql/sql_injection_analyze.py",
+    "line": 70,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "JS template literal Java String.format C-style sprintf SQL CONCAT or string concat method",
+    "raw": "# JS template literal\n# Java String.format\n# C-style sprintf\n# SQL CONCAT or string concat method"
+  },
+  {
+    "file": "./theauditor/rules/sql/sql_injection_analyze.py",
+    "line": 412,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Check for interpolation in template literal",
+    "raw": "# Check for interpolation in template literal"
+  },
+  {
+    "file": "./theauditor/session/diff_scorer.py",
+    "line": 49,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "Run analysis directly on content string (no temp file I/O)",
+    "raw": "# Run analysis directly on content string (no temp file I/O)"
+  },
+  {
+    "file": "./theauditor/taint/core.py",
+    "line": 975,
+    "primary_marker": "TEMP",
+    "tags": [
+      "TEMP"
+    ],
+    "category": "Temporary code",
+    "clean": "High: XSS, path traversal, SSRF, XXE, template injection",
+    "raw": "# High: XSS, path traversal, SSRF, XXE, template injection"
+  },
+  {
+    "file": "./theauditor/ast_extractors/bash_impl.py",
+    "line": 110,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "NOTE: \"function_calls\" key -> handler stores to \"function_call_args\" table",
+    "raw": "# NOTE: \"function_calls\" key -> handler stores to \"function_call_args\" table"
+  },
+  {
+    "file": "./theauditor/ast_extractors/python_impl.py",
+    "line": 1004,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "NOTE: Manifest generation moved to python.py (Late Binding pattern) python.py calls FidelityToken.attach_manifest() AFTER adding resolved_imports",
+    "raw": "# NOTE: Manifest generation moved to python.py (Late Binding pattern)\n# python.py calls FidelityToken.attach_manifest() AFTER adding resolved_imports"
+  },
+  {
+    "file": "./theauditor/cli.py",
+    "line": 317,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE",
+      "IMPORTANT"
+    ],
+    "category": "Important note",
+    "clean": "Note (important caveats)",
+    "raw": "# Note (important caveats)"
+  },
+  {
+    "file": "./theauditor/indexer/orchestrator.py",
+    "line": 54,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "NOTE: db_manager injection REMOVED as part of standardize-extractor-fidelity Extractors now return data dicts; storage layer handles all DB writes.",
+    "raw": "# NOTE: db_manager injection REMOVED as part of standardize-extractor-fidelity\n# Extractors now return data dicts; storage layer handles all DB writes."
+  },
+  {
+    "file": "./theauditor/indexer/storage/core_storage.py",
+    "line": 436,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "NOTE: Do NOT flush here! Let flush_batch() handle it per FLUSH_ORDER. Immediate flush causes FK violation - files table not flushed yet.",
+    "raw": "# NOTE: Do NOT flush here! Let flush_batch() handle it per FLUSH_ORDER.\n# Immediate flush causes FK violation - files table not flushed yet."
+  },
+  {
+    "file": "./theauditor/linters/mypy.py",
+    "line": 113,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "Map severity: note -> info, error/warning stay as-is",
+    "raw": "# Map severity: note -> info, error/warning stay as-is"
+  },
+  {
+    "file": "./theauditor/pipeline/pipelines.py",
+    "line": 1002,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "NOTE: No stdout/stderr redirect - let logger.info show live progress",
+    "raw": "# NOTE: No stdout/stderr redirect - let logger.info show live progress"
+  },
+  {
+    "file": "./theauditor/rules/deployment/compose_analyze.py",
+    "line": 525,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "Note: \"user not set\" is MEDIUM because many official images (nginx, redis, postgres) already run as non-root by default. Only explicit root is CRITICAL.",
+    "raw": "# Note: \"user not set\" is MEDIUM because many official images (nginx, redis, postgres)\n# already run as non-root by default. Only explicit root is CRITICAL."
+  },
+  {
+    "file": "./theauditor/rules/graphql/injection.py",
+    "line": 32,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "NOTE: %s alone is SAFE (DB-API parameterized placeholder)",
+    "raw": "# NOTE: %s alone is SAFE (DB-API parameterized placeholder)"
+  },
+  {
+    "file": "./theauditor/rules/node/runtime_issue_analyze.py",
+    "line": 171,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "NOTE: path.resolve is intentionally EXCLUDED - it allows traversal path.resolve('/safe/root', '../../../etc/passwd') resolves to /etc/passwd",
+    "raw": "# NOTE: path.resolve is intentionally EXCLUDED - it allows traversal\n# path.resolve('/safe/root', '../../../etc/passwd') resolves to /etc/passwd"
+  },
+  {
+    "file": "./theauditor/rules/rust/rust_injection_analyze.py",
+    "line": 68,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "NOTE: \"read_line\" removed - too generic, matches any buffered reader",
+    "raw": "# NOTE: \"read_line\" removed - too generic, matches any buffered reader"
+  },
+  {
+    "file": "./theauditor/rules/rust/rust_injection_analyze.py",
+    "line": 181,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "NOTE: Generic \"execute\" removed - too broad (matches Command::execute, Task::execute, etc.)",
+    "raw": "# NOTE: Generic \"execute\" removed - too broad (matches Command::execute, Task::execute, etc.)"
+  },
+  {
+    "file": "./theauditor/utils/findings.py",
+    "line": 18,
+    "primary_marker": "IMPORTANT",
+    "tags": [
+      "IMPORTANT"
+    ],
+    "category": "Important information",
+    "clean": "Tool importance for sorting (lower = more important)",
+    "raw": "# Tool importance for sorting (lower = more important)"
+  },
+  {
+    "file": "./theauditor/utils/logging.py",
+    "line": 83,
+    "primary_marker": "NOTE",
+    "tags": [
+      "NOTE"
+    ],
+    "category": "Important note",
+    "clean": "Note: <level> tag uses loguru's default colors (INFO=white, ERROR=red, etc.)",
+    "raw": "# Note: <level> tag uses loguru's default colors (INFO=white, ERROR=red, etc.)"
+  }
+]

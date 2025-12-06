@@ -57,10 +57,9 @@ class XGraphStore:
             file_path: If provided, only delete/update nodes/edges for this file.
                       If None, full rebuild (deletes all nodes/edges of graph_type).
         """
-        # Extract manifest (if present from builder)
+
         manifest = graph.get("_extraction_manifest", {})
 
-        # STORE METADATA - Nothing gets dropped silently
         graph_metadata = graph.get("metadata")
         if graph_metadata:
             self._store_graph_metadata(graph_type, graph_metadata, file_path)
@@ -69,38 +68,24 @@ class XGraphStore:
         cursor = conn.cursor()
 
         try:
-            # GRAPH FIX G4: Removed explicit BEGIN TRANSACTION.
-            # Python sqlite3 manages transactions automatically (isolation_level default).
-            # Explicit BEGIN causes OperationalError when nested.
-
             if file_path:
-                # GRAPH FIX G9: Delete orphaned incoming edges before deleting nodes.
-                # When file A is re-indexed, we must delete:
-                # 1. Nodes from file A
-                # 2. Edges FROM file A (outgoing)
-                # 3. Edges TO nodes in file A from OTHER files (incoming)
-                # Without #3, we get dangling edges pointing to deleted nodes.
-
-                # First, get all node IDs in this file that will be deleted
                 cursor.execute(
                     "SELECT id FROM nodes WHERE graph_type = ? AND file = ?",
-                    (graph_type, file_path)
+                    (graph_type, file_path),
                 )
                 node_ids_to_delete = [row[0] for row in cursor.fetchall()]
 
-                # Delete incoming edges from other files pointing to these nodes
                 if node_ids_to_delete:
                     placeholders = ",".join("?" * len(node_ids_to_delete))
                     cursor.execute(
                         f"DELETE FROM edges WHERE graph_type = ? AND target IN ({placeholders})",
-                        [graph_type] + node_ids_to_delete
+                        [graph_type] + node_ids_to_delete,
                     )
 
-                # Delete nodes from this file
                 cursor.execute(
                     "DELETE FROM nodes WHERE graph_type = ? AND file = ?", (graph_type, file_path)
                 )
-                # Delete outgoing edges from this file
+
                 cursor.execute(
                     "DELETE FROM edges WHERE graph_type = ? AND file = ?", (graph_type, file_path)
                 )
@@ -120,8 +105,8 @@ class XGraphStore:
                         node.get("lang"),
                         node.get("loc", 0),
                         node.get("churn"),
-                        node.get("variable_name"),  # For data flow nodes
-                        node.get("scope"),          # For data flow nodes
+                        node.get("variable_name"),
+                        node.get("scope"),
                         node.get("type", default_node_type),
                         graph_type,
                         metadata_json,
@@ -140,71 +125,88 @@ class XGraphStore:
                         edge.get("type", default_edge_type),
                         edge.get("file"),
                         edge.get("line"),
-                        edge.get("expression"),  # Data flow expression
-                        edge.get("function"),    # Containing function scope
+                        edge.get("expression"),
+                        edge.get("function"),
                         graph_type,
                         metadata_json,
                     )
                 )
 
-            # GATEKEEPER: Validate edges reference valid nodes
-            valid_node_ids = {n[0] for n in nodes_data}  # id is first element
+            valid_node_ids = {n[0] for n in nodes_data}
             orphaned = [
-                (e[0], e[1]) for e in edges_data
+                (e[0], e[1])
+                for e in edges_data
                 if e[0] not in valid_node_ids or e[1] not in valid_node_ids
             ]
 
             if orphaned:
-                logger.warning(
-                    f"GATEKEEPER: {len(orphaned)} orphaned edges in {graph_type}"
-                )
+                logger.warning(f"GATEKEEPER: {len(orphaned)} orphaned edges in {graph_type}")
                 for src, tgt in orphaned[:10]:
                     logger.warning(f"  Edge {src} -> {tgt} references missing node")
                 raise GraphFidelityError(
                     f"Orphaned edges in {graph_type}",
-                    details={"count": len(orphaned), "sample": orphaned[:5]}
+                    details={"count": len(orphaned), "sample": orphaned[:5]},
                 )
 
-            # Generate receipt for fidelity check
-            node_columns = ["id", "file", "lang", "loc", "churn", "variable_name", "scope", "type", "graph_type", "metadata"]
-            edge_columns = ["source", "target", "type", "file", "line", "expression", "function", "graph_type", "metadata"]
+            node_columns = [
+                "id",
+                "file",
+                "lang",
+                "loc",
+                "churn",
+                "variable_name",
+                "scope",
+                "type",
+                "graph_type",
+                "metadata",
+            ]
+            edge_columns = [
+                "source",
+                "target",
+                "type",
+                "file",
+                "line",
+                "expression",
+                "function",
+                "graph_type",
+                "metadata",
+            ]
 
             receipt = {
                 "nodes": FidelityToken.create_receipt(
                     count=len(nodes_data),
                     columns=node_columns,
                     tx_id=manifest.get("nodes", {}).get("tx_id"),
-                    data_bytes=sum(len(str(n)) for n in nodes_data)
+                    data_bytes=sum(len(str(n)) for n in nodes_data),
                 ),
                 "edges": FidelityToken.create_receipt(
                     count=len(edges_data),
                     columns=edge_columns,
                     tx_id=manifest.get("edges", {}).get("tx_id"),
-                    data_bytes=sum(len(str(e)) for e in edges_data)
-                )
+                    data_bytes=sum(len(str(e)) for e in edges_data),
+                ),
             }
 
-            # METADATA RECEIPT - count matches manifest (number of keys in dict)
             if graph_metadata and "metadata" in manifest:
                 receipt["metadata"] = FidelityToken.create_receipt(
-                    count=len(graph_metadata),  # Number of keys, matches manifest counting
-                    columns=[],  # K/V pairs don't have columns
+                    count=len(graph_metadata),
+                    columns=[],
                     tx_id=manifest.get("metadata", {}).get("tx_id"),
-                    data_bytes=sum(len(str(k)) + len(str(v)) for k, v in graph_metadata.items())
+                    data_bytes=sum(len(str(k)) + len(str(v)) for k, v in graph_metadata.items()),
                 )
 
-            # RECONCILE - strict mode (hard fail on mismatch)
-            # ZERO FALLBACK: No manifest = CRASH. No silent legacy path.
             if not manifest:
                 raise GraphFidelityError(
                     f"NO MANIFEST: Builder for {graph_type} sent data without fidelity manifest. "
                     "All producers MUST call FidelityToken.attach_manifest().",
-                    details={"graph_type": graph_type, "nodes": len(nodes_data), "edges": len(edges_data)}
+                    details={
+                        "graph_type": graph_type,
+                        "nodes": len(nodes_data),
+                        "edges": len(edges_data),
+                    },
                 )
 
-            reconcile_graph_fidelity(
-                manifest, receipt, f"GraphStore:{graph_type}", strict=True
-            )
+            reconcile_graph_fidelity(manifest, receipt, f"GraphStore:{graph_type}", strict=True)
 
             if nodes_data:
                 cursor.executemany(
@@ -253,7 +255,6 @@ class XGraphStore:
         if file_path:
             analysis_type = f"graph_metadata:{graph_type}:{file_path}"
 
-        # Store via existing method - JSON blob in analysis_results
         self.save_analysis_result(analysis_type, metadata)
         logger.debug(f"[GraphStore] Stored metadata for {graph_type}: {len(metadata)} keys")
 

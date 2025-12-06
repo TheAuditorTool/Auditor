@@ -1,7 +1,8 @@
 """Node.js storage handlers for JavaScript/TypeScript frameworks."""
 
-from .base import BaseStorage
 from theauditor.utils.logging import logger
+
+from .base import BaseStorage
 
 
 class NodeStorage(BaseStorage):
@@ -10,7 +11,6 @@ class NodeStorage(BaseStorage):
     def __init__(self, db_manager, counts: dict[str, int]):
         super().__init__(db_manager, counts)
 
-        # Gatekeeper: Track valid parent keys to filter orphaned children
         self._valid_react_hooks: set[tuple[str, int, str]] = set()
 
         self.handlers = {
@@ -55,7 +55,6 @@ class NodeStorage(BaseStorage):
             "cfg_blocks": self._store_cfg_flat,
             "cfg_edges": self._noop_cfg_edges,
             "cfg_block_statements": self._noop_cfg_block_statements,
-            # Package manifest handlers (Stream C)
             "package_configs": self._store_package_configs,
             "package_dependencies": self._store_package_dependencies,
             "package_scripts": self._store_package_scripts,
@@ -84,7 +83,6 @@ class NodeStorage(BaseStorage):
             line = hook["line"]
             component_name = hook["component_name"]
 
-            # Deduplication Key: Matches PRIMARY KEY (file, line, component_name)
             key = (file_path, line, component_name)
 
             if key in seen:
@@ -103,7 +101,6 @@ class NodeStorage(BaseStorage):
                 hook.get("cleanup_type"),
             )
 
-            # Gatekeeper: Register valid hook key for child validation
             self._valid_react_hooks.add(key)
 
             self.counts["react_hooks"] += 1
@@ -112,7 +109,7 @@ class NodeStorage(BaseStorage):
         """Store React component hooks from flat junction array."""
         for hook in hooks:
             self.db_manager.add_react_component_hook_flat(
-                file_path,  # Use clean path from Orchestrator, not dirty path from extractor
+                file_path,
                 hook.get("component_name", ""),
                 hook.get("hook_name", ""),
             )
@@ -128,7 +125,6 @@ class NodeStorage(BaseStorage):
             hook_line = dep.get("hook_line", 0)
             hook_component = dep.get("component_name", "")
 
-            # Gatekeeper: Check if parent hook exists
             parent_key = (file_path, hook_line, hook_component)
             if parent_key not in self._valid_react_hooks:
                 logger.warning(
@@ -139,7 +135,7 @@ class NodeStorage(BaseStorage):
                 continue
 
             self.db_manager.add_react_hook_dependency_flat(
-                file_path,  # Use clean path from Orchestrator, not dirty path from extractor
+                file_path,
                 hook_line,
                 hook_component,
                 dep.get("dependency_name", ""),
@@ -323,7 +319,7 @@ class NodeStorage(BaseStorage):
         """Store lock analysis."""
         for lock in lock_analysis:
             self.db_manager.add_lock_analysis(
-                file_path,  # Use clean path from Orchestrator, not dirty path from extractor
+                file_path,
                 lock["lock_type"],
                 lock.get("package_manager_version"),
                 lock["total_packages"],
@@ -343,7 +339,7 @@ class NodeStorage(BaseStorage):
         seen: set[tuple[str, int]] = set()
         for import_style in import_styles:
             line = import_style["line"]
-            # Deduplication Key: file + line (matches PK)
+
             key = (file_path, line)
 
             if key in seen:
@@ -641,27 +637,19 @@ class NodeStorage(BaseStorage):
             The canonical_path if extracted_path looks absolute or mismatched,
             otherwise the extracted_path (for safety in edge cases).
         """
-        # Normalize separators for comparison
+
         normalized_extracted = extracted_path.replace("\\", "/")
 
-        # Check if extracted path is absolute (Windows or Unix)
-        # Windows: C:/ or D:/ etc.
-        # Unix: starts with /
         is_absolute = (
-            (len(normalized_extracted) >= 2 and normalized_extracted[1] == ":")
-            or normalized_extracted.startswith("/")
-        )
+            len(normalized_extracted) >= 2 and normalized_extracted[1] == ":"
+        ) or normalized_extracted.startswith("/")
 
         if is_absolute:
-            # Absolute path detected - use canonical path from Orchestrator
             return canonical_path
 
-        # If extracted path ends with canonical path, it's a prefix issue
         if normalized_extracted.endswith(canonical_path):
             return canonical_path
 
-        # If paths don't match at all but we're processing this file,
-        # trust the canonical path from Orchestrator
         if normalized_extracted != canonical_path:
             return canonical_path
 
@@ -692,20 +680,15 @@ class NodeStorage(BaseStorage):
             function_id = block.get("function_id", "")
             block_id = block.get("block_id", "")
 
-            # Parse function_id format: "path/to/file:functionName"
-            # WINDOWS FIX: rsplit(":", 2) splits drive letter colon too!
-            # "C:/path/file.ts:func" -> ['C', '/path/file.ts', 'func']
-            # So we need to handle 3-part case for Windows paths
             parts = function_id.rsplit(":", 2)
             if len(parts) == 3:
-                # Windows path: reconstruct "C:" + "/path/file.ts"
                 raw_file_path = parts[0] + ":" + parts[1]
                 function_name = parts[2]
                 block_file_path = self._normalize_cfg_path(raw_file_path, file_path)
             elif len(parts) == 2:
                 raw_file_path = parts[0]
                 function_name = parts[1]
-                # FK FIX: Normalize path to match files table format
+
                 block_file_path = self._normalize_cfg_path(raw_file_path, file_path)
             else:
                 block_file_path = file_path
@@ -736,18 +719,15 @@ class NodeStorage(BaseStorage):
             from_block = edge.get("from_block", "")
             to_block = edge.get("to_block", "")
 
-            # Parse function_id format: "path/to/file:functionName"
-            # WINDOWS FIX: rsplit(":", 2) splits drive letter colon too!
             parts = function_id.rsplit(":", 2)
             if len(parts) == 3:
-                # Windows path: reconstruct "C:" + "/path/file.ts"
                 raw_file_path = parts[0] + ":" + parts[1]
                 function_name = parts[2]
                 edge_file_path = self._normalize_cfg_path(raw_file_path, file_path)
             elif len(parts) == 2:
                 raw_file_path = parts[0]
                 function_name = parts[1]
-                # FK FIX: Normalize path to match files table format
+
                 edge_file_path = self._normalize_cfg_path(raw_file_path, file_path)
             else:
                 edge_file_path = file_path
@@ -757,7 +737,6 @@ class NodeStorage(BaseStorage):
             target_id = block_id_map.get((function_id, to_block))
 
             if source_id is None or target_id is None:
-                # ZERO FALLBACK: Log orphaned edges (prevents silent data loss)
                 logger.warning(
                     f"GATEKEEPER: Skipping orphaned CFG edge. "
                     f"function_id={function_id!r}, from={from_block!r}, to={to_block!r}"
@@ -780,7 +759,6 @@ class NodeStorage(BaseStorage):
 
             real_block_id = block_id_map.get((function_id, block_id))
             if real_block_id is None:
-                # ZERO FALLBACK: Log orphaned statements (prevents silent data loss)
                 logger.warning(
                     f"GATEKEEPER: Skipping orphaned CFG statement. "
                     f"function_id={function_id!r}, block_id={block_id!r}"
@@ -812,8 +790,6 @@ class NodeStorage(BaseStorage):
     ):
         """No-op handler for cfg_block_statements. Actual storage is done by _store_cfg_flat."""
         pass
-
-    # ==================== Package Manifest Handlers (Stream C) ====================
 
     def _store_package_configs(self, file_path: str, package_configs: list, jsx_pass: bool):
         """Store package.json configuration records."""

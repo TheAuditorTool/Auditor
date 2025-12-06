@@ -16,7 +16,7 @@ def _normalize_path(path: str) -> str:
 def _build_graph_index(graph: dict) -> None:
     """Build O(1) lookup indexes for graph nodes. Caches in graph dict."""
     if "_node_by_id" in graph:
-        return  # Already indexed
+        return
 
     node_by_id: dict[str, dict] = {}
     nodes_by_file: dict[str, list[dict]] = {}
@@ -88,12 +88,11 @@ def _find_graph_node(graph: dict, file_path: str, func_name: str) -> str | None:
 
     Uses indexed lookup (O(1) file lookup + O(k) where k = nodes in that file).
     """
-    _build_graph_index(graph)  # No-op if already indexed
+    _build_graph_index(graph)
 
     file_path_normalized = _normalize_path(file_path)
     nodes_by_file = graph.get("_nodes_by_file", {})
 
-    # O(1) lookup: get only nodes for this file
     file_nodes = nodes_by_file.get(file_path_normalized, [])
 
     for node in file_nodes:
@@ -105,7 +104,6 @@ def _find_graph_node(graph: dict, file_path: str, func_name: str) -> str | None:
         if node_id.endswith(func_name):
             return node_id
 
-    # Fallback: check if file path is embedded in node_id (for different ID formats)
     node_by_id = graph.get("_node_by_id", {})
     target_id = f"{file_path_normalized}:{func_name}"
     if target_id in node_by_id:
@@ -266,7 +264,7 @@ def _extract_func_name(node_id: str) -> str:
 
 def _extract_file_from_node(graph: dict, node_id: str) -> str | None:
     """Get file path from node metadata. O(1) indexed lookup."""
-    _build_graph_index(graph)  # No-op if already indexed
+    _build_graph_index(graph)
     node = graph.get("_node_by_id", {}).get(node_id)
     return node.get("file") if node else None
 

@@ -103,7 +103,6 @@ def validate_ml_schema():
         _SCHEMA_VALIDATED = True
 
     except ImportError:
-        # Schema module not available - cannot validate, fail loud
         raise RuntimeError("Schema validation failed: theauditor.indexer.schema not available")
 
 
@@ -170,7 +169,6 @@ def build_feature_matrix(
     import sqlite3
     from pathlib import Path
 
-    # Load file metadata from database
     file_metadata = {}
     if Path(db_path).exists():
         conn = sqlite3.connect(db_path)
@@ -187,7 +185,6 @@ def build_feature_matrix(
 
     intelligent_features = intelligent_features or {}
 
-    # OPTIMIZED: Pre-allocate numpy array (59 base features + 50 text features = 109 total)
     n_files = len(file_paths)
     n_features = 109
     features = np.zeros((n_files, n_features), dtype=np.float32)
@@ -302,10 +299,9 @@ def build_feature_matrix(
         features[i, col] = db_feat.get("cyclomatic_complexity", 0) / 10.0
         col += 1
 
-        # 2025: Blast radius features from impact_analyzer
-        features[i, col] = db_feat.get("blast_radius", 0.0)  # Already log-scaled
+        features[i, col] = db_feat.get("blast_radius", 0.0)
         col += 1
-        features[i, col] = db_feat.get("coupling_score", 0.0)  # Already 0-1 normalized
+        features[i, col] = db_feat.get("coupling_score", 0.0)
         col += 1
         features[i, col] = db_feat.get("direct_upstream", 0) / 10.0
         col += 1
@@ -338,7 +334,6 @@ def build_feature_matrix(
         features[i, col] = 1.0 if db_feat.get("has_removed_comments") else 0.0
         col += 1
 
-        # Text features (50 dimensions)
         text_feats = extract_text_features(
             file_path,
             rca.get("messages", []),
@@ -348,7 +343,6 @@ def build_feature_matrix(
             if idx < 50:
                 features[i, col + idx] = val
 
-    # Feature names for interpretability
     feature_names = [
         "bytes_norm",
         "loc_norm",
@@ -393,7 +387,6 @@ def build_feature_matrix(
         "cfg_block_count",
         "cfg_edge_count",
         "cyclomatic_complexity",
-        # 2025: Blast radius features
         "blast_radius",
         "coupling_score",
         "direct_upstream",
@@ -402,7 +395,6 @@ def build_feature_matrix(
         "affected_files",
         "is_api_endpoint",
         "prod_dependency_count",
-        # Agent behavior features
         "agent_blind_edit_count",
         "agent_duplicate_impl_rate",
         "agent_missed_search_count",
@@ -472,42 +464,47 @@ def train_models(
     if len(np.unique(next_edit_labels)) < 2:
         next_edit_labels[0] = 1 - next_edit_labels[0]
 
-    # 2025: Use Pipeline to bundle scaler with classifier
-    # This ensures scaling is always applied consistently
-    root_cause_pipeline = Pipeline([
-        ('scaler', StandardScaler()),
-        ('clf', HistGradientBoostingClassifier(
-            learning_rate=0.1,
-            max_iter=100,
-            max_depth=5,
-            random_state=seed,
-            class_weight='balanced',  # Handles class imbalance automatically
-        ))
-    ])
+    root_cause_pipeline = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "clf",
+                HistGradientBoostingClassifier(
+                    learning_rate=0.1,
+                    max_iter=100,
+                    max_depth=5,
+                    random_state=seed,
+                    class_weight="balanced",
+                ),
+            ),
+        ]
+    )
 
-    next_edit_pipeline = Pipeline([
-        ('scaler', StandardScaler()),
-        ('clf', HistGradientBoostingClassifier(
-            learning_rate=0.1,
-            max_iter=100,
-            max_depth=5,
-            random_state=seed,
-            class_weight='balanced',
-        ))
-    ])
+    next_edit_pipeline = Pipeline(
+        [
+            ("scaler", StandardScaler()),
+            (
+                "clf",
+                HistGradientBoostingClassifier(
+                    learning_rate=0.1,
+                    max_iter=100,
+                    max_depth=5,
+                    random_state=seed,
+                    class_weight="balanced",
+                ),
+            ),
+        ]
+    )
 
-    # Risk regression still uses Ridge with manual scaling
     scaler = StandardScaler()
     features_scaled = scaler.fit_transform(features)
 
-    # Train pipelines (they handle scaling internally)
     root_cause_pipeline.fit(features, root_cause_labels)
     next_edit_pipeline.fit(features, next_edit_labels)
 
     risk_reg = Ridge(alpha=1.0, random_state=seed)
     risk_reg.fit(features_scaled, risk_labels, sample_weight=sample_weight)
 
-    # Probability calibration for reliable risk scores
     root_cause_calibrator = IsotonicRegression(out_of_bounds="clip")
     root_cause_probs = root_cause_pipeline.predict_proba(features)[:, 1]
     root_cause_calibrator.fit(root_cause_probs, root_cause_labels)

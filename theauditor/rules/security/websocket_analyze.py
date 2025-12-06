@@ -28,142 +28,150 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# WebSocket connection establishment patterns (function/method names)
-CONNECTION_PATTERNS = frozenset([
-    "WebSocket",
-    "WebSocketServer",
-    "ws.Server",
-    "io.Server",
-    "socketio.Server",
-    "websocket.serve",
-    "websockets.serve",
-    "onconnection",
-    "onconnect",
-    "on_connection",
-    "on_connect",
-    # Modern Python frameworks
-    "WebSocketRoute",
-    "websocket_route",
-    "AsyncWebsocketConsumer",
-    "WebsocketConsumer",
-    "channels.routing",
-    # FastAPI/Starlette
-    "websocket_endpoint",
-    "WebSocketEndpoint",
-    # Django Channels
-    "connect",
-    "websocket_connect",
-    # Socket.IO
-    "sio.on",
-    "socketio.on",
-])
 
-# Authentication-related patterns
-AUTH_PATTERNS = frozenset([
-    "auth",
-    "authenticate",
-    "verify",
-    "token",
-    "jwt",
-    "session",
-    "passport",
-    "check_permission",
-    "validate_user",
-    "authorize",
-    "is_authenticated",
-    "require_auth",
-    "login_required",
-])
+CONNECTION_PATTERNS = frozenset(
+    [
+        "WebSocket",
+        "WebSocketServer",
+        "ws.Server",
+        "io.Server",
+        "socketio.Server",
+        "websocket.serve",
+        "websockets.serve",
+        "onconnection",
+        "onconnect",
+        "on_connection",
+        "on_connect",
+        "WebSocketRoute",
+        "websocket_route",
+        "AsyncWebsocketConsumer",
+        "WebsocketConsumer",
+        "channels.routing",
+        "websocket_endpoint",
+        "WebSocketEndpoint",
+        "connect",
+        "websocket_connect",
+        "sio.on",
+        "socketio.on",
+    ]
+)
 
-# Message receiving patterns (function/method names)
-MESSAGE_PATTERNS = frozenset([
-    "onmessage",
-    "on_message",
-    "message_handler",
-    "recv",
-    "receive",
-    "ondata",
-    "on_data",
-    "handle_message",
-    "receive_json",
-    "receive_text",
-    "receive_bytes",
-    # Django Channels
-    "websocket_receive",
-    # FastAPI/Starlette
-    "receive_text",
-    "receive_bytes",
-    "iter_text",
-    "iter_bytes",
-])
 
-# Input validation patterns
-VALIDATION_PATTERNS = frozenset([
-    "validate",
-    "verify",
-    "check",
-    "schema",
-    "sanitize",
-    "clean",
-    "joi",
-    "yup",
-    "zod",
-    "jsonschema",
-    "parse",
-    "assert",
-    "pydantic",
-    "marshmallow",
-])
+AUTH_PATTERNS = frozenset(
+    [
+        "auth",
+        "authenticate",
+        "verify",
+        "token",
+        "jwt",
+        "session",
+        "passport",
+        "check_permission",
+        "validate_user",
+        "authorize",
+        "is_authenticated",
+        "require_auth",
+        "login_required",
+    ]
+)
 
-# Rate limiting patterns
-RATE_LIMIT_PATTERNS = frozenset([
-    "rate",
-    "limit",
-    "throttle",
-    "quota",
-    "flood",
-    "spam",
-    "cooldown",
-    "bucket",
-    "ratelimit",
-    "rate_limit",
-    "slowapi",
-    "limiter",
-])
 
-# Broadcasting patterns
-BROADCAST_PATTERNS = frozenset([
-    "broadcast",
-    "emit",
-    "send_all",
-    "publish",
-    "clients.forEach",
-    "wss.clients",
-    "io.emit",
-    "socket.broadcast",
-    "sendToAll",
-    "group_send",
-    "channel_layer",
-])
+MESSAGE_PATTERNS = frozenset(
+    [
+        "onmessage",
+        "on_message",
+        "message_handler",
+        "recv",
+        "receive",
+        "ondata",
+        "on_data",
+        "handle_message",
+        "receive_json",
+        "receive_text",
+        "receive_bytes",
+        "websocket_receive",
+        "receive_text",
+        "receive_bytes",
+        "iter_text",
+        "iter_bytes",
+    ]
+)
 
-# Sensitive data patterns
-SENSITIVE_PATTERNS = frozenset([
-    "password",
-    "secret",
-    "token",
-    "key",
-    "auth",
-    "session",
-    "email",
-    "ssn",
-    "credit",
-    "private",
-    "personal",
-    "confidential",
-    "api_key",
-    "access_token",
-    "refresh_token",
-])
+
+VALIDATION_PATTERNS = frozenset(
+    [
+        "validate",
+        "verify",
+        "check",
+        "schema",
+        "sanitize",
+        "clean",
+        "joi",
+        "yup",
+        "zod",
+        "jsonschema",
+        "parse",
+        "assert",
+        "pydantic",
+        "marshmallow",
+    ]
+)
+
+
+RATE_LIMIT_PATTERNS = frozenset(
+    [
+        "rate",
+        "limit",
+        "throttle",
+        "quota",
+        "flood",
+        "spam",
+        "cooldown",
+        "bucket",
+        "ratelimit",
+        "rate_limit",
+        "slowapi",
+        "limiter",
+    ]
+)
+
+
+BROADCAST_PATTERNS = frozenset(
+    [
+        "broadcast",
+        "emit",
+        "send_all",
+        "publish",
+        "clients.forEach",
+        "wss.clients",
+        "io.emit",
+        "socket.broadcast",
+        "sendToAll",
+        "group_send",
+        "channel_layer",
+    ]
+)
+
+
+SENSITIVE_PATTERNS = frozenset(
+    [
+        "password",
+        "secret",
+        "token",
+        "key",
+        "auth",
+        "session",
+        "email",
+        "ssn",
+        "credit",
+        "private",
+        "personal",
+        "confidential",
+        "api_key",
+        "access_token",
+        "refresh_token",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -194,7 +202,6 @@ def _find_websocket_no_auth(db: RuleDB) -> list[StandardFinding]:
     """Find WebSocket connections without authentication."""
     findings: list[StandardFinding] = []
 
-    # Get all function calls to find WebSocket handlers
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -208,7 +215,6 @@ def _find_websocket_no_auth(db: RuleDB) -> list[StandardFinding]:
             websocket_handlers.append((file, line, func, args))
 
     for file, line, func, _args in websocket_handlers:
-        # Check for auth patterns in nearby function calls
         nearby_calls = db.query(
             Q("function_call_args")
             .select("callee_function", "line")
@@ -224,7 +230,6 @@ def _find_websocket_no_auth(db: RuleDB) -> list[StandardFinding]:
                     break
 
         if not has_auth:
-            # Also check symbols in same file for auth-related names
             nearby_symbols = db.query(
                 Q("symbols")
                 .select("name", "line")
@@ -253,7 +258,6 @@ def _find_websocket_no_auth(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check Python-style WebSocket handlers (function definitions)
     handler_patterns = ["websocket", "ws_handler", "socket_handler", "on_connect"]
     python_handlers = db.query(
         Q("symbols")
@@ -267,7 +271,6 @@ def _find_websocket_no_auth(db: RuleDB) -> list[StandardFinding]:
         if not any(pattern in name_lower for pattern in handler_patterns):
             continue
 
-        # Check for auth in function body
         body_calls = db.query(
             Q("function_call_args")
             .select("callee_function", "line")
@@ -304,7 +307,6 @@ def _find_websocket_no_validation(db: RuleDB) -> list[StandardFinding]:
     """Find WebSocket message handlers without validation."""
     findings: list[StandardFinding] = []
 
-    # Get function calls for message handlers
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -317,7 +319,6 @@ def _find_websocket_no_validation(db: RuleDB) -> list[StandardFinding]:
             message_handlers.append((file, line, func, args))
 
     for file, line, func, _args in message_handlers:
-        # Check for validation patterns nearby
         nearby_calls = db.query(
             Q("function_call_args")
             .select("callee_function", "line")
@@ -347,7 +348,6 @@ def _find_websocket_no_validation(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check Python-style message handlers
     msg_handler_patterns = ["message", "recv", "receive", "on_data"]
     python_handlers = db.query(
         Q("symbols")
@@ -397,7 +397,6 @@ def _find_websocket_no_rate_limit(db: RuleDB) -> list[StandardFinding]:
     """Find WebSocket handlers without rate limiting."""
     findings: list[StandardFinding] = []
 
-    # Find files with WebSocket message handling
     rows = db.query(
         Q("function_call_args")
         .select("file", "callee_function", "line")
@@ -414,7 +413,6 @@ def _find_websocket_no_rate_limit(db: RuleDB) -> list[StandardFinding]:
                 ws_file_lines[file] = line
 
     for file, first_line in ws_file_lines.items():
-        # Check for rate limiting in file
         file_calls = db.query(
             Q("function_call_args")
             .select("callee_function")
@@ -430,7 +428,6 @@ def _find_websocket_no_rate_limit(db: RuleDB) -> list[StandardFinding]:
                 break
 
         if not has_rate_limit:
-            # Also check symbols
             file_symbols = db.query(
                 Q("symbols")
                 .select("name")
@@ -466,7 +463,6 @@ def _find_websocket_broadcast_sensitive(db: RuleDB) -> list[StandardFinding]:
     """Find broadcasting of sensitive data via WebSocket."""
     findings: list[StandardFinding] = []
 
-    # Find broadcast calls
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -500,10 +496,9 @@ def _find_websocket_broadcast_sensitive(db: RuleDB) -> list[StandardFinding]:
                 )
             )
         else:
-            # Check if broadcast variables contain sensitive data
-            # Extract potential variable names from args (simple word tokenization)
             potential_vars = [
-                word for word in args.replace("(", " ").replace(")", " ").replace(",", " ").split()
+                word
+                for word in args.replace("(", " ").replace(")", " ").replace(",", " ").split()
                 if word.isidentifier()
             ]
 
@@ -547,7 +542,6 @@ def _find_websocket_no_tls(db: RuleDB) -> list[StandardFinding]:
     """Find WebSocket connections without TLS (ws:// instead of wss://)."""
     findings: list[StandardFinding] = []
 
-    # Check assignments for ws:// URLs
     assignments = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -558,11 +552,9 @@ def _find_websocket_no_tls(db: RuleDB) -> list[StandardFinding]:
         if not expr:
             continue
 
-        # Skip if using secure wss:// or not a ws:// URL
         if "ws://" not in expr or "wss://" in expr:
             continue
 
-        # Allow localhost/127.0.0.1 for development
         if "ws://localhost" in expr or "ws://127.0.0.1" in expr:
             continue
 
@@ -580,7 +572,6 @@ def _find_websocket_no_tls(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check WebSocket server configurations without TLS
     server_calls = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -591,22 +582,7 @@ def _find_websocket_no_tls(db: RuleDB) -> list[StandardFinding]:
         if "WebSocketServer" not in func and "ws.Server" not in func:
             continue
 
-        if args is None:
-            # No args - likely missing TLS config
-            findings.append(
-                StandardFinding(
-                    rule_name="websocket-no-tls",
-                    message="WebSocket server without TLS configuration",
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category="security",
-                    confidence=Confidence.HIGH,
-                    snippet=f"{func}(...)",
-                    cwe_id="CWE-319",
-                )
-            )
-        elif "https" not in args and "tls" not in args and "ssl" not in args:
+        if args is None or "https" not in args and "tls" not in args and "ssl" not in args:
             findings.append(
                 StandardFinding(
                     rule_name="websocket-no-tls",

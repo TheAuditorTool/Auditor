@@ -4,9 +4,9 @@ import ast
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
+from theauditor.utils.logging import logger
 
 from ..base import get_node_name
-from theauditor.utils.logging import logger
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:
@@ -118,7 +118,7 @@ def extract_marshmallow_schemas(context: FileContext) -> list[dict[str, Any]]:
         field_count = 0
         has_nested_schemas = False
         has_custom_validators = False
-        validators = []  # List of {name, type} for junction table
+        validators = []
 
         for item in node.body:
             if isinstance(item, ast.Assign):
@@ -141,11 +141,16 @@ def extract_marshmallow_schemas(context: FileContext) -> list[dict[str, Any]]:
                     dec_name = get_node_name(decorator)
                     if "validates" in dec_name:
                         has_custom_validators = True
-                        # Determine validator type from decorator
+
                         validator_type = "field"
                         if "validates_schema" in dec_name:
                             validator_type = "schema"
-                        elif "pre_load" in dec_name or "post_load" in dec_name or "pre_dump" in dec_name or "post_dump" in dec_name:
+                        elif (
+                            "pre_load" in dec_name
+                            or "post_load" in dec_name
+                            or "pre_dump" in dec_name
+                            or "post_dump" in dec_name
+                        ):
                             validator_type = "hook"
                         validators.append({"name": item.name, "type": validator_type})
                         break
@@ -157,7 +162,7 @@ def extract_marshmallow_schemas(context: FileContext) -> list[dict[str, Any]]:
                 "field_count": field_count,
                 "has_nested_schemas": has_nested_schemas,
                 "has_custom_validators": has_custom_validators,
-                "validators": validators,  # For junction table
+                "validators": validators,
             }
         )
 
@@ -272,7 +277,7 @@ def extract_drf_serializers(context: FileContext) -> list[dict[str, Any]]:
         has_meta_model = False
         has_read_only_fields = False
         has_custom_validators = False
-        validators = []  # List of {name, type} for junction table
+        validators = []
 
         for item in node.body:
             if isinstance(item, ast.Assign):
@@ -295,7 +300,7 @@ def extract_drf_serializers(context: FileContext) -> list[dict[str, Any]]:
 
             elif isinstance(item, ast.FunctionDef) and item.name.startswith("validate_"):
                 has_custom_validators = True
-                # Determine validator type
+
                 validator_type = "object" if item.name == "validate" else "field"
                 validators.append({"name": item.name, "type": validator_type})
 
@@ -308,7 +313,7 @@ def extract_drf_serializers(context: FileContext) -> list[dict[str, Any]]:
                 "has_meta_model": has_meta_model,
                 "has_read_only_fields": has_read_only_fields,
                 "has_custom_validators": has_custom_validators,
-                "validators": validators,  # For junction table
+                "validators": validators,
             }
         )
 
@@ -440,7 +445,7 @@ def extract_wtforms_forms(context: FileContext) -> list[dict[str, Any]]:
         form_class_name = node.name
         field_count = 0
         has_custom_validators = False
-        validators = []  # List of {name, type} for junction table
+        validators = []
 
         for item in node.body:
             if isinstance(item, ast.Assign):
@@ -478,7 +483,7 @@ def extract_wtforms_forms(context: FileContext) -> list[dict[str, Any]]:
                 "form_class_name": form_class_name,
                 "field_count": field_count,
                 "has_custom_validators": has_custom_validators,
-                "validators": validators,  # For junction table
+                "validators": validators,
             }
         )
 

@@ -27,7 +27,6 @@ def normalize_python_routes(db_path: str) -> int:
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
-    # Check if we have raw data
     cursor.execute("SELECT COUNT(*) FROM python_routes")
     result = cursor.fetchone()
     count = result[0] if result else 0
@@ -39,11 +38,6 @@ def normalize_python_routes(db_path: str) -> int:
 
     logger.debug(f"[Normalization] Promoting {count} Python routes to API Endpoints...")
 
-    # The "Forklift" Query
-    # Map python_routes fields to api_endpoints canonical schema
-    # ZERO FALLBACK: Skip rows with NULL line - do NOT fabricate data
-    # GRAPH FIX G15: Normalize file paths (backslash -> forward slash) during migration
-    # to ensure consistent path format for Graph Builder lookups
     cursor.execute("""
         INSERT INTO api_endpoints (
             file,
@@ -91,7 +85,6 @@ def run_normalization_pass(db_path: str) -> dict[str, int]:
     """
     results = {}
 
-    # Python routes -> api_endpoints
     results["python_routes"] = normalize_python_routes(db_path)
 
     return results

@@ -75,7 +75,7 @@ class CodeQueryEngine:
 
     def __init__(self, root: Path):
         """Initialize with project root."""
-        # Force absolute path resolution for consistent DB path matching
+
         self.root = Path(root).resolve()
         pf_dir = self.root / ".pf"
 
@@ -86,10 +86,10 @@ class CodeQueryEngine:
             )
 
         self.repo_db = sqlite3.connect(str(repo_db_path))
-        # Performance: WAL mode for concurrent reads, larger cache for 180MB+ databases
+
         self.repo_db.execute("PRAGMA journal_mode=WAL;")
         self.repo_db.execute("PRAGMA synchronous=NORMAL;")
-        self.repo_db.execute("PRAGMA cache_size=-64000;")  # 64MB cache
+        self.repo_db.execute("PRAGMA cache_size=-64000;")
         self.repo_db.row_factory = sqlite3.Row
 
         graph_db_path = pf_dir / "graphs.db"
@@ -148,51 +148,53 @@ class CodeQueryEngine:
         """
         cursor = self.repo_db.cursor()
 
-        # Build suffix pattern for fuzzy matching
         suffix_pattern = f"%.{input_name}"
 
-        # Handle dotted names (e.g., "module.function" -> also match "function")
         last_segment_pattern = None
         if "." in input_name:
             last_segment = input_name.split(".")[-1]
             last_segment_pattern = f"%.{last_segment}"
 
-        # Build the unified UNION query
-        # Priority 1 = exact match, Priority 2 = suffix match
         query_parts = []
         params = []
 
-        # Symbol definitions (symbols, symbols_jsx, react_components)
         for table in ["symbols", "symbols_jsx"]:
-            # Exact match - priority 1
             query_parts.append(f"SELECT DISTINCT name, 1 AS priority FROM {table} WHERE name = ?")
             params.append(input_name)
-            # Suffix match - priority 2
-            query_parts.append(f"SELECT DISTINCT name, 2 AS priority FROM {table} WHERE name LIKE ?")
+
+            query_parts.append(
+                f"SELECT DISTINCT name, 2 AS priority FROM {table} WHERE name LIKE ?"
+            )
             params.append(suffix_pattern)
-            # Last segment match (if applicable)
+
             if last_segment_pattern:
-                query_parts.append(f"SELECT DISTINCT name, 2 AS priority FROM {table} WHERE name LIKE ?")
+                query_parts.append(
+                    f"SELECT DISTINCT name, 2 AS priority FROM {table} WHERE name LIKE ?"
+                )
                 params.append(last_segment_pattern)
 
-        # React components - exact match only
-        query_parts.append("SELECT DISTINCT name, 1 AS priority FROM react_components WHERE name = ?")
+        query_parts.append(
+            "SELECT DISTINCT name, 1 AS priority FROM react_components WHERE name = ?"
+        )
         params.append(input_name)
 
-        # Function calls (callee_function from function_call_args, function_call_args_jsx)
         for table in ["function_call_args", "function_call_args_jsx"]:
-            # Exact match - priority 1
-            query_parts.append(f"SELECT DISTINCT callee_function AS name, 1 AS priority FROM {table} WHERE callee_function = ?")
+            query_parts.append(
+                f"SELECT DISTINCT callee_function AS name, 1 AS priority FROM {table} WHERE callee_function = ?"
+            )
             params.append(input_name)
-            # Suffix match - priority 2
-            query_parts.append(f"SELECT DISTINCT callee_function AS name, 2 AS priority FROM {table} WHERE callee_function LIKE ?")
+
+            query_parts.append(
+                f"SELECT DISTINCT callee_function AS name, 2 AS priority FROM {table} WHERE callee_function LIKE ?"
+            )
             params.append(suffix_pattern)
-            # Last segment match (if applicable)
+
             if last_segment_pattern:
-                query_parts.append(f"SELECT DISTINCT callee_function AS name, 2 AS priority FROM {table} WHERE callee_function LIKE ?")
+                query_parts.append(
+                    f"SELECT DISTINCT callee_function AS name, 2 AS priority FROM {table} WHERE callee_function LIKE ?"
+                )
                 params.append(last_segment_pattern)
 
-        # Execute the unified query
         query = " UNION ".join(query_parts) + " ORDER BY priority, name"
         cursor.execute(query, params)
 
@@ -200,8 +202,6 @@ class CodeQueryEngine:
         for row in cursor.fetchall():
             found_symbols.add(row["name"])
 
-        # Argument expressions require Python-side filtering (operators check)
-        # This is separate because we need to filter out expressions like "a + b"
         operator_chars = {"+", "-", "*", "/", "(", ")", " "}
         for table in ["function_call_args", "function_call_args_jsx"]:
             arg_query = f"""
@@ -217,7 +217,7 @@ class CodeQueryEngine:
             cursor.execute(arg_query, arg_params)
             for row in cursor.fetchall():
                 expr = row["argument_expr"]
-                # Filter out complex expressions (containing operators/spaces)
+
                 if expr and not any(c in expr for c in operator_chars):
                     found_symbols.add(expr)
 
@@ -321,13 +321,9 @@ class CodeQueryEngine:
 
         cursor = self.repo_db.cursor()
 
-        # Build placeholders for initial symbols
         target_symbols = resolved_names
         placeholders = ",".join("?" * len(target_symbols))
 
-        # Recursive CTE: Find callers transitively up to depth
-        # Base case: Direct callers of target symbol(s)
-        # Recursive step: Callers of those callers
         query = f"""
             WITH RECURSIVE
             -- Combine both call tables into unified view
@@ -368,11 +364,9 @@ class CodeQueryEngine:
             ORDER BY depth, file, line
         """
 
-        # Params: target symbols twice (for callee_function and argument_expr), then depth limit
         params = tuple(target_symbols) + tuple(target_symbols) + (depth,)
         cursor.execute(query, params)
 
-        # Deduplicate by (caller_function, file, line) - same as old logic
         visited = set()
         all_callers = []
 
@@ -899,7 +893,6 @@ class CodeQueryEngine:
         cursor = self.repo_db.cursor()
         results = []
 
-        # Query symbols table (has end_line, type_annotation, is_typed)
         query = """
             SELECT path, name, type, line, end_line, type_annotation, is_typed
             FROM symbols
@@ -934,7 +927,6 @@ class CodeQueryEngine:
                 )
             )
 
-        # Query symbols_jsx table (different schema - no end_line, type_annotation, is_typed)
         query_jsx = """
             SELECT path, name, type, line
             FROM symbols_jsx
@@ -962,9 +954,9 @@ class CodeQueryEngine:
                     type=row["type"],
                     file=row["path"],
                     line=row["line"],
-                    end_line=row["line"],  # No end_line in symbols_jsx, use line
-                    signature=None,  # No type_annotation in symbols_jsx
-                    is_exported=False,  # No is_typed in symbols_jsx
+                    end_line=row["line"],
+                    signature=None,
+                    is_exported=False,
                     framework_type=None,
                 )
             )
@@ -1105,7 +1097,6 @@ class CodeQueryEngine:
 
         normalized_path = self._normalize_path(file_path)
 
-        # Query symbols table (has end_line, type_annotation)
         cursor.execute(
             """
             SELECT name, type, line, end_line, type_annotation, path
@@ -1130,7 +1121,6 @@ class CodeQueryEngine:
                 }
             )
 
-        # Query symbols_jsx table (different schema - no end_line, type_annotation)
         remaining = limit - len(results)
         if remaining > 0:
             cursor.execute(
@@ -1151,8 +1141,8 @@ class CodeQueryEngine:
                         "name": row["name"],
                         "type": row["type"],
                         "line": row["line"],
-                        "end_line": row["line"],  # No end_line in symbols_jsx
-                        "signature": None,  # No type_annotation in symbols_jsx
+                        "end_line": row["line"],
+                        "signature": None,
                         "path": row["path"],
                     }
                 )
@@ -1558,7 +1548,6 @@ class CodeQueryEngine:
             result["framework"] = result.get("framework") or "sequelize"
             result["models"] = models
 
-        # Go routes
         if ext == "go":
             cursor.execute(
                 """
@@ -1573,7 +1562,6 @@ class CodeQueryEngine:
                 result["framework"] = routes[0].get("framework", "gin")
                 result["routes"] = routes
 
-        # Rust routes (from attributes like #[get("/path")])
         if ext == "rs":
             cursor.execute(
                 """

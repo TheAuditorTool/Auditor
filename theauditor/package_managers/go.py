@@ -67,15 +67,12 @@ class GoPackageManager(BasePackageManager):
         deps: list[Dependency] = []
         content = path.read_text(encoding="utf-8")
 
-        # Extract module path (for reference)
         module_match = re.search(r"^module\s+(\S+)", content, re.MULTILINE)
         module_path = module_match.group(1) if module_match else ""
 
-        # Extract go version
         go_version_match = re.search(r"^go\s+(\d+\.\d+)", content, re.MULTILINE)
         go_version = go_version_match.group(1) if go_version_match else ""
 
-        # Find require block: require ( ... )
         require_block_match = re.search(r"require\s*\((.*?)\)", content, re.DOTALL)
         if require_block_match:
             for line in require_block_match.group(1).strip().split("\n"):
@@ -85,18 +82,18 @@ class GoPackageManager(BasePackageManager):
                     if dep:
                         deps.append(dep)
 
-        # Find single-line requires: require module version
-        # Exclude block starts (require followed by parenthesis)
         for match in re.finditer(r"^require\s+([a-zA-Z][\S]*)\s+(v[\S]+)", content, re.MULTILINE):
-            deps.append(Dependency(
-                name=match.group(1),
-                version=match.group(2),
-                manager="go",
-                source=str(path),
-                is_indirect=False,
-                module_path=module_path,
-                go_version=go_version,
-            ))
+            deps.append(
+                Dependency(
+                    name=match.group(1),
+                    version=match.group(2),
+                    manager="go",
+                    source=str(path),
+                    is_indirect=False,
+                    module_path=module_path,
+                    go_version=go_version,
+                )
+            )
 
         return deps
 
@@ -104,7 +101,7 @@ class GoPackageManager(BasePackageManager):
         self, line: str, source: str, module_path: str, go_version: str
     ) -> Dependency | None:
         """Parse a single require line from go.mod."""
-        # Handle inline comments
+
         if "//" in line:
             code_part = line.split("//")[0].strip()
             is_indirect = "indirect" in line
@@ -142,10 +139,9 @@ class GoPackageManager(BasePackageManager):
         Returns:
             Latest version string or None
         """
-        # Encode module path for proxy
+
         encoded_module = _encode_go_module(dep.name)
 
-        # Rate limit
         limiter = get_rate_limiter("go")
         await limiter.acquire()
 
@@ -180,22 +176,18 @@ class GoPackageManager(BasePackageManager):
         module = dep.name
         version = dep.version or "latest"
 
-        # Check allowlist
         if allowlist and module not in allowlist:
             return "skipped"
 
-        # Check cache - use safe filename
         safe_name = module.replace("/", "_")
         doc_file = output_path / f"{safe_name}.md"
         if doc_file.exists():
             return "cached"
 
-        # Rate limit
         limiter = get_rate_limiter("go")
         await limiter.acquire()
 
         try:
-            # pkg.go.dev URL
             url = f"https://pkg.go.dev/{module}@{version}"
             response = await client.get(url, timeout=10.0, follow_redirects=True)
 
@@ -205,7 +197,6 @@ class GoPackageManager(BasePackageManager):
 
             html = response.text
 
-            # Extract documentation section using regex (single code path)
             markdown = self._extract_go_docs(html)
 
             if markdown:
@@ -227,7 +218,7 @@ class GoPackageManager(BasePackageManager):
         changes DOM structure. Acceptable tradeoff: docs fetching is non-critical,
         re-running 'aud full' fixes stale output.
         """
-        # Extract text between Documentation tags
+
         match = re.search(
             r'<section[^>]*class="[^"]*Documentation[^"]*"[^>]*>(.*?)</section>',
             html,
@@ -235,7 +226,6 @@ class GoPackageManager(BasePackageManager):
         )
 
         if not match:
-            # Try alternative div structure
             match = re.search(
                 r'<div[^>]*class="[^"]*Documentation-content[^"]*"[^>]*>(.*?)</div>',
                 html,
@@ -247,26 +237,20 @@ class GoPackageManager(BasePackageManager):
 
         content = match.group(1)
 
-        # Strip scripts and styles
         content = re.sub(r"<script[^>]*>.*?</script>", "", content, flags=re.DOTALL)
         content = re.sub(r"<style[^>]*>.*?</style>", "", content, flags=re.DOTALL)
 
-        # Convert headers to markdown
         content = re.sub(r"<h1[^>]*>(.*?)</h1>", r"# \1\n", content, flags=re.DOTALL)
         content = re.sub(r"<h2[^>]*>(.*?)</h2>", r"## \1\n", content, flags=re.DOTALL)
         content = re.sub(r"<h3[^>]*>(.*?)</h3>", r"### \1\n", content, flags=re.DOTALL)
 
-        # Convert code blocks
         content = re.sub(r"<pre[^>]*>(.*?)</pre>", r"```\n\1\n```\n", content, flags=re.DOTALL)
         content = re.sub(r"<code[^>]*>(.*?)</code>", r"`\1`", content, flags=re.DOTALL)
 
-        # Convert paragraphs
         content = re.sub(r"<p[^>]*>(.*?)</p>", r"\1\n\n", content, flags=re.DOTALL)
 
-        # Strip remaining HTML tags
         content = re.sub(r"<[^>]+>", "", content)
 
-        # Normalize whitespace
         content = re.sub(r"\n{3,}", "\n\n", content)
         content = content.strip()
 
@@ -296,11 +280,9 @@ class GoPackageManager(BasePackageManager):
         upgraded = {}
 
         for dep in deps:
-            # Only upgrade deps from this file
             if dep.source != str(path):
                 continue
 
-            # Skip indirect dependencies
             if dep.is_indirect:
                 continue
 
@@ -313,12 +295,9 @@ class GoPackageManager(BasePackageManager):
             new_version = info["latest"]
             module = dep.name
 
-            # Escape module path for regex (it contains dots and slashes)
             escaped_module = re.escape(module)
             escaped_old_version = re.escape(old_version)
 
-            # Pattern: module version (in require block or single line)
-            # github.com/pkg/errors v0.9.1
             pattern = rf"({escaped_module}\s+){escaped_old_version}(\s*(?://.*)?$)"
             if re.search(pattern, content, re.MULTILINE):
                 content = re.sub(
@@ -333,7 +312,6 @@ class GoPackageManager(BasePackageManager):
         if content != original:
             path.write_text(content, encoding="utf-8")
 
-        # Print upgrade summary
         check_mark = "[OK]" if IS_WINDOWS else "[OK]"
         arrow = "->" if IS_WINDOWS else "->"
         for module, (old_ver, new_ver) in upgraded.items():

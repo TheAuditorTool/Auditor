@@ -167,16 +167,12 @@ def _check_extern_blocks(db: RuleDB) -> list[StandardFinding]:
     """Flag extern blocks for security review."""
     findings: list[StandardFinding] = []
 
-    rows = db.query(
-        Q("rust_extern_blocks")
-        .select("file_path", "line", "end_line", "abi")
-    )
+    rows = db.query(Q("rust_extern_blocks").select("file_path", "line", "end_line", "abi"))
 
     for row in rows:
         file_path, line, end_line, abi = row
         abi = abi or "C"
 
-        # Build query with conditional end_line filter
         fn_query = (
             Q("rust_extern_functions")
             .select("COUNT(*) as fn_count")
@@ -237,7 +233,9 @@ def _check_panic_across_ffi(db: RuleDB) -> list[StandardFinding]:
             .where("line <= ?", line + 100)
             .where(
                 "callee_function = ? OR callee_function LIKE ? OR callee_function = ?",
-                "catch_unwind", "%::catch_unwind", "panic::catch_unwind"
+                "catch_unwind",
+                "%::catch_unwind",
+                "panic::catch_unwind",
             )
         )
         has_catch_unwind = catch_unwind_rows[0][0] > 0 if catch_unwind_rows else False

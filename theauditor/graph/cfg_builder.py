@@ -65,7 +65,6 @@ class CFGBuilder:
             blocks = blocks_by_func[func_name]
             edges = edges_by_func.get(func_name, [])
 
-            # CFG SANITY CHECK: Log if we have edges but no blocks
             if edges and not blocks:
                 logger.warning(
                     f"[CFG SANITY] {file_path}::{func_name} has {len(edges)} edges but 0 blocks"
@@ -79,7 +78,6 @@ class CFGBuilder:
                 "metrics": self._calculate_metrics(blocks, edges),
             }
 
-        # CFG SANITY CHECK: Log aggregate stats
         total_blocks = sum(len(blocks_by_func[f]) for f in blocks_by_func)
         total_edges = sum(len(edges_by_func.get(f, [])) for f in blocks_by_func)
         logger.debug(
@@ -153,7 +151,6 @@ class CFGBuilder:
                 }
             )
 
-        # CFG SANITY CHECK: Log if we have edges but no blocks
         if edges and not blocks:
             logger.warning(
                 f"[CFG SANITY] {file_path}::{function_name} has {len(edges)} edges but 0 blocks"

@@ -28,70 +28,74 @@ METADATA = RuleMetadata(
     primary_table="graphql_fields",
 )
 
-# Sensitive field name patterns - case-insensitive matching
-SENSITIVE_PATTERNS = frozenset([
-    "password",
-    "passwd",
-    "pass_hash",
-    "passwordhash",
-    "secret",
-    "secretkey",
-    "secret_key",
-    "token",
-    "apikey",
-    "api_key",
-    "privatekey",
-    "private_key",
-    "accesstoken",
-    "access_token",
-    "refreshtoken",
-    "refresh_token",
-    "bearertoken",
-    "bearer_token",
-    "authtoken",
-    "auth_token",
-    "ssn",
-    "socialsecurity",
-    "social_security",
-    "creditcard",
-    "credit_card",
-    "cardnumber",
-    "card_number",
-    "cvv",
-    "cvc",
-    "pin",
-    "salt",
-    "hash",
-    "encryptionkey",
-    "encryption_key",
-    "signingkey",
-    "signing_key",
-    "mfasecret",
-    "mfa_secret",
-    "totpsecret",
-    "totp_secret",
-    "recoverycode",
-    "recovery_code",
-    "bankaccount",
-    "bank_account",
-    "routingnumber",
-    "routing_number",
-])
 
-# Protection directives that indicate field is intentionally secured
-PROTECTION_DIRECTIVES = frozenset([
-    "private",
-    "internal",
-    "deprecated",
-    "hidden",
-    "sensitive",
-    "redacted",
-    "masked",
-    "auth",
-    "authenticated",
-    "admin",
-    "restricted",
-])
+SENSITIVE_PATTERNS = frozenset(
+    [
+        "password",
+        "passwd",
+        "pass_hash",
+        "passwordhash",
+        "secret",
+        "secretkey",
+        "secret_key",
+        "token",
+        "apikey",
+        "api_key",
+        "privatekey",
+        "private_key",
+        "accesstoken",
+        "access_token",
+        "refreshtoken",
+        "refresh_token",
+        "bearertoken",
+        "bearer_token",
+        "authtoken",
+        "auth_token",
+        "ssn",
+        "socialsecurity",
+        "social_security",
+        "creditcard",
+        "credit_card",
+        "cardnumber",
+        "card_number",
+        "cvv",
+        "cvc",
+        "pin",
+        "salt",
+        "hash",
+        "encryptionkey",
+        "encryption_key",
+        "signingkey",
+        "signing_key",
+        "mfasecret",
+        "mfa_secret",
+        "totpsecret",
+        "totp_secret",
+        "recoverycode",
+        "recovery_code",
+        "bankaccount",
+        "bank_account",
+        "routingnumber",
+        "routing_number",
+    ]
+)
+
+
+PROTECTION_DIRECTIVES = frozenset(
+    [
+        "private",
+        "internal",
+        "deprecated",
+        "hidden",
+        "sensitive",
+        "redacted",
+        "masked",
+        "auth",
+        "authenticated",
+        "admin",
+        "restricted",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -112,7 +116,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        # Get all fields from object types
         rows = db.query(
             Q("graphql_fields")
             .select(
@@ -134,13 +137,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
             field_lower = field_name.lower()
 
-            # Check if field name matches sensitive patterns
             is_sensitive = any(pattern in field_lower for pattern in SENSITIVE_PATTERNS)
 
             if not is_sensitive:
                 continue
 
-            # Check if field has protection directives
             directive_rows = db.query(
                 Q("graphql_field_directives")
                 .select("directive_name")

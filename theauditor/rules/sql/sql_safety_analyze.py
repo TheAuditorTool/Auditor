@@ -24,10 +24,6 @@ from theauditor.rules.fidelity import RuleDB
 from theauditor.rules.query import Q
 from theauditor.rules.sql.utils import register_regexp, truncate
 
-# =============================================================================
-# METADATA
-# =============================================================================
-
 METADATA = RuleMetadata(
     name="sql_safety",
     category="security",
@@ -47,33 +43,53 @@ METADATA = RuleMetadata(
     primary_table="sql_queries",
 )
 
-# =============================================================================
-# DETECTION PATTERNS
-# =============================================================================
 
-# Aggregate functions that make LIMIT unnecessary
-AGGREGATE_FUNCTIONS = frozenset([
-    "COUNT(", "MAX(", "MIN(", "SUM(", "AVG(",
-    "GROUP BY", "DISTINCT", "HAVING",
-])
-
-# Transaction control keywords
-TRANSACTION_KEYWORDS = frozenset([
-    "transaction", "begin", "start_transaction", "beginTransaction",
-    "BEGIN", "START TRANSACTION", "db.transaction", "sequelize.transaction",
-    "withTransaction", "startTransaction",
-])
-
-# Fields commonly queried without indexes
-POTENTIALLY_UNINDEXED_FIELDS = frozenset([
-    "email", "username", "status", "created_at", "updated_at",
-    "name", "title", "description", "type", "state", "phone",
-])
+AGGREGATE_FUNCTIONS = frozenset(
+    [
+        "COUNT(",
+        "MAX(",
+        "MIN(",
+        "SUM(",
+        "AVG(",
+        "GROUP BY",
+        "DISTINCT",
+        "HAVING",
+    ]
+)
 
 
-# =============================================================================
-# MAIN ENTRY POINT
-# =============================================================================
+TRANSACTION_KEYWORDS = frozenset(
+    [
+        "transaction",
+        "begin",
+        "start_transaction",
+        "beginTransaction",
+        "BEGIN",
+        "START TRANSACTION",
+        "db.transaction",
+        "sequelize.transaction",
+        "withTransaction",
+        "startTransaction",
+    ]
+)
+
+
+POTENTIALLY_UNINDEXED_FIELDS = frozenset(
+    [
+        "email",
+        "username",
+        "status",
+        "created_at",
+        "updated_at",
+        "name",
+        "title",
+        "description",
+        "type",
+        "state",
+        "phone",
+    ]
+)
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect SQL safety issues in indexed codebase.
@@ -92,27 +108,20 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         register_regexp(db.conn)
 
-        # Data safety checks
         findings.extend(_check_update_without_where(db))
         findings.extend(_check_delete_without_where(db))
 
-        # Performance checks
         findings.extend(_check_unbounded_queries(db))
         findings.extend(_check_select_star(db))
         findings.extend(_check_large_in_clauses(db))
         findings.extend(_check_unindexed_fields(db))
 
-        # Reliability checks
         findings.extend(_check_transactions_without_rollback(db))
         findings.extend(_check_nested_transactions(db))
         findings.extend(_check_connection_leaks(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
-
-# =============================================================================
-# DATA SAFETY DETECTION
-# =============================================================================
 
 def _check_update_without_where(db: RuleDB) -> list[StandardFinding]:
     """Find UPDATE statements without WHERE clause."""
@@ -190,16 +199,11 @@ def _check_delete_without_where(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
-# =============================================================================
-# PERFORMANCE DETECTION
-# =============================================================================
-
 def _check_unbounded_queries(db: RuleDB) -> list[StandardFinding]:
     """Find SELECT queries without LIMIT that might return large datasets."""
     findings = []
     seen = set()
 
-    # Build pattern for safe queries (has LIMIT, TOP, or aggregate)
     safe_tokens = [r"\bLIMIT\b", r"\bTOP\s+\d"]
     for agg in AGGREGATE_FUNCTIONS:
         safe_tokens.append(re.escape(agg))
@@ -234,7 +238,6 @@ def _check_unbounded_queries(db: RuleDB) -> list[StandardFinding]:
 
         query_upper = query_text.upper()
 
-        # Higher severity for JOINs or multiple tables
         if "JOIN" in query_upper or (tables and "," in tables):
             severity = Severity.HIGH
         else:
@@ -324,7 +327,6 @@ def _check_large_in_clauses(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file_path, line_number, query_text, command in rows:
-        # Extract IN clause content
         query_upper = query_text.upper()
         in_pos = query_upper.find(" IN (")
         if in_pos == -1:
@@ -347,7 +349,7 @@ def _check_large_in_clauses(db: RuleDB) -> list[StandardFinding]:
         if pos <= paren_start:
             continue
 
-        in_content = query_text[paren_start:pos - 1]
+        in_content = query_text[paren_start : pos - 1]
         comma_count = in_content.count(",")
 
         if comma_count > 50:
@@ -405,9 +407,7 @@ def _check_unindexed_fields(db: RuleDB) -> list[StandardFinding]:
         query_lower = query_text.lower()
 
         for field in POTENTIALLY_UNINDEXED_FIELDS:
-            # Check for field in WHERE clause
             if f" {field} =" in query_lower or f".{field} =" in query_lower:
-                # Skip if query is bounded by LIMIT or uses primary key
                 if "limit" in query_lower or " id " in query_lower or " id=" in query_lower:
                     continue
 
@@ -432,10 +432,6 @@ def _check_unindexed_fields(db: RuleDB) -> list[StandardFinding]:
 
     return findings
 
-
-# =============================================================================
-# RELIABILITY DETECTION
-# =============================================================================
 
 def _check_transactions_without_rollback(db: RuleDB) -> list[StandardFinding]:
     """Find transactions that lack rollback in error handlers."""

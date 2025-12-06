@@ -346,7 +346,9 @@ export function extractFunctions(
 
   traverse(sourceFile);
 
-  logger.debug(`extractFunctions: Extracted ${functions.length} functions, ${func_params.length} params, ${func_decorators.length} decorators`);
+  logger.debug(
+    `extractFunctions: Extracted ${functions.length} functions, ${func_params.length} params, ${func_decorators.length} decorators`,
+  );
 
   return {
     functions,

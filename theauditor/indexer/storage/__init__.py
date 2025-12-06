@@ -1,6 +1,10 @@
 """Storage layer: Domain-specific handler modules."""
+
 from typing import Any
 
+from theauditor.utils.logging import logger
+
+from ..fidelity_utils import FidelityToken
 from .bash_storage import BashStorage
 from .core_storage import CoreStorage
 from .go_storage import GoStorage
@@ -9,22 +13,13 @@ from .node_storage import NodeStorage
 from .python_storage import PythonStorage
 from .rust_storage import RustStorage
 
-from ..fidelity_utils import FidelityToken
-from theauditor.utils.logging import logger
-
-# Priority order for parent-child relationships.
-# Parents MUST be processed before their children to populate gatekeeper sets.
-# Keys in this list are processed first (in order), then remaining keys.
 PRIORITY_ORDER = [
-    # React: hooks before dependencies
     "react_hooks",
     "react_hook_dependencies",
-    # Vue: components before props/emits/setup_returns
     "vue_components",
     "vue_component_props",
     "vue_component_emits",
     "vue_component_setup_returns",
-    # Angular: modules/components before children
     "angular_modules",
     "angular_module_declarations",
     "angular_module_imports",
@@ -32,10 +27,8 @@ PRIORITY_ORDER = [
     "angular_module_exports",
     "angular_components",
     "angular_component_styles",
-    # CDK: constructs before properties
     "cdk_constructs",
     "cdk_construct_properties",
-    # Sequelize: models before fields/associations
     "sequelize_models",
     "sequelize_model_fields",
     "sequelize_associations",
@@ -76,10 +69,9 @@ class DataStorer:
         Uses PRIORITY_ORDER to ensure parents are processed before children,
         enabling gatekeeper sets to be populated before child validation.
         """
-        # Force POSIX paths to match 'files' table normalized format
+
         file_path = file_path.replace("\\", "/")
 
-        # Reset per-file gatekeeper state in all storage engines
         self.core.begin_file_processing()
         self.python.begin_file_processing()
         self.node.begin_file_processing()
@@ -125,55 +117,42 @@ class DataStorer:
             if handler:
                 handler(file_path, data, jsx_pass)
 
-                # Get manifest tx_id for receipt echo
                 manifest = extracted.get("_extraction_manifest", {})
                 table_manifest = manifest.get(data_type, {})
                 tx_id = table_manifest.get("tx_id") if isinstance(table_manifest, dict) else None
 
                 if isinstance(data, list):
                     if len(data) > 0 and isinstance(data[0], dict):
-                        # Rich receipt for dict-based data
                         columns = sorted(data[0].keys())
                         data_bytes = sum(len(str(v)) for row in data for v in row.values())
                         receipt[data_type] = FidelityToken.create_receipt(
-                            count=len(data),
-                            columns=columns,
-                            tx_id=tx_id,
-                            data_bytes=data_bytes
+                            count=len(data), columns=columns, tx_id=tx_id, data_bytes=data_bytes
                         )
                     else:
-                        # Empty list or non-dict list - still use dict format
                         receipt[data_type] = FidelityToken.create_receipt(
-                            count=len(data),
-                            columns=[],
-                            tx_id=tx_id,
-                            data_bytes=0
+                            count=len(data), columns=[], tx_id=tx_id, data_bytes=0
                         )
                 elif isinstance(data, dict):
                     receipt[data_type] = FidelityToken.create_receipt(
                         count=len(data),
                         columns=sorted(data.keys()) if data else [],
                         tx_id=tx_id,
-                        data_bytes=len(str(data))
+                        data_bytes=len(str(data)),
                     )
                 else:
                     receipt[data_type] = FidelityToken.create_receipt(
                         count=1 if data else 0,
                         columns=[],
                         tx_id=tx_id,
-                        data_bytes=len(str(data)) if data else 0
+                        data_bytes=len(str(data)) if data else 0,
                     )
             else:
-                # WARNING: Data being dropped - no handler registered
-                # This exposes schema/handler mismatches immediately
                 logger.warning(f"No handler for data type '{data_type}' - data dropped")
 
-        # PASS 1: Process priority keys in order (parents before children)
         for priority_key in PRIORITY_ORDER:
             if priority_key in extracted:
                 process_key(priority_key, extracted[priority_key])
 
-        # PASS 2: Process remaining keys (not in PRIORITY_ORDER)
         priority_set = set(PRIORITY_ORDER)
         for data_type, data in extracted.items():
             if data_type not in priority_set:

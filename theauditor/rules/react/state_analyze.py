@@ -31,7 +31,15 @@ METADATA = RuleMetadata(
     category="react",
     target_extensions=[".jsx", ".tsx", ".js", ".ts"],
     target_file_patterns=["frontend/", "client/", "src/"],
-    exclude_patterns=["node_modules/", "__tests__/", "*.test.jsx", "*.test.tsx", "*.spec.jsx", "*.spec.tsx", "migrations/"],
+    exclude_patterns=[
+        "node_modules/",
+        "__tests__/",
+        "*.test.jsx",
+        "*.test.tsx",
+        "*.spec.jsx",
+        "*.spec.tsx",
+        "migrations/",
+    ],
     execution_scope="database",
     primary_table="react_hooks",
 )
@@ -47,25 +55,60 @@ class ReactStatePatterns:
 
     STATE_PREFIXES: frozenset = frozenset(["is", "has", "should", "can", "will", "did"])
 
-    COMMON_STATE: frozenset = frozenset([
-        "loading", "error", "data", "isLoading", "isError",
-        "isOpen", "isVisible", "isActive", "isDisabled",
-    ])
+    COMMON_STATE: frozenset = frozenset(
+        [
+            "loading",
+            "error",
+            "data",
+            "isLoading",
+            "isError",
+            "isOpen",
+            "isVisible",
+            "isActive",
+            "isDisabled",
+        ]
+    )
 
-    CONTEXT_PATTERNS: frozenset = frozenset([
-        "context", "store", "provider", "global", "app",
-        "theme", "auth", "user", "session", "config",
-    ])
+    CONTEXT_PATTERNS: frozenset = frozenset(
+        [
+            "context",
+            "store",
+            "provider",
+            "global",
+            "app",
+            "theme",
+            "auth",
+            "user",
+            "session",
+            "config",
+        ]
+    )
 
-    DRILL_PROPS: frozenset = frozenset([
-        "user", "auth", "theme", "config", "settings",
-        "data", "state", "dispatch", "actions",
-    ])
+    DRILL_PROPS: frozenset = frozenset(
+        [
+            "user",
+            "auth",
+            "theme",
+            "config",
+            "settings",
+            "data",
+            "state",
+            "dispatch",
+            "actions",
+        ]
+    )
 
-    EXPENSIVE_INIT_PATTERNS: frozenset = frozenset([
-        "fetch", "localStorage", "sessionStorage", "JSON.parse",
-        "indexedDB", "WebSocket", "new XMLHttpRequest",
-    ])
+    EXPENSIVE_INIT_PATTERNS: frozenset = frozenset(
+        [
+            "fetch",
+            "localStorage",
+            "sessionStorage",
+            "JSON.parse",
+            "indexedDB",
+            "WebSocket",
+            "new XMLHttpRequest",
+        ]
+    )
 
 
 class ReactStateAnalyzer:
@@ -123,10 +166,7 @@ class ReactStateAnalyzer:
 
     def _check_missing_usereducer(self) -> None:
         """Check for components that should use useReducer instead of multiple useState."""
-        rows = self.db.query(
-            Q("react_hooks")
-            .select("file", "component_name", "hook_name")
-        )
+        rows = self.db.query(Q("react_hooks").select("file", "component_name", "hook_name"))
 
         component_hooks: dict[tuple, dict] = {}
         for file, component, hook_name in rows:
@@ -175,7 +215,9 @@ class ReactStateAnalyzer:
             source_lower = source_str.lower()
             is_boolean_state = "true" in source_lower or "false" in source_lower
 
-            if is_boolean_state and not any(var_name.startswith(prefix) for prefix in self.patterns.STATE_PREFIXES):
+            if is_boolean_state and not any(
+                var_name.startswith(prefix) for prefix in self.patterns.STATE_PREFIXES
+            ):
                 self.findings.append(
                     StandardFinding(
                         rule_name="react-state-naming",
@@ -306,21 +348,25 @@ class ReactStateAnalyzer:
 
     def _check_unnecessary_state(self) -> None:
         """Check for state that could be derived or computed."""
-        use_state_rows = list(self.db.query(
-            Q("react_hooks")
-            .select("file", "line", "component_name")
-            .where("hook_name = ?", "useState")
-            .limit(200)
-        ))
+        use_state_rows = list(
+            self.db.query(
+                Q("react_hooks")
+                .select("file", "line", "component_name")
+                .where("hook_name = ?", "useState")
+                .limit(200)
+            )
+        )
 
-        use_effect_rows = list(self.db.query(
-            Q("react_hooks")
-            .select("file", "line", "component_name", "dependency_array")
-            .where("hook_name = ?", "useEffect")
-            .where("dependency_array IS NOT NULL")
-            .where("dependency_array != ?", "[]")
-            .limit(200)
-        ))
+        use_effect_rows = list(
+            self.db.query(
+                Q("react_hooks")
+                .select("file", "line", "component_name", "dependency_array")
+                .where("hook_name = ?", "useEffect")
+                .where("dependency_array IS NOT NULL")
+                .where("dependency_array != ?", "[]")
+                .limit(200)
+            )
+        )
 
         effects_by_component: dict[tuple, list[tuple]] = {}
         for file, line, component, deps in use_effect_rows:

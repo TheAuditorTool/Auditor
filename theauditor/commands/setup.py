@@ -196,7 +196,6 @@ def setup_ai(target, sync, dry_run, show_versions):
     if not target_dir.exists():
         raise click.ClickException(f"Target directory does not exist: {target_dir}")
 
-    # Modern header with Rich Panel
     mode_style = "yellow" if dry_run else "green"
     mode_text = "DRY RUN" if dry_run else "EXECUTE"
 
@@ -207,13 +206,15 @@ def setup_ai(target, sync, dry_run, show_versions):
     header_content.append(mode_text, style=f"bold {mode_style}")
 
     console.print()
-    console.print(Panel(
-        header_content,
-        title="[bold blue]TheAuditor[/bold blue] [dim]AI Development Setup[/dim]",
-        subtitle="[dim]Zero-Optional Installation[/dim]",
-        border_style="blue",
-        padding=(1, 2),
-    ))
+    console.print(
+        Panel(
+            header_content,
+            title="[bold blue]TheAuditor[/bold blue] [dim]AI Development Setup[/dim]",
+            subtitle="[dim]Zero-Optional Installation[/dim]",
+            border_style="blue",
+            padding=(1, 2),
+        )
+    )
 
     if dry_run:
         plan_table = Table(show_header=False, box=None, padding=(0, 2))
@@ -222,16 +223,20 @@ def setup_ai(target, sync, dry_run, show_versions):
 
         plan_table.add_row("1.", f"Create/verify venv at [cyan]{target_dir}/.auditor_venv[/cyan]")
         plan_table.add_row("2.", "Install TheAuditor [dim](editable)[/dim] into venv")
-        plan_table.add_row("3.", "Install JS/TS analysis tools [dim](ESLint, TypeScript, etc.)[/dim]")
+        plan_table.add_row(
+            "3.", "Install JS/TS analysis tools [dim](ESLint, TypeScript, etc.)[/dim]"
+        )
 
         console.print()
-        console.print(Panel(
-            plan_table,
-            title="[bold yellow]DRY RUN[/bold yellow] [dim]Plan of Operations[/dim]",
-            subtitle="[dim]No files will be modified[/dim]",
-            border_style="yellow",
-            padding=(1, 1),
-        ))
+        console.print(
+            Panel(
+                plan_table,
+                title="[bold yellow]DRY RUN[/bold yellow] [dim]Plan of Operations[/dim]",
+                subtitle="[dim]No files will be modified[/dim]",
+                border_style="yellow",
+                padding=(1, 1),
+            )
+        )
         return
 
     if show_versions:
@@ -243,14 +248,19 @@ def setup_ai(target, sync, dry_run, show_versions):
         node_found = sum(1 for t in results["node"] if t.available)
         rust_found = sum(1 for t in results["rust"] if t.available)
 
-        # Summary counts
         summary = Text()
         summary.append("Python: ", style="dim")
-        summary.append(f"{python_found}/{len(results['python'])}", style="green" if python_found else "red")
+        summary.append(
+            f"{python_found}/{len(results['python'])}", style="green" if python_found else "red"
+        )
         summary.append("  Node: ", style="dim")
-        summary.append(f"{node_found}/{len(results['node'])}", style="green" if node_found else "red")
+        summary.append(
+            f"{node_found}/{len(results['node'])}", style="green" if node_found else "red"
+        )
         summary.append("  Rust: ", style="dim")
-        summary.append(f"{rust_found}/{len(results['rust'])}", style="green" if rust_found else "red")
+        summary.append(
+            f"{rust_found}/{len(results['rust'])}", style="green" if rust_found else "red"
+        )
 
         console.print()
         console.print(Panel(summary, title="[bold]Tool Versions[/bold]", border_style="blue"))
@@ -266,12 +276,12 @@ def setup_ai(target, sync, dry_run, show_versions):
                 status = tool.display_version
                 source_tag = tool.source if tool.available and tool.source != "system" else ""
                 tools_table.add_row(
-                    tool.name,
-                    f"[{status_style}]{status}[/{status_style}]",
-                    source_tag
+                    tool.name, f"[{status_style}]{status}[/{status_style}]", source_tag
                 )
 
-            console.print(Panel(tools_table, title=f"[bold]{category.upper()}[/bold]", border_style="dim"))
+            console.print(
+                Panel(tools_table, title=f"[bold]{category.upper()}[/bold]", border_style="dim")
+            )
         return
 
     console.print()
@@ -284,31 +294,32 @@ def setup_ai(target, sync, dry_run, show_versions):
         if not success:
             raise click.ClickException(f"Failed to setup venv at {venv_path}")
 
-        # Build summary table
         summary_table = Table(show_header=False, box=None, padding=(0, 2))
         summary_table.add_column("Status", style="green")
         summary_table.add_column("Item", style="white")
 
         summary_table.add_row(
             "[bold green]OK[/bold green]",
-            f"Sandboxed environment: [cyan]{target_dir}/.auditor_venv[/cyan]"
+            f"Sandboxed environment: [cyan]{target_dir}/.auditor_venv[/cyan]",
         )
         summary_table.add_row(
             "[bold green]OK[/bold green]",
-            f"JS/TS tools: [cyan]{target_dir}/.auditor_venv/.theauditor_tools[/cyan]"
+            f"JS/TS tools: [cyan]{target_dir}/.auditor_venv/.theauditor_tools[/cyan]",
         )
         summary_table.add_row(
             "[bold green]OK[/bold green]",
-            "Professional linters: [dim]ruff, mypy, black, ESLint, TypeScript[/dim]"
+            "Professional linters: [dim]ruff, mypy, black, ESLint, TypeScript[/dim]",
         )
 
         console.print()
-        console.print(Panel(
-            summary_table,
-            title="[bold green]Setup Complete[/bold green]",
-            border_style="green",
-            padding=(1, 1),
-        ))
+        console.print(
+            Panel(
+                summary_table,
+                title="[bold green]Setup Complete[/bold green]",
+                border_style="green",
+                padding=(1, 1),
+            )
+        )
 
     except Exception as e:
         raise click.ClickException(f"Setup failed: {e}") from e

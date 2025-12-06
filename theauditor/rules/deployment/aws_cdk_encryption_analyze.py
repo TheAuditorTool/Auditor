@@ -80,15 +80,13 @@ def _check_s3_encryption(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
-        if not (
-            "Bucket" in cdk_class
-            and ("s3" in cdk_class.lower() or "aws_s3" in cdk_class)
-        ):
+        if not ("Bucket" in cdk_class and ("s3" in cdk_class.lower() or "aws_s3" in cdk_class)):
             continue
 
         display_name = construct_name or "UnnamedBucket"
@@ -134,8 +132,9 @@ def _check_rds_public_subnet(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -188,8 +187,9 @@ def _check_unencrypted_rds(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -205,7 +205,9 @@ def _check_unencrypted_rds(db: RuleDB) -> list[StandardFinding]:
             Q("cdk_construct_properties")
             .select("property_value_expr", "line")
             .where("construct_id = ?", construct_id)
-            .where("property_name = ? OR property_name = ?", "storage_encrypted", "storageEncrypted")
+            .where(
+                "property_name = ? OR property_name = ?", "storage_encrypted", "storageEncrypted"
+            )
         )
 
         if not prop_rows:
@@ -257,8 +259,9 @@ def _check_unencrypted_ebs(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -328,8 +331,9 @@ def _check_dynamodb_encryption(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -403,8 +407,9 @@ def _check_elasticache_encryption(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -443,7 +448,9 @@ def _check_elasticache_encryption(db: RuleDB) -> list[StandardFinding]:
                     confidence="high",
                     file_path=file_path,
                     line=props[at_rest_key][1] if at_rest_key else line,
-                    snippet="at_rest_encryption_enabled=False" if at_rest_key else f"elasticache.CfnReplicationGroup(self, '{display_name}', ...)",
+                    snippet="at_rest_encryption_enabled=False"
+                    if at_rest_key
+                    else f"elasticache.CfnReplicationGroup(self, '{display_name}', ...)",
                     category="missing_encryption",
                     cwe_id="CWE-311",
                     additional_info={
@@ -463,7 +470,9 @@ def _check_elasticache_encryption(db: RuleDB) -> list[StandardFinding]:
                     confidence="high",
                     file_path=file_path,
                     line=props[transit_key][1] if transit_key else line,
-                    snippet="transit_encryption_enabled=False" if transit_key else f"elasticache.CfnReplicationGroup(self, '{display_name}', ...)",
+                    snippet="transit_encryption_enabled=False"
+                    if transit_key
+                    else f"elasticache.CfnReplicationGroup(self, '{display_name}', ...)",
                     category="missing_encryption",
                     cwe_id="CWE-319",
                     additional_info={
@@ -482,8 +491,9 @@ def _check_efs_encryption(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -551,8 +561,9 @@ def _check_kinesis_encryption(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -620,8 +631,9 @@ def _check_sqs_encryption(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -642,7 +654,11 @@ def _check_sqs_encryption(db: RuleDB) -> list[StandardFinding]:
         props = {row[0]: (row[1], row[2]) for row in prop_rows}
 
         encryption_key = next(
-            (k for k in props if k in ("encryption_master_key", "encryptionMasterKey", "encryption")),
+            (
+                k
+                for k in props
+                if k in ("encryption_master_key", "encryptionMasterKey", "encryption")
+            ),
             None,
         )
 
@@ -695,8 +711,9 @@ def _check_sns_encryption(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:

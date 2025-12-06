@@ -166,7 +166,9 @@ def _check_response_methods(
             else:
                 severity = Severity.LOW
 
-            snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+            snippet = (
+                f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+            )
             findings.append(
                 StandardFinding(
                     rule_name="xss-response-unsafe",
@@ -201,7 +203,11 @@ def _check_dom_manipulation(db: RuleDB, safe_sinks: frozenset[str]) -> list[Stan
         has_user_input = any(src in source_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input and not is_sanitized(source_safe):
-            snippet = f"{target} = {source_safe[:60]}..." if len(source_safe) > 60 else f"{target} = {source_safe}"
+            snippet = (
+                f"{target} = {source_safe[:60]}..."
+                if len(source_safe) > 60
+                else f"{target} = {source_safe}"
+            )
             findings.append(
                 StandardFinding(
                     rule_name="xss-dom-innerhtml",
@@ -228,7 +234,9 @@ def _check_dom_manipulation(db: RuleDB, safe_sinks: frozenset[str]) -> list[Stan
         has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input and not is_sanitized(args_safe):
-            snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+            snippet = (
+                f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+            )
             findings.append(
                 StandardFinding(
                     rule_name="xss-document-write",
@@ -258,7 +266,11 @@ def _check_dom_manipulation(db: RuleDB, safe_sinks: frozenset[str]) -> list[Stan
         has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input and not is_sanitized(args_safe):
-            snippet = f"{func}(_, {args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}(_, {args_safe})"
+            snippet = (
+                f"{func}(_, {args_safe[:60]}...)"
+                if len(args_safe) > 60
+                else f"{func}(_, {args_safe})"
+            )
             findings.append(
                 StandardFinding(
                     rule_name="xss-insert-adjacent-html",
@@ -292,7 +304,9 @@ def _check_dangerous_functions(db: RuleDB) -> list[StandardFinding]:
         has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
-            snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+            snippet = (
+                f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+            )
             findings.append(
                 StandardFinding(
                     rule_name="xss-code-injection",
@@ -324,7 +338,11 @@ def _check_dangerous_functions(db: RuleDB) -> list[StandardFinding]:
         has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
-            snippet = f'{func}("{args_safe[:40]}...", ...)' if len(args_safe) > 40 else f'{func}("{args_safe}", ...)'
+            snippet = (
+                f'{func}("{args_safe[:40]}...", ...)'
+                if len(args_safe) > 40
+                else f'{func}("{args_safe}", ...)'
+            )
             findings.append(
                 StandardFinding(
                     rule_name="xss-timeout-eval",
@@ -394,7 +412,9 @@ def _check_react_dangerouslysetinnerhtml(db: RuleDB) -> list[StandardFinding]:
 
         for file, line, callee, param, args in rows:
             args_safe = args or ""
-            is_dangerous = ("dangerouslySetInnerHTML" in (callee or "")) or (param == "dangerouslySetInnerHTML")
+            is_dangerous = ("dangerouslySetInnerHTML" in (callee or "")) or (
+                param == "dangerouslySetInnerHTML"
+            )
             if not is_dangerous:
                 continue
 
@@ -448,7 +468,9 @@ def _check_vue_vhtml_directive(db: RuleDB) -> list[StandardFinding]:
         has_props = "props" in expr_safe
 
         if has_user_input or has_route or has_props:
-            snippet = f'v-html="{expr_safe[:60]}"' if len(expr_safe) > 60 else f'v-html="{expr_safe}"'
+            snippet = (
+                f'v-html="{expr_safe[:60]}"' if len(expr_safe) > 60 else f'v-html="{expr_safe}"'
+            )
             findings.append(
                 StandardFinding(
                     rule_name="xss-vue-vhtml",
@@ -494,7 +516,9 @@ def _check_angular_bypass(db: RuleDB) -> list[StandardFinding]:
         has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
-            snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+            snippet = (
+                f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+            )
             findings.append(
                 StandardFinding(
                     rule_name="xss-angular-bypass",
@@ -516,8 +540,14 @@ def _check_jquery_methods(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     jquery_dangerous_methods = [
-        ".html", ".append", ".prepend", ".after",
-        ".before", ".replaceWith", ".wrap", ".wrapInner",
+        ".html",
+        ".append",
+        ".prepend",
+        ".after",
+        ".before",
+        ".replaceWith",
+        ".wrap",
+        ".wrapInner",
     ]
 
     rows = db.query(
@@ -541,7 +571,9 @@ def _check_jquery_methods(db: RuleDB) -> list[StandardFinding]:
         has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input and not is_sanitized(args_safe):
-            snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+            snippet = (
+                f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+            )
             findings.append(
                 StandardFinding(
                     rule_name="xss-jquery-dom",
@@ -579,7 +611,11 @@ def _check_template_injection(db: RuleDB, frameworks: set[str]) -> list[Standard
             has_user_input = any(src in args_safe for src in COMMON_INPUT_SOURCES)
 
             if has_user_input:
-                snippet = f"{func}({args_safe[:60]}...)" if len(args_safe) > 60 else f"{func}({args_safe})"
+                snippet = (
+                    f"{func}({args_safe[:60]}...)"
+                    if len(args_safe) > 60
+                    else f"{func}({args_safe})"
+                )
                 findings.append(
                     StandardFinding(
                         rule_name="xss-template-injection",
@@ -622,7 +658,9 @@ def _check_template_injection(db: RuleDB, frameworks: set[str]) -> list[Standard
     return findings
 
 
-def _check_direct_user_input_to_sink(db: RuleDB, safe_sinks: frozenset[str]) -> list[StandardFinding]:
+def _check_direct_user_input_to_sink(
+    db: RuleDB, safe_sinks: frozenset[str]
+) -> list[StandardFinding]:
     """Check for direct user input passed to dangerous sinks."""
     findings: list[StandardFinding] = []
 
@@ -687,7 +725,11 @@ def _check_url_javascript_protocol(db: RuleDB) -> list[StandardFinding]:
         has_user_input = any(src in source_safe for src in COMMON_INPUT_SOURCES)
 
         if has_user_input:
-            snippet = f"{target} = {source_safe[:60]}..." if len(source_safe) > 60 else f"{target} = {source_safe}"
+            snippet = (
+                f"{target} = {source_safe[:60]}..."
+                if len(source_safe) > 60
+                else f"{target} = {source_safe}"
+            )
             findings.append(
                 StandardFinding(
                     rule_name="xss-javascript-protocol",
@@ -771,12 +813,14 @@ def _check_postmessage_xss(db: RuleDB) -> list[StandardFinding]:
     message_data_patterns = ["event.data", "message.data"]
     dangerous_operations = [".innerHTML", "eval(", "Function("]
 
-    assignment_rows = list(db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .where("source_expr IS NOT NULL")
-        .order_by("file, line")
-    ))
+    assignment_rows = list(
+        db.query(
+            Q("assignments")
+            .select("file", "line", "target_var", "source_expr")
+            .where("source_expr IS NOT NULL")
+            .order_by("file, line")
+        )
+    )
 
     for file, line, target, source in assignment_rows:
         source_safe = source or ""
@@ -785,9 +829,8 @@ def _check_postmessage_xss(db: RuleDB) -> list[StandardFinding]:
         if not has_message_data:
             continue
 
-        has_dangerous_op = (
-            any(op in target_safe for op in dangerous_operations)
-            or any(op in source_safe for op in dangerous_operations)
+        has_dangerous_op = any(op in target_safe for op in dangerous_operations) or any(
+            op in source_safe for op in dangerous_operations
         )
         if not has_dangerous_op:
             continue

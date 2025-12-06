@@ -36,11 +36,13 @@ METADATA = RuleMetadata(
     primary_table="cdk_constructs",
 )
 
-PUBLIC_ACLS = frozenset([
-    "PUBLIC_READ",
-    "PUBLIC_READ_WRITE",
-    "AUTHENTICATED_READ",
-])
+PUBLIC_ACLS = frozenset(
+    [
+        "PUBLIC_READ",
+        "PUBLIC_READ_WRITE",
+        "AUTHENTICATED_READ",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -291,7 +293,7 @@ def _check_website_hosting(db: RuleDB) -> list[StandardFinding]:
                 confidence="high",
                 file_path=file_path,
                 line=line,
-                snippet=f"website_index_document or website_redirect configured",
+                snippet="website_index_document or website_redirect configured",
                 category="public_exposure",
                 cwe_id="CWE-732",
                 additional_info={

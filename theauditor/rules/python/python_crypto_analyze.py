@@ -25,138 +25,158 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# Weak hash algorithms - collision attacks possible
-WEAK_HASHES = frozenset([
-    "md5",
-    "hashlib.md5",
-    "MD5",
-    "md5sum",
-    "sha1",
-    "hashlib.sha1",
-    "SHA1",
-    "sha1sum",
-    "sha",
-    "hashlib.sha",
-    "SHA",
-])
 
-# Broken cryptographic algorithms - should never be used
-BROKEN_CRYPTO = frozenset([
-    "DES",
-    "des",
-    "DES3",
-    "3DES",
-    "RC2",
-    "RC4",
-    "Blowfish",
-    "IDEA",
-    "CAST5",
-    "XOR",
-])
+WEAK_HASHES = frozenset(
+    [
+        "md5",
+        "hashlib.md5",
+        "MD5",
+        "md5sum",
+        "sha1",
+        "hashlib.sha1",
+        "SHA1",
+        "sha1sum",
+        "sha",
+        "hashlib.sha",
+        "SHA",
+    ]
+)
 
-# ECB mode patterns - insecure, preserves patterns
-ECB_MODE_PATTERNS = frozenset([
-    "MODE_ECB",
-    "ECB",
-    "mode=ECB",
-    "AES.MODE_ECB",
-    "DES.MODE_ECB",
-    "Blowfish.MODE_ECB",
-])
 
-# Insecure random for crypto (excludes SystemRandom which is secure)
-INSECURE_RANDOM = frozenset([
-    "random.random",
-    "random.randint",
-    "random.choice",
-    "random.randrange",
-    "random.seed",
-    "random.getrandbits",
-    "random.randbytes",
-])
+BROKEN_CRYPTO = frozenset(
+    [
+        "DES",
+        "des",
+        "DES3",
+        "3DES",
+        "RC2",
+        "RC4",
+        "Blowfish",
+        "IDEA",
+        "CAST5",
+        "XOR",
+    ]
+)
 
-# Key/secret variable name patterns
-KEY_VARIABLES = frozenset([
-    "key",
-    "secret",
-    "password",
-    "passphrase",
-    "pin",
-    "api_key",
-    "secret_key",
-    "private_key",
-    "encryption_key",
-    "signing_key",
-    "master_key",
-    "session_key",
-    "symmetric_key",
-    "aes_key",
-    "des_key",
-    "rsa_key",
-    "dsa_key",
-    "ecdsa_key",
-])
 
-# Key derivation functions
-KDF_METHODS = frozenset([
-    "PBKDF2",
-    "pbkdf2_hmac",
-    "scrypt",
-    "argon2",
-    "bcrypt",
-    "hashpw",
-    "kdf",
-    "derive_key",
-])
+ECB_MODE_PATTERNS = frozenset(
+    [
+        "MODE_ECB",
+        "ECB",
+        "mode=ECB",
+        "AES.MODE_ECB",
+        "DES.MODE_ECB",
+        "Blowfish.MODE_ECB",
+    ]
+)
 
-# Weak iteration counts for KDFs
+
+INSECURE_RANDOM = frozenset(
+    [
+        "random.random",
+        "random.randint",
+        "random.choice",
+        "random.randrange",
+        "random.seed",
+        "random.getrandbits",
+        "random.randbytes",
+    ]
+)
+
+
+KEY_VARIABLES = frozenset(
+    [
+        "key",
+        "secret",
+        "password",
+        "passphrase",
+        "pin",
+        "api_key",
+        "secret_key",
+        "private_key",
+        "encryption_key",
+        "signing_key",
+        "master_key",
+        "session_key",
+        "symmetric_key",
+        "aes_key",
+        "des_key",
+        "rsa_key",
+        "dsa_key",
+        "ecdsa_key",
+    ]
+)
+
+
+KDF_METHODS = frozenset(
+    [
+        "PBKDF2",
+        "pbkdf2_hmac",
+        "scrypt",
+        "argon2",
+        "bcrypt",
+        "hashpw",
+        "kdf",
+        "derive_key",
+    ]
+)
+
+
 WEAK_ITERATIONS = frozenset(["1000", "5000", "10000"])
 
-# JWT patterns
-JWT_PATTERNS = frozenset([
-    "jwt.encode",
-    "jwt.decode",
-    "HS256",
-    "none",
-    "None",
-    "algorithm=none",
-    'algorithm="none"',
-    "algorithm='none'",
-])
 
-# SSL/TLS vulnerability patterns
-SSL_PATTERNS = frozenset([
-    "ssl.CERT_NONE",
-    "verify=False",
-    "check_hostname=False",
-    "SSLContext",
-    "PROTOCOL_SSLv2",
-    "PROTOCOL_SSLv3",
-    "PROTOCOL_TLSv1",
-    "PROTOCOL_TLSv1_1",
-])
+JWT_PATTERNS = frozenset(
+    [
+        "jwt.encode",
+        "jwt.decode",
+        "HS256",
+        "none",
+        "None",
+        "algorithm=none",
+        'algorithm="none"',
+        "algorithm='none'",
+    ]
+)
 
-# Security context keywords
-SECURITY_KEYWORDS = frozenset([
-    "auth",
-    "password",
-    "token",
-    "session",
-    "login",
-    "user",
-    "secret",
-])
 
-# Crypto context keywords
-CRYPTO_CONTEXT_KEYWORDS = frozenset([
-    "key",
-    "token",
-    "nonce",
-    "salt",
-    "iv",
-    "crypto",
-    "encrypt",
-])
+SSL_PATTERNS = frozenset(
+    [
+        "ssl.CERT_NONE",
+        "verify=False",
+        "check_hostname=False",
+        "SSLContext",
+        "PROTOCOL_SSLv2",
+        "PROTOCOL_SSLv3",
+        "PROTOCOL_TLSv1",
+        "PROTOCOL_TLSv1_1",
+    ]
+)
+
+
+SECURITY_KEYWORDS = frozenset(
+    [
+        "auth",
+        "password",
+        "token",
+        "session",
+        "login",
+        "user",
+        "secret",
+    ]
+)
+
+
+CRYPTO_CONTEXT_KEYWORDS = frozenset(
+    [
+        "key",
+        "token",
+        "nonce",
+        "salt",
+        "iv",
+        "crypto",
+        "encrypt",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -203,7 +223,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                 )
             )
 
-        # Run all crypto checks
         _check_weak_hashes(db, add_finding)
         _check_broken_crypto(db, add_finding)
         _check_ecb_mode(db, add_finding)
@@ -232,16 +251,11 @@ def _check_weak_hashes(db: RuleDB, add_finding) -> None:
 
         method_lower = method.lower()
 
-        is_weak = (
-            method in WEAK_HASHES
-            or ".md5" in method_lower
-            or ".sha1" in method_lower
-        )
+        is_weak = method in WEAK_HASHES or ".md5" in method_lower or ".sha1" in method_lower
 
         if not is_weak:
             continue
 
-        # Check if used in security context (higher severity)
         is_security = _check_security_context(db, file, line)
 
         if is_security:
@@ -281,18 +295,21 @@ def _check_broken_crypto(db: RuleDB, add_finding) -> None:
 
         method_upper = method.upper()
 
-        # Check method name
         has_broken = "DES" in method_upper or "RC4" in method_upper or "RC2" in method_upper
 
-        # Check args for broken algorithm names
         if not has_broken and args:
             has_broken = any(algo in str(args) for algo in BROKEN_CRYPTO)
 
         if not has_broken:
             continue
 
-        # Determine which algorithm
-        algo = "DES" if "DES" in method_upper else "RC4" if "RC4" in method_upper else "broken algorithm"
+        algo = (
+            "DES"
+            if "DES" in method_upper
+            else "RC4"
+            if "RC4" in method_upper
+            else "broken algorithm"
+        )
 
         add_finding(
             file=file,
@@ -320,11 +337,9 @@ def _check_ecb_mode(db: RuleDB, add_finding) -> None:
 
         has_ecb = False
 
-        # Check args for ECB patterns
         if args:
             has_ecb = any(ecb in str(args) for ecb in ECB_MODE_PATTERNS) or "MODE_ECB" in str(args)
 
-        # Check method name
         if "ECB" in method.upper():
             has_ecb = True
 
@@ -352,7 +367,6 @@ def _check_insecure_random(db: RuleDB, add_finding) -> None:
     for row in rows:
         file, line, method, args, caller = row[0], row[1], row[2], row[3], row[4]
 
-        # Check if used in cryptographic context
         is_crypto = _check_crypto_context(db, file, line, caller)
 
         if is_crypto:
@@ -382,19 +396,13 @@ def _check_weak_kdf(db: RuleDB, add_finding) -> None:
 
         method_lower = method.lower()
 
-        # Check if this is a KDF method
-        is_kdf = (
-            method in KDF_METHODS
-            or "pbkdf2" in method_lower
-            or "scrypt" in method_lower
-        )
+        is_kdf = method in KDF_METHODS or "pbkdf2" in method_lower or "scrypt" in method_lower
 
         if not is_kdf:
             continue
 
         args_str = str(args)
 
-        # Check for weak iterations
         if any(iters in args_str for iters in WEAK_ITERATIONS):
             add_finding(
                 file=file,
@@ -406,7 +414,6 @@ def _check_weak_kdf(db: RuleDB, add_finding) -> None:
                 cwe_id="CWE-916",
             )
 
-        # Check for missing salt
         if "salt" not in args_str.lower():
             add_finding(
                 file=file,
@@ -434,11 +441,8 @@ def _check_jwt_issues(db: RuleDB, add_finding) -> None:
 
         method_lower = method.lower()
 
-        # Check if JWT-related
         is_jwt = (
-            method in JWT_PATTERNS
-            or "jwt." in method_lower
-            or "algorithm" in str(args).lower()
+            method in JWT_PATTERNS or "jwt." in method_lower or "algorithm" in str(args).lower()
         )
 
         if not is_jwt:
@@ -446,8 +450,10 @@ def _check_jwt_issues(db: RuleDB, add_finding) -> None:
 
         args_lower = str(args).lower()
 
-        # Check for algorithm=none (allows token forgery)
-        if any(none in args_lower for none in ["algorithm=none", 'algorithm="none"', "algorithm='none'"]):
+        if any(
+            none in args_lower
+            for none in ["algorithm=none", 'algorithm="none"', "algorithm='none'"]
+        ):
             add_finding(
                 file=file,
                 line=line,
@@ -457,7 +463,7 @@ def _check_jwt_issues(db: RuleDB, add_finding) -> None:
                 confidence=Confidence.HIGH,
                 cwe_id="CWE-347",
             )
-        # Check for weak HS256 secret
+
         elif "HS256" in str(args) and "secret" in args_lower:
             add_finding(
                 file=file,
@@ -485,13 +491,11 @@ def _check_ssl_issues(db: RuleDB, add_finding) -> None:
 
         args_str = str(args) if args else ""
 
-        # Check for SSL patterns
         has_ssl = method in SSL_PATTERNS or any(pattern in args_str for pattern in SSL_PATTERNS)
 
         if not has_ssl:
             continue
 
-        # Check for disabled verification (MITM possible)
         if "verify=False" in args_str or "CERT_NONE" in args_str:
             add_finding(
                 file=file,
@@ -502,7 +506,7 @@ def _check_ssl_issues(db: RuleDB, add_finding) -> None:
                 confidence=Confidence.HIGH,
                 cwe_id="CWE-295",
             )
-        # Check for deprecated protocols
+
         elif any(old in args_str for old in ["SSLv2", "SSLv3", "TLSv1", "TLSv1_1"]):
             add_finding(
                 file=file,
@@ -522,6 +526,7 @@ def _calculate_entropy(text: str) -> float:
     English text: ~4.0 bits/char, random hex: ~4.0, random base64: ~6.0
     """
     import math
+
     if not text:
         return 0.0
     freq: dict[str, int] = {}
@@ -534,13 +539,30 @@ def _calculate_entropy(text: str) -> float:
     return entropy
 
 
-# Common placeholder values that are NOT real secrets
-PLACEHOLDER_VALUES = frozenset([
-    "changeme", "change_me", "your-key-here", "your_key_here",
-    "placeholder", "example", "test", "demo", "dummy", "fake",
-    "xxx", "yyy", "zzz", "abc123", "password123", "secret123",
-    "todo", "fixme", "replace_me", "insert_key_here",
-])
+PLACEHOLDER_VALUES = frozenset(
+    [
+        "changeme",
+        "change_me",
+        "your-key-here",
+        "your_key_here",
+        "placeholder",
+        "example",
+        "test",
+        "demo",
+        "dummy",
+        "fake",
+        "xxx",
+        "yyy",
+        "zzz",
+        "abc123",
+        "password123",
+        "secret123",
+        "todo",
+        "fixme",
+        "replace_me",
+        "insert_key_here",
+    ]
+)
 
 
 def _check_hardcoded_keys(db: RuleDB, add_finding) -> None:
@@ -552,9 +574,7 @@ def _check_hardcoded_keys(db: RuleDB, add_finding) -> None:
     3. Filters out obvious placeholders
     """
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for row in rows:
@@ -562,7 +582,6 @@ def _check_hardcoded_keys(db: RuleDB, add_finding) -> None:
         if not var or not expr:
             continue
 
-        # Check if variable is a key/secret pattern
         is_key_var = (
             var in KEY_VARIABLES
             or var.endswith("_key")
@@ -573,45 +592,41 @@ def _check_hardcoded_keys(db: RuleDB, add_finding) -> None:
         if not is_key_var:
             continue
 
-        # Check if value is a hardcoded string literal (not a variable reference)
         expr_str = str(expr)
         is_string_literal = (
-            expr_str.startswith('"') or expr_str.startswith("'") or
-            expr_str.startswith('b"') or expr_str.startswith("b'")
+            expr_str.startswith('"')
+            or expr_str.startswith("'")
+            or expr_str.startswith('b"')
+            or expr_str.startswith("b'")
         )
 
         if not is_string_literal:
             continue
 
-        # Extract the actual value (strip quotes)
-        val = expr_str.strip('"\'')
+        val = expr_str.strip("\"'")
         if val.startswith("b"):
-            val = val[1:].strip('"\'')
+            val = val[1:].strip("\"'")
 
-        # Skip empty or very short values
         if len(val) < 8:
             continue
 
-        # Skip obvious placeholders
         val_lower = val.lower()
         if any(placeholder in val_lower for placeholder in PLACEHOLDER_VALUES):
             continue
 
-        # Skip environment variable references
         if "os.getenv" in expr_str or "os.environ" in expr_str or "getenv" in expr_str:
             continue
 
-        # HIGH confidence: Known vendor key prefixes
         vendor_patterns = [
-            ("AKIA", 20, "AWS Access Key"),      # AWS Access Key ID
-            ("ASIA", 20, "AWS Temp Key"),        # AWS Temporary Key
-            ("sk_live_", 32, "Stripe Live Key"), # Stripe Live Secret
-            ("sk_test_", 32, "Stripe Test Key"), # Stripe Test Secret
-            ("pk_live_", 32, "Stripe Pub Key"),  # Stripe Publishable
-            ("ghp_", 36, "GitHub PAT"),          # GitHub Personal Access Token
-            ("gho_", 36, "GitHub OAuth"),        # GitHub OAuth Token
-            ("glpat-", 20, "GitLab PAT"),        # GitLab Personal Access Token
-            ("xox", 40, "Slack Token"),          # Slack tokens (xoxb-, xoxp-, etc.)
+            ("AKIA", 20, "AWS Access Key"),
+            ("ASIA", 20, "AWS Temp Key"),
+            ("sk_live_", 32, "Stripe Live Key"),
+            ("sk_test_", 32, "Stripe Test Key"),
+            ("pk_live_", 32, "Stripe Pub Key"),
+            ("ghp_", 36, "GitHub PAT"),
+            ("gho_", 36, "GitHub OAuth"),
+            ("glpat-", 20, "GitLab PAT"),
+            ("xox", 40, "Slack Token"),
         ]
 
         for prefix, min_len, vendor_name in vendor_patterns:
@@ -627,11 +642,9 @@ def _check_hardcoded_keys(db: RuleDB, add_finding) -> None:
                 )
                 break
         else:
-            # MEDIUM confidence: Entropy-based detection for longer strings
             if len(val) >= 20:
                 entropy = _calculate_entropy(val)
-                # High entropy (>3.5) suggests random/key-like content
-                # Low entropy (<3.0) suggests English words or patterns
+
                 if entropy > 3.5:
                     add_finding(
                         file=file,
@@ -646,10 +659,7 @@ def _check_hardcoded_keys(db: RuleDB, add_finding) -> None:
 
 def _check_key_reuse(db: RuleDB, add_finding) -> None:
     """Detect key reuse across different contexts."""
-    rows = db.query(
-        Q("assignments")
-        .select("file", "target_var")
-    )
+    rows = db.query(Q("assignments").select("file", "target_var"))
 
     key_counts: dict[tuple[str, str], int] = {}
     for row in rows:
@@ -698,11 +708,10 @@ def _check_security_context(db: RuleDB, file: str, line: int) -> bool:
 
 def _check_crypto_context(db: RuleDB, file: str, line: int, caller: str | None) -> bool:
     """Check if random is used in cryptographic context."""
-    # Check caller function name
+
     if caller and any(kw in caller.lower() for kw in CRYPTO_CONTEXT_KEYWORDS):
         return True
 
-    # Check nearby function calls for crypto patterns
     rows = db.query(
         Q("function_call_args")
         .select("callee_function")

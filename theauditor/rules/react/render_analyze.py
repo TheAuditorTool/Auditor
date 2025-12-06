@@ -31,7 +31,15 @@ METADATA = RuleMetadata(
     category="react",
     target_extensions=[".jsx", ".tsx", ".js", ".ts"],
     target_file_patterns=["frontend/", "client/", "src/"],
-    exclude_patterns=["node_modules/", "__tests__/", "*.test.jsx", "*.test.tsx", "*.spec.jsx", "*.spec.tsx", "migrations/"],
+    exclude_patterns=[
+        "node_modules/",
+        "__tests__/",
+        "*.test.jsx",
+        "*.test.tsx",
+        "*.spec.jsx",
+        "*.spec.tsx",
+        "migrations/",
+    ],
     execution_scope="database",
     primary_table="react_components",
 )
@@ -41,26 +49,60 @@ METADATA = RuleMetadata(
 class ReactRenderPatterns:
     """Immutable pattern definitions for React rendering issues."""
 
-    EXPENSIVE_OPERATIONS: frozenset = frozenset([
-        "sort", "filter", "map", "reduce", "find", "findIndex",
-        "forEach", "reverse", "concat", "slice", "splice",
-    ])
+    EXPENSIVE_OPERATIONS: frozenset = frozenset(
+        [
+            "sort",
+            "filter",
+            "map",
+            "reduce",
+            "find",
+            "findIndex",
+            "forEach",
+            "reverse",
+            "concat",
+            "slice",
+            "splice",
+        ]
+    )
 
-    MUTATING_METHODS: frozenset = frozenset([
-        "push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"
-    ])
+    MUTATING_METHODS: frozenset = frozenset(
+        ["push", "pop", "shift", "unshift", "splice", "sort", "reverse", "fill", "copyWithin"]
+    )
 
-    OBJECT_CREATORS: frozenset = frozenset([
-        "Object.create", "Object.assign", "Object.freeze",
-        "Array.from", "Array.of", "new Array", "new Object",
-        "new Map", "new Set", "new Date", "Date.now",
-    ])
+    OBJECT_CREATORS: frozenset = frozenset(
+        [
+            "Object.create",
+            "Object.assign",
+            "Object.freeze",
+            "Array.from",
+            "Array.of",
+            "new Array",
+            "new Object",
+            "new Map",
+            "new Set",
+            "new Date",
+            "Date.now",
+        ]
+    )
 
-    EVENT_HANDLERS: frozenset = frozenset([
-        "onClick", "onChange", "onSubmit", "onFocus", "onBlur",
-        "onMouseEnter", "onMouseLeave", "onKeyDown", "onKeyUp",
-        "onScroll", "onLoad", "onError", "onDragStart", "onDrop",
-    ])
+    EVENT_HANDLERS: frozenset = frozenset(
+        [
+            "onClick",
+            "onChange",
+            "onSubmit",
+            "onFocus",
+            "onBlur",
+            "onMouseEnter",
+            "onMouseLeave",
+            "onKeyDown",
+            "onKeyUp",
+            "onScroll",
+            "onLoad",
+            "onError",
+            "onDragStart",
+            "onDrop",
+        ]
+    )
 
 
 class ReactRenderAnalyzer:
@@ -89,10 +131,9 @@ class ReactRenderAnalyzer:
 
     def _check_expensive_operations(self) -> None:
         """Check for expensive operations in render methods."""
-        components = list(self.db.query(
-            Q("react_components")
-            .select("file", "name", "start_line", "end_line")
-        ))
+        components = list(
+            self.db.query(Q("react_components").select("file", "name", "start_line", "end_line"))
+        )
 
         component_ranges: dict[str, list[tuple]] = {}
         for file, name, start, end in components:
@@ -372,11 +413,13 @@ class ReactRenderAnalyzer:
 
     def _check_anonymous_functions_in_props(self) -> None:
         """Check for anonymous functions passed as props to child components."""
-        components = list(self.db.query(
-            Q("react_components")
-            .select("file", "name", "start_line", "end_line", "has_jsx")
-            .where("has_jsx = ?", 1)
-        ))
+        components = list(
+            self.db.query(
+                Q("react_components")
+                .select("file", "name", "start_line", "end_line", "has_jsx")
+                .where("has_jsx = ?", 1)
+            )
+        )
 
         component_ranges: dict[str, list[tuple]] = {}
         for file, name, start, end, has_jsx in components:
@@ -425,10 +468,7 @@ class ReactRenderAnalyzer:
 
     def _check_excessive_renders(self) -> None:
         """Check for components that might render too often."""
-        rows = self.db.query(
-            Q("react_hooks")
-            .select("file", "component_name", "hook_name")
-        )
+        rows = self.db.query(Q("react_hooks").select("file", "component_name", "hook_name"))
 
         component_hooks: dict[tuple, dict] = {}
         for file, component, hook_name in rows:

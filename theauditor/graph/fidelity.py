@@ -8,10 +8,7 @@ from .exceptions import GraphFidelityError
 
 
 def reconcile_graph_fidelity(
-    manifest: dict[str, Any],
-    receipt: dict[str, Any],
-    context: str,
-    strict: bool = True
+    manifest: dict[str, Any], receipt: dict[str, Any], context: str, strict: bool = True
 ) -> dict[str, Any]:
     """Compare graph manifest (what was built) vs receipt (what was stored).
 
@@ -24,7 +21,7 @@ def reconcile_graph_fidelity(
     Returns:
         Dict with status, errors, warnings
     """
-    # Check ALL tables from both manifest and receipt - NO HIDING
+
     tables = {k for k in manifest if not k.startswith("_")}
     tables.update({k for k in receipt if not k.startswith("_")})
 
@@ -35,24 +32,22 @@ def reconcile_graph_fidelity(
         m_data = manifest.get(table, {})
         r_data = receipt.get(table, {})
 
-        # ZERO FALLBACK: Reject legacy int format. All producers must send dict.
         if isinstance(m_data, int):
             raise GraphFidelityError(
                 f"LEGACY FORMAT VIOLATION: manifest['{table}'] is int ({m_data}). "
                 "Builder must send dict with tx_id/columns/count/bytes.",
-                details={"table": table, "value": m_data, "source": "manifest"}
+                details={"table": table, "value": m_data, "source": "manifest"},
             )
         if isinstance(r_data, int):
             raise GraphFidelityError(
                 f"LEGACY FORMAT VIOLATION: receipt['{table}'] is int ({r_data}). "
                 "Store must send dict with tx_id/columns/count/bytes.",
-                details={"table": table, "value": r_data, "source": "receipt"}
+                details={"table": table, "value": r_data, "source": "receipt"},
             )
 
         m_count = m_data.get("count", 0)
         r_count = r_data.get("count", 0)
 
-        # IDENTITY CHECK: Did Store process THIS batch?
         m_tx = m_data.get("tx_id")
         r_tx = r_data.get("tx_id")
 
@@ -63,7 +58,6 @@ def reconcile_graph_fidelity(
                 "Possible pipeline cross-talk or stale buffer."
             )
 
-        # TOPOLOGY CHECK: Did Store preserve all columns?
         m_cols = set(m_data.get("columns", []))
         r_cols = set(r_data.get("columns", []))
 
@@ -75,14 +69,12 @@ def reconcile_graph_fidelity(
                 f"Dropped columns: {dropped_cols}"
             )
 
-        # COUNT CHECK: Row-level data loss
         if m_count > 0 and r_count == 0:
             errors.append(f"{table}: built {m_count} -> stored 0 (100% LOSS)")
         elif m_count != r_count:
             delta = m_count - r_count
             warnings.append(f"{table}: built {m_count} -> stored {r_count} (delta: {delta})")
 
-        # VOLUME CHECK: Rough data integrity (warning only)
         m_bytes = m_data.get("bytes", 0)
         r_bytes = r_data.get("bytes", 0)
 

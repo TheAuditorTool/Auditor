@@ -11,9 +11,9 @@ from typing import Any
 import click
 
 from theauditor.ast_extractors.ast_parser import ASTParser
+from theauditor.ast_extractors.module_resolver import ModuleResolver
 from theauditor.indexer.config import SKIP_DIRS
 from theauditor.indexer.fidelity_utils import FidelityToken
-from theauditor.ast_extractors.module_resolver import ModuleResolver
 from theauditor.utils.logging import logger
 
 
@@ -358,9 +358,7 @@ class XGraphBuilder:
             return import_str
 
         elif lang == "go":
-            # Go imports: "github.com/user/repo/pkg" or "./internal/pkg"
             if import_str.startswith("./") or import_str.startswith("../"):
-                # Relative import - resolve against source file
                 source_dir = source_file.parent
                 try:
                     up_count = import_str.count("../")
@@ -371,13 +369,13 @@ class XGraphBuilder:
                     rel_import = import_str.replace("../", "").lstrip("./")
                     target_path = current_dir / rel_import
 
-                    # Go packages are directories, look for .go files
                     try:
-                        rel_target = str(target_path.relative_to(self.project_root)).replace("\\", "/")
+                        rel_target = str(target_path.relative_to(self.project_root)).replace(
+                            "\\", "/"
+                        )
                     except ValueError:
                         rel_target = str(target_path).replace("\\", "/")
 
-                    # Check if any .go file exists in that directory
                     for suffix in ["", ".go"]:
                         candidate = f"{rel_target}{suffix}"
                         if self.db_cache.file_exists(candidate):
@@ -387,14 +385,11 @@ class XGraphBuilder:
                 except (ValueError, OSError):
                     pass
 
-            # External or standard library import
             return import_str
 
         elif lang == "rust":
-            # Rust use: crate::module, super::sibling, self::child, or external
             if import_str.startswith("crate::"):
-                # crate:: refers to root of current crate
-                module_path = import_str[7:].replace("::", "/")  # Remove "crate::"
+                module_path = import_str[7:].replace("::", "/")
                 candidates = [
                     f"src/{module_path}.rs",
                     f"src/{module_path}/mod.rs",
@@ -404,12 +399,11 @@ class XGraphBuilder:
                 for candidate in candidates:
                     if self.db_cache.file_exists(candidate):
                         return candidate
-                return candidates[0]  # Default to src/path.rs
+                return candidates[0]
 
             elif import_str.startswith("super::"):
-                # super:: refers to parent module
-                module_path = import_str[7:].replace("::", "/")  # Remove "super::"
-                source_dir = source_file.parent.parent  # Go up one level
+                module_path = import_str[7:].replace("::", "/")
+                source_dir = source_file.parent.parent
                 try:
                     rel_dir = str(source_dir.relative_to(self.project_root)).replace("\\", "/")
                 except ValueError:
@@ -427,8 +421,7 @@ class XGraphBuilder:
                 return candidates[0]
 
             elif import_str.startswith("self::"):
-                # self:: refers to current module
-                module_path = import_str[6:].replace("::", "/")  # Remove "self::"
+                module_path = import_str[6:].replace("::", "/")
                 source_dir = source_file.parent
                 try:
                     rel_dir = str(source_dir.relative_to(self.project_root)).replace("\\", "/")
@@ -446,7 +439,6 @@ class XGraphBuilder:
                         return candidate
                 return candidates[0]
 
-            # External crate import
             return import_str
 
         else:
@@ -822,8 +814,6 @@ class XGraphBuilder:
                         short_name = callee.split(".")[-1]
                         target_candidates = function_defs.get(short_name, set())
 
-                    # FIX: Reverse lookup - if call is `login()` but stored as `ClassName.login`
-                    # Search for functions ending with `.callee` in function_defs
                     if not target_candidates:
                         suffix = f".{callee}"
                         for func_name, paths in function_defs.items():
@@ -1132,5 +1122,4 @@ class XGraphBuilder:
             },
         }
 
-        # STAMP IT - merged graph is a NEW dataset, needs NEW signature
         return FidelityToken.attach_manifest(result)

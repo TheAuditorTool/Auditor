@@ -70,119 +70,131 @@ METADATA = RuleMetadata(
     ],
 )
 
-SECRET_KEYWORDS = frozenset([
-    "secret",
-    "token",
-    "password",
-    "passwd",
-    "pwd",
-    "api_key",
-    "apikey",
-    "auth_token",
-    "credential",
-    "private_key",
-    "privatekey",
-    "access_token",
-    "refresh_token",
-    "client_secret",
-    "client_id",
-    "bearer",
-    "oauth",
-    "jwt",
-    "aws_secret",
-    "aws_access",
-    "azure_key",
-    "gcp_key",
-    "stripe_key",
-    "github_token",
-    "gitlab_token",
-    "encryption_key",
-    "decrypt_key",
-    "cipher_key",
-    "session_key",
-    "signing_key",
-    "hmac_key",
-])
+SECRET_KEYWORDS = frozenset(
+    [
+        "secret",
+        "token",
+        "password",
+        "passwd",
+        "pwd",
+        "api_key",
+        "apikey",
+        "auth_token",
+        "credential",
+        "private_key",
+        "privatekey",
+        "access_token",
+        "refresh_token",
+        "client_secret",
+        "client_id",
+        "bearer",
+        "oauth",
+        "jwt",
+        "aws_secret",
+        "aws_access",
+        "azure_key",
+        "gcp_key",
+        "stripe_key",
+        "github_token",
+        "gitlab_token",
+        "encryption_key",
+        "decrypt_key",
+        "cipher_key",
+        "session_key",
+        "signing_key",
+        "hmac_key",
+    ]
+)
 
-WEAK_PASSWORDS = frozenset([
-    "password",
-    "admin",
-    "123456",
-    "changeme",
-    "default",
-    "test",
-    "demo",
-    "sample",
-    "example",
-    "password123",
-    "admin123",
-    "root",
-    "toor",
-    "pass",
-    "secret",
-    "qwerty",
-    "letmein",
-    "welcome",
-    "monkey",
-    "dragon",
-])
+WEAK_PASSWORDS = frozenset(
+    [
+        "password",
+        "admin",
+        "123456",
+        "changeme",
+        "default",
+        "test",
+        "demo",
+        "sample",
+        "example",
+        "password123",
+        "admin123",
+        "root",
+        "toor",
+        "pass",
+        "secret",
+        "qwerty",
+        "letmein",
+        "welcome",
+        "monkey",
+        "dragon",
+    ]
+)
 
-PLACEHOLDER_VALUES = frozenset([
-    "placeholder",
-    "changeme",
-    "your_password_here",
-    "YOUR_API_KEY",
-    "API_KEY_HERE",
-    "<password>",
-    "${PASSWORD}",
-    "{{PASSWORD}}",
-    "xxx",
-    "TODO",
-    "FIXME",
-    "CHANGE_ME",
-    "INSERT_HERE",
-    "dummy",
-])
+PLACEHOLDER_VALUES = frozenset(
+    [
+        "placeholder",
+        "changeme",
+        "your_password_here",
+        "YOUR_API_KEY",
+        "API_KEY_HERE",
+        "<password>",
+        "${PASSWORD}",
+        "{{PASSWORD}}",
+        "xxx",
+        "TODO",
+        "FIXME",
+        "CHANGE_ME",
+        "INSERT_HERE",
+        "dummy",
+    ]
+)
 
-NON_SECRET_VALUES = frozenset([
-    "true",
-    "false",
-    "none",
-    "null",
-    "undefined",
-    "development",
-    "production",
-    "test",
-    "staging",
-    "localhost",
-    "127.0.0.1",
-    "0.0.0.0",
-    "example.com",
-])
+NON_SECRET_VALUES = frozenset(
+    [
+        "true",
+        "false",
+        "none",
+        "null",
+        "undefined",
+        "development",
+        "production",
+        "test",
+        "staging",
+        "localhost",
+        "127.0.0.1",
+        "0.0.0.0",
+        "example.com",
+    ]
+)
 
-URL_PROTOCOLS = frozenset([
-    "http://",
-    "https://",
-    "ftp://",
-    "sftp://",
-    "ssh://",
-    "git://",
-    "file://",
-    "data://",
-])
+URL_PROTOCOLS = frozenset(
+    [
+        "http://",
+        "https://",
+        "ftp://",
+        "sftp://",
+        "ssh://",
+        "git://",
+        "file://",
+        "data://",
+    ]
+)
 
-DB_PROTOCOLS = frozenset([
-    "mongodb://",
-    "postgres://",
-    "postgresql://",
-    "mysql://",
-    "redis://",
-    "amqp://",
-    "rabbitmq://",
-    "cassandra://",
-    "couchdb://",
-    "elasticsearch://",
-])
+DB_PROTOCOLS = frozenset(
+    [
+        "mongodb://",
+        "postgres://",
+        "postgresql://",
+        "mysql://",
+        "redis://",
+        "amqp://",
+        "rabbitmq://",
+        "cassandra://",
+        "couchdb://",
+        "elasticsearch://",
+    ]
+)
 
 STRING_LITERAL_RE = re.compile(
     r'^(?P<prefix>[rubfRUBF]*)(?P<quote>"""|\'\'\'|"|\'|`)(?P<body>.*)(?P=quote)$',
@@ -229,17 +241,19 @@ SEQUENTIAL_PATTERNS = (
     "zxcvbnm",
 )
 
-KEYBOARD_PATTERNS = frozenset([
-    "qwerty",
-    "asdfgh",
-    "zxcvbn",
-    "12345",
-    "098765",
-    "qazwsx",
-    "qweasd",
-    "qwertyuiop",
-    "asdfghjkl",
-])
+KEYBOARD_PATTERNS = frozenset(
+    [
+        "qwerty",
+        "asdfgh",
+        "zxcvbn",
+        "12345",
+        "098765",
+        "qazwsx",
+        "qweasd",
+        "qwertyuiop",
+        "asdfghjkl",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -267,12 +281,12 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
         for file_path in suspicious_files:
             full_path = context.project_path / file_path
-            # Explicit checks - no try/except (Zero Fallback)
+
             if not full_path.exists():
-                continue  # Stale DB entry - skip
+                continue
             if not full_path.is_relative_to(context.project_path):
-                continue  # Path traversal attempt - skip
-            # Let I/O errors crash per Zero Fallback policy
+                continue
+
             pattern_findings = _scan_file_patterns(full_path, file_path)
             findings.extend(pattern_findings)
 
@@ -467,9 +481,7 @@ def _find_dict_secrets(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "source_expr")
-        .where("source_expr IS NOT NULL")
+        Q("assignments").select("file", "line", "source_expr").where("source_expr IS NOT NULL")
     )
 
     for file, line, expr in rows:
@@ -558,10 +570,7 @@ def _get_suspicious_files(db: RuleDB) -> list[str]:
     suspicious_files = []
 
     rows = db.query(
-        Q("symbols")
-        .select("path", "name")
-        .where("name IS NOT NULL")
-        .where("path IS NOT NULL")
+        Q("symbols").select("path", "name").where("name IS NOT NULL").where("path IS NOT NULL")
     )
 
     secret_keywords_lower = ["secret", "token", "password", "api_key", "credential", "private_key"]
@@ -578,11 +587,7 @@ def _get_suspicious_files(db: RuleDB) -> list[str]:
             if len(suspicious_files) >= 50:
                 break
 
-    file_rows = db.query(
-        Q("files")
-        .select("path")
-        .where("path IS NOT NULL")
-    )
+    file_rows = db.query(Q("files").select("path").where("path IS NOT NULL"))
 
     config_patterns = ["config", "settings", "env.", ".env"]
     exclude_patterns = [".env.example", ".env.template"]
@@ -712,7 +717,6 @@ def _scan_file_patterns(file_path: Path, relative_path: str) -> list[StandardFin
     """
     findings = []
 
-    # No try/except - crash on I/O error per Zero Fallback
     with open(file_path, encoding="utf-8", errors="ignore") as f:
         lines = f.readlines()
 
@@ -745,9 +749,7 @@ def _scan_file_patterns(file_path: Path, relative_path: str) -> list[StandardFin
             var_name = assignment_match.group(1)
             value = assignment_match.group(2)
 
-            if any(kw in var_name.lower() for kw in SECRET_KEYWORDS) and _is_likely_secret(
-                value
-            ):
+            if any(kw in var_name.lower() for kw in SECRET_KEYWORDS) and _is_likely_secret(value):
                 findings.append(
                     StandardFinding(
                         rule_name="secret-high-entropy",

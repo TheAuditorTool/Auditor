@@ -37,31 +37,35 @@ METADATA = RuleMetadata(
     primary_table="cdk_constructs",
 )
 
-DANGEROUS_MANAGED_POLICIES = frozenset([
-    "AdministratorAccess",
-    "PowerUserAccess",
-    "IAMFullAccess",
-])
+DANGEROUS_MANAGED_POLICIES = frozenset(
+    [
+        "AdministratorAccess",
+        "PowerUserAccess",
+        "IAMFullAccess",
+    ]
+)
 
-PRIVILEGE_ESCALATION_ACTIONS = frozenset([
-    "iam:PassRole",
-    "iam:CreateUser",
-    "iam:CreateAccessKey",
-    "iam:AttachUserPolicy",
-    "iam:AttachRolePolicy",
-    "iam:AttachGroupPolicy",
-    "iam:PutUserPolicy",
-    "iam:PutRolePolicy",
-    "iam:PutGroupPolicy",
-    "iam:CreatePolicyVersion",
-    "iam:SetDefaultPolicyVersion",
-    "iam:CreateLoginProfile",
-    "iam:UpdateLoginProfile",
-    "sts:AssumeRole",
-    "lambda:CreateFunction",
-    "lambda:InvokeFunction",
-    "lambda:UpdateFunctionCode",
-])
+PRIVILEGE_ESCALATION_ACTIONS = frozenset(
+    [
+        "iam:PassRole",
+        "iam:CreateUser",
+        "iam:CreateAccessKey",
+        "iam:AttachUserPolicy",
+        "iam:AttachRolePolicy",
+        "iam:AttachGroupPolicy",
+        "iam:PutUserPolicy",
+        "iam:PutRolePolicy",
+        "iam:PutGroupPolicy",
+        "iam:CreatePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:CreateLoginProfile",
+        "iam:UpdateLoginProfile",
+        "sts:AssumeRole",
+        "lambda:CreateFunction",
+        "lambda:InvokeFunction",
+        "lambda:UpdateFunctionCode",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -94,8 +98,9 @@ def _check_wildcard_actions(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -143,8 +148,9 @@ def _check_wildcard_resources(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -196,8 +202,9 @@ def _check_dangerous_managed_policies(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -217,7 +224,9 @@ def _check_dangerous_managed_policies(db: RuleDB) -> list[StandardFinding]:
             prop_value, prop_line = prop_rows[0]
             for policy_name in DANGEROUS_MANAGED_POLICIES:
                 if policy_name in prop_value:
-                    severity = Severity.CRITICAL if policy_name == "AdministratorAccess" else Severity.HIGH
+                    severity = (
+                        Severity.CRITICAL if policy_name == "AdministratorAccess" else Severity.HIGH
+                    )
                     findings.append(
                         StandardFinding(
                             rule_name=f"aws-cdk-iam-{policy_name.lower().replace('access', '-access')}",
@@ -253,8 +262,9 @@ def _check_privilege_escalation_actions(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
@@ -281,7 +291,9 @@ def _check_privilege_escalation_actions(db: RuleDB) -> list[StandardFinding]:
 
         actions_value, actions_line = props[actions_key]
         resources_value = props.get(resources_key, ("", line))[0]
-        has_wildcard_resource = "'*'" in resources_value or '"*"' in resources_value or not resources_value
+        has_wildcard_resource = (
+            "'*'" in resources_value or '"*"' in resources_value or not resources_value
+        )
 
         for action in PRIVILEGE_ESCALATION_ACTIONS:
             if action.lower() in actions_value.lower():
@@ -319,8 +331,9 @@ def _check_not_action_usage(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:

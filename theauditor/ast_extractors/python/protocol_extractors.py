@@ -89,7 +89,6 @@ def extract_iterator_protocol(context: FileContext) -> list[dict[str, Any]]:
                     is_generator = True
                     break
 
-            # Build implemented_methods list for junction table
             implemented_methods = [m for m in ITERATOR_METHODS if m in methods]
 
             iterator_data = {
@@ -139,7 +138,6 @@ def extract_container_protocol(context: FileContext) -> list[dict[str, Any]]:
                         is_sequence = has_len
                         is_mapping = not has_len
 
-            # Build implemented_methods list for junction table
             implemented_methods = [m for m in CONTAINER_METHODS if m in methods]
 
             container_data = {
@@ -272,7 +270,6 @@ def extract_pickle_protocol(context: FileContext) -> list[dict[str, Any]]:
         has_reduce_ex = "__reduce_ex__" in methods
 
         if any([has_getstate, has_setstate, has_reduce, has_reduce_ex]):
-            # Build implemented_methods list for junction table
             implemented_methods = [m for m in PICKLE_METHODS if m in methods]
 
             pickle_data = {

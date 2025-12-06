@@ -108,7 +108,6 @@ class Q:
             # Generates: WHERE callee_function IN (?, ?)
         """
         if not values:
-            # Empty list matches nothing - use impossible condition
             self._parts["where"].append("1 = 0")
             return self
         placeholders = ", ".join("?" for _ in values)
@@ -138,11 +137,13 @@ class Q:
         Raises:
             ValueError: If on=None and no FK relationship found
         """
-        self._parts["joins"].append({
-            "table": table,
-            "on": on,
-            "type": join_type,
-        })
+        self._parts["joins"].append(
+            {
+                "table": table,
+                "on": on,
+                "type": join_type,
+            }
+        )
         return self
 
     def with_cte(self, name: str, subquery: Q) -> Q:
@@ -155,10 +156,12 @@ class Q:
         Returns:
             Self for chaining
         """
-        self._parts["ctes"].append({
-            "name": name,
-            "query": subquery,
-        })
+        self._parts["ctes"].append(
+            {
+                "name": name,
+                "query": subquery,
+            }
+        )
         return self
 
     def order_by(self, clause: str) -> Q:
@@ -212,10 +215,8 @@ class Q:
         all_params = []
         sql_parts = []
 
-        # Build CTE names set for validation
         cte_names = {cte["name"] for cte in self._parts["ctes"]}
 
-        # 1. Build CTEs
         if self._parts["ctes"]:
             cte_clauses = []
             for cte in self._parts["ctes"]:
@@ -224,26 +225,21 @@ class Q:
                 all_params.extend(cte_params)
             sql_parts.append("WITH " + ",\n".join(cte_clauses))
 
-        # 2. Build SELECT
         select_cols = self._parts["select"] or ["*"]
         validated_cols = self._validate_columns(select_cols, cte_names)
         sql_parts.append(f"SELECT {', '.join(validated_cols)}")
 
-        # 3. Build FROM
         table_ref = self._base_table
         if self._alias:
             table_ref = f"{self._base_table} {self._alias}"
         sql_parts.append(f"FROM {table_ref}")
 
-        # 4. Build JOINs
         for join in self._parts["joins"]:
             join_table = join["table"]
             join_type = join["type"]
             on_clause = join["on"]
 
-            # Resolve ON clause
             if on_clause is None:
-                # Auto-detect from FK
                 fk = self._find_fk(self._base_table, join_table)
                 if fk is None and join_table not in cte_names:
                     raise ValueError(
@@ -254,45 +250,33 @@ class Q:
                     on_pairs = list(zip(fk.local_columns, fk.foreign_columns))
                     on_sql = self._build_on_clause(join_table, on_pairs)
                 else:
-                    # CTE without FK - require explicit on
-                    raise ValueError(
-                        f"CTE '{join_table}' requires explicit on= parameter."
-                    )
+                    raise ValueError(f"CTE '{join_table}' requires explicit on= parameter.")
             elif isinstance(on_clause, str):
-                # Raw SQL - no validation
                 on_sql = on_clause
             else:
-                # List of tuples
                 on_sql = self._build_on_clause(join_table, on_clause)
 
             sql_parts.append(f"{join_type} JOIN {join_table} ON {on_sql}")
 
-        # 5. Build WHERE
         if self._parts["where"]:
             where_sql = " AND ".join(f"({w})" for w in self._parts["where"])
             sql_parts.append(f"WHERE {where_sql}")
 
-        # Add main query params
         all_params.extend(self._params)
 
-        # 6. Build GROUP BY
         if self._parts["group"]:
             sql_parts.append(f"GROUP BY {', '.join(self._parts['group'])}")
 
-        # 7. Build ORDER BY
         if self._parts["order"]:
             sql_parts.append(f"ORDER BY {self._parts['order']}")
 
-        # 8. Build LIMIT
         if self._parts["limit"] is not None:
             sql_parts.append(f"LIMIT {self._parts['limit']}")
 
         sql = "\n".join(sql_parts)
         return sql, all_params
 
-    def _validate_columns(
-        self, columns: list[str], cte_names: set[str]
-    ) -> list[str]:
+    def _validate_columns(self, columns: list[str], cte_names: set[str]) -> list[str]:
         """Validate column references against schema.
 
         Handles:
@@ -316,23 +300,19 @@ class Q:
         valid_cols = set(schema.column_names())
 
         for col in columns:
-            # Pass through expressions and star
             if col == "*" or "(" in col or " " in col.upper():
                 validated.append(col)
                 continue
 
-            # Check for qualified column (table.column or alias.column)
             if "." in col:
                 parts = col.split(".", 1)
                 table_or_alias = parts[0]
                 col_name = parts[1]
 
-                # Skip validation for CTE columns
                 if table_or_alias in cte_names:
                     validated.append(col)
                     continue
 
-                # Skip validation for alias (we trust user knows their aliases)
                 if table_or_alias == self._alias:
                     if col_name != "*" and col_name not in valid_cols:
                         raise ValueError(
@@ -342,7 +322,6 @@ class Q:
                     validated.append(col)
                     continue
 
-                # Check if it's a joined table
                 joined_tables = {j["table"] for j in self._parts["joins"]}
                 if table_or_alias in joined_tables:
                     if table_or_alias in TABLES:
@@ -356,11 +335,9 @@ class Q:
                     validated.append(col)
                     continue
 
-                # Unknown qualifier - pass through (might be subquery alias)
                 validated.append(col)
                 continue
 
-            # Simple column - validate against base table
             if col not in valid_cols:
                 raise ValueError(
                     f"Unknown column '{col}' in table '{self._base_table}'. "
@@ -370,9 +347,7 @@ class Q:
 
         return validated
 
-    def _build_on_clause(
-        self, join_table: str, pairs: list[tuple[str, str]]
-    ) -> str:
+    def _build_on_clause(self, join_table: str, pairs: list[tuple[str, str]]) -> str:
         """Build ON clause from column pairs.
 
         Args:
@@ -402,19 +377,17 @@ class Q:
         Returns:
             ForeignKey if found, None otherwise
         """
-        # Check base -> join
+
         schema = TABLES.get(base_table)
         if schema:
             for fk in schema.foreign_keys:
                 if fk.foreign_table == join_table:
                     return fk
 
-        # Check join -> base (reverse direction)
         join_schema = TABLES.get(join_table)
         if join_schema:
             for fk in join_schema.foreign_keys:
                 if fk.foreign_table == base_table:
-                    # Return reversed FK
                     return ForeignKey(
                         local_columns=fk.foreign_columns,
                         foreign_table=join_table,

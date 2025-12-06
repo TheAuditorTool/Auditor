@@ -37,7 +37,14 @@ def _check_unsafe_without_safety_comment(db: RuleDB) -> list[StandardFinding]:
 
     rows = db.query(
         Q("rust_unsafe_blocks")
-        .select("file_path", "line_start", "line_end", "containing_function", "has_safety_comment", "reason")
+        .select(
+            "file_path",
+            "line_start",
+            "line_end",
+            "containing_function",
+            "has_safety_comment",
+            "reason",
+        )
         .where("has_safety_comment = ?", 0)
     )
 
@@ -110,10 +117,7 @@ def _check_unsafe_trait_impls(db: RuleDB) -> list[StandardFinding]:
     """Flag unsafe trait implementations for review."""
     findings = []
 
-    rows = db.query(
-        Q("rust_unsafe_traits")
-        .select("file_path", "line", "trait_name", "impl_type")
-    )
+    rows = db.query(Q("rust_unsafe_traits").select("file_path", "line", "trait_name", "impl_type"))
 
     for row in rows:
         file_path, line, trait_name, impl_type = row
@@ -191,7 +195,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        # All functions handle missing tables internally
         findings.extend(_check_unsafe_without_safety_comment(db))
         findings.extend(_check_unsafe_in_public_api(db))
         findings.extend(_check_unsafe_trait_impls(db))

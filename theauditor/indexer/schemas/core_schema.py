@@ -286,7 +286,9 @@ ASSIGNMENT_SOURCES_JSX = TableSchema(
             foreign_table="assignments_jsx",
             foreign_columns=["file", "line", "target_var", "jsx_mode"],
         ),
-        ForeignKey(local_columns=["assignment_file"], foreign_table="files", foreign_columns=["path"]),
+        ForeignKey(
+            local_columns=["assignment_file"], foreign_table="files", foreign_columns=["path"]
+        ),
     ],
 )
 
@@ -329,7 +331,10 @@ FUNCTION_RETURN_SOURCES_JSX = TableSchema(
         Column("extraction_pass", "INTEGER", default="1"),
     ],
     indexes=[
-        ("idx_function_return_sources_jsx_return", ["return_file", "return_line", "extraction_pass"]),
+        (
+            "idx_function_return_sources_jsx_return",
+            ["return_file", "return_line", "extraction_pass"],
+        ),
         ("idx_function_return_sources_jsx_var", ["return_var_name"]),
         ("idx_function_return_sources_jsx_file", ["return_file"]),
     ],
@@ -506,7 +511,9 @@ CFG_BLOCK_STATEMENTS_JSX = TableSchema(
         ("idx_jsx_cfg_statements_block", ["block_id"]),
     ],
     foreign_keys=[
-        ForeignKey(local_columns=["block_id"], foreign_table="cfg_blocks_jsx", foreign_columns=["id"]),
+        ForeignKey(
+            local_columns=["block_id"], foreign_table="cfg_blocks_jsx", foreign_columns=["id"]
+        ),
     ],
 )
 

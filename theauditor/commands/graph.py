@@ -171,7 +171,9 @@ def graph_build(root, langs, workset, batch_size, resume, db, repo_db, out_json)
                     workset_data = json.load(f)
 
                     workset_files = {p["path"] for p in workset_data.get("paths", [])}
-                    console.print(f"Loaded workset with {len(workset_files)} files", highlight=False)
+                    console.print(
+                        f"Loaded workset with {len(workset_files)} files", highlight=False
+                    )
 
         if not resume and builder.checkpoint_file.exists():
             builder.checkpoint_file.unlink()
@@ -183,7 +185,10 @@ def graph_build(root, langs, workset, batch_size, resume, db, repo_db, out_json)
             conn = sqlite3.connect(str(repo_db_path))
             cursor = conn.cursor()
             cursor.execute("SELECT path, sha256, ext, bytes, loc FROM files")
-            all_files = [{"path": row[0], "sha256": row[1], "ext": row[2], "bytes": row[3], "loc": row[4]} for row in cursor.fetchall()]
+            all_files = [
+                {"path": row[0], "sha256": row[1], "ext": row[2], "bytes": row[3], "loc": row[4]}
+                for row in cursor.fetchall()
+            ]
             conn.close()
 
             if workset_files:
@@ -193,7 +198,9 @@ def graph_build(root, langs, workset, batch_size, resume, db, repo_db, out_json)
                 file_list = all_files
                 console.print(f"  Found {len(file_list)} files in database", highlight=False)
         else:
-            console.print(f"[error]ERROR: {repo_db} not found. Run 'aud full' first.[/error]", highlight=False)
+            console.print(
+                f"[error]ERROR: {repo_db} not found. Run 'aud full' first.[/error]", highlight=False
+            )
             raise click.Abort()
 
         console.print("Building import graph...")
@@ -297,7 +304,9 @@ def graph_build_dfg(root, db, repo_db):
     try:
         repo_db_path = Path(repo_db)
         if not repo_db_path.exists():
-            console.print(f"[error]ERROR: {repo_db} not found. Run 'aud full' first.[/error]", highlight=False)
+            console.print(
+                f"[error]ERROR: {repo_db} not found. Run 'aud full' first.[/error]", highlight=False
+            )
             raise click.Abort()
 
         console.print("Initializing DFG builder...")
@@ -311,13 +320,29 @@ def graph_build_dfg(root, db, repo_db):
         stats = graph["metadata"]["stats"]
         console.print("\nData Flow Graph Statistics:")
         console.print("  Assignment Stats:")
-        console.print(f"    Total assignments: {stats['assignment_stats']['total_assignments']:,}", highlight=False)
-        console.print(f"    With source vars:  {stats['assignment_stats']['assignments_with_sources']:,}", highlight=False)
-        console.print(f"    Edges created:     {stats['assignment_stats']['edges_created']:,}", highlight=False)
+        console.print(
+            f"    Total assignments: {stats['assignment_stats']['total_assignments']:,}",
+            highlight=False,
+        )
+        console.print(
+            f"    With source vars:  {stats['assignment_stats']['assignments_with_sources']:,}",
+            highlight=False,
+        )
+        console.print(
+            f"    Edges created:     {stats['assignment_stats']['edges_created']:,}",
+            highlight=False,
+        )
         console.print("  Return Stats:")
-        console.print(f"    Total returns:     {stats['return_stats']['total_returns']:,}", highlight=False)
-        console.print(f"    With variables:    {stats['return_stats']['returns_with_vars']:,}", highlight=False)
-        console.print(f"    Edges created:     {stats['return_stats']['edges_created']:,}", highlight=False)
+        console.print(
+            f"    Total returns:     {stats['return_stats']['total_returns']:,}", highlight=False
+        )
+        console.print(
+            f"    With variables:    {stats['return_stats']['returns_with_vars']:,}",
+            highlight=False,
+        )
+        console.print(
+            f"    Edges created:     {stats['return_stats']['edges_created']:,}", highlight=False
+        )
         console.print("  Totals:")
         console.print(f"    Total nodes:       {stats['total_nodes']:,}", highlight=False)
         console.print(f"    Total edges:       {stats['total_edges']:,}", highlight=False)
@@ -425,7 +450,9 @@ def graph_analyze(root, db, out, max_depth, workset):
             hotspots = insights.rank_hotspots(import_graph, call_graph)
             console.print("  Top 10 hotspots:")
             for i, hotspot in enumerate(hotspots[:10], 1):
-                console.print(f"    {i}. {hotspot['id'][:50]} (score: {hotspot['score']})", highlight=False)
+                console.print(
+                    f"    {i}. {hotspot['id'][:50]} (score: {hotspot['score']})", highlight=False
+                )
         else:
             console.print("Finding most connected nodes...")
             degrees = analyzer.calculate_node_degrees(import_graph)
@@ -447,16 +474,25 @@ def graph_analyze(root, db, out, max_depth, workset):
                     targets = workset_data.get("seed_files", [])
 
                     if targets:
-                        console.print(f"\nCalculating impact for {len(targets)} targets...", highlight=False)
+                        console.print(
+                            f"\nCalculating impact for {len(targets)} targets...", highlight=False
+                        )
                         impact = analyzer.impact_of_change(
                             targets=targets,
                             import_graph=import_graph,
                             call_graph=call_graph,
                             max_depth=max_depth,
                         )
-                        console.print(f"  Upstream impact: {len(impact['upstream'])} files", highlight=False)
-                        console.print(f"  Downstream impact: {len(impact['downstream'])} files", highlight=False)
-                        console.print(f"  Total impacted: {impact['total_impacted']}", highlight=False)
+                        console.print(
+                            f"  Upstream impact: {len(impact['upstream'])} files", highlight=False
+                        )
+                        console.print(
+                            f"  Downstream impact: {len(impact['downstream'])} files",
+                            highlight=False,
+                        )
+                        console.print(
+                            f"  Total impacted: {impact['total_impacted']}", highlight=False
+                        )
 
         summary = {}
         if insights:
@@ -468,9 +504,17 @@ def graph_analyze(root, db, out, max_depth, workset):
                 hotspots=hotspots,
             )
 
-            console.print(f"  Graph density: {summary['import_graph'].get('density', 0):.4f}", highlight=False)
-            console.print(f"  Health grade: {summary['health_metrics'].get('health_grade', 'N/A')}", highlight=False)
-            console.print(f"  Fragility score: {summary['health_metrics'].get('fragility_score', 0):.2f}", highlight=False)
+            console.print(
+                f"  Graph density: {summary['import_graph'].get('density', 0):.4f}", highlight=False
+            )
+            console.print(
+                f"  Health grade: {summary['health_metrics'].get('health_grade', 'N/A')}",
+                highlight=False,
+            )
+            console.print(
+                f"  Fragility score: {summary['health_metrics'].get('fragility_score', 0):.2f}",
+                highlight=False,
+            )
         else:
             console.print("\nGenerating basic summary...")
             nodes_count = len(import_graph.get("nodes", []))
@@ -524,9 +568,14 @@ def graph_analyze(root, db, out, max_depth, workset):
                 db_manager = DatabaseManager(str(repo_db_path.resolve()))
                 db_manager.write_findings_batch(meta_findings, "graph-analysis")
                 db_manager.close()
-                console.print(f"  Wrote {len(meta_findings)} graph findings to database", highlight=False)
+                console.print(
+                    f"  Wrote {len(meta_findings)} graph findings to database", highlight=False
+                )
             except Exception as e:
-                console.print(f"[error]  Warning: Could not write findings to database: {e}[/error]", highlight=False)
+                console.print(
+                    f"[error]  Warning: Could not write findings to database: {e}[/error]",
+                    highlight=False,
+                )
 
         with open(out, "w") as f:
             json.dump(analysis, f, indent=2)
@@ -666,7 +715,9 @@ def graph_query(db, uses, calls, nearest_path, format):
 
             if format == "table":
                 if path:
-                    console.print(f"\nPath from {source} to {target} ({len(path)} steps):", highlight=False)
+                    console.print(
+                        f"\nPath from {source} to {target} ({len(path)} steps):", highlight=False
+                    )
                     for i, node in enumerate(path):
                         prefix = "  " + ("-> " if i > 0 else "")
                         console.print(f"{prefix}{node}", highlight=False)
@@ -804,7 +855,9 @@ def graph_viz(
             default_title = "Function Call Graph"
 
         if not graph or not graph.get("nodes"):
-            console.print(f"No {graph_type} graph found. Run 'aud graph build' first.", highlight=False)
+            console.print(
+                f"No {graph_type} graph found. Run 'aud graph build' first.", highlight=False
+            )
             return
 
         analysis = {}
@@ -818,9 +871,14 @@ def graph_viz(
                         "hotspots": analysis_data.get("hotspots", []),
                         "impact": analysis_data.get("impact", {}),
                     }
-                console.print(f"Loaded analysis: {len(analysis['cycles'])} cycles, {len(analysis['hotspots'])} hotspots", highlight=False)
+                console.print(
+                    f"Loaded analysis: {len(analysis['cycles'])} cycles, {len(analysis['hotspots'])} hotspots",
+                    highlight=False,
+                )
             else:
-                console.print("No analysis found. Run 'aud graph analyze' first for richer visualization.")
+                console.print(
+                    "No analysis found. Run 'aud graph analyze' first for richer visualization."
+                )
 
         out_path = Path(out_dir)
         out_path.mkdir(parents=True, exist_ok=True)
@@ -831,7 +889,9 @@ def graph_viz(
                 json.dump({"nodes": graph["nodes"], "edges": graph["edges"]}, f, indent=2)
 
             console.print(f"[success]JSON saved to: {json_file}[/success]")
-            console.print(f"  Nodes: {len(graph['nodes'])}, Edges: {len(graph['edges'])}", highlight=False)
+            console.print(
+                f"  Nodes: {len(graph['nodes'])}, Edges: {len(graph['edges'])}", highlight=False
+            )
         else:
             visualizer = GraphVisualizer()
 
@@ -841,16 +901,22 @@ def graph_viz(
                 "show_self_loops": show_self_loops,
             }
 
-            console.print(f"Generating {format.upper()} visualization (view: {view})...", highlight=False)
+            console.print(
+                f"Generating {format.upper()} visualization (view: {view})...", highlight=False
+            )
 
             if view == "cycles":
                 cycles = analysis.get("cycles", [])
                 if not cycles:
                     if "cycles" in analysis:
-                        console.print("[info]No dependency cycles detected in the codebase (good architecture!).[/info]")
+                        console.print(
+                            "[info]No dependency cycles detected in the codebase (good architecture!).[/info]"
+                        )
                         console.print("       Showing full graph instead...")
                     else:
-                        console.print("[warning]No cycles data found. Run 'aud graph analyze' first.[/warning]")
+                        console.print(
+                            "[warning]No cycles data found. Run 'aud graph analyze' first.[/warning]"
+                        )
                         console.print("       Falling back to full view...")
                     dot_content = visualizer.generate_dot(graph, analysis, options)
                 else:
@@ -901,12 +967,18 @@ def graph_viz(
                 else:
                     console.print(f"  Target: {impact_target}", highlight=False)
                     console.print(f"  Upstream: {len(impact['upstream'])} nodes", highlight=False)
-                    console.print(f"  Downstream: {len(impact['downstream'])} nodes", highlight=False)
-                    console.print(f"  Total impact: {len(impact['all_impacted'])} nodes", highlight=False)
+                    console.print(
+                        f"  Downstream: {len(impact['downstream'])} nodes", highlight=False
+                    )
+                    console.print(
+                        f"  Total impact: {len(impact['all_impacted'])} nodes", highlight=False
+                    )
                     dot_content = visualizer.generate_impact_visualization(graph, impact, options)
 
             else:
-                console.print(f"  Nodes: {len(graph['nodes'])} (limit: {limit_nodes})", highlight=False)
+                console.print(
+                    f"  Nodes: {len(graph['nodes'])} (limit: {limit_nodes})", highlight=False
+                )
                 console.print(f"  Edges: {len(graph['edges'])}", highlight=False)
                 dot_content = visualizer.generate_dot(graph, analysis, options)
 
@@ -929,20 +1001,34 @@ def graph_viz(
                             ["dot", f"-T{format}", str(dot_file), "-o", str(output_file)],
                             check=True,
                         )
-                        console.print(f"[success]{format.upper()} image saved to: {output_file}[/success]")
+                        console.print(
+                            f"[success]{format.upper()} image saved to: {output_file}[/success]"
+                        )
 
                         if format == "svg":
-                            console.print("  [success]SVG is AI-readable and can be analyzed for patterns[/success]")
+                            console.print(
+                                "  [success]SVG is AI-readable and can be analyzed for patterns[/success]"
+                            )
                     else:
-                        console.print(f"[warning]Graphviz not found. Install it to generate {format.upper()} images:[/warning]")
+                        console.print(
+                            f"[warning]Graphviz not found. Install it to generate {format.upper()} images:[/warning]"
+                        )
                         console.print("  Ubuntu/Debian: apt install graphviz")
                         console.print("  macOS: brew install graphviz")
                         console.print("  Windows: choco install graphviz")
-                        console.print(f"\n  Manual generation: dot -T{format} {dot_file} -o {output_filename}.{format}", highlight=False)
+                        console.print(
+                            f"\n  Manual generation: dot -T{format} {dot_file} -o {output_filename}.{format}",
+                            highlight=False,
+                        )
 
                 except FileNotFoundError:
-                    console.print(f"[warning]Graphviz not installed. Cannot generate {format.upper()}.[/warning]")
-                    console.print(f"  Install graphviz and run: dot -T{format} {dot_file} -o {output_filename}.{format}", highlight=False)
+                    console.print(
+                        f"[warning]Graphviz not installed. Cannot generate {format.upper()}.[/warning]"
+                    )
+                    console.print(
+                        f"  Install graphviz and run: dot -T{format} {dot_file} -o {output_filename}.{format}",
+                        highlight=False,
+                    )
                 except subprocess.CalledProcessError as e:
                     console.print(f"[error]Failed to generate {format.upper()}: {e}[/error]")
 

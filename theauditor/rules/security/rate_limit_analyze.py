@@ -751,10 +751,7 @@ def _detect_expensive_operations(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     file_rows = db.query(
-        Q("function_call_args")
-        .select("file")
-        .where("callee_function IS NOT NULL")
-        .distinct()
+        Q("function_call_args").select("file").where("callee_function IS NOT NULL").distinct()
     )
 
     rate_limited_files = set()

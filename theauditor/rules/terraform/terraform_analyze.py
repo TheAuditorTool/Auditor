@@ -183,9 +183,7 @@ def _check_unencrypted_storage(
     return findings
 
 
-def _check_iam_wildcards(
-    db: RuleDB, all_props: dict[str, dict[str, Any]]
-) -> list[StandardFinding]:
+def _check_iam_wildcards(db: RuleDB, all_props: dict[str, dict[str, Any]]) -> list[StandardFinding]:
     """Check for IAM policies with wildcard permissions."""
     findings: list[StandardFinding] = []
 
@@ -248,8 +246,7 @@ def _check_resource_secrets(
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("terraform_resources")
-        .select("resource_id", "file_path", "resource_name", "line")
+        Q("terraform_resources").select("resource_id", "file_path", "resource_name", "line")
     )
 
     for resource_id, file_path, resource_name, line in rows:
@@ -404,8 +401,7 @@ def _load_json(raw: Any) -> Any:
 def _bulk_load_all_properties(db: RuleDB) -> dict[str, dict[str, Any]]:
     """Load ALL resource properties in one query. O(1) lookup after."""
     rows = db.query(
-        Q("terraform_resource_properties")
-        .select("resource_id", "property_name", "property_value")
+        Q("terraform_resource_properties").select("resource_id", "property_name", "property_value")
     )
 
     props_map: dict[str, dict[str, Any]] = {}

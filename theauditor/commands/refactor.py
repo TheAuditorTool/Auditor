@@ -17,7 +17,7 @@ from typing import Any
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.refactor import (
     ProfileEvaluation,
     RefactorProfile,
@@ -242,7 +242,9 @@ def refactor(
     db_path = pf_dir / "repo_index.db"
 
     if not db_path.exists():
-        err_console.print("[error]Error: No index found. Run 'aud full' first.[/error]", )
+        err_console.print(
+            "[error]Error: No index found. Run 'aud full' first.[/error]",
+        )
         raise click.Abort()
 
     console.print("\n" + "=" * 70, markup=False)
@@ -255,9 +257,7 @@ def refactor(
         try:
             profile = RefactorProfile.load(Path(profile_file))
         except Exception as exc:
-            err_console.print(
-                f"[error]Error loading profile: {exc}[/error]", highlight=False
-            )
+            err_console.print(f"[error]Error loading profile: {exc}[/error]", highlight=False)
             raise click.Abort() from exc
 
         console.print(f"  Profile: {profile.refactor_name}", highlight=False)

@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -142,26 +142,25 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
 
     Note: Requires 'aud full' to be run first."""
 
+    import json as json_lib
+    import sqlite3
+
+    from theauditor.commands.config import DB_PATH
     from theauditor.MachineL.impact_analyzer import (
         analyze_impact,
         format_impact_report,
         format_planning_context,
     )
-    import json as json_lib
-    import sqlite3
-
-    from theauditor.commands.config import DB_PATH
 
     if db is None:
         db = DB_PATH
 
     db_path = Path(db)
     if not db_path.exists():
+        err_console.print(f"[error]Error: Database not found at {db}[/error]", highlight=False)
         err_console.print(
-            f"[error]Error: Database not found at {db}[/error]", highlight=False
+            "[error]Run 'aud full' first to build the repository index[/error]",
         )
-        err_console.print(
-            "[error]Run 'aud full' first to build the repository index[/error]", )
         raise click.ClickException(f"Database not found: {db}")
 
     if symbol is None and file is None:
@@ -233,10 +232,12 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
                         f"[error]  ... and {len(results) - 10} more[/error]",
                         highlight=False,
                     )
-                err_console.print("[error][/error]", )
+                err_console.print(
+                    "[error][/error]",
+                )
                 err_console.print(
                     "[error]Use --file and --line to specify exact location, or refine pattern.[/error]",
-                    )
+                )
                 raise click.ClickException("Ambiguous symbol - multiple matches found")
 
     if file and line is None:
@@ -294,7 +295,9 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
             f"[error]Warning: File {file} not found in filesystem[/error]",
             highlight=False,
         )
-        err_console.print("[error]Proceeding with analysis using indexed data...[/error]", )
+        err_console.print(
+            "[error]Proceeding with analysis using indexed data...[/error]",
+        )
 
     try:
         result = analyze_impact(
@@ -367,12 +370,11 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
         summary = result.get("impact_summary", {})
         if summary.get("total_impact", 0) > 20:
             err_console.print(
-                "[error]\n\\[!] WARNING: High impact change detected![/error]", )
+                "[error]\n\\[!] WARNING: High impact change detected![/error]",
+            )
             exit(1)
 
     except Exception as e:
         if "No function or class found at" not in str(e):
-            err_console.print(
-                f"[error]Error during impact analysis: {e}[/error]", highlight=False
-            )
+            err_console.print(f"[error]Error during impact analysis: {e}[/error]", highlight=False)
         raise click.ClickException(str(e)) from e

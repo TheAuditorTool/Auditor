@@ -4,9 +4,9 @@ import sqlite3
 from pathlib import Path
 
 from theauditor.boundaries.distance import (
+    _build_graph_index,
     find_all_paths_to_controls,
     measure_boundary_quality,
-    _build_graph_index,
 )
 from theauditor.graph.store import XGraphStore
 
@@ -31,7 +31,6 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
     try:
         entry_points = []
 
-        # Python routes
         if _table_exists(cursor, "python_routes"):
             cursor.execute(
                 """
@@ -51,7 +50,6 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                     }
                 )
 
-        # JavaScript routes (table may not exist in Python-only codebases)
         if _table_exists(cursor, "js_routes"):
             cursor.execute(
                 """
@@ -71,7 +69,6 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                     }
                 )
 
-        # API endpoints (generic)
         if _table_exists(cursor, "api_endpoints"):
             cursor.execute(
                 """
@@ -91,7 +88,6 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                     }
                 )
 
-        # Go routes (table may not exist in non-Go codebases)
         if _table_exists(cursor, "go_routes"):
             cursor.execute(
                 """
@@ -111,7 +107,6 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                     }
                 )
 
-        # Rust routes (table may not exist in non-Rust codebases)
         if _table_exists(cursor, "rust_attributes"):
             cursor.execute(
                 """
@@ -132,7 +127,6 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                     }
                 )
 
-        # Load graph ONCE before loop (O(1) instead of O(N) disk I/O)
         graph_db_path = str(Path(db_path).parent / "graphs.db")
         store = XGraphStore(graph_db_path)
         call_graph = store.load_call_graph()
@@ -143,7 +137,6 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                 "Run 'aud graph build' to generate the call graph."
             )
 
-        # Build index ONCE for O(1) node lookups (instead of O(N) per lookup)
         _build_graph_index(call_graph)
 
         for entry in entry_points[:max_entries]:

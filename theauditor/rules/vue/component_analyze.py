@@ -46,38 +46,44 @@ METADATA = RuleMetadata(
 )
 
 
-IMMUTABLE_PROPS = frozenset([
-    "props.",
-    "this.props.",
-    "this.$props.",
-    "prop.",
-    "parentProp.",
-    "inheritedProp.",
-])
+IMMUTABLE_PROPS = frozenset(
+    [
+        "props.",
+        "this.props.",
+        "this.$props.",
+        "prop.",
+        "parentProp.",
+        "inheritedProp.",
+    ]
+)
 
 
-RENDER_TRIGGERS = frozenset([
-    "$forceUpdate",
-    "forceUpdate",
-    "$set",
-    "$delete",
-    "Vue.set",
-    "Vue.delete",
-    "this.$nextTick",
-])
+RENDER_TRIGGERS = frozenset(
+    [
+        "$forceUpdate",
+        "forceUpdate",
+        "$set",
+        "$delete",
+        "Vue.set",
+        "Vue.delete",
+        "this.$nextTick",
+    ]
+)
 
 
-EXPENSIVE_TEMPLATE_OPS = frozenset([
-    "JSON.stringify",
-    "JSON.parse",
-    "Object.keys",
-    "Object.values",
-    "Array.from",
-    ".filter",
-    ".map",
-    ".reduce",
-    ".sort",
-])
+EXPENSIVE_TEMPLATE_OPS = frozenset(
+    [
+        "JSON.stringify",
+        "JSON.parse",
+        "Object.keys",
+        "Object.values",
+        "Array.from",
+        ".filter",
+        ".map",
+        ".reduce",
+        ".sort",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -107,27 +113,13 @@ def _get_vue_files(db: RuleDB) -> set[str]:
     """Get all Vue-related files from the database."""
     vue_files: set[str] = set()
 
-    # Get files from vue_components table
-    rows = db.query(
-        Q("vue_components")
-        .select("file")
-    )
+    rows = db.query(Q("vue_components").select("file"))
     vue_files.update(row[0] for row in rows)
 
-    # Get .vue files from files table
-    rows = db.query(
-        Q("files")
-        .select("path")
-        .where("ext = ?", ".vue")
-    )
+    rows = db.query(Q("files").select("path").where("ext = ?", ".vue"))
     vue_files.update(row[0] for row in rows)
 
-    # Get files with Vue-related symbols
-    rows = db.query(
-        Q("symbols")
-        .select("path", "name")
-        .where("name IS NOT NULL")
-    )
+    rows = db.query(Q("symbols").select("path", "name").where("name IS NOT NULL"))
 
     vue_patterns = ("Vue", "defineComponent", "createApp")
     for path, name in rows:
@@ -148,7 +140,6 @@ def _find_props_mutations(db: RuleDB, vue_files: set[str]) -> list[StandardFindi
     if not vue_files:
         return findings
 
-    # Query assignments in Vue files
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -160,7 +151,6 @@ def _find_props_mutations(db: RuleDB, vue_files: set[str]) -> list[StandardFindi
         if file not in vue_files:
             continue
 
-        # Check if assignment target is a prop
         if any(pattern in target for pattern in IMMUTABLE_PROPS):
             findings.append(
                 StandardFinding(
@@ -191,7 +181,6 @@ def _find_missing_vfor_keys(db: RuleDB, vue_files: set[str]) -> list[StandardFin
     if not vue_files:
         return findings
 
-    # Primary: Check vue_directives table for v-for without key
     rows = db.query(
         Q("vue_directives")
         .select("file", "line", "expression")
@@ -217,7 +206,7 @@ def _find_missing_vfor_keys(db: RuleDB, vue_files: set[str]) -> list[StandardFin
                     category="vue-performance",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-1050",
-                    snippet=f"v-for=\"{expression}\"",
+                    snippet=f'v-for="{expression}"',
                 )
             )
 
@@ -235,19 +224,15 @@ def _find_complex_components(db: RuleDB, vue_files: set[str]) -> list[StandardFi
     if not vue_files:
         return findings
 
-    # Count methods per file
     rows = db.query(
-        Q("symbols")
-        .select("path", "name")
-        .where("type = ?", "function")
-        .where("name IS NOT NULL")
+        Q("symbols").select("path", "name").where("type = ?", "function").where("name IS NOT NULL")
     )
 
     file_methods: dict[str, set[str]] = {}
     for path, name in rows:
         if path not in vue_files:
             continue
-        # Exclude event handlers from complexity count
+
         if name.startswith("on") or name.startswith("handle"):
             continue
         if path not in file_methods:
@@ -270,7 +255,6 @@ def _find_complex_components(db: RuleDB, vue_files: set[str]) -> list[StandardFi
                 )
             )
 
-    # Count data properties per file
     rows = db.query(
         Q("symbols")
         .select("path", "name")
@@ -362,22 +346,13 @@ def _find_missing_component_names(db: RuleDB, vue_files: set[str]) -> list[Stand
     if not vue_files:
         return findings
 
-    # Get .vue files
-    rows = db.query(
-        Q("files")
-        .select("path")
-        .where("ext = ?", ".vue")
-    )
+    rows = db.query(Q("files").select("path").where("ext = ?", ".vue"))
 
     vue_component_files = [row[0] for row in rows if row[0] in vue_files]
 
-    # Check each Vue file for name property
     for file in vue_component_files:
         rows = db.query(
-            Q("symbols")
-            .select("name")
-            .where("path = ?", file)
-            .where("name IS NOT NULL")
+            Q("symbols").select("name").where("path = ?", file).where("name IS NOT NULL")
         )
 
         has_name = False
@@ -428,7 +403,6 @@ def _find_inefficient_computed(db: RuleDB, vue_files: set[str]) -> list[Standard
         if operation not in EXPENSIVE_TEMPLATE_OPS:
             continue
 
-        # Check if caller is a computed property
         if "computed" in caller or "get " in caller:
             findings.append(
                 StandardFinding(
@@ -459,17 +433,13 @@ def _find_complex_template_expressions(db: RuleDB, vue_files: set[str]) -> list[
         return findings
 
     rows = db.query(
-        Q("symbols")
-        .select("path", "line", "name")
-        .where("name IS NOT NULL")
-        .order_by("path, line")
+        Q("symbols").select("path", "line", "name").where("name IS NOT NULL").order_by("path, line")
     )
 
     for path, line, name in rows:
         if path not in vue_files:
             continue
 
-        # Check for complex logical expressions (multiple && or || or ternaries)
         and_count = name.count("&&")
         or_count = name.count("||")
         ternary_count = name.count("?")

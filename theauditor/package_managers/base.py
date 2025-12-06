@@ -26,22 +26,18 @@ class Dependency:
     Optional fields have sensible defaults for each ecosystem.
     """
 
-    # Required fields
     name: str
     version: str
     manager: str
     source: str
 
-    # Common optional fields
     files: list[str] = field(default_factory=list)
     is_dev: bool = False
 
-    # Cargo-specific
     features: list[str] = field(default_factory=list)
-    kind: str = ""  # "normal", "dev", "build"
+    kind: str = ""
     is_workspace: bool = False
 
-    # Go-specific
     is_indirect: bool = False
     module_path: str = ""
     go_version: str = ""
@@ -51,7 +47,7 @@ class Dependency:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "Dependency":
+    def from_dict(cls, data: dict[str, Any]) -> Dependency:
         """Create Dependency from dict for backward compatibility.
 
         Ignores unknown keys to handle manager-specific fields gracefully.
@@ -131,7 +127,7 @@ class BasePackageManager(ABC):
     @abstractmethod
     async def fetch_latest_async(
         self,
-        client: Any,  # httpx.AsyncClient
+        client: Any,
         dep: Dependency,
         allow_prerelease: bool = False,
     ) -> str | None:
@@ -150,7 +146,7 @@ class BasePackageManager(ABC):
     @abstractmethod
     async def fetch_docs_async(
         self,
-        client: Any,  # httpx.AsyncClient
+        client: Any,
         dep: Dependency,
         output_path: Path,
         allowlist: list[str],

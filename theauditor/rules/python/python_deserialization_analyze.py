@@ -25,127 +25,151 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# Pickle/unpickle methods - ALL are dangerous (RCE)
-PICKLE_METHODS = frozenset([
-    "pickle.load",
-    "pickle.loads",
-    "pickle.Unpickler",
-    "cPickle.load",
-    "cPickle.loads",
-    "cPickle.Unpickler",
-    "dill.load",
-    "dill.loads",
-    "cloudpickle.load",
-    "cloudpickle.loads",
-])
 
-# Unsafe YAML loaders - allow arbitrary Python object construction
-YAML_UNSAFE = frozenset([
-    "yaml.load",
-    "yaml.full_load",
-    "yaml.unsafe_load",
-    "yaml.UnsafeLoader",
-    "yaml.FullLoader",
-    "yaml.Loader",
-])
+PICKLE_METHODS = frozenset(
+    [
+        "pickle.load",
+        "pickle.loads",
+        "pickle.Unpickler",
+        "cPickle.load",
+        "cPickle.loads",
+        "cPickle.Unpickler",
+        "dill.load",
+        "dill.loads",
+        "cloudpickle.load",
+        "cloudpickle.loads",
+    ]
+)
 
-# Marshal methods - can execute arbitrary bytecode
-MARSHAL_METHODS = frozenset([
-    "marshal.load",
-    "marshal.loads",
-    "marshal.dump",
-    "marshal.dumps",
-])
 
-# Shelve methods - uses pickle internally
-SHELVE_METHODS = frozenset([
-    "shelve.open",
-    "shelve.DbfilenameShelf",
-    "shelve.Shelf",
-])
+YAML_UNSAFE = frozenset(
+    [
+        "yaml.load",
+        "yaml.full_load",
+        "yaml.unsafe_load",
+        "yaml.UnsafeLoader",
+        "yaml.FullLoader",
+        "yaml.Loader",
+    ]
+)
 
-# JSON dangerous patterns (custom deserializers)
-JSON_DANGEROUS = frozenset([
-    "object_hook",
-    "object_pairs_hook",
-    "cls=",
-])
 
-# Django session serialization patterns
-DJANGO_SESSION = frozenset([
-    "django.contrib.sessions.serializers.PickleSerializer",
-    "PickleSerializer",
-    "session.get_decoded",
-    "signing.loads",
-])
+MARSHAL_METHODS = frozenset(
+    [
+        "marshal.load",
+        "marshal.loads",
+        "marshal.dump",
+        "marshal.dumps",
+    ]
+)
 
-# Flask session patterns
-FLASK_SESSION = frozenset([
-    "flask.session",
-    "SecureCookie.unserialize",
-    "session.loads",
-])
 
-# XML parsing methods vulnerable to XXE
-XML_UNSAFE = frozenset([
-    "etree.parse",
-    "etree.fromstring",
-    "etree.XMLParser",
-    "xml.dom.minidom.parse",
-    "xml.dom.minidom.parseString",
-    "xml.sax.parse",
-    "ElementTree.parse",
-    "ElementTree.fromstring",
-])
+SHELVE_METHODS = frozenset(
+    [
+        "shelve.open",
+        "shelve.DbfilenameShelf",
+        "shelve.Shelf",
+    ]
+)
 
-# Network data sources (untrusted input)
-NETWORK_SOURCES = frozenset([
-    "request.data",
-    "request.get_data",
-    "request.files",
-    "request.form",
-    "request.json",
-    "request.values",
-    "socket.recv",
-    "socket.recvfrom",
-    "urlopen",
-    "requests.get",
-    "requests.post",
-    "response.content",
-    "redis.get",
-    "cache.get",
-    "memcache.get",
-])
 
-# File data sources
-FILE_SOURCES = frozenset([
-    "open",
-    "file.read",
-    "Path.read_bytes",
-    "Path.read_text",
-    "io.BytesIO",
-    "io.StringIO",
-    "tempfile",
-])
+JSON_DANGEROUS = frozenset(
+    [
+        "object_hook",
+        "object_pairs_hook",
+        "cls=",
+    ]
+)
 
-# Base64 decode patterns (often used to obfuscate pickle payloads)
-BASE64_PATTERNS = frozenset([
-    "b64decode",
-    "base64.b64decode",
-    "base64.decode",
-    "base64.standard_b64decode",
-    "base64.urlsafe_b64decode",
-    "decodebytes",
-    "decodestring",
-])
 
-# Tarfile extraction methods - CVE-2007-4559 TarSlip vulnerability
-TAR_UNSAFE = frozenset([
-    "extractall",
-    "tarfile.extractall",
-    "TarFile.extractall",
-    "tar.extractall",
-])
+DJANGO_SESSION = frozenset(
+    [
+        "django.contrib.sessions.serializers.PickleSerializer",
+        "PickleSerializer",
+        "session.get_decoded",
+        "signing.loads",
+    ]
+)
+
+
+FLASK_SESSION = frozenset(
+    [
+        "flask.session",
+        "SecureCookie.unserialize",
+        "session.loads",
+    ]
+)
+
+
+XML_UNSAFE = frozenset(
+    [
+        "etree.parse",
+        "etree.fromstring",
+        "etree.XMLParser",
+        "xml.dom.minidom.parse",
+        "xml.dom.minidom.parseString",
+        "xml.sax.parse",
+        "ElementTree.parse",
+        "ElementTree.fromstring",
+    ]
+)
+
+
+NETWORK_SOURCES = frozenset(
+    [
+        "request.data",
+        "request.get_data",
+        "request.files",
+        "request.form",
+        "request.json",
+        "request.values",
+        "socket.recv",
+        "socket.recvfrom",
+        "urlopen",
+        "requests.get",
+        "requests.post",
+        "response.content",
+        "redis.get",
+        "cache.get",
+        "memcache.get",
+    ]
+)
+
+
+FILE_SOURCES = frozenset(
+    [
+        "open",
+        "file.read",
+        "Path.read_bytes",
+        "Path.read_text",
+        "io.BytesIO",
+        "io.StringIO",
+        "tempfile",
+    ]
+)
+
+
+BASE64_PATTERNS = frozenset(
+    [
+        "b64decode",
+        "base64.b64decode",
+        "base64.decode",
+        "base64.standard_b64decode",
+        "base64.urlsafe_b64decode",
+        "decodebytes",
+        "decodestring",
+    ]
+)
+
+
+TAR_UNSAFE = frozenset(
+    [
+        "extractall",
+        "tarfile.extractall",
+        "TarFile.extractall",
+        "tar.extractall",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -192,7 +216,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                 )
             )
 
-        # Run all deserialization checks
         _check_pickle_usage(db, add_finding)
         _check_yaml_unsafe(db, add_finding)
         _check_marshal_shelve(db, add_finding)
@@ -264,7 +287,6 @@ def _check_yaml_unsafe(db: RuleDB, add_finding) -> None:
     for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
-        # Skip if SafeLoader is explicitly used
         if args and "SafeLoader" in str(args):
             continue
 
@@ -284,7 +306,7 @@ def _check_yaml_unsafe(db: RuleDB, add_finding) -> None:
 
 def _check_marshal_shelve(db: RuleDB, add_finding) -> None:
     """Detect marshal and shelve usage - bytecode execution risk."""
-    # Check marshal
+
     marshal_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function")
@@ -304,7 +326,6 @@ def _check_marshal_shelve(db: RuleDB, add_finding) -> None:
             cwe_id="CWE-502",
         )
 
-    # Check shelve
     shelve_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function")
@@ -358,7 +379,7 @@ def _check_json_exploitation(db: RuleDB, add_finding) -> None:
 
 def _check_django_flask_sessions(db: RuleDB, add_finding) -> None:
     """Detect unsafe session deserialization in Django/Flask."""
-    # Check Django PickleSerializer
+
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -368,10 +389,7 @@ def _check_django_flask_sessions(db: RuleDB, add_finding) -> None:
     for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
-        is_django_pickle = (
-            method in DJANGO_SESSION
-            or (args and "PickleSerializer" in str(args))
-        )
+        is_django_pickle = method in DJANGO_SESSION or (args and "PickleSerializer" in str(args))
 
         if is_django_pickle:
             add_finding(
@@ -384,7 +402,6 @@ def _check_django_flask_sessions(db: RuleDB, add_finding) -> None:
                 cwe_id="CWE-502",
             )
 
-    # Check Flask session patterns
     flask_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -422,7 +439,6 @@ def _check_xml_xxe(db: RuleDB, add_finding) -> None:
     for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
-        # Skip if external entities are disabled
         if args and "resolve_entities=False" in str(args):
             continue
 
@@ -439,22 +455,20 @@ def _check_xml_xxe(db: RuleDB, add_finding) -> None:
 
 def _check_base64_pickle_combo(db: RuleDB, add_finding) -> None:
     """Detect base64-encoded pickle - common attack pattern to bypass filters."""
-    # Find base64 decode calls
-    base64_calls = list(db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .where_in("callee_function", list(BASE64_PATTERNS))
-        .order_by("file, line")
-    ))
+
+    base64_calls = list(
+        db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function")
+            .where_in("callee_function", list(BASE64_PATTERNS))
+            .order_by("file, line")
+        )
+    )
 
     if not base64_calls:
         return
 
-    # Get all function calls to check for nearby pickle
-    all_rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-    )
+    all_rows = db.query(Q("function_call_args").select("file", "line", "callee_function"))
 
     findings_set: set[tuple[str, int]] = set()
 
@@ -489,10 +503,7 @@ def _check_base64_pickle_combo(db: RuleDB, add_finding) -> None:
 
 def _check_pickle_imports(db: RuleDB, add_finding) -> None:
     """Flag pickle module imports as a code smell."""
-    rows = db.query(
-        Q("refs")
-        .select("src", "line", "value")
-    )
+    rows = db.query(Q("refs").select("src", "line", "value"))
 
     pickle_files: set[tuple[str, int]] = set()
     for row in rows:
@@ -503,21 +514,13 @@ def _check_pickle_imports(db: RuleDB, add_finding) -> None:
         if value in ("pickle", "cPickle", "dill", "cloudpickle"):
             pickle_files.add((src, line))
 
-    # For each import, check if there's actual pickle usage
     for file, import_line in pickle_files:
         usage_rows = db.query(
-            Q("function_call_args")
-            .select("callee_function")
-            .where("file = ?", file)
+            Q("function_call_args").select("callee_function").where("file = ?", file)
         )
 
-        has_pickle_usage = any(
-            "pickle" in str(row[0]).lower()
-            for row in usage_rows
-            if row[0]
-        )
+        has_pickle_usage = any("pickle" in str(row[0]).lower() for row in usage_rows if row[0])
 
-        # Only flag imports without corresponding usage (code smell)
         if not has_pickle_usage:
             add_finding(
                 file=file,
@@ -537,17 +540,14 @@ def _check_data_source(db: RuleDB, file: str, line: int, args: str | None) -> st
 
     args_str = str(args)
 
-    # Check direct network sources
     for source in NETWORK_SOURCES:
         if source in args_str:
             return "network"
 
-    # Check direct file sources
     for source in FILE_SOURCES:
         if source in args_str:
             return "file"
 
-    # Check recent function calls for data sources
     rows = db.query(
         Q("function_call_args")
         .select("callee_function")
@@ -585,12 +585,10 @@ def _check_tar_slip(db: RuleDB, add_finding) -> None:
     for row in rows:
         file, line, method, args = row[0], row[1], row[2], row[3]
 
-        # Skip if 'members' filter is present (safe usage)
         args_str = str(args) if args else ""
         if "members=" in args_str or "members =" in args_str:
             continue
 
-        # Check for filter= parameter (Python 3.12+ safe extraction)
         if "filter=" in args_str:
             continue
 

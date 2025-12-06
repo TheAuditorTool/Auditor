@@ -30,55 +30,54 @@ METADATA = RuleMetadata(
     primary_table="dependency_versions",
 )
 
-# Security-critical packages that warrant higher severity when outdated
-# These commonly have security vulnerabilities or are attack targets
-SECURITY_CRITICAL_PACKAGES: frozenset[str] = frozenset([
-    # JavaScript - commonly exploited
-    "lodash",
-    "express",
-    "axios",
-    "node-fetch",
-    "got",
-    "request",
-    "minimist",
-    "yargs",
-    "commander",
-    "jsonwebtoken",
-    "passport",
-    "bcrypt",
-    "crypto-js",
-    "helmet",
-    "cors",
-    "body-parser",
-    "cookie-parser",
-    "dotenv",
-    "webpack",
-    "serialize-javascript",
-    "handlebars",
-    "marked",
-    "highlight.js",
-    "moment",
-    "luxon",
-    # Python - commonly exploited
-    "django",
-    "flask",
-    "requests",
-    "urllib3",
-    "pyyaml",
-    "pillow",
-    "jinja2",
-    "cryptography",
-    "paramiko",
-    "pyjwt",
-    "werkzeug",
-    "gunicorn",
-    "celery",
-    "sqlalchemy",
-    "psycopg2",
-    "pymysql",
-    "redis",
-    "boto3",
-])
+
+SECURITY_CRITICAL_PACKAGES: frozenset[str] = frozenset(
+    [
+        "lodash",
+        "express",
+        "axios",
+        "node-fetch",
+        "got",
+        "request",
+        "minimist",
+        "yargs",
+        "commander",
+        "jsonwebtoken",
+        "passport",
+        "bcrypt",
+        "crypto-js",
+        "helmet",
+        "cors",
+        "body-parser",
+        "cookie-parser",
+        "dotenv",
+        "webpack",
+        "serialize-javascript",
+        "handlebars",
+        "marked",
+        "highlight.js",
+        "moment",
+        "luxon",
+        "django",
+        "flask",
+        "requests",
+        "urllib3",
+        "pyyaml",
+        "pillow",
+        "jinja2",
+        "cryptography",
+        "paramiko",
+        "pyjwt",
+        "werkzeug",
+        "gunicorn",
+        "celery",
+        "sqlalchemy",
+        "psycopg2",
+        "pymysql",
+        "redis",
+        "boto3",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -99,10 +98,8 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Build file path map for better finding locations
         file_path_map = _build_file_path_map(db)
 
-        # Check all outdated dependencies (both major and minor)
         findings.extend(_check_major_outdated(db, file_path_map))
         findings.extend(_check_minor_outdated(db, file_path_map))
 
@@ -145,16 +142,14 @@ def _check_major_outdated(db: RuleDB, file_path_map: dict[str, str]) -> list[Sta
         versions_behind = _calculate_major_versions_behind(locked, latest)
         is_critical = pkg_name.lower() in SECURITY_CRITICAL_PACKAGES
 
-        # Determine severity based on versions behind and criticality
         if versions_behind >= 3:
             severity = Severity.CRITICAL if is_critical else Severity.HIGH
         elif versions_behind == 2:
             severity = Severity.HIGH if is_critical else Severity.MEDIUM
         elif versions_behind == 1 and is_critical:
-            # Single major version behind for security-critical package
             severity = Severity.MEDIUM
         else:
-            continue  # Skip if not significant enough
+            continue
 
         key = f"{manager}:{pkg_name}"
         file_path = file_path_map.get(key, _default_file_path(manager))
@@ -214,7 +209,6 @@ def _check_minor_outdated(db: RuleDB, file_path_map: dict[str, str]) -> list[Sta
         minors_behind = _calculate_minor_versions_behind(locked, latest)
         is_critical = pkg_name.lower() in SECURITY_CRITICAL_PACKAGES
 
-        # Only flag if significantly behind (5+ minors) or critical package (3+ minors)
         threshold = 3 if is_critical else 5
         if minors_behind < threshold:
             continue
@@ -252,20 +246,12 @@ def _build_file_path_map(db: RuleDB) -> dict[str, str]:
     """
     file_map: dict[str, str] = {}
 
-    # Map JavaScript packages
-    js_rows = db.query(
-        Q("package_dependencies")
-        .select("file_path", "name")
-        .order_by("file_path")
-    )
+    js_rows = db.query(Q("package_dependencies").select("file_path", "name").order_by("file_path"))
     for file_path, name in js_rows:
         file_map[f"npm:{name}"] = file_path
 
-    # Map Python packages
     py_rows = db.query(
-        Q("python_package_dependencies")
-        .select("file_path", "name")
-        .order_by("file_path")
+        Q("python_package_dependencies").select("file_path", "name").order_by("file_path")
     )
     for file_path, name in py_rows:
         file_map[f"pypi:{name}"] = file_path
@@ -312,24 +298,23 @@ def _calculate_major_versions_behind(locked: str, latest: str) -> int:
     latest_parts = latest_clean.split(".")
 
     if len(locked_parts) < 1 or len(latest_parts) < 1:
-        return 0  # Malformed version - skip
+        return 0
 
     try:
         locked_major = int(locked_parts[0])
         latest_major = int(latest_parts[0])
     except ValueError:
-        return 0  # Non-numeric major (calver, etc.) - skip
+        return 0
 
-    # Handle 0.x.y: minor bump in 0.x is effectively major (SemVer spec)
     if locked_major == 0 and latest_major == 0:
         if len(locked_parts) >= 2 and len(latest_parts) >= 2:
             try:
                 locked_minor = int(locked_parts[1])
                 latest_minor = int(latest_parts[1])
                 if latest_minor > locked_minor:
-                    return 1  # Treat as 1 major version behind
+                    return 1
             except ValueError:
-                pass  # Fall through to normal calculation
+                pass
 
     return max(0, latest_major - locked_major)
 
@@ -353,12 +338,12 @@ def _calculate_minor_versions_behind(locked: str, latest: str) -> int:
     latest_parts = latest_clean.split(".")
 
     if len(locked_parts) < 2 or len(latest_parts) < 2:
-        return 0  # Need at least major.minor
+        return 0
 
     try:
         locked_minor = int(locked_parts[1])
         latest_minor = int(latest_parts[1])
     except ValueError:
-        return 0  # Non-numeric minor - skip
+        return 0
 
     return max(0, latest_minor - locked_minor)

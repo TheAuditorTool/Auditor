@@ -1001,7 +1001,4 @@ def extract_all_python_data(context: FileContext) -> dict[str, Any]:
         if duplicates:
             result["symbols"] = unique_symbols
 
-    # NOTE: Manifest generation moved to python.py (Late Binding pattern)
-    # python.py calls FidelityToken.attach_manifest() AFTER adding resolved_imports
-
     return result

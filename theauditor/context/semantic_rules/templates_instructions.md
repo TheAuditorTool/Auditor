@@ -144,11 +144,11 @@ Still stuck? Inspect `theauditor/insights/semantic_context.py` for exact behavio
 
 ## 8. Relationship to refactor profiles
 
-- **Semantic context (this folder)** → input to `aud context`, classifies existing findings (often security-focused).
+- **Semantic context (this folder)** → input to `aud context --file`, classifies existing findings (often security-focused).
 - **Refactor YAML profiles** (`theauditor/refactor/yaml_rules`) → input to `aud refactor --file`, scan migrations + code for mismatches.
 
-Different pipelines, different schemas—use whichever matches the problem you’re solving.
+Different pipelines, different schemas—use whichever matches the problem you're solving.
 
 ---
 
-Happy context writing! Add new examples to this directory when you create reusable templates so everyone benefits.*** End Patch
+Happy context writing! Add new examples to this directory when you create reusable templates so everyone benefits.

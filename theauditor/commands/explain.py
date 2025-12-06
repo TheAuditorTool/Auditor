@@ -26,7 +26,7 @@ from theauditor.context.explain_formatter import ExplainFormatter
 from theauditor.context.query import CodeQueryEngine
 from theauditor.fce import FCEQueryEngine, VectorSignal
 from theauditor.fce.formatter import FCEFormatter
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.code_snippets import CodeSnippetManager
 from theauditor.utils.error_handler import handle_exceptions
 
@@ -100,9 +100,13 @@ def detect_target_type(target: str, engine: CodeQueryEngine) -> str:
 )
 @click.option("--no-code", is_flag=True, help="Disable code snippets (faster output)")
 @click.option("--limit", default=20, type=int, help="Max items per section (default=20)")
-@click.option("--fce", is_flag=True, help="Include FCE vector signal density (convergence analysis)")
+@click.option(
+    "--fce", is_flag=True, help="Include FCE vector signal density (convergence analysis)"
+)
 @handle_exceptions
-def explain(target: str, depth: int, output_format: str, section: str, no_code: bool, limit: int, fce: bool):
+def explain(
+    target: str, depth: int, output_format: str, section: str, no_code: bool, limit: int, fce: bool
+):
     """Get comprehensive context about a file, symbol, or component.
 
     Provides a complete "briefing packet" in ONE command, eliminating the need
@@ -213,16 +217,16 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
       aud manual context    Apply business logic rules to findings
     """
     if not target:
-        # Styled welcome page
         console.print()
-        console.print(Panel.fit(
-            "[bold cyan]aud explain[/bold cyan]\n"
-            "[dim]Get comprehensive context about any code target in one call[/dim]",
-            border_style="cyan"
-        ))
+        console.print(
+            Panel.fit(
+                "[bold cyan]aud explain[/bold cyan]\n"
+                "[dim]Get comprehensive context about any code target in one call[/dim]",
+                border_style="cyan",
+            )
+        )
         console.print()
 
-        # Target types
         table = Table(show_header=False, box=None, padding=(0, 2))
         table.add_column("Target", style="green", width=28)
         table.add_column("Description", style="dim")
@@ -232,7 +236,6 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
         table.add_row("aud explain Dashboard", "React component (hooks, children)")
         console.print(Panel(table, title="[bold]TARGET TYPES[/bold]", border_style="blue"))
 
-        # Options
         opts_table = Table(show_header=False, box=None, padding=(0, 2))
         opts_table.add_column("Option", style="yellow", width=20)
         opts_table.add_column("Effect", style="dim")
@@ -297,9 +300,7 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
         elif target_type == "symbol":
             data = engine.get_symbol_context_bundle(target, limit=limit, depth=depth)
             if "error" in data:
-                console.print(
-                    f"[error]Error: {data['error']}[/error]", highlight=False
-                )
+                console.print(f"[error]Error: {data['error']}[/error]", highlight=False)
                 return
 
             for key in ["callers", "callees"]:
@@ -323,24 +324,20 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
         else:
             data = engine.get_component_tree(target)
             if isinstance(data, dict) and "error" in data:
-                err_console.print(
-                    f"[error]Error: {data['error']}[/error]", highlight=False
-                )
+                err_console.print(f"[error]Error: {data['error']}[/error]", highlight=False)
                 return
             data["target"] = target
             data["target_type"] = "component"
             output = formatter.format_component_explain(data)
 
-        # Add FCE vector signal if requested
         fce_signal = None
         if fce:
             try:
                 fce_engine = FCEQueryEngine(root)
-                # Determine file path based on target type
+
                 if target_type == "file":
                     fce_file = target
                 elif target_type == "symbol":
-                    # Symbol data has file in definition dict
                     definition = data.get("definition", {})
                     fce_file = definition.get("file") if isinstance(definition, dict) else None
                 elif target_type == "component" and "file" in data:
@@ -350,7 +347,7 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
 
                 if fce_file:
                     fce_signal = fce_engine.get_vector_density(fce_file)
-                    # Add to data for JSON output
+
                     fce_fmt = FCEFormatter()
                     data["fce"] = {
                         "file": fce_file,
@@ -359,12 +356,12 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
                         "vectors": fce_fmt.get_vector_code_string(fce_signal),
                         "vectors_present": list(fce_signal.vectors_present),
                     }
-                    # Append to text output
-                    output += f"\n\nFCE SIGNAL DENSITY:\n"
+
+                    output += "\n\nFCE SIGNAL DENSITY:\n"
                     output += f"  File: {fce_file}\n"
                     output += f"  Vectors: [{fce_signal.density_label}] {fce_fmt.get_vector_code_string(fce_signal)}\n"
                     if fce_signal.vectors_present:
-                        output += f"  Analysis vectors present:\n"
+                        output += "  Analysis vectors present:\n"
                         for v in sorted(fce_signal.vectors_present):
                             vector_names = {
                                 "static": "STATIC (linters: ruff, eslint, bandit)",
@@ -373,10 +370,9 @@ def explain(target: str, depth: int, output_format: str, section: str, no_code: 
                                 "structural": "STRUCTURAL (complexity)",
                             }
                             output += f"    - {vector_names.get(v, v)}\n"
-                    output += f"  -> Run 'aud fce' for full convergence details\n"
+                    output += "  -> Run 'aud fce' for full convergence details\n"
                 fce_engine.close()
             except FileNotFoundError:
-                # No FCE database - skip silently
                 pass
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000

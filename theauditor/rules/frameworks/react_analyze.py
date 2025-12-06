@@ -35,126 +35,148 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# User input sources
-USER_INPUT_SOURCES = frozenset([
-    "props.user",
-    "props.input",
-    "props.data",
-    "props.content",
-    "location.search",
-    "params.",
-    "query.",
-    "formData.",
-    "event.target.value",
-    "e.target.value",
-    "request.body",
-    "useState",
-    "this.props",
-    "this.state",
-])
 
-# XSS sinks
-XSS_SINKS = frozenset([
-    "dangerouslySetInnerHTML",
-    "innerHTML",
-    "outerHTML",
-    "document.write",
-    "document.writeln",
-    "eval",
-    "Function",
-])
+USER_INPUT_SOURCES = frozenset(
+    [
+        "props.user",
+        "props.input",
+        "props.data",
+        "props.content",
+        "location.search",
+        "params.",
+        "query.",
+        "formData.",
+        "event.target.value",
+        "e.target.value",
+        "request.body",
+        "useState",
+        "this.props",
+        "this.state",
+    ]
+)
 
-# Sanitization functions
-SANITIZATION_FUNCS = frozenset([
-    "sanitize",
-    "escape",
-    "encode",
-    "DOMPurify",
-    "xss",
-    "clean",
-    "safe",
-    "purify",
-])
 
-# Sensitive data patterns
-SENSITIVE_PATTERNS = frozenset([
-    "KEY",
-    "TOKEN",
-    "SECRET",
-    "PASSWORD",
-    "PRIVATE",
-    "CREDENTIAL",
-    "AUTH",
-    "API",
-])
+XSS_SINKS = frozenset(
+    [
+        "dangerouslySetInnerHTML",
+        "innerHTML",
+        "outerHTML",
+        "document.write",
+        "document.writeln",
+        "eval",
+        "Function",
+    ]
+)
 
-# Frontend environment variable prefixes (exposed to client)
-FRONTEND_ENV_PREFIXES = frozenset([
-    "REACT_APP_",
-    "NEXT_PUBLIC_",
-    "VITE_",
-    "GATSBY_",
-    "PUBLIC_",
-])
 
-# Browser storage methods
-STORAGE_METHODS = frozenset([
-    "localStorage.setItem",
-    "sessionStorage.setItem",
-    "localStorage.set",
-    "sessionStorage.set",
-    "document.cookie",
-    "indexedDB.put",
-])
+SANITIZATION_FUNCS = frozenset(
+    [
+        "sanitize",
+        "escape",
+        "encode",
+        "DOMPurify",
+        "xss",
+        "clean",
+        "safe",
+        "purify",
+    ]
+)
 
-# Form submission handlers
-FORM_HANDLERS = frozenset([
-    "handleSubmit",
-    "onSubmit",
-    "submit",
-    "submitForm",
-    "formSubmit",
-])
 
-# Validation libraries
-VALIDATION_LIBS = frozenset([
-    "yup",
-    "joi",
-    "zod",
-    "validator",
-    "validate",
-    "sanitize",
-    "schema",
-])
+SENSITIVE_PATTERNS = frozenset(
+    [
+        "KEY",
+        "TOKEN",
+        "SECRET",
+        "PASSWORD",
+        "PRIVATE",
+        "CREDENTIAL",
+        "AUTH",
+        "API",
+    ]
+)
 
-# Routing components
-ROUTE_FUNCTIONS = frozenset([
-    "Route",
-    "PrivateRoute",
-    "ProtectedRoute",
-    "Router",
-    "BrowserRouter",
-    "Switch",
-])
 
-# Authentication functions
-AUTH_FUNCTIONS = frozenset([
-    "isAuthenticated",
-    "currentUser",
-    "checkAuth",
-    "requireAuth",
-    "withAuth",
-    "useAuth",
-])
+FRONTEND_ENV_PREFIXES = frozenset(
+    [
+        "REACT_APP_",
+        "NEXT_PUBLIC_",
+        "VITE_",
+        "GATSBY_",
+        "PUBLIC_",
+    ]
+)
 
-# Code execution sinks for taint tracking
-CODE_EXEC_SINKS = frozenset([
-    "eval",
-    "Function",
-    "setTimeout",
-    "setInterval",
-    "new Function",
-])
+
+STORAGE_METHODS = frozenset(
+    [
+        "localStorage.setItem",
+        "sessionStorage.setItem",
+        "localStorage.set",
+        "sessionStorage.set",
+        "document.cookie",
+        "indexedDB.put",
+    ]
+)
+
+
+FORM_HANDLERS = frozenset(
+    [
+        "handleSubmit",
+        "onSubmit",
+        "submit",
+        "submitForm",
+        "formSubmit",
+    ]
+)
+
+
+VALIDATION_LIBS = frozenset(
+    [
+        "yup",
+        "joi",
+        "zod",
+        "validator",
+        "validate",
+        "sanitize",
+        "schema",
+    ]
+)
+
+
+ROUTE_FUNCTIONS = frozenset(
+    [
+        "Route",
+        "PrivateRoute",
+        "ProtectedRoute",
+        "Router",
+        "BrowserRouter",
+        "Switch",
+    ]
+)
+
+
+AUTH_FUNCTIONS = frozenset(
+    [
+        "isAuthenticated",
+        "currentUser",
+        "checkAuth",
+        "requireAuth",
+        "withAuth",
+        "useAuth",
+    ]
+)
+
+
+CODE_EXEC_SINKS = frozenset(
+    [
+        "eval",
+        "Function",
+        "setTimeout",
+        "setInterval",
+        "new Function",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -192,13 +214,14 @@ def _check_dangerous_html(db: RuleDB) -> list[StandardFinding]:
     """Check for dangerouslySetInnerHTML usage without sanitization."""
     findings = []
 
-    # Filter in SQL for efficiency - check both callee and argument_expr
-    # JSX compiles to React.createElement with props in argument_expr
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function = ? OR argument_expr LIKE ?",
-               "dangerouslySetInnerHTML", "%dangerouslySetInnerHTML%")
+        .where(
+            "callee_function = ? OR argument_expr LIKE ?",
+            "dangerouslySetInnerHTML",
+            "%dangerouslySetInnerHTML%",
+        )
         .order_by("file, line")
     )
 
@@ -207,13 +230,18 @@ def _check_dangerous_html(db: RuleDB) -> list[StandardFinding]:
         dangerous_usages.append((file, line, html_content))
 
     for file, line, html_content in dangerous_usages:
-        # Check for sanitization within ±10 lines
         has_sanitization = False
         for san_func in ["sanitize", "DOMPurify", "escape", "xss", "purify"]:
             san_rows = db.query(
                 Q("function_call_args")
                 .select("callee_function")
-                .where("file = ? AND line BETWEEN ? AND ? AND callee_function = ?", file, line - 10, line + 10, san_func)
+                .where(
+                    "file = ? AND line BETWEEN ? AND ? AND callee_function = ?",
+                    file,
+                    line - 10,
+                    line + 10,
+                    san_func,
+                )
                 .limit(1)
             )
             if san_rows:
@@ -230,7 +258,9 @@ def _check_dangerous_html(db: RuleDB) -> list[StandardFinding]:
                     severity=Severity.HIGH,
                     category="xss",
                     confidence=Confidence.HIGH,
-                    snippet=html_content[:100] if html_content and len(html_content) > 100 else html_content,
+                    snippet=html_content[:100]
+                    if html_content and len(html_content) > 100
+                    else html_content,
                     cwe_id="CWE-79",
                 )
             )
@@ -270,7 +300,9 @@ def _check_exposed_api_keys(db: RuleDB) -> list[StandardFinding]:
                     severity=Severity.HIGH,
                     category="security",
                     confidence=Confidence.HIGH,
-                    snippet=f"{var_name} = {value[:50]}..." if value and len(value) > 50 else f"{var_name} = {value}",
+                    snippet=f"{var_name} = {value[:50]}..."
+                    if value and len(value) > 50
+                    else f"{var_name} = {value}",
                     cwe_id="CWE-200",
                 )
             )
@@ -293,8 +325,10 @@ def _check_eval_with_jsx(db: RuleDB) -> list[StandardFinding]:
         if not eval_content:
             continue
 
-        # Check for JSX-related content in eval
-        if not any(pattern in eval_content for pattern in ["<", "jsx", "JSX", "React.createElement", "createElement"]):
+        if not any(
+            pattern in eval_content
+            for pattern in ["<", "jsx", "JSX", "React.createElement", "createElement"]
+        ):
             continue
 
         findings.append(
@@ -318,7 +352,6 @@ def _check_unsafe_target_blank(db: RuleDB) -> list[StandardFinding]:
     """Check for unsafe target='_blank' links without rel='noopener'."""
     findings = []
 
-    # Filter in SQL for target="_blank" patterns
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -330,7 +363,6 @@ def _check_unsafe_target_blank(db: RuleDB) -> list[StandardFinding]:
         if not link_code:
             continue
 
-        # Verify target="_blank" pattern (SQL LIKE is broad, refine in Python)
         has_target_blank = (
             'target="_blank"' in link_code
             or "target='_blank'" in link_code
@@ -340,7 +372,6 @@ def _check_unsafe_target_blank(db: RuleDB) -> list[StandardFinding]:
         if not has_target_blank:
             continue
 
-        # Check for noopener/noreferrer
         if "noopener" in link_code or "noreferrer" in link_code:
             continue
 
@@ -365,7 +396,6 @@ def _check_direct_innerhtml(db: RuleDB) -> list[StandardFinding]:
     """Check for direct innerHTML manipulation bypassing React."""
     findings = []
 
-    # Check assignments to innerHTML/outerHTML - filter in SQL
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -387,12 +417,13 @@ def _check_direct_innerhtml(db: RuleDB) -> list[StandardFinding]:
                     severity=Severity.HIGH,
                     category="xss",
                     confidence=Confidence.HIGH,
-                    snippet=f"{target} = {content[:50]}..." if content and len(content) > 50 else f"{target} = {content}",
+                    snippet=f"{target} = {content[:50]}..."
+                    if content and len(content) > 50
+                    else f"{target} = {content}",
                     cwe_id="CWE-79",
                 )
             )
 
-    # Check document.write/writeln calls
     for func in ["document.write", "document.writeln"]:
         func_rows = db.query(
             Q("function_call_args")
@@ -411,7 +442,9 @@ def _check_direct_innerhtml(db: RuleDB) -> list[StandardFinding]:
                     severity=Severity.HIGH,
                     category="xss",
                     confidence=Confidence.HIGH,
-                    snippet=write_content[:100] if write_content and len(write_content) > 100 else write_content,
+                    snippet=write_content[:100]
+                    if write_content and len(write_content) > 100
+                    else write_content,
                     cwe_id="CWE-79",
                 )
             )
@@ -424,20 +457,16 @@ def _check_hardcoded_credentials(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, var_name, credential in rows:
         if not var_name or not credential:
             continue
 
-        # Must be a string literal
         if '"' not in credential and "'" not in credential:
             continue
 
-        # Skip environment variables
         if "process.env" in credential or "import.meta.env" in credential:
             continue
 
@@ -525,19 +554,15 @@ def _check_missing_validation(db: RuleDB) -> list[StandardFinding]:
     """Check for forms without input validation."""
     findings = []
 
-    # Find form handlers
     form_files = set()
     for handler in FORM_HANDLERS:
         rows = db.query(
-            Q("function_call_args")
-            .select("file", "line")
-            .where("callee_function = ?", handler)
+            Q("function_call_args").select("file", "line").where("callee_function = ?", handler)
         )
         for file, line in rows:
             form_files.add((file, line))
 
     for file, line in form_files:
-        # Check for validation nearby
         has_validation = False
 
         call_rows = db.query(
@@ -557,13 +582,9 @@ def _check_missing_validation(db: RuleDB) -> list[StandardFinding]:
         if has_validation:
             continue
 
-        # Check for validation library imports
         for lib in ["yup", "joi", "zod", "validator"]:
             lib_rows = db.query(
-                Q("refs")
-                .select("value")
-                .where("src = ? AND value = ?", file, lib)
-                .limit(1)
+                Q("refs").select("value").where("src = ? AND value = ?", file, lib).limit(1)
             )
             if lib_rows:
                 has_validation = True
@@ -602,11 +623,9 @@ def _check_useeffect_cleanup(db: RuleDB) -> list[StandardFinding]:
         if not effect_code:
             continue
 
-        # Only check effects with fetch calls
         if "fetch" not in effect_code:
             continue
 
-        # Check for cleanup indicators
         if "cleanup" in effect_code or "return" in effect_code or "AbortController" in effect_code:
             continue
 
@@ -631,23 +650,17 @@ def _check_unprotected_routes(db: RuleDB) -> list[StandardFinding]:
     """Check for client-side routing without authentication checks."""
     findings = []
 
-    # Find files with routing
     route_files = set()
     for route_func in ROUTE_FUNCTIONS:
         rows = db.query(
-            Q("function_call_args")
-            .select("file")
-            .where("callee_function = ?", route_func)
+            Q("function_call_args").select("file").where("callee_function = ?", route_func)
         )
         for (file,) in rows:
             route_files.add(file)
 
     for file in route_files:
-        # Check for auth patterns in file
         call_rows = db.query(
-            Q("function_call_args")
-            .select("callee_function")
-            .where("file = ?", file)
+            Q("function_call_args").select("callee_function").where("file = ?", file)
         )
 
         has_auth = False
@@ -661,7 +674,6 @@ def _check_unprotected_routes(db: RuleDB) -> list[StandardFinding]:
         if has_auth:
             continue
 
-        # Check for auth function calls
         for auth_func in AUTH_FUNCTIONS:
             auth_rows = db.query(
                 Q("function_call_args")
@@ -696,9 +708,7 @@ def _check_csrf_in_forms(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     form_elements = []
@@ -709,7 +719,6 @@ def _check_csrf_in_forms(db: RuleDB) -> list[StandardFinding]:
     for file, line, form_content in form_elements:
         form_lower = form_content.lower()
 
-        # Check for modifying HTTP methods
         has_modifying_method = False
         if "method=" in form_lower:
             if any(m in form_lower for m in ["post", "put", "delete", "patch"]):
@@ -718,11 +727,9 @@ def _check_csrf_in_forms(db: RuleDB) -> list[StandardFinding]:
         if not has_modifying_method:
             continue
 
-        # Check for CSRF token
         if "csrf" in form_lower or "xsrf" in form_lower:
             continue
 
-        # Check nearby for CSRF
         nearby_rows = db.query(
             Q("assignments")
             .select("target_var", "source_expr")
@@ -733,7 +740,12 @@ def _check_csrf_in_forms(db: RuleDB) -> list[StandardFinding]:
         for target_var, source_expr in nearby_rows:
             target_lower = (target_var or "").lower()
             source_lower = (source_expr or "").lower()
-            if "csrf" in target_lower or "csrf" in source_lower or "xsrf" in target_lower or "xsrf" in source_lower:
+            if (
+                "csrf" in target_lower
+                or "csrf" in source_lower
+                or "xsrf" in target_lower
+                or "xsrf" in source_lower
+            ):
                 has_csrf_nearby = True
                 break
 
@@ -759,12 +771,16 @@ def _check_unescaped_user_input(db: RuleDB) -> list[StandardFinding]:
     """Check for unescaped user input in JSX."""
     findings = []
 
-    # Filter in SQL for common user input patterns in JSX interpolation
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
-        .where("source_expr LIKE ? OR source_expr LIKE ? OR source_expr LIKE ? OR source_expr LIKE ?",
-               "%{props.%", "%{user%", "%{input%", "%{data%")
+        .where(
+            "source_expr LIKE ? OR source_expr LIKE ? OR source_expr LIKE ? OR source_expr LIKE ?",
+            "%{props.%",
+            "%{user%",
+            "%{input%",
+            "%{data%",
+        )
         .order_by("file, line")
     )
 
@@ -772,11 +788,12 @@ def _check_unescaped_user_input(db: RuleDB) -> list[StandardFinding]:
         if not jsx_content:
             continue
 
-        # Verify JSX patterns with interpolation (SQL LIKE is broad)
-        if not any(pattern in jsx_content for pattern in ["{props.", "{user", "{input", "{data", "{params", "{query"]):
+        if not any(
+            pattern in jsx_content
+            for pattern in ["{props.", "{user", "{input", "{data", "{params", "{query"]
+        ):
             continue
 
-        # Find which user input source is present
         input_source = None
         for pattern in USER_INPUT_SOURCES:
             if pattern in jsx_content:
@@ -786,18 +803,25 @@ def _check_unescaped_user_input(db: RuleDB) -> list[StandardFinding]:
         if not input_source:
             continue
 
-        # Check for sanitization
         jsx_lower = jsx_content.lower()
         has_sanitization = any(san in jsx_lower for san in SANITIZATION_FUNCS)
 
         if has_sanitization:
             continue
 
-        # Check nearby for sanitization
         san_rows = db.query(
             Q("function_call_args")
             .select("callee_function")
-            .where("file = ? AND line BETWEEN ? AND ? AND callee_function IN (?, ?, ?, ?)", file, line - 5, line + 5, "sanitize", "escape", "DOMPurify", "xss")
+            .where(
+                "file = ? AND line BETWEEN ? AND ? AND callee_function IN (?, ?, ?, ?)",
+                file,
+                line - 5,
+                line + 5,
+                "sanitize",
+                "escape",
+                "DOMPurify",
+                "xss",
+            )
             .limit(1)
         )
 

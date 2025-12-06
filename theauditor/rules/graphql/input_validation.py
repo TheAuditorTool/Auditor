@@ -28,30 +28,43 @@ METADATA = RuleMetadata(
     primary_table="graphql_field_args",
 )
 
-# Validation directive patterns that indicate proper input validation
-VALIDATION_DIRECTIVES = frozenset([
-    "constraint",
-    "validate",
-    "length",
-    "pattern",
-    "size",
-    "range",
-    "min",
-    "max",
-    "email",
-    "url",
-    "uuid",
-    "regex",
-])
 
-# Argument types that require validation (user-provided strings/objects)
+VALIDATION_DIRECTIVES = frozenset(
+    [
+        "constraint",
+        "validate",
+        "length",
+        "pattern",
+        "size",
+        "range",
+        "min",
+        "max",
+        "email",
+        "url",
+        "uuid",
+        "regex",
+    ]
+)
+
+
 REQUIRES_VALIDATION_TYPES = ("String", "Input", "ID")
 
-# Validation libraries that indicate code-level validation
-VALIDATION_LIBRARIES = frozenset([
-    "zod", "yup", "joi", "ajv", "class-validator", "io-ts",
-    "pydantic", "marshmallow", "cerberus", "voluptuous", "colander",
-])
+
+VALIDATION_LIBRARIES = frozenset(
+    [
+        "zod",
+        "yup",
+        "joi",
+        "ajv",
+        "class-validator",
+        "io-ts",
+        "pydantic",
+        "marshmallow",
+        "cerberus",
+        "voluptuous",
+        "colander",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -72,17 +85,12 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        # Build set of files that import validation libraries (these have code-level validation)
         files_with_validation = set()
-        import_rows = db.query(
-            Q("import_statements")
-            .select("file", "module_name")
-        )
+        import_rows = db.query(Q("import_statements").select("file", "module_name"))
         for file_path, module_name in import_rows:
             if module_name and any(lib in module_name.lower() for lib in VALIDATION_LIBRARIES):
                 files_with_validation.add(file_path)
 
-        # Get all mutation field arguments that are nullable and accept user input
         rows = db.query(
             Q("graphql_field_args")
             .select(
@@ -103,13 +111,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         for row in rows:
             field_id, arg_name, arg_type, field_name, line, schema_path, type_name = row
 
-            # Skip if not a type that requires validation
             if not arg_type:
                 continue
             if not any(t in arg_type for t in REQUIRES_VALIDATION_TYPES):
                 continue
 
-            # Check if this argument has validation directives
             directive_rows = db.query(
                 Q("graphql_arg_directives")
                 .select("directive_name")
@@ -125,7 +131,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             if has_validation:
                 continue
 
-            # Check if resolver file imports validation libraries (code-level validation)
             resolver_rows = db.query(
                 Q("graphql_resolver_mappings")
                 .select("resolver_path")

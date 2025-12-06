@@ -47,18 +47,12 @@ def _find_props_mutations(db: RuleDB) -> list[StandardFinding]:
     """
     findings: list[StandardFinding] = []
 
-    # Get Vue component files
     vue_files: set[str] = set()
 
-    file_rows = db.query(
-        Q("files")
-        .select("path", "ext")
-        .where("ext = ?", ".vue")
-    )
+    file_rows = db.query(Q("files").select("path", "ext").where("ext = ?", ".vue"))
     for path, _ext in file_rows:
         vue_files.add(path)
 
-    # Also find files with Vue component definitions
     symbol_rows = db.query(
         Q("symbols")
         .select("path", "name")
@@ -70,7 +64,6 @@ def _find_props_mutations(db: RuleDB) -> list[StandardFinding]:
     if not vue_files:
         return findings
 
-    # Find direct prop mutations via assignment patterns
     for file in vue_files:
         assignment_rows = db.query(
             Q("assignments")
@@ -81,32 +74,30 @@ def _find_props_mutations(db: RuleDB) -> list[StandardFinding]:
         )
 
         for file_path, line, target, source in assignment_rows:
-            # Detect props mutation patterns
             is_props_mutation = False
             prop_name = None
 
-            # Pattern: props.something = value
             if target.startswith("props.") and "." in target[6:] is False:
                 is_props_mutation = True
                 prop_name = target[6:].split(".")[0] if "." in target[6:] else target[6:]
 
-            # Pattern: this.$props.something = value
             elif ".$props." in target or target.startswith("$props."):
                 is_props_mutation = True
                 if target.startswith("$props."):
                     prop_name = target[7:].split(".")[0]
                 else:
                     idx = target.find(".$props.")
-                    prop_name = target[idx + 8:].split(".")[0]
-
-            # Pattern: this.propName = value (in component context)
-            # This is harder to detect without knowing prop names, so use lower confidence
+                    prop_name = target[idx + 8 :].split(".")[0]
 
             if not is_props_mutation:
                 continue
 
             source_str = source or ""
-            snippet = f"{target} = {source_str[:50]}..." if len(source_str) > 50 else f"{target} = {source_str}"
+            snippet = (
+                f"{target} = {source_str[:50]}..."
+                if len(source_str) > 50
+                else f"{target} = {source_str}"
+            )
 
             findings.append(
                 StandardFinding(
@@ -129,14 +120,9 @@ def _find_non_reactive_data(db: RuleDB) -> list[StandardFinding]:
     """Find non-reactive data initialization in Options API."""
     findings: list[StandardFinding] = []
 
-    # Get Vue files (Options API components)
     vue_files: set[str] = set()
 
-    file_rows = db.query(
-        Q("files")
-        .select("path", "ext")
-        .where("ext = ?", ".vue")
-    )
+    file_rows = db.query(Q("files").select("path", "ext").where("ext = ?", ".vue"))
     for path, _ext in file_rows:
         vue_files.add(path)
 

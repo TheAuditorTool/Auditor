@@ -10,8 +10,6 @@ import networkx as nx
 
 from theauditor.utils.logging import logger
 
-# Default exclusions - used when no config file exists
-# Users should override via .auditor/config.json instead of editing this list
 DEFAULT_EXCLUSIONS = [
     "__init__.py",
     "test",
@@ -49,7 +47,7 @@ def load_exclusions_from_config(root: Path) -> list[str] | None:
         return None
 
     try:
-        with open(config_path, "r", encoding="utf-8") as f:
+        with open(config_path, encoding="utf-8") as f:
             config = json.load(f)
     except json.JSONDecodeError as e:
         raise ValueError(f"Invalid JSON in {config_path}: {e}") from e
@@ -95,13 +93,11 @@ def detect_isolated_modules(
 
     if not graphs_db.exists():
         raise FileNotFoundError(
-            f"graphs.db not found: {graphs_db}\n"
-            f"Run 'aud graph build' to create it."
+            f"graphs.db not found: {graphs_db}\nRun 'aud graph build' to create it."
         )
 
     detector = GraphDeadCodeDetector(str(graphs_db), str(repo_db), debug=False)
 
-    # Pass exclude_patterns as-is; analyze() handles priority (arg > config > defaults)
     return detector.analyze(
         path_filter=path_filter,
         exclude_patterns=exclude_patterns,
@@ -134,8 +130,6 @@ class GraphDeadCodeDetector:
 
         self._validate_schema()
 
-        # Load exclusions from config file (.auditor/config.json)
-        # Project root is parent of .pf directory (which contains the databases)
         self.project_root = self.graphs_db.parent.parent
         self.config_exclusions = load_exclusions_from_config(self.project_root)
 
@@ -185,7 +179,7 @@ class GraphDeadCodeDetector:
             analyze_symbols: Also find dead functions/classes within live modules
             analyze_ghost_imports: Detect imports that are never actually used
         """
-        # Priority: explicit arg > config file > defaults
+
         if exclude_patterns is None:
             exclude_patterns = self.config_exclusions or DEFAULT_EXCLUSIONS
 
@@ -331,22 +325,18 @@ class GraphDeadCodeDetector:
         cursor = self.repo_conn.cursor()
         entry_points = set()
 
-        # React/Vue components
         cursor.execute("SELECT DISTINCT file FROM react_components")
         entry_points.update(row[0] for row in cursor.fetchall())
 
         cursor.execute("SELECT DISTINCT file FROM vue_components")
         entry_points.update(row[0] for row in cursor.fetchall())
 
-        # Python routes
         cursor.execute("SELECT DISTINCT file FROM python_routes")
         entry_points.update(row[0] for row in cursor.fetchall())
 
-        # Go routes (go_routes uses 'file' column, not 'file_path')
         cursor.execute("SELECT DISTINCT file FROM go_routes")
         entry_points.update(row[0] for row in cursor.fetchall())
 
-        # Go main packages and test files
         cursor.execute("""
             SELECT DISTINCT path FROM files
             WHERE ext = '.go'
@@ -354,14 +344,12 @@ class GraphDeadCodeDetector:
         """)
         entry_points.update(row[0] for row in cursor.fetchall())
 
-        # Rust route handlers (files with route attributes)
         cursor.execute("""
             SELECT DISTINCT file_path FROM rust_attributes
             WHERE attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route', 'web', 'actix_web::main', 'tokio::main')
         """)
         entry_points.update(row[0] for row in cursor.fetchall())
 
-        # Rust main.rs and lib.rs (entry points)
         cursor.execute("""
             SELECT DISTINCT path FROM files
             WHERE ext = '.rs'
@@ -369,7 +357,6 @@ class GraphDeadCodeDetector:
         """)
         entry_points.update(row[0] for row in cursor.fetchall())
 
-        # Bash scripts (all .sh files are potential entry points)
         cursor.execute("SELECT DISTINCT path FROM files WHERE ext IN ('.sh', '.bash')")
         entry_points.update(row[0] for row in cursor.fetchall())
 
@@ -388,13 +375,9 @@ class GraphDeadCodeDetector:
 
         cursor = self.graphs_conn.cursor()
 
-        # Build placeholders for entry points
         placeholders = ",".join("?" * len(entry_points))
         entry_list = list(entry_points)
 
-        # Recursive CTE: Find all files reachable from entry points
-        # Base case: Entry points themselves
-        # Recursive step: Files imported by reachable files
         query = f"""
             WITH RECURSIVE reachable(file_path) AS (
                 -- BASE CASE: Entry points are reachable
@@ -423,20 +406,17 @@ class GraphDeadCodeDetector:
             SELECT DISTINCT file_path FROM reachable
         """
 
-        # Apply path filter if specified
         if path_filter:
             query = query.replace(
                 "SELECT DISTINCT file_path FROM reachable",
-                f"SELECT DISTINCT file_path FROM reachable WHERE file_path LIKE '{path_filter}%'"
+                f"SELECT DISTINCT file_path FROM reachable WHERE file_path LIKE '{path_filter}%'",
             )
 
-        # Entry points appear twice in params (for both SELECT clauses)
         params = tuple(entry_list) + tuple(entry_list)
         cursor.execute(query, params)
 
         reachable = {row[0] for row in cursor.fetchall()}
 
-        # Also add entry points themselves (they may not be in edges table)
         reachable.update(entry_points)
 
         return reachable
@@ -472,14 +452,12 @@ class GraphDeadCodeDetector:
         Python loop with nx.descendants (O(entries × edges)).
         NetworkX still used for clustering (operates on small dead node set).
         """
-        # SQL-based reachability - single query instead of O(n) nx.descendants calls
+
         reachable = self._find_reachable_files_sql(entry_points)
 
-        # Get all files from graph (still using graph for consistency with caller)
         all_nodes = set(graph.nodes())
         dead_nodes = all_nodes - reachable
 
-        # Apply exclusion filters
         dead_nodes = {
             node
             for node in dead_nodes
@@ -490,8 +468,6 @@ class GraphDeadCodeDetector:
         if not dead_nodes:
             return []
 
-        # Clustering still uses NetworkX (operates on small dead node set, not full graph)
-        # This is acceptable because dead nodes are typically <5% of codebase
         dead_subgraph = graph.subgraph(dead_nodes).to_undirected()
         clusters = list(nx.connected_components(dead_subgraph))
 
@@ -621,7 +597,6 @@ class GraphDeadCodeDetector:
         graphs_cursor = self.graphs_conn.cursor()
         repo_cursor = self.repo_conn.cursor()
 
-        # Get all import edges
         import_query = """
             SELECT DISTINCT source, target
             FROM edges
@@ -638,9 +613,6 @@ class GraphDeadCodeDetector:
         if not all_imports:
             return []
 
-        # Build lookup of actual function calls for O(1) exact match
-        # Structure: caller_file -> set of callee_files
-        # Performance: O(M) build, O(1) lookup vs O(N*M) nested loop
         call_index: dict[str, set[str]] = defaultdict(set)
 
         repo_cursor.execute("""
@@ -652,7 +624,6 @@ class GraphDeadCodeDetector:
         for row in repo_cursor.fetchall():
             call_index[row[0]].add(row[1])
 
-        # Also check JSX calls
         repo_cursor.execute("""
             SELECT DISTINCT file, callee_file_path
             FROM function_call_args_jsx
@@ -662,30 +633,23 @@ class GraphDeadCodeDetector:
         for row in repo_cursor.fetchall():
             call_index[row[0]].add(row[1])
 
-        # Pre-compute all callee files for fuzzy matching fallback
         all_callees = set()
         for callees in call_index.values():
             all_callees.update(callees)
 
-        # Find ghost imports: imported but never called
         findings = []
         for importer, imported in all_imports:
-            # Skip excluded patterns
             if any(pattern in importer for pattern in exclude_patterns):
                 continue
             if any(pattern in imported for pattern in exclude_patterns):
                 continue
 
-            # O(1) exact match check first
             if importer in call_index and imported in call_index[importer]:
-                continue  # Exact match found, not a ghost import
+                continue
 
-            # Fuzzy matching fallback for path variations
-            # Only runs for imports that didn't exact-match
             has_call = False
             caller_callees = call_index.get(importer, set())
 
-            # Check if any callee matches imported (suffix/contains)
             for callee_file in caller_callees:
                 if callee_file.endswith(imported) or imported.endswith(callee_file):
                     has_call = True
@@ -694,7 +658,6 @@ class GraphDeadCodeDetector:
                     has_call = True
                     break
 
-            # If still no match, check suffix match on caller
             if not has_call:
                 for caller_file, callees in call_index.items():
                     if caller_file.endswith(importer) or importer.endswith(caller_file):
@@ -728,10 +691,9 @@ class GraphDeadCodeDetector:
 
     def _classify_ghost_import(self, importer: str, imported: str) -> tuple[str, str]:
         """Classify confidence and reason for ghost import."""
-        confidence = "medium"  # Default medium - could be type imports, side effects
+        confidence = "medium"
         reason = f"Imports '{Path(imported).name}' but no function calls detected"
 
-        # Lower confidence for certain patterns
         if imported.endswith("__init__.py"):
             confidence = "low"
             reason = "Package import (may import for side effects or re-exports)"

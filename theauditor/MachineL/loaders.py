@@ -60,7 +60,6 @@ def load_journal_stats(
                                     stats[file_path]["successes"] += 1
 
                     except json.JSONDecodeError:
-                        # Malformed line in ndjson - skip
                         continue
         except PermissionError:
             logger.warning(f"Permission denied reading: {journal_path}")
@@ -222,7 +221,6 @@ def load_git_churn(
             root_path=root_path, days=window_days, file_paths=file_paths
         )
     except ImportError:
-        # intelligence module not available
         return {}
     except OSError as e:
         logger.debug(f"Git churn collection failed: {e}")

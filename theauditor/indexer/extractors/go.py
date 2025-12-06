@@ -68,7 +68,6 @@ class GoExtractor(BaseExtractor):
 
         captured_vars = go_impl.extract_go_captured_vars(ts_tree, content, file_path, goroutines)
 
-        # Build unified symbols list for cross-language queries
         symbols = []
         for func in functions:
             symbols.append(
@@ -117,8 +116,6 @@ class GoExtractor(BaseExtractor):
                 }
             )
 
-        # Build imports list in format expected by _store_imports
-        # Format: list of dicts with {kind, value, line} or tuples (kind, value, line)
         imports_for_refs = []
         for imp in imports:
             imports_for_refs.append(
@@ -130,15 +127,11 @@ class GoExtractor(BaseExtractor):
             )
 
         result = {
-            # Unified tables (for cross-language queries)
             "symbols": symbols,
-            "imports": imports_for_refs,  # For refs table population
-            # Language-agnostic DFG tables (for taint analysis)
-            # Keys MUST match core_storage.py handler names, NOT table names!
+            "imports": imports_for_refs,
             "assignments": self._extract_assignments(ts_tree, file_path, content),
             "function_calls": self._extract_function_calls(ts_tree, file_path, content),
             "returns": self._extract_returns(ts_tree, file_path, content),
-            # Go-specific tables
             "go_packages": [package] if package else [],
             "go_imports": imports,
             "go_structs": structs,
@@ -386,9 +379,7 @@ class GoExtractor(BaseExtractor):
         visit(root_node)
         return results
 
-    def _extract_assignments(
-        self, tree: Any, file_path: str, content: str
-    ) -> list[dict[str, Any]]:
+    def _extract_assignments(self, tree: Any, file_path: str, content: str) -> list[dict[str, Any]]:
         """Extract variable assignments for language-agnostic DFG tables.
 
         Handles:
@@ -409,7 +400,7 @@ class GoExtractor(BaseExtractor):
             List of assignment dicts with keys matching storage handler expectations
         """
         assignments: list[dict[str, Any]] = []
-        current_function = [None]  # Mutable container for closure
+        current_function = [None]
 
         def get_node_text(node: Any) -> str:
             """Extract text from a tree-sitter node."""
@@ -426,7 +417,6 @@ class GoExtractor(BaseExtractor):
                     if name_node:
                         return get_node_text(name_node)
                 elif current.type == "method_declaration":
-                    # Method name is in field_identifier child
                     for child in current.children:
                         if child.type == "field_identifier":
                             return get_node_text(child)
@@ -443,21 +433,20 @@ class GoExtractor(BaseExtractor):
             def visit_expr(n: Any) -> None:
                 if n.type == "identifier":
                     name = get_node_text(n)
-                    # Filter out keywords and literals
+
                     if name and name not in ("nil", "true", "false"):
                         vars_list.append(name)
                 elif n.type == "selector_expression":
-                    # For x.y.z, extract full path for field access tracking
                     text = get_node_text(n)
                     if text:
                         vars_list.append(text)
-                    return  # Don't recurse into selector children
+                    return
                 for child in n.children:
                     visit_expr(child)
 
             if expr_node:
                 visit_expr(expr_node)
-            return list(dict.fromkeys(vars_list))  # Dedupe preserving order
+            return list(dict.fromkeys(vars_list))
 
         def extract_targets(left_node: Any) -> list[Any]:
             """Extract target identifier nodes from left side of assignment."""
@@ -473,7 +462,6 @@ class GoExtractor(BaseExtractor):
                         targets.append(child)
             return targets
 
-        # Process short variable declarations: x := expr
         for node in self._find_all_nodes(tree.root_node, "short_var_declaration"):
             left = node.child_by_field_name("left")
             right = node.child_by_field_name("right")
@@ -488,20 +476,21 @@ class GoExtractor(BaseExtractor):
             for target in extract_targets(left):
                 target_name = get_node_text(target)
                 if target_name == "_":
-                    continue  # Skip blank identifier
+                    continue
 
-                assignments.append({
-                    "file": file_path,
-                    "line": node.start_point[0] + 1,
-                    "col": node.start_point[1],
-                    "target_var": target_name,
-                    "source_expr": source_expr[:500] if source_expr else "",
-                    "in_function": in_function,
-                    "property_path": None,
-                    "source_vars": source_vars,
-                })
+                assignments.append(
+                    {
+                        "file": file_path,
+                        "line": node.start_point[0] + 1,
+                        "col": node.start_point[1],
+                        "target_var": target_name,
+                        "source_expr": source_expr[:500] if source_expr else "",
+                        "in_function": in_function,
+                        "property_path": None,
+                        "source_vars": source_vars,
+                    }
+                )
 
-        # Process regular assignments: x = expr
         for node in self._find_all_nodes(tree.root_node, "assignment_statement"):
             left = node.child_by_field_name("left")
             right = node.child_by_field_name("right")
@@ -516,23 +505,23 @@ class GoExtractor(BaseExtractor):
             for target in extract_targets(left):
                 target_name = get_node_text(target)
                 if target_name == "_":
-                    continue  # Skip blank identifier
+                    continue
 
-                assignments.append({
-                    "file": file_path,
-                    "line": node.start_point[0] + 1,
-                    "col": node.start_point[1],
-                    "target_var": target_name,
-                    "source_expr": source_expr[:500] if source_expr else "",
-                    "in_function": in_function,
-                    "property_path": None,
-                    "source_vars": source_vars,
-                })
+                assignments.append(
+                    {
+                        "file": file_path,
+                        "line": node.start_point[0] + 1,
+                        "col": node.start_point[1],
+                        "target_var": target_name,
+                        "source_expr": source_expr[:500] if source_expr else "",
+                        "in_function": in_function,
+                        "property_path": None,
+                        "source_vars": source_vars,
+                    }
+                )
 
         if assignments:
-            logger.debug(
-                f"Go: extracted {len(assignments)} assignments from {file_path}"
-            )
+            logger.debug(f"Go: extracted {len(assignments)} assignments from {file_path}")
 
         return assignments
 
@@ -588,13 +577,9 @@ class GoExtractor(BaseExtractor):
             if func_node is None:
                 return ""
 
-            if func_node.type == "identifier":
-                return get_node_text(func_node)
-            elif func_node.type == "selector_expression":
-                # Method call: obj.Method -> return full "obj.Method"
+            if func_node.type == "identifier" or func_node.type == "selector_expression":
                 return get_node_text(func_node)
             elif func_node.type == "call_expression":
-                # Chained call: a.B().C() - get innermost function
                 inner_func = func_node.child_by_field_name("function")
                 return get_callee_name(inner_func)
             else:
@@ -608,54 +593,50 @@ class GoExtractor(BaseExtractor):
             caller_function = get_containing_function(node)
             line = node.start_point[0] + 1
 
-            # Skip empty callee
             if not callee_function:
                 continue
 
-            # Extract arguments
             args = []
             if args_node:
                 for child in args_node.children:
-                    # Skip parentheses and commas
                     if child.type not in ("(", ")", ","):
                         args.append(child)
 
-            # If no arguments, still record the call with empty arg
             if not args:
-                calls.append({
-                    "file": file_path,
-                    "line": line,
-                    "caller_function": caller_function,
-                    "callee_function": callee_function,
-                    "argument_index": 0,
-                    "argument_expr": "",
-                    "param_name": "",
-                    "callee_file_path": None,
-                })
-            else:
-                for i, arg in enumerate(args):
-                    arg_expr = get_node_text(arg)
-                    calls.append({
+                calls.append(
+                    {
                         "file": file_path,
                         "line": line,
                         "caller_function": caller_function,
                         "callee_function": callee_function,
-                        "argument_index": i,
-                        "argument_expr": arg_expr[:500] if arg_expr else "",
-                        "param_name": "",  # Go doesn't have named args at call site
+                        "argument_index": 0,
+                        "argument_expr": "",
+                        "param_name": "",
                         "callee_file_path": None,
-                    })
+                    }
+                )
+            else:
+                for i, arg in enumerate(args):
+                    arg_expr = get_node_text(arg)
+                    calls.append(
+                        {
+                            "file": file_path,
+                            "line": line,
+                            "caller_function": caller_function,
+                            "callee_function": callee_function,
+                            "argument_index": i,
+                            "argument_expr": arg_expr[:500] if arg_expr else "",
+                            "param_name": "",
+                            "callee_file_path": None,
+                        }
+                    )
 
         if calls:
-            logger.debug(
-                f"Go: extracted {len(calls)} function calls from {file_path}"
-            )
+            logger.debug(f"Go: extracted {len(calls)} function calls from {file_path}")
 
         return calls
 
-    def _extract_returns(
-        self, tree: Any, file_path: str, content: str
-    ) -> list[dict[str, Any]]:
+    def _extract_returns(self, tree: Any, file_path: str, content: str) -> list[dict[str, Any]]:
         """Extract return statements for language-agnostic DFG tables.
 
         Handles:
@@ -710,35 +691,29 @@ class GoExtractor(BaseExtractor):
             def visit_expr(n: Any) -> None:
                 if n.type == "identifier":
                     name = get_node_text(n)
-                    # Filter out keywords and literals
+
                     if name and name not in ("nil", "true", "false"):
                         vars_list.append(name)
                 elif n.type == "selector_expression":
-                    # For x.y.z, extract full path
                     text = get_node_text(n)
                     if text:
                         vars_list.append(text)
-                    return  # Don't recurse into selector children
+                    return
                 for child in n.children:
                     visit_expr(child)
 
             if expr_node:
                 visit_expr(expr_node)
-            return list(dict.fromkeys(vars_list))  # Dedupe preserving order
+            return list(dict.fromkeys(vars_list))
 
         for node in self._find_all_nodes(tree.root_node, "return_statement"):
             function_name = get_containing_function(node)
             line = node.start_point[0] + 1
             col = node.start_point[1]
 
-            # Find expression list (may be empty for naked return)
             expr_list = None
             for child in node.children:
-                if child.type == "expression_list":
-                    expr_list = child
-                    break
-                elif child.type not in ("return",):
-                    # Single expression without expression_list wrapper
+                if child.type == "expression_list" or child.type not in ("return",):
                     expr_list = child
                     break
 
@@ -746,22 +721,21 @@ class GoExtractor(BaseExtractor):
                 return_expr = get_node_text(expr_list)
                 return_vars = extract_return_vars(expr_list)
             else:
-                # Naked return - expression is empty
                 return_expr = ""
                 return_vars = []
 
-            returns.append({
-                "file": file_path,
-                "line": line,
-                "col": col,
-                "function_name": function_name,
-                "return_expr": return_expr[:500] if return_expr else "",
-                "return_vars": return_vars,
-            })
+            returns.append(
+                {
+                    "file": file_path,
+                    "line": line,
+                    "col": col,
+                    "function_name": function_name,
+                    "return_expr": return_expr[:500] if return_expr else "",
+                    "return_vars": return_vars,
+                }
+            )
 
         if returns:
-            logger.debug(
-                f"Go: extracted {len(returns)} returns from {file_path}"
-            )
+            logger.debug(f"Go: extracted {len(returns)} returns from {file_path}")
 
         return returns

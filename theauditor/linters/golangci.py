@@ -36,22 +36,19 @@ class GolangciLinter(BaseLinter):
         if not files:
             return LinterResult.success(self.name, [], 0.0)
 
-        # Optional tool - silently skip if not found
         golangci_bin = self.toolbox.get_golangci_lint(required=False)
         if not golangci_bin:
             return LinterResult.skipped(self.name, "golangci-lint not found")
 
         start_time = time.perf_counter()
 
-        # golangci-lint runs on directories, not individual files
-        # Run on project root and let it discover Go files
         cmd = [
             str(golangci_bin),
             "run",
             "--out-format",
             "json",
             "--issues-exit-code",
-            "0",  # Don't fail on lint issues
+            "0",
             "./...",
         ]
 
@@ -68,7 +65,9 @@ class GolangciLinter(BaseLinter):
         try:
             result = json.loads(stdout)
         except json.JSONDecodeError as e:
-            return LinterResult.failed(self.name, f"Invalid JSON output: {e}", time.perf_counter() - start_time)
+            return LinterResult.failed(
+                self.name, f"Invalid JSON output: {e}", time.perf_counter() - start_time
+            )
 
         issues = result.get("Issues") or []
         findings = []
@@ -100,13 +99,11 @@ class GolangciLinter(BaseLinter):
         line = pos.get("Line", 0)
         column = pos.get("Column", 0)
 
-        # Rule comes from the "FromLinter" field
         from_linter = issue.get("FromLinter", "")
         rule = from_linter if from_linter else "golangci"
 
         message = issue.get("Text", "")
 
-        # golangci-lint severity mapping
         severity_str = issue.get("Severity", "warning").lower()
         if severity_str == "error":
             severity = "error"

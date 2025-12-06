@@ -53,7 +53,7 @@ class TerraformGraphBuilder:
 
     def _bulk_load_all_data(self, cursor) -> dict[str, Any]:
         """Bulk load ALL Terraform data in 5 queries instead of N*M queries."""
-        # 1. All properties: Map<resource_id, Map<prop_name, prop_value>>
+
         cursor.execute("""
             SELECT resource_id, property_name, property_value
             FROM terraform_resource_properties
@@ -72,7 +72,6 @@ class TerraformGraphBuilder:
             else:
                 props_map[rid][row["property_name"]] = value
 
-        # 2. All sensitive props: Map<resource_id, Set<prop_name>>
         cursor.execute("""
             SELECT resource_id, property_name
             FROM terraform_resource_properties
@@ -85,7 +84,6 @@ class TerraformGraphBuilder:
                 sensitive_map[rid] = set()
             sensitive_map[rid].add(row["property_name"])
 
-        # 3. All dependencies: Map<resource_id, List<depends_on_ref>>
         cursor.execute("""
             SELECT resource_id, depends_on_ref
             FROM terraform_resource_deps
@@ -97,7 +95,6 @@ class TerraformGraphBuilder:
                 deps_map[rid] = []
             deps_map[rid].append(row["depends_on_ref"])
 
-        # 4. Variable lookup: Map<var_name, variable_id> (first match wins)
         cursor.execute("""
             SELECT variable_id, variable_name
             FROM terraform_variables
@@ -108,7 +105,6 @@ class TerraformGraphBuilder:
             if var_name not in var_lookup:
                 var_lookup[var_name] = row["variable_id"]
 
-        # 5. Resource lookup: Map<"type.name", resource_id>
         cursor.execute("""
             SELECT resource_id, resource_type, resource_name
             FROM terraform_resources
@@ -132,7 +128,6 @@ class TerraformGraphBuilder:
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Bulk load: 5 queries for ALL data instead of N*M queries
         bulk_data = self._bulk_load_all_data(cursor)
 
         nodes: dict[str, ProvisioningNode] = {}
@@ -193,7 +188,6 @@ class TerraformGraphBuilder:
             var_refs = self._extract_variable_references(properties)
 
             for var_name in var_refs:
-                # O(1) lookup instead of DB query
                 var_id = bulk_data["vars"].get(var_name)
                 if var_id and var_id in nodes:
                     edges.append(
@@ -210,10 +204,8 @@ class TerraformGraphBuilder:
                     )
                     stats["edges_created"] += 1
 
-            # O(1) lookup instead of DB query
             depends_on = bulk_data["deps"].get(resource_id, [])
             for dep_ref in depends_on:
-                # O(1) lookup instead of DB query
                 dep_id = bulk_data["resources"].get(dep_ref)
                 if dep_id and dep_id in nodes:
                     edges.append(
@@ -251,7 +243,6 @@ class TerraformGraphBuilder:
             if value_json:
                 refs = self._extract_references_from_expression(value_json)
                 for ref in refs:
-                    # O(1) lookup instead of DB query
                     source_id = self._resolve_reference_from_bulk(ref, bulk_data)
                     if source_id and source_id in nodes:
                         edges.append(
@@ -315,7 +306,6 @@ class TerraformGraphBuilder:
             var_name = ref.split(".", 1)[1]
             return bulk_data["vars"].get(var_name)
         else:
-            # Resource reference like "aws_s3_bucket.my_bucket"
             return bulk_data["resources"].get(ref)
 
     def _find_variable_id(self, cursor, var_name: str, current_file: str) -> str | None:
@@ -470,8 +460,8 @@ class TerraformGraphBuilder:
                     "target": edge["target"],
                     "type": edge["edge_type"],
                     "file": edge["file"],
-                    "line": 0,  # Terraform doesn't track line numbers
-                    "expression": edge["expression"],  # Top-level for store schema
+                    "line": 0,
+                    "expression": edge["expression"],
                     "metadata": edge["metadata"],
                 }
             )

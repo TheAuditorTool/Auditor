@@ -55,21 +55,30 @@ def find_external_reusable_with_secrets(context: StandardRuleContext) -> list[St
     return result.findings
 
 
-# =============================================================================
-# DETECTION LOGIC
-# =============================================================================
-
-# SHA commit hash pattern - 40 hex characters (immutable reference)
 SHA_COMMIT_PATTERN = re.compile(r"^[a-f0-9]{40}$", re.IGNORECASE)
 
-# Major-only version pattern - v1, v2, v99 (can be force-pushed by maintainer)
+
 MAJOR_ONLY_VERSION_PATTERN = re.compile(r"^v\d+$", re.IGNORECASE)
 
-# Known branch names that are always mutable
-MUTABLE_BRANCH_NAMES = frozenset({
-    "main", "master", "develop", "dev", "trunk", "release", "stable",
-    "edge", "nightly", "next", "lts", "latest", "canary", "head",
-})
+
+MUTABLE_BRANCH_NAMES = frozenset(
+    {
+        "main",
+        "master",
+        "develop",
+        "dev",
+        "trunk",
+        "release",
+        "stable",
+        "edge",
+        "nightly",
+        "next",
+        "lts",
+        "latest",
+        "canary",
+        "head",
+    }
+)
 
 
 def _is_mutable_version(version: str) -> bool:
@@ -86,20 +95,15 @@ def _is_mutable_version(version: str) -> bool:
     """
     version_lower = version.lower()
 
-    # SHA commit hash is immutable (pinned to specific commit)
     if SHA_COMMIT_PATTERN.match(version):
         return False
 
-    # Known branch names are always mutable
     if version_lower in MUTABLE_BRANCH_NAMES:
         return True
 
-    # Major-only versions (v1, v2, v99) can be force-pushed
     if MAJOR_ONLY_VERSION_PATTERN.match(version):
         return True
 
-    # Everything else (v1.2.3, v4.0.1) is considered immutable
-    # These are exact git tags that shouldn't change
     return False
 
 
@@ -107,14 +111,17 @@ def _find_reusable_workflow_risks(db: RuleDB) -> list[StandardFinding]:
     """Core detection logic for reusable workflow risks."""
     findings: list[StandardFinding] = []
 
-    # Get all jobs that use reusable workflows with JOIN to get workflow name
     job_rows = db.query(
         Q("github_jobs")
         .select(
-            "job_id", "workflow_path", "job_key", "job_name",
-            "reusable_workflow_path", "github_workflows.workflow_name"
+            "job_id",
+            "workflow_path",
+            "job_key",
+            "job_name",
+            "reusable_workflow_path",
+            "github_workflows.workflow_name",
         )
-        .join("github_workflows")  # Auto-detects FK: github_jobs.workflow_path -> github_workflows.workflow_path
+        .join("github_workflows")
         .where("uses_reusable_workflow = ?", 1)
         .where("reusable_workflow_path IS NOT NULL")
     )
@@ -122,24 +129,18 @@ def _find_reusable_workflow_risks(db: RuleDB) -> list[StandardFinding]:
     for row in job_rows:
         job_id, workflow_path, job_key, job_name, reusable_path, workflow_name = row
 
-        # Parse reusable workflow path (e.g., "org/repo/.github/workflows/file.yml@v1")
         if "@" not in reusable_path:
             continue
 
         workflow_ref, version = reusable_path.rsplit("@", 1)
 
-        # Only check external workflows (not local ./)
         if workflow_ref.startswith("./"):
             continue
 
-        # Check if version is mutable (algorithmic - not hardcoded list)
         is_mutable = _is_mutable_version(version)
 
-        # TODO: secrets_config column not in schema - requires extractor migration
-        # When fixed, query github_jobs.secrets_config and check for "inherit"
         inherits_all_secrets = False
 
-        # Count secrets passed to this job (explicit secret references)
         secret_rows = db.query(
             Q("github_step_references")
             .select("step_id")
@@ -150,7 +151,6 @@ def _find_reusable_workflow_risks(db: RuleDB) -> list[StandardFinding]:
         job_prefix = f"{job_id}::"
         secret_count = sum(1 for (step_id,) in secret_rows if step_id.startswith(job_prefix))
 
-        # Flag if: mutable version, secrets passed, or inherits all secrets
         if is_mutable or secret_count > 0 or inherits_all_secrets:
             findings.append(
                 _build_reusable_workflow_finding(
@@ -184,17 +184,15 @@ def _build_reusable_workflow_finding(
 ) -> StandardFinding:
     """Build finding for reusable workflow risk."""
 
-    # CRITICAL: secrets: inherit passes ALL secrets to external workflow
-    # This is the most dangerous pattern - any upstream compromise gets everything
     if inherits_all_secrets and is_mutable:
         severity = Severity.CRITICAL
-    # HIGH: mutable version + any secrets, or secrets: inherit without mutable
+
     elif (is_mutable and secret_count > 0) or inherits_all_secrets:
         severity = Severity.HIGH
-    # MEDIUM: mutable version without secrets (still supply chain risk)
+
     elif is_mutable:
         severity = Severity.MEDIUM
-    # LOW: pinned version but still external (minimal risk)
+
     else:
         severity = Severity.LOW
 
@@ -214,7 +212,11 @@ def _build_reusable_workflow_finding(
         f"External organization gains access to repository secrets."
     )
 
-    secrets_line = "secrets: inherit  # VULN: ALL secrets exposed!" if inherits_all_secrets else "secrets: inherit  # or explicit secret passing"
+    secrets_line = (
+        "secrets: inherit  # VULN: ALL secrets exposed!"
+        if inherits_all_secrets
+        else "secrets: inherit  # or explicit secret passing"
+    )
 
     code_snippet = f"""
 # Vulnerable Pattern:

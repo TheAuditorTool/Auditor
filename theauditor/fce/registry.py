@@ -27,7 +27,6 @@ class SemanticTableRegistry:
     Update as schema evolves.
     """
 
-    # Tables that flag PROBLEMS (used for vector detection)
     RISK_SOURCES: set[str] = {
         "cdk_findings",
         "findings_consolidated",
@@ -38,7 +37,6 @@ class SemanticTableRegistry:
         "terraform_findings",
     }
 
-    # Change history / volatility
     CONTEXT_PROCESS: set[str] = {
         "code_diffs",
         "code_snapshots",
@@ -46,7 +44,6 @@ class SemanticTableRegistry:
         "refactor_history",
     }
 
-    # CFG / complexity data
     CONTEXT_STRUCTURAL: set[str] = {
         "cfg_block_statements",
         "cfg_block_statements_jsx",
@@ -56,9 +53,7 @@ class SemanticTableRegistry:
         "cfg_edges_jsx",
     }
 
-    # Framework-specific tables (36 tables)
     CONTEXT_FRAMEWORK: set[str] = {
-        # Angular (10 tables)
         "angular_component_styles",
         "angular_components",
         "angular_guards",
@@ -68,12 +63,9 @@ class SemanticTableRegistry:
         "angular_module_providers",
         "angular_modules",
         "angular_services",
-        # BullMQ (2 tables)
         "bullmq_queues",
         "bullmq_workers",
-        # Express (1 table)
         "express_middleware_chains",
-        # GraphQL (10 tables)
         "graphql_arg_directives",
         "graphql_execution_edges",
         "graphql_field_args",
@@ -83,18 +75,14 @@ class SemanticTableRegistry:
         "graphql_resolver_params",
         "graphql_schemas",
         "graphql_types",
-        # Prisma (1 table)
         "prisma_models",
-        # React (5 tables)
         "react_component_hooks",
         "react_components",
         "react_hook_dependencies",
         "react_hooks",
-        # Sequelize (3 tables)
         "sequelize_associations",
         "sequelize_model_fields",
         "sequelize_models",
-        # Vue (7 tables)
         "vue_component_emits",
         "vue_component_props",
         "vue_component_setup_returns",
@@ -104,7 +92,6 @@ class SemanticTableRegistry:
         "vue_provide_inject",
     }
 
-    # Security patterns
     CONTEXT_SECURITY: set[str] = {
         "api_endpoint_controls",
         "api_endpoints",
@@ -114,9 +101,7 @@ class SemanticTableRegistry:
         "sql_query_tables",
     }
 
-    # Language-specific tables (87 tables)
     CONTEXT_LANGUAGE: set[str] = {
-        # Bash (10 tables)
         "bash_command_args",
         "bash_commands",
         "bash_control_flows",
@@ -127,7 +112,6 @@ class SemanticTableRegistry:
         "bash_sources",
         "bash_subshells",
         "bash_variables",
-        # Go (22 tables)
         "go_captured_vars",
         "go_channel_ops",
         "go_channels",
@@ -150,7 +134,6 @@ class SemanticTableRegistry:
         "go_type_assertions",
         "go_type_params",
         "go_variables",
-        # Python (37 tables)
         "python_branches",
         "python_build_requires",
         "python_class_features",
@@ -187,7 +170,6 @@ class SemanticTableRegistry:
         "python_typeddict_fields",
         "python_validation_schemas",
         "python_validators",
-        # Rust (20 tables)
         "rust_async_functions",
         "rust_await_points",
         "rust_enum_variants",
@@ -210,7 +192,6 @@ class SemanticTableRegistry:
         "rust_use_statements",
     }
 
-    # Extension to language prefix mapping
     EXTENSION_TO_PREFIX: dict[str, str] = {
         ".py": "python_",
         ".go": "go_",
@@ -219,7 +200,6 @@ class SemanticTableRegistry:
         ".bash": "bash_",
     }
 
-    # Extension to framework tables mapping
     EXTENSION_TO_FRAMEWORKS: dict[str, set[str]] = {
         ".ts": {"react_", "angular_", "vue_", "graphql_", "sequelize_", "prisma_"},
         ".tsx": {"react_", "angular_", "vue_", "graphql_", "sequelize_", "prisma_"},
@@ -240,12 +220,10 @@ class SemanticTableRegistry:
         ext = Path(file_path).suffix.lower()
         tables: list[str] = []
 
-        # Add language-specific tables
         prefix = self.EXTENSION_TO_PREFIX.get(ext)
         if prefix:
             tables.extend(t for t in self.CONTEXT_LANGUAGE if t.startswith(prefix))
 
-        # Add framework tables for JS/TS
         fw_prefixes = self.EXTENSION_TO_FRAMEWORKS.get(ext, set())
         for fw_prefix in fw_prefixes:
             tables.extend(t for t in self.CONTEXT_FRAMEWORK if t.startswith(fw_prefix))

@@ -57,14 +57,6 @@ def find_untrusted_checkout_sequence(context: StandardRuleContext) -> list[Stand
     return result.findings
 
 
-# =============================================================================
-# DETECTION LOGIC
-# =============================================================================
-
-
-# Triggers where untrusted code checkout is dangerous
-# - pull_request_target: Runs in target repo context with secrets, but can checkout PR code
-# - workflow_run: Can be triggered by untrusted PR workflows and checkout their code
 UNTRUSTED_CHECKOUT_TRIGGERS = frozenset(["pull_request_target", "workflow_run"])
 
 
@@ -72,7 +64,6 @@ def _find_untrusted_checkouts(db: RuleDB) -> list[StandardFinding]:
     """Core detection logic for untrusted checkout sequences."""
     findings: list[StandardFinding] = []
 
-    # Get workflows with pull_request_target or workflow_run trigger
     workflow_rows = db.query(
         Q("github_workflows")
         .select("workflow_path", "workflow_name", "on_triggers")
@@ -82,12 +73,10 @@ def _find_untrusted_checkouts(db: RuleDB) -> list[StandardFinding]:
     for workflow_path, workflow_name, on_triggers in workflow_rows:
         on_triggers = on_triggers or ""
 
-        # Check for untrusted checkout contexts
         detected_triggers = [t for t in UNTRUSTED_CHECKOUT_TRIGGERS if t in on_triggers]
         if not detected_triggers:
             continue
 
-        # Get jobs for this workflow
         job_rows = db.query(
             Q("github_jobs")
             .select("job_id", "job_key", "permissions")
@@ -96,7 +85,6 @@ def _find_untrusted_checkouts(db: RuleDB) -> list[StandardFinding]:
         )
 
         for job_id, job_key, permissions_json in job_rows:
-            # Get checkout steps for this job
             step_rows = db.query(
                 Q("github_steps")
                 .select("step_id", "step_name", "sequence_order", "with_args")
@@ -106,11 +94,8 @@ def _find_untrusted_checkouts(db: RuleDB) -> list[StandardFinding]:
             )
 
             for step_id, step_name, sequence_order, with_args in step_rows:
-                # Check if checkout uses untrusted ref
                 is_untrusted, detected_pattern = _check_untrusted_ref(db, step_id, with_args)
 
-                # Flag ANY untrusted checkout in pull_request_target/workflow_run context
-                # Attacker-controlled code execution with secrets is dangerous regardless of step order
                 if is_untrusted:
                     permissions = {}
                     if permissions_json:
@@ -136,18 +121,16 @@ def _find_untrusted_checkouts(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
-# Untrusted ref patterns in checkout actions
-# These are attacker-controlled references that shouldn't be checked out in privileged contexts
-UNTRUSTED_REF_PATTERNS = frozenset([
-    # pull_request_target: PR head is attacker-controlled
-    "github.event.pull_request.head.sha",
-    "github.event.pull_request.head.ref",
-    "github.head_ref",
-    # workflow_run: Triggered workflow's head is from untrusted PR
-    "github.event.workflow_run.head_sha",
-    "github.event.workflow_run.head_branch",
-    "github.event.workflow_run.head_commit.id",
-])
+UNTRUSTED_REF_PATTERNS = frozenset(
+    [
+        "github.event.pull_request.head.sha",
+        "github.event.pull_request.head.ref",
+        "github.head_ref",
+        "github.event.workflow_run.head_sha",
+        "github.event.workflow_run.head_branch",
+        "github.event.workflow_run.head_commit.id",
+    ]
+)
 
 
 def _check_untrusted_ref(db: RuleDB, step_id: str, with_args: str) -> tuple[bool, str]:
@@ -156,7 +139,7 @@ def _check_untrusted_ref(db: RuleDB, step_id: str, with_args: str) -> tuple[bool
     Returns:
         Tuple of (is_untrusted, detected_ref_pattern)
     """
-    # Check with_args for untrusted ref
+
     if with_args:
         try:
             args = json.loads(with_args)
@@ -164,7 +147,7 @@ def _check_untrusted_ref(db: RuleDB, step_id: str, with_args: str) -> tuple[bool
             for pattern in UNTRUSTED_REF_PATTERNS:
                 if pattern in ref:
                     return True, pattern
-            # Also check for dynamic head ref patterns
+
             if "github.event.pull_request.head" in ref:
                 return True, "github.event.pull_request.head"
             if "github.event.workflow_run.head" in ref:
@@ -172,7 +155,6 @@ def _check_untrusted_ref(db: RuleDB, step_id: str, with_args: str) -> tuple[bool
         except json.JSONDecodeError:
             pass
 
-    # Check step references for untrusted paths
     ref_rows = db.query(
         Q("github_step_references")
         .select("reference_path")
@@ -185,7 +167,7 @@ def _check_untrusted_ref(db: RuleDB, step_id: str, with_args: str) -> tuple[bool
         for pattern in UNTRUSTED_REF_PATTERNS:
             if reference_path.startswith(pattern.split(".")[0]) and pattern in reference_path:
                 return True, reference_path
-        # Fallback pattern matching
+
         if reference_path.startswith("github.event.pull_request.head"):
             return True, reference_path
         if reference_path.startswith("github.event.workflow_run.head"):
@@ -212,7 +194,6 @@ def _build_untrusted_checkout_finding(
         for perm in ["contents", "packages", "pull-requests", "id-token", "actions"]
     )
 
-    # CRITICAL: write permissions + untrusted checkout = worst case
     severity = Severity.CRITICAL if has_write_perms else Severity.HIGH
 
     try:

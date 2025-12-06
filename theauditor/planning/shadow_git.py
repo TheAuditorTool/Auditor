@@ -150,7 +150,6 @@ class ShadowRepoManager:
 
         dirty_files = []
         for filepath, flags in status.items():
-            # Include: index new/modified, worktree new/modified
             if flags & (
                 pygit2.GIT_STATUS_INDEX_NEW
                 | pygit2.GIT_STATUS_INDEX_MODIFIED

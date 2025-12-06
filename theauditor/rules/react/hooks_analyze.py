@@ -32,7 +32,15 @@ METADATA = RuleMetadata(
     category="react",
     target_extensions=[".jsx", ".tsx", ".js", ".ts"],
     target_file_patterns=["frontend/", "client/", "src/"],
-    exclude_patterns=["node_modules/", "__tests__/", "*.test.jsx", "*.test.tsx", "*.spec.jsx", "*.spec.tsx", "migrations/"],
+    exclude_patterns=[
+        "node_modules/",
+        "__tests__/",
+        "*.test.jsx",
+        "*.test.tsx",
+        "*.spec.jsx",
+        "*.spec.tsx",
+        "migrations/",
+    ],
     execution_scope="database",
     primary_table="react_hooks",
 )
@@ -42,46 +50,112 @@ METADATA = RuleMetadata(
 class ReactHooksPatterns:
     """Immutable pattern definitions for React hooks violations."""
 
-    HOOKS_WITH_DEPS: frozenset = frozenset([
-        "useEffect", "useCallback", "useMemo", "useLayoutEffect", "useImperativeHandle"
-    ])
+    HOOKS_WITH_DEPS: frozenset = frozenset(
+        ["useEffect", "useCallback", "useMemo", "useLayoutEffect", "useImperativeHandle"]
+    )
 
-    HOOKS_WITHOUT_DEPS: frozenset = frozenset([
-        "useState", "useReducer", "useRef", "useContext", "useId", "useDebugValue",
-        # React 19 - none of these take dependency arrays
-        "use", "useActionState", "useOptimistic", "useFormStatus",
-    ])
+    HOOKS_WITHOUT_DEPS: frozenset = frozenset(
+        [
+            "useState",
+            "useReducer",
+            "useRef",
+            "useContext",
+            "useId",
+            "useDebugValue",
+            "use",
+            "useActionState",
+            "useOptimistic",
+            "useFormStatus",
+        ]
+    )
 
-    CLEANUP_REQUIRED: frozenset = frozenset([
-        "addEventListener", "setInterval", "setTimeout", "requestAnimationFrame",
-        "subscribe", "on", "addListener", "observe", "observeIntersection",
-        "WebSocket", "EventSource", "MutationObserver", "ResizeObserver",
-    ])
+    CLEANUP_REQUIRED: frozenset = frozenset(
+        [
+            "addEventListener",
+            "setInterval",
+            "setTimeout",
+            "requestAnimationFrame",
+            "subscribe",
+            "on",
+            "addListener",
+            "observe",
+            "observeIntersection",
+            "WebSocket",
+            "EventSource",
+            "MutationObserver",
+            "ResizeObserver",
+        ]
+    )
 
-    CLEANUP_FUNCTIONS: frozenset = frozenset([
-        "removeEventListener", "clearInterval", "clearTimeout", "cancelAnimationFrame",
-        "unsubscribe", "off", "removeListener", "disconnect", "close", "abort",
-    ])
+    CLEANUP_FUNCTIONS: frozenset = frozenset(
+        [
+            "removeEventListener",
+            "clearInterval",
+            "clearTimeout",
+            "cancelAnimationFrame",
+            "unsubscribe",
+            "off",
+            "removeListener",
+            "disconnect",
+            "close",
+            "abort",
+        ]
+    )
 
-    TOP_LEVEL_HOOKS: frozenset = frozenset([
-        "useState", "useEffect", "useContext", "useReducer", "useCallback",
-        "useMemo", "useRef", "useLayoutEffect", "useImperativeHandle", "useDebugValue",
-    ])
+    TOP_LEVEL_HOOKS: frozenset = frozenset(
+        [
+            "useState",
+            "useEffect",
+            "useContext",
+            "useReducer",
+            "useCallback",
+            "useMemo",
+            "useRef",
+            "useLayoutEffect",
+            "useImperativeHandle",
+            "useDebugValue",
+        ]
+    )
 
-    BUILTIN_HOOKS: frozenset = frozenset([
-        # Core hooks
-        "useState", "useEffect", "useContext", "useReducer", "useCallback",
-        "useMemo", "useRef", "useLayoutEffect", "useImperativeHandle", "useDebugValue",
-        # React 18
-        "useId", "useTransition", "useDeferredValue", "useSyncExternalStore",
-        # React 19
-        "use", "useActionState", "useOptimistic", "useFormStatus",
-    ])
+    BUILTIN_HOOKS: frozenset = frozenset(
+        [
+            "useState",
+            "useEffect",
+            "useContext",
+            "useReducer",
+            "useCallback",
+            "useMemo",
+            "useRef",
+            "useLayoutEffect",
+            "useImperativeHandle",
+            "useDebugValue",
+            "useId",
+            "useTransition",
+            "useDeferredValue",
+            "useSyncExternalStore",
+            "use",
+            "useActionState",
+            "useOptimistic",
+            "useFormStatus",
+        ]
+    )
 
-    GLOBAL_VARS: frozenset = frozenset([
-        "console", "window", "document", "Math", "JSON", "Object",
-        "Array", "undefined", "null", "Promise", "Error", "Date",
-    ])
+    GLOBAL_VARS: frozenset = frozenset(
+        [
+            "console",
+            "window",
+            "document",
+            "Math",
+            "JSON",
+            "Object",
+            "Array",
+            "undefined",
+            "null",
+            "Promise",
+            "Error",
+            "Date",
+        ]
+    )
 
 
 class ReactHooksAnalyzer:
@@ -139,7 +213,11 @@ class ReactHooksAnalyzer:
 
             for var in used_vars:
                 var_clean = var.split(".")[0] if "." in var else var
-                if var_clean and var_clean not in declared_deps and var_clean not in self.patterns.GLOBAL_VARS:
+                if (
+                    var_clean
+                    and var_clean not in declared_deps
+                    and var_clean not in self.patterns.GLOBAL_VARS
+                ):
                     missing.append(var_clean)
 
             if missing:
@@ -162,7 +240,15 @@ class ReactHooksAnalyzer:
         """Check for potential memory leaks from missing cleanup."""
         rows = self.db.query(
             Q("react_hooks")
-            .select("file", "line", "hook_name", "component_name", "callback_body", "has_cleanup", "cleanup_type")
+            .select(
+                "file",
+                "line",
+                "hook_name",
+                "component_name",
+                "callback_body",
+                "has_cleanup",
+                "cleanup_type",
+            )
             .where("hook_name = ?", "useEffect")
             .where("callback_body IS NOT NULL")
         )
@@ -197,9 +283,16 @@ class ReactHooksAnalyzer:
         hooks_rows = self.db.query(
             Q("react_hooks")
             .select("file", "line", "hook_name", "component_name")
-            .where("hook_name IN (?, ?, ?, ?, ?, ?, ?)",
-                   "useState", "useEffect", "useContext", "useReducer",
-                   "useCallback", "useMemo", "useRef")
+            .where(
+                "hook_name IN (?, ?, ?, ?, ?, ?, ?)",
+                "useState",
+                "useEffect",
+                "useContext",
+                "useReducer",
+                "useCallback",
+                "useMemo",
+                "useRef",
+            )
         )
 
         hooks_by_file: dict[str, list[tuple]] = {}
@@ -407,10 +500,7 @@ class ReactHooksAnalyzer:
 
     def _check_custom_hook_naming(self) -> None:
         """Check custom hooks for naming violations."""
-        rows = self.db.query(
-            Q("react_hooks")
-            .select("file", "hook_name", "component_name", "line")
-        )
+        rows = self.db.query(Q("react_hooks").select("file", "hook_name", "component_name", "line"))
 
         seen: set[tuple] = set()
         for file, hook, component, line in rows:
@@ -464,9 +554,9 @@ class ReactHooksAnalyzer:
             if len(effects) <= 2:
                 continue
 
-            # Only count effects with ID deps that LACK cleanup (actual race risk)
             unsafe_id_effects = sum(
-                1 for deps, has_cleanup in effects
+                1
+                for deps, has_cleanup in effects
                 if not has_cleanup and ("[id]" in deps or '["id"]' in deps or "id" in deps)
             )
 

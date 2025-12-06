@@ -35,54 +35,64 @@ METADATA = RuleMetadata(
     primary_table="refs",
 )
 
-# User input sources in Flask
-USER_INPUT_SOURCES = frozenset([
-    "request.",
-    "request.args",
-    "request.form",
-    "request.values",
-    "request.json",
-    "request.data",
-    "request.files",
-    "request.cookies",
-    "request.headers",
-    "request.environ",
-    "request.get_json",
-    "request.get_data",
-])
 
-# Secret variable names
-SECRET_VARS = frozenset([
-    "SECRET_KEY",
-    "secret_key",
-    "API_KEY",
-    "api_key",
-    "PASSWORD",
-    "password",
-    "TOKEN",
-    "token",
-])
+USER_INPUT_SOURCES = frozenset(
+    [
+        "request.",
+        "request.args",
+        "request.form",
+        "request.values",
+        "request.json",
+        "request.data",
+        "request.files",
+        "request.cookies",
+        "request.headers",
+        "request.environ",
+        "request.get_json",
+        "request.get_data",
+    ]
+)
 
-# File validation functions
-FILE_VALIDATORS = frozenset([
-    "secure_filename",
-    "validate",
-    "allowed",
-    "allowed_file",
-])
 
-# Session security configuration keys
-SESSION_CONFIGS = frozenset([
-    "SESSION_COOKIE_SECURE",
-    "SESSION_COOKIE_HTTPONLY",
-    "SESSION_COOKIE_SAMESITE",
-])
+SECRET_VARS = frozenset(
+    [
+        "SECRET_KEY",
+        "secret_key",
+        "API_KEY",
+        "api_key",
+        "PASSWORD",
+        "password",
+        "TOKEN",
+        "token",
+    ]
+)
 
-# Session lifetime configuration
-SESSION_LIFETIME_CONFIGS = frozenset([
-    "PERMANENT_SESSION_LIFETIME",
-    "SESSION_PERMANENT",
-])
+
+FILE_VALIDATORS = frozenset(
+    [
+        "secure_filename",
+        "validate",
+        "allowed",
+        "allowed_file",
+    ]
+)
+
+
+SESSION_CONFIGS = frozenset(
+    [
+        "SESSION_COOKIE_SECURE",
+        "SESSION_COOKIE_HTTPONLY",
+        "SESSION_COOKIE_SAMESITE",
+    ]
+)
+
+
+SESSION_LIFETIME_CONFIGS = frozenset(
+    [
+        "PERMANENT_SESSION_LIFETIME",
+        "SESSION_PERMANENT",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -100,12 +110,10 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings: list[StandardFinding] = []
 
-        # Check if this is a Flask project
         flask_files = _get_flask_files(db)
         if not flask_files:
             return RuleResult(findings=findings, manifest=db.get_manifest())
 
-        # Run all security checks
         findings.extend(_check_ssti_risks(db))
         findings.extend(_check_markup_xss(db))
         findings.extend(_check_debug_mode(db))
@@ -130,11 +138,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
 def _get_flask_files(db: RuleDB) -> list[str]:
     """Get files that import Flask."""
-    rows = db.query(
-        Q("refs")
-        .select("src")
-        .where("value IN (?, ?)", "flask", "Flask")
-    )
+    rows = db.query(Q("refs").select("src").where("value IN (?, ?)", "flask", "Flask"))
     return [row[0] for row in rows]
 
 
@@ -208,7 +212,6 @@ def _check_debug_mode(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Check app.run(debug=True)
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -233,18 +236,14 @@ def _check_debug_mode(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check app.config['DEBUG'] = True or app.config.update(DEBUG=True)
     config_rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, target_var, source_expr in config_rows:
         target_var = target_var or ""
         source_expr = source_expr or ""
 
-        # Check for app.config['DEBUG'] = True
         if "DEBUG" in target_var and source_expr.strip() == "True":
             findings.append(
                 StandardFinding(
@@ -260,12 +259,10 @@ def _check_debug_mode(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check app.config.update(DEBUG=True) or similar function calls
     update_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function LIKE ? AND argument_expr LIKE ?",
-               "%config%", "%DEBUG%")
+        .where("callee_function LIKE ? AND argument_expr LIKE ?", "%config%", "%DEBUG%")
         .order_by("file, line")
     )
 
@@ -294,9 +291,7 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, var_name, secret_value in rows:
@@ -304,17 +299,14 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
         secret_value = secret_value or ""
         var_name_upper = var_name.upper()
 
-        # Check if this is a secret variable
         if not any(secret in var_name_upper for secret in SECRET_VARS):
             continue
 
-        # Check if it's a string literal (not from env)
         if not ('"' in secret_value or "'" in secret_value):
             continue
         if "environ" in secret_value or "getenv" in secret_value:
             continue
 
-        # Check if secret is weak (short)
         clean_secret = secret_value.strip("\"'")
         if len(clean_secret) < 32:
             findings.append(
@@ -338,7 +330,6 @@ def _check_unsafe_file_uploads(db: RuleDB) -> list[StandardFinding]:
     """Check for unsafe file upload operations."""
     findings = []
 
-    # Get all function calls for correlation
     all_calls_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -346,7 +337,6 @@ def _check_unsafe_file_uploads(db: RuleDB) -> list[StandardFinding]:
     )
     all_calls = list(all_calls_rows)
 
-    # Find .save() calls and file validators
     save_calls = []
     file_validators: dict[str, list[int]] = {}
 
@@ -361,7 +351,6 @@ def _check_unsafe_file_uploads(db: RuleDB) -> list[StandardFinding]:
 
     seen = set()
     for save_file, save_line, _save_callee, _save_arg in save_calls:
-        # Check if this save is related to file upload
         has_file_input = False
         for file, line, _callee, arg_expr in all_calls:
             if (
@@ -375,7 +364,6 @@ def _check_unsafe_file_uploads(db: RuleDB) -> list[StandardFinding]:
         if not has_file_input:
             continue
 
-        # Check if file was validated
         has_validation = False
         if save_file in file_validators:
             for val_line in file_validators[save_file]:
@@ -383,7 +371,6 @@ def _check_unsafe_file_uploads(db: RuleDB) -> list[StandardFinding]:
                     has_validation = True
                     break
 
-        # Only flag if no validation found
         if not has_validation:
             key = (save_file, save_line)
             if key not in seen:
@@ -418,13 +405,11 @@ def _check_sql_injection(db: RuleDB) -> list[StandardFinding]:
     for file, line, query_text in rows:
         query_text = query_text or ""
 
-        # Check for string formatting patterns in SQL
         has_format = (
-            (".format(" in query_text) or
-            ('f"' in query_text) or
-            ("f'" in query_text) or
-            # Check for % formatting with multiple %
-            ("%" in query_text and "%" in query_text[query_text.index("%") + 1:])
+            (".format(" in query_text)
+            or ('f"' in query_text)
+            or ("f'" in query_text)
+            or ("%" in query_text and "%" in query_text[query_text.index("%") + 1 :])
         )
 
         if has_format:
@@ -459,9 +444,9 @@ def _check_open_redirects(db: RuleDB) -> list[StandardFinding]:
     for file, line, _callee, redirect_arg in rows:
         redirect_arg = redirect_arg or ""
         if (
-            "request.args.get" in redirect_arg or
-            "request.values.get" in redirect_arg or
-            "request.form.get" in redirect_arg
+            "request.args.get" in redirect_arg
+            or "request.values.get" in redirect_arg
+            or "request.form.get" in redirect_arg
         ):
             findings.append(
                 StandardFinding(
@@ -515,11 +500,8 @@ def _check_cors_wildcard(db: RuleDB) -> list[StandardFinding]:
     """Check for CORS wildcard configuration."""
     findings = []
 
-    # Check assignments
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, target_var, cors_config in rows:
@@ -546,7 +528,6 @@ def _check_cors_wildcard(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check CORS() function calls
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -581,8 +562,14 @@ def _check_unsafe_deserialization(db: RuleDB) -> list[StandardFinding]:
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function IN (?, ?, ?, ?, ?)",
-               "pickle.loads", "loads", "pickle.load", "load", "yaml.load")
+        .where(
+            "callee_function IN (?, ?, ?, ?, ?)",
+            "pickle.loads",
+            "loads",
+            "pickle.load",
+            "load",
+            "yaml.load",
+        )
         .order_by("file, line")
     )
 
@@ -590,7 +577,6 @@ def _check_unsafe_deserialization(db: RuleDB) -> list[StandardFinding]:
         pickle_arg = pickle_arg or ""
         callee = callee or ""
 
-        # Check for user input in deserialization
         if "request." in pickle_arg:
             findings.append(
                 StandardFinding(
@@ -614,16 +600,13 @@ def _check_werkzeug_debugger(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, var, value in rows:
         var = var or ""
         value = value or ""
 
-        # Check for WERKZEUG_DEBUG_PIN or use_debugger = True
         if var == "WERKZEUG_DEBUG_PIN" or ("use_debugger" in value and "True" in value):
             findings.append(
                 StandardFinding(
@@ -646,7 +629,6 @@ def _check_csrf_protection(db: RuleDB, flask_files: list[str]) -> list[StandardF
     """Check for missing CSRF protection."""
     findings = []
 
-    # Check if CSRF protection is imported
     rows = db.query(
         Q("refs")
         .select("value")
@@ -656,7 +638,6 @@ def _check_csrf_protection(db: RuleDB, flask_files: list[str]) -> list[StandardF
     if list(rows):
         return findings
 
-    # Check if there are state-changing endpoints
     rows = db.query(
         Q("api_endpoints")
         .select("method")
@@ -692,7 +673,6 @@ def _check_session_security(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Check for session flags set to False
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -720,18 +700,14 @@ def _check_session_security(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check for missing PERMANENT_SESSION_LIFETIME when sessions are used
-    # First, check if sessions are being used
     session_usage_rows = db.query(
         Q("function_call_args")
         .select("file")
-        .where("argument_expr LIKE ? OR callee_function LIKE ?",
-               "%session%", "%session%")
+        .where("argument_expr LIKE ? OR callee_function LIKE ?", "%session%", "%session%")
         .limit(1)
     )
 
     if list(session_usage_rows):
-        # Sessions are used - check if PERMANENT_SESSION_LIFETIME is configured
         lifetime_rows = db.query(
             Q("assignments")
             .select("target_var")
@@ -740,7 +716,6 @@ def _check_session_security(db: RuleDB) -> list[StandardFinding]:
         )
 
         if not list(lifetime_rows):
-            # Also check function calls for config.update()
             config_rows = db.query(
                 Q("function_call_args")
                 .select("argument_expr")
@@ -749,12 +724,8 @@ def _check_session_security(db: RuleDB) -> list[StandardFinding]:
             )
 
             if not list(config_rows):
-                # Get first Flask file for reporting
                 flask_rows = db.query(
-                    Q("refs")
-                    .select("src")
-                    .where("value IN (?, ?)", "flask", "Flask")
-                    .limit(1)
+                    Q("refs").select("src").where("value IN (?, ?)", "flask", "Flask").limit(1)
                 )
                 flask_files = list(flask_rows)
 
@@ -805,7 +776,6 @@ def _check_unsafe_yaml(db: RuleDB) -> list[StandardFinding]:
                 )
             )
         elif "Loader" not in arg_expr:
-            # yaml.load without Loader parameter
             findings.append(
                 StandardFinding(
                     rule_name="flask-yaml-load-no-loader",
@@ -827,12 +797,19 @@ def _check_command_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for command injection via subprocess with shell=True."""
     findings = []
 
-    # Subprocess functions that can be dangerous
     subprocess_funcs = (
-        "subprocess.run", "subprocess.call", "subprocess.Popen",
-        "subprocess.check_output", "subprocess.check_call",
-        "os.system", "os.popen", "os.popen2", "os.popen3", "os.popen4",
-        "commands.getoutput", "commands.getstatusoutput",
+        "subprocess.run",
+        "subprocess.call",
+        "subprocess.Popen",
+        "subprocess.check_output",
+        "subprocess.check_call",
+        "os.system",
+        "os.popen",
+        "os.popen2",
+        "os.popen3",
+        "os.popen4",
+        "commands.getoutput",
+        "commands.getstatusoutput",
     )
     placeholders = ",".join("?" * len(subprocess_funcs))
 
@@ -846,7 +823,6 @@ def _check_command_injection(db: RuleDB) -> list[StandardFinding]:
     for file, line, callee, arg_expr in rows:
         arg_expr = arg_expr or ""
 
-        # Check for shell=True with user input
         if "shell=True" in arg_expr or "shell = True" in arg_expr:
             for source in USER_INPUT_SOURCES:
                 if source in arg_expr:
@@ -865,7 +841,6 @@ def _check_command_injection(db: RuleDB) -> list[StandardFinding]:
                     )
                     break
             else:
-                # shell=True without obvious user input (still risky)
                 findings.append(
                     StandardFinding(
                         rule_name="flask-shell-true",
@@ -880,7 +855,6 @@ def _check_command_injection(db: RuleDB) -> list[StandardFinding]:
                     )
                 )
 
-        # Check os.system which always uses shell
         if callee == "os.system":
             for source in USER_INPUT_SOURCES:
                 if source in arg_expr:
@@ -906,12 +880,10 @@ def _check_jwt_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
     """Check for JWT implementation vulnerabilities."""
     findings = []
 
-    # JWT decode functions
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function LIKE ? OR callee_function LIKE ?",
-               "%jwt%decode%", "%decode%")
+        .where("callee_function LIKE ? OR callee_function LIKE ?", "%jwt%decode%", "%decode%")
         .order_by("file, line")
     )
 
@@ -919,21 +891,17 @@ def _check_jwt_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
         arg_expr = arg_expr or ""
         arg_lower = arg_expr.lower()
 
-        # Skip if not JWT related
         if "jwt" not in callee.lower() and "jwt" not in arg_lower:
             continue
 
         issues = []
 
-        # Check for missing algorithm specification
         if "algorithms" not in arg_lower and "algorithm" not in arg_lower:
             issues.append("no algorithm specified")
 
-        # Check for verify=False
         if "verify=false" in arg_lower or "verify_signature=false" in arg_lower:
             issues.append("signature verification disabled")
 
-        # Check for options disabling expiry
         if "verify_exp" in arg_lower and "false" in arg_lower:
             issues.append("expiry verification disabled")
 
@@ -959,12 +927,10 @@ def _check_path_traversal_sendfile(db: RuleDB) -> list[StandardFinding]:
     """Check for path traversal in send_file/send_from_directory."""
     findings = []
 
-    # Flask file sending functions
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function IN (?, ?, ?)",
-               "send_file", "send_from_directory", "safe_join")
+        .where("callee_function IN (?, ?, ?)", "send_file", "send_from_directory", "safe_join")
         .order_by("file, line")
     )
 
@@ -973,9 +939,8 @@ def _check_path_traversal_sendfile(db: RuleDB) -> list[StandardFinding]:
 
         for source in USER_INPUT_SOURCES:
             if source in arg_expr:
-                # Check if safe_join is used nearby for protection
                 if callee == "safe_join":
-                    continue  # safe_join is the protection
+                    continue
 
                 findings.append(
                     StandardFinding(
@@ -999,7 +964,6 @@ def _check_missing_security_headers(db: RuleDB, flask_files: list[str]) -> list[
     """Check for missing security headers."""
     findings = []
 
-    # Check for flask-talisman (security headers middleware)
     rows = db.query(
         Q("refs")
         .select("value")
@@ -1009,18 +973,20 @@ def _check_missing_security_headers(db: RuleDB, flask_files: list[str]) -> list[
     if list(rows):
         return findings
 
-    # Check for manual security headers
     rows = db.query(
         Q("function_call_args")
         .select("argument_expr")
-        .where("argument_expr LIKE ? OR argument_expr LIKE ? OR argument_expr LIKE ?",
-               "%X-Frame-Options%", "%Content-Security-Policy%", "%X-Content-Type-Options%")
+        .where(
+            "argument_expr LIKE ? OR argument_expr LIKE ? OR argument_expr LIKE ?",
+            "%X-Frame-Options%",
+            "%Content-Security-Policy%",
+            "%X-Content-Type-Options%",
+        )
         .limit(1)
     )
     if list(rows):
         return findings
 
-    # No security headers found
     if flask_files:
         findings.append(
             StandardFinding(
@@ -1039,39 +1005,46 @@ def _check_missing_security_headers(db: RuleDB, flask_files: list[str]) -> list[
     return findings
 
 
-# Taint patterns for taint tracking engine
-FLASK_INPUT_SOURCES = frozenset([
-    "request.args",
-    "request.form",
-    "request.values",
-    "request.json",
-    "request.data",
-    "request.files",
-    "request.cookies",
-    "request.headers",
-    "request.environ",
-    "request.get_json",
-    "request.get_data",
-])
+FLASK_INPUT_SOURCES = frozenset(
+    [
+        "request.args",
+        "request.form",
+        "request.values",
+        "request.json",
+        "request.data",
+        "request.files",
+        "request.cookies",
+        "request.headers",
+        "request.environ",
+        "request.get_json",
+        "request.get_data",
+    ]
+)
 
-FLASK_SSTI_SINKS = frozenset([
-    "render_template_string",
-    "Markup",
-    "jinja2.Template",
-])
+FLASK_SSTI_SINKS = frozenset(
+    [
+        "render_template_string",
+        "Markup",
+        "jinja2.Template",
+    ]
+)
 
-FLASK_REDIRECT_SINKS = frozenset([
-    "redirect",
-    "url_for",
-    "make_response",
-])
+FLASK_REDIRECT_SINKS = frozenset(
+    [
+        "redirect",
+        "url_for",
+        "make_response",
+    ]
+)
 
-FLASK_SQL_SINKS = frozenset([
-    "execute",
-    "executemany",
-    "db.execute",
-    "session.execute",
-])
+FLASK_SQL_SINKS = frozenset(
+    [
+        "execute",
+        "executemany",
+        "db.execute",
+        "session.execute",
+    ]
+)
 
 
 def register_taint_patterns(taint_registry) -> None:

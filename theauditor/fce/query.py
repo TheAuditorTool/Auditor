@@ -36,21 +36,19 @@ class FCEQueryEngine:
         Raises:
             FileNotFoundError: If repo_index.db doesn't exist
         """
-        # Force absolute path resolution for consistent DB path matching
+
         self.root = Path(root).resolve()
         pf_dir = self.root / ".pf"
 
         repo_db_path = pf_dir / "repo_index.db"
         if not repo_db_path.exists():
-            raise FileNotFoundError(
-                f"Database not found: {repo_db_path}\nRun 'aud full' first."
-            )
+            raise FileNotFoundError(f"Database not found: {repo_db_path}\nRun 'aud full' first.")
 
         self.repo_db = sqlite3.connect(str(repo_db_path))
-        # Performance: WAL mode for concurrent reads, larger cache for 180MB+ databases
+
         self.repo_db.execute("PRAGMA journal_mode=WAL;")
         self.repo_db.execute("PRAGMA synchronous=NORMAL;")
-        self.repo_db.execute("PRAGMA cache_size=-64000;")  # 64MB cache
+        self.repo_db.execute("PRAGMA cache_size=-64000;")
         self.repo_db.row_factory = sqlite3.Row
 
         graph_db_path = pf_dir / "graphs.db"
@@ -65,7 +63,6 @@ class FCEQueryEngine:
 
         self.registry = SemanticTableRegistry()
 
-        # Cache valid tables and their columns at init (Zero Fallback: no runtime schema checks)
         self._table_columns: dict[str, set[str]] = {}
         self._load_table_schema()
 
@@ -79,7 +76,6 @@ class FCEQueryEngine:
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
         actual_tables = {row[0] for row in cursor.fetchall()}
 
-        # Cache columns for context tables that actually exist
         all_context = self.registry.get_all_context_tables()
         for table in all_context:
             if table in actual_tables:
@@ -99,7 +95,6 @@ class FCEQueryEngine:
         index: dict[str, set[Vector]] = defaultdict(set)
         cursor = self.repo_db.cursor()
 
-        # Query 1: All findings_consolidated data (STATIC, PROCESS, STRUCTURAL)
         cursor.execute("SELECT file, tool FROM findings_consolidated")
         for row in cursor.fetchall():
             file_path = row["file"]
@@ -110,10 +105,9 @@ class FCEQueryEngine:
                 index[file_path].add(Vector.STRUCTURAL)
             elif tool == "churn-analysis":
                 index[file_path].add(Vector.PROCESS)
-            elif tool != "graph-analysis":  # Skip graph-analysis, not a findings source
+            elif tool != "graph-analysis":
                 index[file_path].add(Vector.STATIC)
 
-        # Query 2: All taint flows (FLOW vector)
         cursor.execute("SELECT source_file, sink_file FROM taint_flows")
         for row in cursor.fetchall():
             if row["source_file"]:
@@ -220,7 +214,6 @@ class FCEQueryEngine:
         facts: list[Fact] = []
         cursor = self.repo_db.cursor()
 
-        # Get findings from findings_consolidated
         cursor.execute(
             """
             SELECT file, line, tool, rule, message, severity, category
@@ -234,7 +227,6 @@ class FCEQueryEngine:
         for row in cursor.fetchall():
             tool = row["tool"]
 
-            # Determine vector based on tool
             if tool == "cfg-analysis":
                 vector = Vector.STRUCTURAL
             elif tool == "churn-analysis":
@@ -257,7 +249,6 @@ class FCEQueryEngine:
                 )
             )
 
-        # Get taint flows
         cursor.execute(
             """
             SELECT source_file, source_line, sink_file, sink_line,
@@ -270,7 +261,6 @@ class FCEQueryEngine:
         )
 
         for row in cursor.fetchall():
-            # Use source line if this file is the source, else sink line
             line = row["source_line"] if row["source_file"] == normalized else row["sink_line"]
 
             facts.append(
@@ -310,16 +300,13 @@ class FCEQueryEngine:
 
         convergence_points: list[ConvergencePoint] = []
 
-        # Bulk load all vectors in 2 queries (not N+1)
         vector_index = self._build_vector_index()
 
         for file_path, vectors in vector_index.items():
             if len(vectors) >= min_vectors:
-                # Only fetch facts for files that meet threshold
                 facts = self._get_facts_for_file(file_path)
 
                 if facts:
-                    # Calculate line range from facts
                     lines = [f.line for f in facts if f.line is not None]
                     line_start = min(lines) if lines else 1
                     line_end = max(lines) if lines else 1
@@ -336,7 +323,6 @@ class FCEQueryEngine:
                         )
                     )
 
-        # Sort by density DESC, then by file path
         convergence_points.sort(key=lambda p: (-p.signal.density, p.file_path))
 
         return convergence_points
@@ -355,12 +341,9 @@ class FCEQueryEngine:
         signal = self.get_vector_density(file_path)
         facts = self._get_facts_for_file(file_path)
 
-        # Filter facts by line if specified
         if line is not None:
-            # Include facts within 10 lines of target
             facts = [f for f in facts if f.line is None or abs(f.line - line) <= 10]
 
-        # Calculate line range
         lines = [f.line for f in facts if f.line is not None]
         line_start = min(lines) if lines else (line or 1)
         line_end = max(lines) if lines else (line or 1)
@@ -373,19 +356,16 @@ class FCEQueryEngine:
             facts=facts,
         )
 
-        # Build context layers from relevant tables (using cached schema - no runtime PRAGMA)
         context_layers: dict[str, list[dict]] = {}
         context_tables = self.registry.get_context_tables_for_file(file_path)
 
         cursor = self.repo_db.cursor()
 
         for table in context_tables:
-            # Use cached columns - skip tables not in DB (validated at init)
             columns = self._table_columns.get(table)
             if columns is None:
                 continue
 
-            # Build query based on available columns
             if "file" in columns:
                 cursor.execute(
                     f"SELECT * FROM {table} WHERE file LIKE ? LIMIT 50",
@@ -397,7 +377,6 @@ class FCEQueryEngine:
                     (f"%{normalized}",),
                 )
             else:
-                # No file/path column - skip this table
                 continue
 
             rows = cursor.fetchall()
@@ -417,13 +396,13 @@ class FCEQueryEngine:
         Returns:
             Dict mapping file_path to VectorSignal
         """
-        # Bulk load all vectors in 2 queries
+
         vector_index = self._build_vector_index()
 
         return {
             file_path: VectorSignal(file_path=file_path, vectors_present=vectors)
             for file_path, vectors in vector_index.items()
-            if vectors  # Only include files with at least one vector
+            if vectors
         }
 
     def get_summary(self) -> dict:
@@ -434,7 +413,6 @@ class FCEQueryEngine:
         """
         files_with_vectors = self.get_files_with_vectors()
 
-        # Count files by vector density
         density_counts = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
         max_density = 0.0
 

@@ -510,11 +510,8 @@ export function extractSQLQueries(
       "ALTER",
     ].some((kw) => upperArg.includes(kw));
 
-    // Check argument index: allow index 0 always, index 1 only if it has SQL keywords
-    // This handles both db.query(sql) and db.query(options, sql) patterns
     if (call.argument_index !== 0) {
       if (call.argument_index === 1 && hasSQLKeyword) {
-        // Allow index 1 if it looks like SQL
       } else {
         continue;
       }
@@ -781,12 +778,16 @@ export function extractFrontendApiCalls(
   const apiCalls: IFrontendAPICall[] = [];
   const debug = process.env.THEAUDITOR_DEBUG === "1";
 
-  // Build alias map: local name -> module path
-  // e.g., import http from 'axios' -> aliasToModule['http'] = 'axios'
   const aliasToModule = new Map<string, string>();
-  const HTTP_LIBRARIES = new Set(["axios", "node-fetch", "got", "ky", "superagent", "request"]);
+  const HTTP_LIBRARIES = new Set([
+    "axios",
+    "node-fetch",
+    "got",
+    "ky",
+    "superagent",
+    "request",
+  ]);
 
-  // Map import lines to modules
   const lineToModule = new Map<number, string>();
   for (const imp of imports) {
     if (imp.module) {
@@ -794,22 +795,25 @@ export function extractFrontendApiCalls(
     }
   }
 
-  // Build alias map from specifiers
   for (const spec of import_specifiers) {
     const modulePath = lineToModule.get(spec.import_line);
     if (modulePath) {
-      // Extract base module name (e.g., 'axios' from 'axios' or '@scope/axios')
-      const baseName = modulePath.split("/").pop()?.replace(/^@.*\//, "") || modulePath;
+      const baseName =
+        modulePath
+          .split("/")
+          .pop()
+          ?.replace(/^@.*\//, "") || modulePath;
       if (HTTP_LIBRARIES.has(baseName) || baseName === "axios") {
         aliasToModule.set(spec.specifier_name, baseName);
         if (debug) {
-          console.error(`[API_DEBUG] Alias mapping: ${spec.specifier_name} -> ${baseName}`);
+          console.error(
+            `[API_DEBUG] Alias mapping: ${spec.specifier_name} -> ${baseName}`,
+          );
         }
       }
     }
   }
 
-  // Helper to resolve callee to canonical form (e.g., "http.get" -> "axios.get")
   function resolveCallee(callee: string): string {
     const parts = callee.split(".");
     if (parts.length >= 1) {
@@ -908,7 +912,6 @@ export function extractFrontendApiCalls(
   for (const lineStr in callsByLine) {
     const line = parseInt(lineStr);
     const callData = callsByLine[line];
-    // Resolve aliased imports (e.g., "http.get" -> "axios.get" if http is imported from axios)
     const callee = resolveCallee(callData.callee);
     const args = callData.args;
 

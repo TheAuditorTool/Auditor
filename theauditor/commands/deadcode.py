@@ -10,7 +10,7 @@ import click
 
 from theauditor.cli import RichCommand
 from theauditor.context.deadcode_graph import detect_isolated_modules
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -190,7 +190,8 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     if not db_path.exists():
         err_console.print(
-            "[error]Error: Database not found. Run 'aud full' first.[/error]", )
+            "[error]Error: Database not found. Run 'aud full' first.[/error]",
+        )
         raise click.ClickException("Database not found")
 
     try:

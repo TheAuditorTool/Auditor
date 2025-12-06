@@ -11,9 +11,6 @@ from theauditor.indexer.fidelity_utils import FidelityToken
 from ..types import DFGEdge, DFGNode, create_bidirectional_edges
 from .base import GraphStrategy
 
-# GRAPH FIX G14: Irregular plural lookup table.
-# Naive pluralization (child -> childs) breaks node ID matching when actual
-# code uses correct plurals (user.children). This table handles common cases.
 IRREGULAR_PLURALS: dict[str, str] = {
     "child": "children",
     "person": "people",
@@ -52,13 +49,11 @@ IRREGULAR_PLURALS: dict[str, str] = {
     "elf": "elves",
     "loaf": "loaves",
     "thief": "thieves",
-    # Common in databases
     "status": "statuses",
     "address": "addresses",
     "process": "processes",
     "class": "classes",
     "alias": "aliases",
-    # Unchanged plurals (same singular/plural)
     "sheep": "sheep",
     "fish": "fish",
     "deer": "deer",
@@ -96,8 +91,6 @@ class NodeOrmStrategy(GraphStrategy):
             "edges_created": 0,
         }
 
-        # GRAPH FIX G4: Removed try/except - violates Zero Fallback (Fail Loud)
-        # Table check is valid feature detection, but real errors must crash
         cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='sequelize_associations'"
         )
@@ -186,22 +179,16 @@ class NodeOrmStrategy(GraphStrategy):
         lower = target_model.lower()
 
         if "Many" in assoc_type:
-            # Check irregular plurals first
             if lower in IRREGULAR_PLURALS:
                 return IRREGULAR_PLURALS[lower]
 
-            # Standard pluralization rules
             if lower.endswith("y") and len(lower) > 1 and lower[-2] not in "aeiou":
-                # Only apply -y -> -ies if preceded by consonant (category -> categories)
-                # but not if preceded by vowel (day -> days, not daies)
                 return lower[:-1] + "ies"
             elif lower.endswith(("s", "x", "z", "ch", "sh")):
                 return lower + "es"
             elif lower.endswith("f"):
-                # leaf -> leaves (but handled in IRREGULAR_PLURALS for common ones)
                 return lower[:-1] + "ves"
             elif lower.endswith("fe"):
-                # knife -> knives (but handled in IRREGULAR_PLURALS for common ones)
                 return lower[:-2] + "ves"
             else:
                 return lower + "s"

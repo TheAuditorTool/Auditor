@@ -27,13 +27,10 @@ METADATA = RuleMetadata(
 class BashInjectionPatterns:
     """Pattern definitions for Bash injection detection."""
 
-    # Commands that evaluate code dynamically
     EVAL_COMMANDS: frozenset = frozenset(["eval", "bash", "sh", "zsh", "ksh"])
 
-    # Commands where variable-as-command is dangerous
     COMMAND_EXECUTION: frozenset = frozenset(["xargs", "find", "parallel", "watch", "exec"])
 
-    # Dangerous flags for xargs
     XARGS_DANGEROUS_FLAGS: frozenset = frozenset(["-I", "-i", "-0"])
 
 
@@ -82,7 +79,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
     patterns = BashInjectionPatterns()
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Check eval injection
         rows = db.query(
             Q("bash_commands")
             .select("file", "line", "command_name")
@@ -90,7 +86,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
         )
 
         for file, line, command_name in rows:
-            # Check for variable expansion in arguments
             arg_rows = db.query(
                 Q("bash_command_args")
                 .select("arg_value", "has_expansion")
@@ -122,7 +117,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                     confidence=Confidence.MEDIUM,
                 )
 
-        # Check variable as command
         rows = db.query(
             Q("bash_commands")
             .select("file", "line", "command_name")
@@ -139,11 +133,8 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                 confidence=Confidence.HIGH,
             )
 
-        # Check xargs injection
         rows = db.query(
-            Q("bash_commands")
-            .select("file", "line")
-            .where("command_name = ?", "xargs")
+            Q("bash_commands").select("file", "line").where("command_name = ?", "xargs")
         )
 
         for file, line in rows:
@@ -169,7 +160,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                     confidence=Confidence.MEDIUM,
                 )
 
-        # Check backtick injection
         rows = db.query(
             Q("bash_subshells")
             .select("file", "line", "command_text")
@@ -188,7 +178,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                     cwe_id="CWE-78",
                 )
 
-        # Check source injection
         rows = db.query(
             Q("bash_sources")
             .select("file", "line", "sourced_path")
@@ -205,8 +194,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                 confidence=Confidence.HIGH,
             )
 
-        # Check indirect variable expansion ${!var}
-        # If var is user-controlled, attacker can access any variable
         rows = db.query(
             Q("bash_command_args")
             .select("file", "command_line", "arg_value")
@@ -223,7 +210,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                 confidence=Confidence.MEDIUM,
             )
 
-        # Also check variable assignments for indirect expansion
         rows = db.query(
             Q("bash_variables")
             .select("file", "line", "value_expr")
@@ -240,8 +226,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                 confidence=Confidence.MEDIUM,
             )
 
-        # Check process substitution with variable expansion
-        # <(cmd $var) or >(cmd $var) can inject commands if var is tainted
         rows = db.query(
             Q("bash_subshells")
             .select("file", "line", "syntax", "command_text")
@@ -258,9 +242,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                 confidence=Confidence.MEDIUM,
             )
 
-        # Check arithmetic expansion injection $(( var ))
-        # Bash arithmetic contexts allow code execution via array subscripts:
-        # x='arr[$(whoami)]'; echo $((x)) executes whoami
         rows = db.query(
             Q("bash_command_args")
             .select("file", "command_line", "arg_value")
@@ -268,7 +249,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
         )
 
         for file, line, arg_value in rows:
-            # Check if there's a variable inside the arithmetic context
             if arg_value and "$" in arg_value:
                 add_finding(
                     file=file,
@@ -279,7 +259,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                     confidence=Confidence.MEDIUM,
                 )
 
-        # Also check variable assignments for arithmetic injection
         rows = db.query(
             Q("bash_variables")
             .select("file", "line", "value_expr")
@@ -297,12 +276,8 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                     confidence=Confidence.MEDIUM,
                 )
 
-        # Check printf format injection
-        # printf $VAR is dangerous - variable as format string allows format exploits
         rows = db.query(
-            Q("bash_commands")
-            .select("file", "line")
-            .where("command_name = ?", "printf")
+            Q("bash_commands").select("file", "line").where("command_name = ?", "printf")
         )
 
         for file, line in rows:
@@ -313,7 +288,6 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
             )
 
             for arg_value, has_expansion, is_quoted in arg_rows:
-                # First arg is format string - dangerous if it's a variable
                 if has_expansion or (arg_value and "$" in str(arg_value)):
                     add_finding(
                         file=file,
@@ -328,46 +302,63 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-# =============================================================================
-# Taint Pattern Registration (for DFG-based taint analysis)
-# =============================================================================
+BASH_SOURCES: frozenset[str] = frozenset(
+    [
+        "$1",
+        "$2",
+        "$3",
+        "$4",
+        "$5",
+        "$6",
+        "$7",
+        "$8",
+        "$9",
+        "$@",
+        "$*",
+        "read",
+        "$QUERY_STRING",
+        "$REQUEST_URI",
+        "$HTTP_USER_AGENT",
+        "$HTTP_COOKIE",
+        "$HTTP_REFERER",
+        "$INPUT",
+        "$DATA",
+        "$PAYLOAD",
+        "$USER_INPUT",
+    ]
+)
 
-# Sources: User-controlled input that enters the script
-BASH_SOURCES: frozenset[str] = frozenset([
-    # Positional parameters (script/function arguments)
-    "$1", "$2", "$3", "$4", "$5", "$6", "$7", "$8", "$9",
-    "$@", "$*",
-    # Input commands
-    "read",
-    # CGI variables (web-exposed scripts)
-    "$QUERY_STRING", "$REQUEST_URI",
-    "$HTTP_USER_AGENT", "$HTTP_COOKIE", "$HTTP_REFERER",
-    # Common input variable names
-    "$INPUT", "$DATA", "$PAYLOAD", "$USER_INPUT",
-])
 
-# Sinks: Dangerous operations that should not receive tainted data
-BASH_COMMAND_SINKS: frozenset[str] = frozenset([
-    # Code/command execution
-    "eval", "exec",
-    "sh", "bash", "zsh", "ksh",
-    "source", ".",
-    # Dangerous file operations
-    "rm", "rmdir", "unlink",
-    "mv", "cp",
-    # Network commands (can exfiltrate data or fetch malicious payloads)
-    "curl", "wget",
-    # Command construction
-    "xargs",
-    # Database clients (SQL injection via shell)
-    "mysql", "psql", "sqlite3",
-])
+BASH_COMMAND_SINKS: frozenset[str] = frozenset(
+    [
+        "eval",
+        "exec",
+        "sh",
+        "bash",
+        "zsh",
+        "ksh",
+        "source",
+        ".",
+        "rm",
+        "rmdir",
+        "unlink",
+        "mv",
+        "cp",
+        "curl",
+        "wget",
+        "xargs",
+        "mysql",
+        "psql",
+        "sqlite3",
+    ]
+)
 
-# Sanitizers: Functions that clean tainted data
-# printf %q is the standard bash shell escaper for safe command construction
-BASH_SANITIZERS: frozenset[str] = frozenset([
-    "printf",  # With %q format, properly escapes for shell
-])
+
+BASH_SANITIZERS: frozenset[str] = frozenset(
+    [
+        "printf",
+    ]
+)
 
 
 def register_taint_patterns(taint_registry) -> None:

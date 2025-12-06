@@ -135,7 +135,7 @@ class GraphQLDatabaseMixin:
         is_list_input: bool = False,
     ):
         """Add a GraphQL resolver parameter mapping record to the batch."""
-        # Check for duplicates - primary key is (resolver_symbol_id, arg_name)
+
         param_key = (resolver_symbol_id, arg_name)
         for p in reversed(self.generic_batches["graphql_resolver_params"]):
             if (p[0], p[1]) == param_key:

@@ -4,9 +4,9 @@ import ast
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
+from theauditor.utils.logging import logger
 
 from ..base import get_node_name
-from theauditor.utils.logging import logger
 
 
 def _get_str_constant(node: ast.AST | None) -> str | None:

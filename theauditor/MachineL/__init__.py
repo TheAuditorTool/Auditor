@@ -32,10 +32,8 @@ from theauditor.MachineL.models import (
 )
 
 __all__ = [
-    # CLI entry points
     "learn",
     "suggest",
-    # Model functions
     "check_ml_available",
     "build_feature_matrix",
     "build_labels",
@@ -43,10 +41,8 @@ __all__ = [
     "save_models",
     "load_models",
     "is_source_file",
-    # Feature extraction
     "load_all_db_features",
     "load_impact_features",
-    # Impact analysis
     "analyze_impact",
     "find_upstream_dependencies",
     "find_downstream_dependencies",

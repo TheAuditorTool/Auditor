@@ -104,10 +104,6 @@ class XGraphAnalyzer:
             upstream = defaultdict(list)
             downstream = defaultdict(list)
 
-            # GRAPH FIX G3: Filter out _reverse edges to restore directionality.
-            # Without this filter, A->B and B->A_reverse make the graph undirected,
-            # causing impact analysis to report that changing a utility impacts controllers
-            # AND that changing controllers impacts the utility (false positive).
             for edge in import_graph.get("edges", []):
                 if edge.get("type", "").endswith("_reverse"):
                     continue

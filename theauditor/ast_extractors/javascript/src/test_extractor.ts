@@ -1,7 +1,3 @@
-// src/test_extractor.ts
-// Comprehensive extractor test suite
-// Run with: npm test (uses tsx)
-
 import * as ts from "typescript";
 import { z } from "zod";
 import { extractObjectLiterals } from "./extractors/data_flow.js";
@@ -17,10 +13,6 @@ import {
   FunctionCallArgSchema,
   AssignmentSchema,
 } from "./schema.js";
-
-// =============================================================================
-// TEST INFRASTRUCTURE
-// =============================================================================
 
 interface TestResult {
   name: string;
@@ -66,10 +58,6 @@ function createSourceFile(code: string, filename = "test.ts"): ts.SourceFile {
   return ts.createSourceFile(filename, code, ts.ScriptTarget.Latest, true);
 }
 
-// =============================================================================
-// TEST: OBJECT LITERALS
-// =============================================================================
-
 test("ObjectLiterals: Basic extraction", () => {
   const code = `
 const config = {
@@ -92,13 +80,8 @@ test("ObjectLiterals: Empty object", () => {
   const scopeMap = new Map<number, string>();
   const results = extractObjectLiterals(sourceFile, ts, scopeMap, "test.ts");
 
-  // Empty objects should be handled gracefully
   z.array(ObjectLiteralSchema).parse(results);
 });
-
-// =============================================================================
-// TEST: SEQUELIZE EXTRACTORS
-// =============================================================================
 
 test("Sequelize: Model with define()", () => {
   const code = `
@@ -118,27 +101,24 @@ module.exports = (sequelize, DataTypes) => {
     sourceFile,
     classes,
     functionCallArgs,
-    "models/User.js"
+    "models/User.js",
   );
 
-  // CRITICAL: This is what was broken - models weren't being extracted
   assertGreaterThan(
     result.sequelize_models.length,
     0,
-    "Should extract sequelize_models"
+    "Should extract sequelize_models",
   );
   assertGreaterThan(
     result.sequelize_model_fields.length,
     0,
-    "Should extract sequelize_model_fields"
+    "Should extract sequelize_model_fields",
   );
 
-  // Validate schemas
   z.array(SequelizeModelSchema).parse(result.sequelize_models);
   z.array(SequelizeModelFieldSchema).parse(result.sequelize_model_fields);
   z.array(SequelizeAssociationSchema).parse(result.sequelize_associations);
 
-  // Check model content
   const model = result.sequelize_models[0];
   assertEqual(model.model_name, "User", "Model name should be User");
   assertEqual(model.table_name, "users", "Table name should be users");
@@ -169,13 +149,13 @@ class Product extends Model {
     sourceFile,
     classes,
     [],
-    "models/Product.ts"
+    "models/Product.ts",
   );
 
   assertGreaterThan(
     result.sequelize_models.length,
     0,
-    "Should extract class-based models"
+    "Should extract class-based models",
   );
   z.array(SequelizeModelSchema).parse(result.sequelize_models);
 });
@@ -192,18 +172,13 @@ User.belongsTo(Organization, { foreignKey: "orgId" });
   assertGreaterThan(
     result.sequelize_associations.length,
     0,
-    "Should extract associations"
+    "Should extract associations",
   );
   z.array(SequelizeAssociationSchema).parse(result.sequelize_associations);
 });
 
-// =============================================================================
-// TEST: EDGE CASES - THESE CATCH SILENT BUGS
-// =============================================================================
-
 test("EdgeCase: Huge JSX should not create giant variable names", () => {
-  // This is the bug that caused "LIKE pattern too complex"
-  const hugeJsx = `const x = "a".repeat(1000);`; // Simulated long content
+  const hugeJsx = `const x = "a".repeat(1000);`;
   const code = `
 function Component() {
   return (
@@ -216,15 +191,13 @@ function Component() {
   const sourceFile = createSourceFile(code, "Component.tsx");
   const scopeMap = new Map<number, string>();
 
-  // This should not throw and should not create 59k char variable names
   const results = extractObjectLiterals(sourceFile, ts, scopeMap, "test.tsx");
 
-  // All variable names should be reasonable length
   for (const r of results) {
     assertLessThan(
       r.variable_name.length,
       500,
-      `Variable name too long: ${r.variable_name.substring(0, 50)}...`
+      `Variable name too long: ${r.variable_name.substring(0, 50)}...`,
     );
   }
 });
@@ -234,7 +207,6 @@ test("EdgeCase: Empty file", () => {
   const sourceFile = createSourceFile(code);
   const scopeMap = new Map<number, string>();
 
-  // Should not throw on empty file
   const results = extractObjectLiterals(sourceFile, ts, scopeMap, "empty.ts");
   assertEqual(results.length, 0, "Empty file should produce no results");
 });
@@ -248,20 +220,19 @@ test("EdgeCase: File with only comments", () => {
   const sourceFile = createSourceFile(code);
   const scopeMap = new Map<number, string>();
 
-  const results = extractObjectLiterals(sourceFile, ts, scopeMap, "comments.ts");
+  const results = extractObjectLiterals(
+    sourceFile,
+    ts,
+    scopeMap,
+    "comments.ts",
+  );
   assertEqual(results.length, 0, "Comment-only file should produce no results");
 });
 
-// =============================================================================
-// TEST: SCHEMA COMPLETENESS CHECK
-// =============================================================================
-
 test("SchemaCompleteness: All ExtractedDataSchema keys are testable", () => {
-  // Get all keys from ExtractedDataSchema
   const schemaShape = ExtractedDataSchema.shape;
   const allKeys = Object.keys(schemaShape);
 
-  // Keys that have dedicated tests above
   const testedKeys = new Set([
     "object_literals",
     "sequelize_models",
@@ -269,7 +240,6 @@ test("SchemaCompleteness: All ExtractedDataSchema keys are testable", () => {
     "sequelize_associations",
   ]);
 
-  // Keys that are tested via main.ts integration
   const integrationTestedKeys = new Set([
     "symbols",
     "functions",
@@ -335,21 +305,15 @@ test("SchemaCompleteness: All ExtractedDataSchema keys are testable", () => {
   ]);
 
   const untestedKeys = allKeys.filter(
-    (k) => !testedKeys.has(k) && !integrationTestedKeys.has(k)
+    (k) => !testedKeys.has(k) && !integrationTestedKeys.has(k),
   );
 
   if (untestedKeys.length > 0) {
     console.log(`[WARN] Untested schema keys: ${untestedKeys.join(", ")}`);
-    // Don't fail - just warn about missing coverage
   }
 });
 
-// =============================================================================
-// TEST: PYTHON COMPATIBILITY CHECK
-// =============================================================================
-
 test("PythonCompat: Sequelize field names match Python storage expectations", () => {
-  // Python storage expects these exact field names
   const pythonExpectedFields = [
     "file",
     "line",
@@ -363,7 +327,7 @@ test("PythonCompat: Sequelize field names match Python storage expectations", ()
   for (const field of pythonExpectedFields) {
     if (!schemaFields.includes(field)) {
       throw new Error(
-        `Python expects field '${field}' but schema doesn't have it`
+        `Python expects field '${field}' but schema doesn't have it`,
       );
     }
   }
@@ -386,15 +350,11 @@ test("PythonCompat: Sequelize model field names match Python storage", () => {
   for (const field of pythonExpectedFields) {
     if (!schemaFields.includes(field)) {
       throw new Error(
-        `Python expects field '${field}' but schema doesn't have it`
+        `Python expects field '${field}' but schema doesn't have it`,
       );
     }
   }
 });
-
-// =============================================================================
-// TEST: DATA INTEGRITY CHECKS
-// =============================================================================
 
 test("DataIntegrity: No null in required string fields", () => {
   const code = `
@@ -431,16 +391,10 @@ const Config = sequelize.define("Config", {
   }
 });
 
-// =============================================================================
-// RUN ALL TESTS
-// =============================================================================
-
 console.log("=".repeat(60));
 console.log("COMPREHENSIVE EXTRACTOR TEST SUITE");
 console.log("=".repeat(60));
 console.log("");
-
-// Tests are run when defined via the test() function
 
 console.log("");
 console.log("=".repeat(60));

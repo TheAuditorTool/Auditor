@@ -70,38 +70,21 @@ def find_cli_artifact_download(context: StandardRuleContext) -> list[StandardFin
     return result.findings
 
 
-# =============================================================================
-# DETECTION LOGIC
-# =============================================================================
-
-# Triggers where CLI artifact downloads are dangerous
 UNTRUSTED_TRIGGERS = frozenset(["pull_request_target", "workflow_run"])
 
-# CLI patterns that download artifacts from external sources
-# Each pattern has: (regex_pattern, tool_name, severity_boost)
+
 CLI_DOWNLOAD_PATTERNS: list[tuple[re.Pattern, str, int]] = [
-    # GitHub CLI - downloads workflow run artifacts
     (re.compile(r"gh\s+run\s+download", re.IGNORECASE), "gh run download", 2),
     (re.compile(r"gh\s+api\s+.*artifacts", re.IGNORECASE), "gh api artifacts", 1),
-
-    # AWS S3
     (re.compile(r"aws\s+s3\s+cp\b", re.IGNORECASE), "aws s3 cp", 1),
     (re.compile(r"aws\s+s3\s+sync\b", re.IGNORECASE), "aws s3 sync", 1),
     (re.compile(r"aws\s+s3api\s+get-object", re.IGNORECASE), "aws s3api get-object", 1),
-
-    # Google Cloud Storage
     (re.compile(r"gsutil\s+cp\b", re.IGNORECASE), "gsutil cp", 1),
     (re.compile(r"gcloud\s+storage\s+cp\b", re.IGNORECASE), "gcloud storage cp", 1),
-
-    # Azure Blob Storage
     (re.compile(r"az\s+storage\s+blob\s+download", re.IGNORECASE), "az storage blob download", 1),
     (re.compile(r"azcopy\s+copy\b", re.IGNORECASE), "azcopy copy", 1),
-
-    # Generic HTTP downloads (lower confidence - could be legitimate)
     (re.compile(r"curl\s+.*-[oO]\s", re.IGNORECASE), "curl download", 0),
     (re.compile(r"wget\s+", re.IGNORECASE), "wget", 0),
-
-    # Artifact-specific tools
     (re.compile(r"artifactory\s+dl\b", re.IGNORECASE), "artifactory download", 1),
     (re.compile(r"jfrog\s+rt\s+dl\b", re.IGNORECASE), "jfrog rt download", 1),
 ]
@@ -111,7 +94,6 @@ def _find_cli_artifact_downloads(db: RuleDB) -> list[StandardFinding]:
     """Core detection logic for CLI artifact downloads."""
     findings: list[StandardFinding] = []
 
-    # Get all workflows with untrusted triggers
     workflow_rows = db.query(
         Q("github_workflows")
         .select("workflow_path", "workflow_name", "on_triggers")
@@ -121,20 +103,15 @@ def _find_cli_artifact_downloads(db: RuleDB) -> list[StandardFinding]:
     for workflow_path, workflow_name, on_triggers in workflow_rows:
         on_triggers = on_triggers or ""
 
-        # Check for untrusted contexts
         detected_triggers = [t for t in UNTRUSTED_TRIGGERS if t in on_triggers]
         if not detected_triggers:
             continue
 
-        # Get all jobs in this workflow
         job_rows = db.query(
-            Q("github_jobs")
-            .select("job_id", "job_key")
-            .where("workflow_path = ?", workflow_path)
+            Q("github_jobs").select("job_id", "job_key").where("workflow_path = ?", workflow_path)
         )
 
         for job_id, job_key in job_rows:
-            # Check run scripts for CLI download patterns
             cli_downloads = _check_cli_download_patterns(db, job_id)
 
             if cli_downloads:
@@ -188,14 +165,13 @@ def _build_cli_download_finding(
 ) -> StandardFinding:
     """Build finding for CLI artifact download vulnerability."""
 
-    # Calculate severity based on tool type and count
     total_boost = sum(boost for _, boost in cli_downloads)
     if total_boost >= 3 or len(cli_downloads) >= 2:
         severity = Severity.HIGH
     elif total_boost >= 1:
         severity = Severity.MEDIUM
     else:
-        severity = Severity.LOW  # Generic curl/wget - lower confidence
+        severity = Severity.LOW
 
     tools_str = ", ".join(tool for tool, _ in cli_downloads)
     trigger_str = ", ".join(untrusted_triggers)
@@ -251,8 +227,8 @@ jobs:
         message=message,
         severity=severity,
         category="supply-chain",
-        confidence="medium",  # CLI detection is pattern-based, not structural
+        confidence="medium",
         snippet=code_snippet.strip(),
-        cwe_id="CWE-494",  # Download of Code Without Integrity Check
+        cwe_id="CWE-494",
         additional_info=details,
     )

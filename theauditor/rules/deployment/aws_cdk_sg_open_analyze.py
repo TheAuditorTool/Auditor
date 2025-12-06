@@ -140,14 +140,14 @@ def _check_unrestricted_ingress(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
         if not (
-            "SecurityGroup" in cdk_class
-            and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
+            "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
             continue
 
@@ -222,14 +222,14 @@ def _check_dangerous_ports_exposed(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
         if not (
-            "SecurityGroup" in cdk_class
-            and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
+            "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
             continue
 
@@ -289,14 +289,14 @@ def _check_all_traffic_rules(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
         if not (
-            "SecurityGroup" in cdk_class
-            and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
+            "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
             continue
 
@@ -351,14 +351,14 @@ def _check_allow_all_outbound(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs")
-        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        Q("cdk_constructs").select(
+            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        )
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
         if not (
-            "SecurityGroup" in cdk_class
-            and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
+            "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
             continue
 
@@ -368,7 +368,9 @@ def _check_allow_all_outbound(db: RuleDB) -> list[StandardFinding]:
             Q("cdk_construct_properties")
             .select("property_value_expr", "line")
             .where("construct_id = ?", construct_id)
-            .where("property_name = ? OR property_name = ?", "allow_all_outbound", "allowAllOutbound")
+            .where(
+                "property_name = ? OR property_name = ?", "allow_all_outbound", "allowAllOutbound"
+            )
         )
 
         if prop_rows:

@@ -263,7 +263,7 @@ class CORSAnalyzer:
 
     def _check_null_origin_handling(self):
         """Detect allowing 'null' origin which enables sandbox attacks."""
-        # Check function call args
+
         rows = self.db.query(
             Q("function_call_args")
             .select("file", "line", "callee_function", "argument_expr")
@@ -294,7 +294,6 @@ class CORSAnalyzer:
                 )
             )
 
-        # Check assignments
         assign_rows = self.db.query(
             Q("assignments")
             .select("file", "line", "target_var", "source_expr")
@@ -351,7 +350,6 @@ class CORSAnalyzer:
             if "origin" not in expr.lower():
                 continue
 
-            # Check for nearby validation
             nearby_rows = self.db.query(
                 Q("function_call_args")
                 .select("callee_function", "line", "argument_expr")
@@ -437,7 +435,7 @@ class CORSAnalyzer:
 
     def _check_protocol_downgrade(self):
         """Detect allowing HTTP origins when HTTPS should be required."""
-        # Check assignments
+
         rows = self.db.query(
             Q("assignments")
             .select("file", "line", "target_var", "source_expr")
@@ -470,7 +468,6 @@ class CORSAnalyzer:
                 )
             )
 
-        # Check function calls
         funcs_list = list(self.patterns.CORS_FUNCTIONS)
         placeholders = ",".join(["?"] * len(funcs_list))
 
@@ -561,7 +558,6 @@ class CORSAnalyzer:
             if "origin" not in args.lower():
                 continue
 
-            # Check for nearby case normalization
             nearby_rows = self.db.query(
                 Q("function_call_args")
                 .select("callee_function", "line")
@@ -686,7 +682,6 @@ class CORSAnalyzer:
             if not is_websocket:
                 continue
 
-            # Check for nearby origin validation
             nearby_rows = self.db.query(
                 Q("function_call_args")
                 .select("callee_function", "line", "argument_expr")
@@ -841,7 +836,7 @@ class CORSAnalyzer:
 
     def _check_framework_specific(self):
         """Detect framework-specific CORS misconfigurations."""
-        # Check middleware order
+
         rows = self.db.query(
             Q("function_call_args")
             .select("file", "line", "callee_function", "argument_expr")
@@ -854,7 +849,6 @@ class CORSAnalyzer:
             if "cors" not in args.lower():
                 continue
 
-            # Check for routes defined before CORS
             before_rows = self.db.query(
                 Q("function_call_args")
                 .select("callee_function", "line")
@@ -883,7 +877,6 @@ class CORSAnalyzer:
                     )
                 )
 
-        # Check Flask-CORS specific issues
         if "CORS" in str(self.patterns.CORS_FUNCTIONS):
             flask_rows = self.db.query(
                 Q("function_call_args")

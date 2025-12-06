@@ -64,137 +64,157 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# Methods that return unbounded result sets
-UNBOUNDED_METHODS = frozenset([
-    "findAll",
-    "findAndCountAll",
-    "scope",
-    "findAllWithScopes",
-])
 
-# Write operations that may need transaction wrappers
-WRITE_METHODS = frozenset([
-    "create",
-    "bulkCreate",
-    "update",
-    "bulkUpdate",
-    "destroy",
-    "bulkDestroy",
-    "upsert",
-    "save",
-    "increment",
-    "decrement",
-    "restore",
-    "bulkRestore",
-    "set",
-    "add",
-    "remove",
-    "setAttributes",
-])
+UNBOUNDED_METHODS = frozenset(
+    [
+        "findAll",
+        "findAndCountAll",
+        "scope",
+        "findAllWithScopes",
+    ]
+)
 
-# Methods with inherent race condition risk
-RACE_CONDITION_METHODS = frozenset([
-    "findOrCreate",
-    "findOrBuild",
-    "findCreateFind",
-])
 
-# Raw query methods - security critical for SQL injection
-RAW_QUERY_METHODS = frozenset([
-    "sequelize.query",
-    "query",
-    "Sequelize.literal",
-    "literal",
-    "sequelize.fn",
-    "Sequelize.fn",
-    "sequelize.col",
-    "Sequelize.col",
-    "sequelize.where",
-    "Sequelize.where",
-    "sequelize.cast",
-    "Sequelize.cast",
-])
+WRITE_METHODS = frozenset(
+    [
+        "create",
+        "bulkCreate",
+        "update",
+        "bulkUpdate",
+        "destroy",
+        "bulkDestroy",
+        "upsert",
+        "save",
+        "increment",
+        "decrement",
+        "restore",
+        "bulkRestore",
+        "set",
+        "add",
+        "remove",
+        "setAttributes",
+    ]
+)
 
-# SQL injection indicator patterns
-SQL_INJECTION_PATTERNS = frozenset([
-    "${",
-    '"+',
-    '" +',
-    "` +",
-    "concat(",
-    "+ req.",
-    "+ params.",
-    "+ body.",
-    "${req.",
-    "${params.",
-    ".replace(",
-    ".replaceAll(",
-    "eval(",
-])
 
-# Common model names for N+1 heuristics
-COMMON_MODELS = frozenset([
-    "User",
-    "Account",
-    "Product",
-    "Order",
-    "Customer",
-    "Post",
-    "Comment",
-    "Category",
-    "Tag",
-    "Role",
-    "Permission",
-    "Session",
-    "Token",
-    "File",
-    "Image",
-])
+RACE_CONDITION_METHODS = frozenset(
+    [
+        "findOrCreate",
+        "findOrBuild",
+        "findCreateFind",
+    ]
+)
 
-# Sequelize methods for taint source registration
-SEQUELIZE_SOURCES = frozenset([
-    "findAll",
-    "findOne",
-    "findByPk",
-    "findOrCreate",
-    "where",
-    "attributes",
-    "order",
-    "group",
-    "having",
-])
 
-# Unsafe input sources for mass assignment detection
-UNSAFE_INPUT_SOURCES = frozenset([
-    "req.body",
-    "request.body",
-    "body",
-    "params",
-    "req.params",
-    "request.params",
-    "req.query",
-    "request.query",
-    "input",
-    "data",
-])
+RAW_QUERY_METHODS = frozenset(
+    [
+        "sequelize.query",
+        "query",
+        "Sequelize.literal",
+        "literal",
+        "sequelize.fn",
+        "Sequelize.fn",
+        "sequelize.col",
+        "Sequelize.col",
+        "sequelize.where",
+        "Sequelize.where",
+        "sequelize.cast",
+        "Sequelize.cast",
+    ]
+)
 
-# Methods vulnerable to mass assignment
-MASS_ASSIGNMENT_METHODS = frozenset([
-    "create",
-    "bulkCreate",
-    "update",
-    "bulkUpdate",
-    "upsert",
-])
 
-# Find methods that can bypass hooks with raw:true
-RAW_BYPASS_METHODS = frozenset([
-    "findAll",
-    "findOne",
-    "findByPk",
-    "findAndCountAll",
-    "findOrCreate",
-])
+SQL_INJECTION_PATTERNS = frozenset(
+    [
+        "${",
+        '"+',
+        '" +',
+        "` +",
+        "concat(",
+        "+ req.",
+        "+ params.",
+        "+ body.",
+        "${req.",
+        "${params.",
+        ".replace(",
+        ".replaceAll(",
+        "eval(",
+    ]
+)
+
+
+COMMON_MODELS = frozenset(
+    [
+        "User",
+        "Account",
+        "Product",
+        "Order",
+        "Customer",
+        "Post",
+        "Comment",
+        "Category",
+        "Tag",
+        "Role",
+        "Permission",
+        "Session",
+        "Token",
+        "File",
+        "Image",
+    ]
+)
+
+
+SEQUELIZE_SOURCES = frozenset(
+    [
+        "findAll",
+        "findOne",
+        "findByPk",
+        "findOrCreate",
+        "where",
+        "attributes",
+        "order",
+        "group",
+        "having",
+    ]
+)
+
+
+UNSAFE_INPUT_SOURCES = frozenset(
+    [
+        "req.body",
+        "request.body",
+        "body",
+        "params",
+        "req.params",
+        "request.params",
+        "req.query",
+        "request.query",
+        "input",
+        "data",
+    ]
+)
+
+
+MASS_ASSIGNMENT_METHODS = frozenset(
+    [
+        "create",
+        "bulkCreate",
+        "update",
+        "bulkUpdate",
+        "upsert",
+    ]
+)
+
+
+RAW_BYPASS_METHODS = frozenset(
+    [
+        "findAll",
+        "findOne",
+        "findByPk",
+        "findAndCountAll",
+        "findOrCreate",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -312,11 +332,7 @@ def _check_n_plus_one_patterns(db: RuleDB, findings: list[StandardFinding]) -> N
 
 def _check_associations_nearby(db: RuleDB, file: str, model: str) -> bool:
     """Check if model has associations defined in the file."""
-    rows = db.query(
-        Q("function_call_args")
-        .select("callee_function")
-        .where("file = ?", file)
-    )
+    rows = db.query(Q("function_call_args").select("callee_function").where("file = ?", file))
 
     association_methods = [".belongsTo", ".hasOne", ".hasMany", ".belongsToMany"]
     for (callee,) in rows:
@@ -404,9 +420,7 @@ def _check_race_conditions(db: RuleDB, findings: list[StandardFinding]) -> None:
 def _check_transaction_nearby(db: RuleDB, file: str, line: int) -> bool:
     """Check if there's a transaction wrapper nearby."""
     call_rows = db.query(
-        Q("function_call_args")
-        .select("callee_function", "line")
-        .where("file = ?", file)
+        Q("function_call_args").select("callee_function", "line").where("file = ?", file)
     )
 
     for callee, func_line in call_rows:
@@ -418,9 +432,7 @@ def _check_transaction_nearby(db: RuleDB, file: str, line: int) -> bool:
             return True
 
     assign_rows = db.query(
-        Q("assignments")
-        .select("target_var", "source_expr", "line")
-        .where("file = ?", file)
+        Q("assignments").select("target_var", "source_expr", "line").where("file = ?", file)
     )
 
     for target, source, assign_line in assign_rows:
@@ -437,9 +449,7 @@ def _check_transaction_nearby(db: RuleDB, file: str, line: int) -> bool:
 def _check_missing_transactions(db: RuleDB, findings: list[StandardFinding]) -> None:
     """Check for multiple write operations without transaction wrapper."""
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     write_ops: list[tuple[str, int, str]] = []
@@ -727,7 +737,9 @@ def _check_mass_assignment(db: RuleDB, findings: list[StandardFinding]) -> None:
                     line=line,
                     severity=Severity.CRITICAL,
                     category="orm",
-                    snippet=f"{func}({args_str[:50]}...)" if len(args_str) > 50 else f"{func}({args_str})",
+                    snippet=f"{func}({args_str[:50]}...)"
+                    if len(args_str) > 50
+                    else f"{func}({args_str})",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-915",
                     additional_info={
@@ -786,9 +798,7 @@ def _check_insecure_logging(db: RuleDB, findings: list[StandardFinding]) -> None
     to stdout, potentially exposing PII, passwords, and session tokens in logs.
     """
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, var, expr in rows:
@@ -825,7 +835,7 @@ def _check_insecure_logging(db: RuleDB, findings: list[StandardFinding]) -> None
             findings.append(
                 StandardFinding(
                     rule_name="sequelize-insecure-logging",
-                    message=f"Insecure logging: Sequelize config logs SQL to console without environment check",
+                    message="Insecure logging: Sequelize config logs SQL to console without environment check",
                     file_path=file,
                     line=line,
                     severity=severity,
@@ -859,20 +869,19 @@ def _check_insecure_logging(db: RuleDB, findings: list[StandardFinding]) -> None
         has_logging_true = "logging:true" in args_lower
 
         has_env_check = any(
-            pattern in args_lower
-            for pattern in ["process.env", "node_env", "production"]
+            pattern in args_lower for pattern in ["process.env", "node_env", "production"]
         )
 
         if (has_console_log or has_logging_true) and not has_env_check:
             findings.append(
                 StandardFinding(
                     rule_name="sequelize-insecure-logging",
-                    message=f"Insecure logging in Sequelize constructor: SQL queries logged without environment check",
+                    message="Insecure logging in Sequelize constructor: SQL queries logged without environment check",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
                     category="orm",
-                    snippet=f"new Sequelize({{ logging: ... }})",
+                    snippet="new Sequelize({ logging: ... })",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-532",
                     additional_info={

@@ -111,7 +111,7 @@ PYTHON_PACKAGE_CONFIGS = TableSchema(
     ],
 )
 
-# Junction table for normalized Python package dependencies
+
 PYTHON_PACKAGE_DEPENDENCIES = TableSchema(
     name="python_package_dependencies",
     columns=[
@@ -119,9 +119,9 @@ PYTHON_PACKAGE_DEPENDENCIES = TableSchema(
         Column("name", "TEXT", nullable=False),
         Column("version_spec", "TEXT"),
         Column("is_dev", "INTEGER", default="0"),
-        Column("group_name", "TEXT"),  # optional-dependencies group name (e.g., "dev", "test")
-        Column("extras", "TEXT"),  # JSON array of extras like [security, socks]
-        Column("git_url", "TEXT"),  # for git+https:// dependencies
+        Column("group_name", "TEXT"),
+        Column("extras", "TEXT"),
+        Column("git_url", "TEXT"),
     ],
     primary_key=["file_path", "name", "group_name"],
     indexes=[
@@ -135,7 +135,7 @@ PYTHON_PACKAGE_DEPENDENCIES = TableSchema(
     ],
 )
 
-# Junction table for build-system.requires from pyproject.toml
+
 PYTHON_BUILD_REQUIRES = TableSchema(
     name="python_build_requires",
     columns=[
@@ -656,13 +656,11 @@ PYTHON_FRAMEWORK_CONFIG = TableSchema(
         Column("endpoint", "TEXT"),
         Column("cache_type", "TEXT"),
         Column("timeout", "INTEGER"),
-        # High-value columns for framework-specific data (Option A expansion)
-        Column("class_name", "TEXT"),  # form_class_name, admin_class_name, serializer_class_name
-        Column("model_name", "TEXT"),  # model references across django/flask/celery
-        Column("function_name", "TEXT"),  # handler functions, receivers, resolvers, tasks
-        Column("target_name", "TEXT"),  # signal targets, task names, blueprint names
-        Column("base_class", "TEXT"),  # inheritance info for managers, querysets, views
-        # Middleware-specific columns
+        Column("class_name", "TEXT"),
+        Column("model_name", "TEXT"),
+        Column("function_name", "TEXT"),
+        Column("target_name", "TEXT"),
+        Column("base_class", "TEXT"),
         Column("has_process_request", "INTEGER", default="0"),
         Column("has_process_response", "INTEGER", default="0"),
         Column("has_process_exception", "INTEGER", default="0"),

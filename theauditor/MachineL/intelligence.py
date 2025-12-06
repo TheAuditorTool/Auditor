@@ -182,7 +182,6 @@ def parse_journal_events(journal_path: Path) -> dict:
                         }
 
                 except json.JSONDecodeError:
-                    # Malformed line in ndjson - skip it
                     continue
 
     except PermissionError:
@@ -551,7 +550,6 @@ def parse_git_churn(
         return git_stats
 
     except ImportError:
-        # MetadataCollector not available
         return {}
     except OSError as e:
         logger.warning(f"Git churn collection failed: {e}")

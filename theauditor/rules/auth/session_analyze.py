@@ -239,9 +239,7 @@ def _check_session_fixation(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     session_assignments = []
@@ -260,9 +258,7 @@ def _check_session_fixation(db: RuleDB) -> list[StandardFinding]:
 
     for file, line, var, expr in session_assignments:
         regenerate_rows = db.query(
-            Q("function_call_args")
-            .select("callee_function", "line")
-            .where("file = ?", file)
+            Q("function_call_args").select("callee_function", "line").where("file = ?", file)
         )
 
         has_regenerate = False
@@ -282,7 +278,9 @@ def _check_session_fixation(db: RuleDB) -> list[StandardFinding]:
                     category="authentication",
                     cwe_id="CWE-384",
                     confidence=Confidence.MEDIUM,
-                    snippet=f"{var} = {expr[:50]}" if len(expr) <= 50 else f"{var} = {expr[:50]}...",
+                    snippet=f"{var} = {expr[:50]}"
+                    if len(expr) <= 50
+                    else f"{var} = {expr[:50]}...",
                 )
             )
 
@@ -384,23 +382,19 @@ def _check_missing_cookie_prefix(db: RuleDB) -> list[StandardFinding]:
     for file, line, func, args, arg_idx in rows:
         func_lower = func.lower()
 
-        # Check for cookie-setting functions
         is_cookie_function = any(keyword in func_lower for keyword in COOKIE_FUNCTION_KEYWORDS)
         if not is_cookie_function:
             continue
 
         args_lower = (args or "").lower()
 
-        # Check if this is a session/auth cookie (worth protecting with prefixes)
         is_sensitive_cookie = any(keyword in args_lower for keyword in SESSION_COOKIE_KEYWORDS)
         if not is_sensitive_cookie:
             continue
 
-        # First argument (index 0) is typically the cookie name
         if arg_idx == 0:
             cookie_name = args.strip('"').strip("'")
 
-            # Check for __Host- prefix (strongest protection)
             if not cookie_name.startswith("__Host-") and not cookie_name.startswith("__Secure-"):
                 findings.append(
                     StandardFinding(
@@ -416,26 +410,20 @@ def _check_missing_cookie_prefix(db: RuleDB) -> list[StandardFinding]:
                     )
                 )
 
-    # Also check for cookie names in assignments (string literals)
     assign_rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, target_var, source_expr in assign_rows:
         target_lower = target_var.lower()
         source_lower = (source_expr or "").lower()
 
-        # Check for cookie name assignments
         if "cookie" not in target_lower or "name" not in target_lower:
             continue
 
-        # Check if it's a session-related cookie
         if not any(keyword in source_lower for keyword in SESSION_COOKIE_KEYWORDS):
             continue
 
-        # Extract the cookie name from string literal
         cookie_name = source_expr.strip().strip('"').strip("'")
 
         if not cookie_name.startswith("__Host-") and not cookie_name.startswith("__Secure-"):

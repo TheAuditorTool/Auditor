@@ -11,7 +11,7 @@ class AccessPath:
     function: str
     base: str
     fields: tuple[str, ...]
-    max_length: int = 20  # Deep paths for HCL/Redux: module.vpc.module.subnet.resource.id...
+    max_length: int = 20
 
     def __post_init__(self):
         """Normalize file path to Unix-style (forward slashes).
@@ -20,7 +20,6 @@ class AccessPath:
         Required for Windows/WSL environments where extractors may produce mixed paths.
         """
         if self.file and "\\" in self.file:
-            # frozen=True requires object.__setattr__ to mutate
             object.__setattr__(self, "file", self.file.replace("\\", "/"))
 
     def __str__(self) -> str:
@@ -54,10 +53,8 @@ class AccessPath:
             file, var_path = parts
             function = "global"
         else:
-            # BOUNDARY APPROACH: First = file, Last = variable, Middle = function
-            # Handles: file::Namespace::Class::Method::variable
             file = parts[0]
-            var_path = parts[-1]  # Last segment is always the variable
+            var_path = parts[-1]
             function = "::".join(parts[1:-1]) if len(parts) > 2 else ""
 
         if not var_path:

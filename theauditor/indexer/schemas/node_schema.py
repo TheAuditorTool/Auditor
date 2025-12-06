@@ -69,7 +69,9 @@ REACT_COMPONENT_HOOKS = TableSchema(
             foreign_table="react_components",
             foreign_columns=["file", "name"],
         ),
-        ForeignKey(local_columns=["component_file"], foreign_table="files", foreign_columns=["path"]),
+        ForeignKey(
+            local_columns=["component_file"], foreign_table="files", foreign_columns=["path"]
+        ),
     ],
 )
 

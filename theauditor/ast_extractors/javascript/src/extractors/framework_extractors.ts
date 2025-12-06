@@ -215,25 +215,27 @@ export function extractReactHooks(
     const hookName = call.callee_function || "";
     if (!hookName || !hookName.startsWith("use")) continue;
 
-    // Allow React.useState, React.useEffect, etc. (namespace imports)
-    // Skip other dotted hooks like someObject.useCustom
     if (hookName.includes(".")) {
       const parts = hookName.split(".");
       const prefix = parts[0];
-      // Only allow React namespace (React.useState, React_1.useState from TS transforms)
-      if (prefix !== "React" && prefix !== "React_1" && !prefix.endsWith("React")) {
+      if (
+        prefix !== "React" &&
+        prefix !== "React_1" &&
+        !prefix.endsWith("React")
+      ) {
         continue;
       }
     }
 
-    // Extract the actual hook name (strip React. prefix if present)
     const actualHookName = hookName.includes(".")
       ? hookName.split(".").pop() || hookName
       : hookName;
 
     const isReactHook = REACT_HOOKS.has(actualHookName);
     const isCustomHook =
-      !isReactHook && actualHookName.startsWith("use") && actualHookName.length > 3;
+      !isReactHook &&
+      actualHookName.startsWith("use") &&
+      actualHookName.length > 3;
 
     if (isReactHook || isCustomHook) {
       const hookLine = call.line;
@@ -241,7 +243,7 @@ export function extractReactHooks(
 
       react_hooks.push({
         line: hookLine,
-        hook_name: actualHookName,  // Use normalized name without React. prefix
+        hook_name: actualHookName,
         component_name: componentName,
         is_custom: isCustomHook,
         argument_count:

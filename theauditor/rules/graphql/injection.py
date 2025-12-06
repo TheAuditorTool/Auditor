@@ -28,10 +28,20 @@ METADATA = RuleMetadata(
     primary_table="graphql_resolver_mappings",
 )
 
-# SQL injection indicators - string formatting patterns
-# NOTE: %s alone is SAFE (DB-API parameterized placeholder)
-# We detect dangerous interpolation: .format(), f-strings, template literals, % operator, concatenation
-SQL_INJECTION_PATTERNS = (".format(", 'f"', "f'", "${", "`${", '" % ', "' % ", '" +', "' +", '+ "', "+ '")
+
+SQL_INJECTION_PATTERNS = (
+    ".format(",
+    'f"',
+    "f'",
+    "${",
+    "`${",
+    '" % ',
+    "' % ",
+    '" +',
+    "' +",
+    '+ "',
+    "+ '",
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -52,8 +62,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        # Query GraphQL field arguments with their resolvers
-        # Join path: field_args -> fields -> types, plus resolver mappings
         rows = db.query(
             Q("graphql_field_args")
             .select(
@@ -74,7 +82,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         for row in rows:
             arg_name, arg_type, field_id, field_name, type_name, resolver_path, resolver_line = row
 
-            # Find SQL queries within resolver function scope (50 lines)
             sql_rows = db.query(
                 Q("sql_queries")
                 .select("query_text", "line_number", "command")
@@ -89,12 +96,9 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                 if not query_text:
                     continue
 
-                # Check for string interpolation patterns indicating injection risk
                 if not any(pattern in query_text for pattern in SQL_INJECTION_PATTERNS):
                     continue
 
-                # Verify the GraphQL argument appears in function call context
-                # between resolver start and SQL query
                 arg_rows = db.query(
                     Q("function_call_args")
                     .select("argument_expr")
@@ -103,10 +107,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                     .where("line <= ?", query_line)
                 )
 
-                arg_in_context = any(
-                    expr and arg_name in expr
-                    for (expr,) in arg_rows
-                )
+                arg_in_context = any(expr and arg_name in expr for (expr,) in arg_rows)
 
                 if arg_in_context:
                     findings.append(

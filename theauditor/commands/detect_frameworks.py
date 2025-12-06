@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 
 
 @click.command("detect-frameworks", cls=RichCommand)
@@ -149,7 +149,8 @@ def detect_frameworks(project_path, output_json):
 
     if not db_path.exists():
         err_console.print(
-            "[error]Error: Database not found. Run 'aud full' first.[/error]", )
+            "[error]Error: Database not found. Run 'aud full' first.[/error]",
+        )
         raise click.ClickException("Database not found - run 'aud full' first")
 
     try:

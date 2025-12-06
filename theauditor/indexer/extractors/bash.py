@@ -36,7 +36,6 @@ class BashExtractor(BaseExtractor):
                     extracted = extract_all_bash_data(actual_tree, content, file_info["path"])
                     result.update(extracted)
 
-                    # Build unified symbols list for cross-language queries
                     file_path = file_info["path"]
                     symbols = []
                     for func in result.get("bash_functions", []):
@@ -52,7 +51,6 @@ class BashExtractor(BaseExtractor):
                         )
                     result["symbols"] = symbols
 
-                    # Build imports list in format expected by _store_imports
                     imports_for_refs = []
                     for src in result.get("bash_sources", []):
                         imports_for_refs.append(

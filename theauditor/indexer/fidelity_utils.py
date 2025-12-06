@@ -3,6 +3,7 @@
 Shared between Extractors (Manifests) and Storage (Receipts).
 Enables transactional integrity verification beyond simple counts.
 """
+
 import uuid
 from typing import Any
 
@@ -25,7 +26,7 @@ class FidelityToken:
             Dict with tx_id, columns, count, bytes for fidelity checking.
             None if data type is unsupported.
         """
-        # CASE 1: List of Rows (Standard Table)
+
         if isinstance(data, list):
             if not data:
                 return {"count": 0, "columns": [], "tx_id": None, "bytes": 0}
@@ -36,22 +37,19 @@ class FidelityToken:
                     "count": len(data),
                     "tx_id": str(uuid.uuid4()),
                     "columns": sorted(list(first_row.keys())),
-                    "bytes": sum(len(str(v)) for row in data for v in row.values())
+                    "bytes": sum(len(str(v)) for row in data for v in row.values()),
                 }
             else:
-                # List of non-dicts (e.g., tuples)
                 return {"count": len(data), "columns": [], "tx_id": None, "bytes": 0}
 
-        # CASE 2: Dictionary / Map (Key-Value Pairs like refs, resolved_imports)
         elif isinstance(data, dict):
             return {
                 "count": len(data),
                 "tx_id": str(uuid.uuid4()),
-                "columns": [],  # K/V pairs don't have schema columns
-                "bytes": sum(len(str(k)) + len(str(v)) for k, v in data.items())
+                "columns": [],
+                "bytes": sum(len(str(k)) + len(str(v)) for k, v in data.items()),
             }
 
-        # Unsupported type
         return None
 
     @staticmethod
@@ -69,12 +67,7 @@ class FidelityToken:
         Returns:
             Dict matching manifest structure for comparison.
         """
-        return {
-            "count": count,
-            "columns": sorted(columns),
-            "tx_id": tx_id,
-            "bytes": data_bytes
-        }
+        return {"count": count, "columns": sorted(columns), "tx_id": tx_id, "bytes": data_bytes}
 
     @staticmethod
     def attach_manifest(extracted_data: dict[str, Any]) -> dict[str, Any]:
@@ -92,7 +85,6 @@ class FidelityToken:
             if key.startswith("_"):
                 continue
 
-            # Polymorphic: create_manifest handles lists and dicts
             token = FidelityToken.create_manifest(value)
             if token:
                 manifest[key] = token

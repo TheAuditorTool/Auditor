@@ -162,7 +162,6 @@ LOCK_FILES: frozenset[str] = frozenset(
 
 DEV_ONLY_PACKAGES: frozenset[str] = frozenset(
     [
-        # Build tools
         "webpack",
         "webpack-cli",
         "webpack-dev-server",
@@ -171,7 +170,6 @@ DEV_ONLY_PACKAGES: frozenset[str] = frozenset(
         "parcel",
         "esbuild",
         "turbopack",
-        # Testing frameworks
         "jest",
         "mocha",
         "chai",
@@ -184,11 +182,9 @@ DEV_ONLY_PACKAGES: frozenset[str] = frozenset(
         "@testing-library/react",
         "@testing-library/jest-dom",
         "@testing-library/user-event",
-        # E2E testing
         "cypress",
         "playwright",
         "@playwright/test",
-        # Linters and formatters
         "eslint",
         "prettier",
         "tslint",
@@ -197,35 +193,29 @@ DEV_ONLY_PACKAGES: frozenset[str] = frozenset(
         "flake8",
         "black",
         "ruff",
-        # Type checkers
         "typescript",
         "flow-bin",
         "@types/",
         "mypy",
         "pyright",
-        # Documentation
         "jsdoc",
         "typedoc",
         "sphinx",
         "mkdocs",
-        # Dev utilities
         "nodemon",
         "concurrently",
         "npm-run-all",
         "watchman",
         "chokidar",
-        # Git hooks
         "husky",
         "lint-staged",
         "simple-git-hooks",
         "lefthook",
-        # Storybook
         "storybook",
         "@storybook/react",
         "@storybook/vue3",
         "@storybook/angular",
         "@storybook/addon-essentials",
-        # Code coverage
         "nyc",
         "c8",
         "istanbul",

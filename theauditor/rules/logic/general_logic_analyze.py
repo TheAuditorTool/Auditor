@@ -45,32 +45,64 @@ METADATA = RuleMetadata(
 )
 
 
-MONEY_TERMS = frozenset([
-    "price", "cost", "amount", "total", "balance", "payment", "fee",
-    "money", "charge", "refund", "salary", "wage", "tax", "discount", "revenue",
-])
+MONEY_TERMS = frozenset(
+    [
+        "price",
+        "cost",
+        "amount",
+        "total",
+        "balance",
+        "payment",
+        "fee",
+        "money",
+        "charge",
+        "refund",
+        "salary",
+        "wage",
+        "tax",
+        "discount",
+        "revenue",
+    ]
+)
 
 
-FLOAT_FUNCTIONS = frozenset([
-    "parseFloat", "float", "Number.parseFloat", "toFixed", "toPrecision", "parseDouble"
-])
+FLOAT_FUNCTIONS = frozenset(
+    ["parseFloat", "float", "Number.parseFloat", "toFixed", "toPrecision", "parseDouble"]
+)
 
 
-DATETIME_FUNCTIONS = frozenset([
-    "datetime.now", "datetime.today", "datetime.utcnow", "Date.now", "new Date",
-    "Date", "Date.parse", "moment", "new moment", "dayjs",
-])
+DATETIME_FUNCTIONS = frozenset(
+    [
+        "datetime.now",
+        "datetime.today",
+        "datetime.utcnow",
+        "Date.now",
+        "new Date",
+        "Date",
+        "Date.parse",
+        "moment",
+        "new moment",
+        "dayjs",
+    ]
+)
 
 
-REGEX_FUNCTIONS = frozenset([
-    "re.match", "re.search", "re.compile", "RegExp", "test", "match", "exec"
-])
+REGEX_FUNCTIONS = frozenset(
+    ["re.match", "re.search", "re.compile", "RegExp", "test", "match", "exec"]
+)
 
 
-FILE_OPERATIONS = frozenset([
-    "open", "fopen", "fs.open", "fs.createReadStream", "fs.createWriteStream",
-    "createReadStream", "createWriteStream",
-])
+FILE_OPERATIONS = frozenset(
+    [
+        "open",
+        "fopen",
+        "fs.open",
+        "fs.createReadStream",
+        "fs.createWriteStream",
+        "createReadStream",
+        "createWriteStream",
+    ]
+)
 
 
 FILE_CLEANUP = frozenset(["close", "fclose", "end", "destroy", "finish"])
@@ -79,38 +111,87 @@ FILE_CLEANUP = frozenset(["close", "fclose", "end", "destroy", "finish"])
 CONNECTION_CLEANUP = frozenset(["close", "disconnect", "end", "release", "destroy"])
 
 
-TRANSACTION_FUNCTIONS = frozenset([
-    "begin", "beginTransaction", "begin_transaction", "startTransaction",
-    "start_transaction", "START TRANSACTION",
-])
+TRANSACTION_FUNCTIONS = frozenset(
+    [
+        "begin",
+        "beginTransaction",
+        "begin_transaction",
+        "startTransaction",
+        "start_transaction",
+        "START TRANSACTION",
+    ]
+)
 
 
 TRANSACTION_END = frozenset(["commit", "rollback", "end", "abort", "COMMIT", "ROLLBACK"])
 
 
-STREAM_FUNCTIONS = frozenset([
-    "createReadStream", "createWriteStream", "stream", "fs.createReadStream",
-    "fs.createWriteStream", "Readable", "Writable", "Transform",
-])
+STREAM_FUNCTIONS = frozenset(
+    [
+        "createReadStream",
+        "createWriteStream",
+        "stream",
+        "fs.createReadStream",
+        "fs.createWriteStream",
+        "Readable",
+        "Writable",
+        "Transform",
+    ]
+)
 
 
-DATETIME_SOURCES = frozenset([
-    "datetime.now", "datetime.today", "datetime.utcnow", "Date.now", "new Date",
-    "Date.parse", "time.time", "time.localtime", "time.gmtime",
-])
+DATETIME_SOURCES = frozenset(
+    [
+        "datetime.now",
+        "datetime.today",
+        "datetime.utcnow",
+        "Date.now",
+        "new Date",
+        "Date.parse",
+        "time.time",
+        "time.localtime",
+        "time.gmtime",
+    ]
+)
 
 
-RESOURCE_SINKS = frozenset([
-    "open", "createReadStream", "createWriteStream", "socket", "createSocket",
-    "connect", "createConnection", "begin_transaction", "start_transaction",
-    "beginTransaction", "acquire", "lock", "getLock",
-])
+RESOURCE_SINKS = frozenset(
+    [
+        "open",
+        "createReadStream",
+        "createWriteStream",
+        "socket",
+        "createSocket",
+        "connect",
+        "createConnection",
+        "begin_transaction",
+        "start_transaction",
+        "beginTransaction",
+        "acquire",
+        "lock",
+        "getLock",
+    ]
+)
 
 
-MONEY_SINKS = frozenset([
-    "parseFloat", "float", "toFixed", "toPrecision", "price", "cost", "amount",
-    "total", "balance", "payment", "fee", "money", "charge", "refund",
-])
+MONEY_SINKS = frozenset(
+    [
+        "parseFloat",
+        "float",
+        "toFixed",
+        "toPrecision",
+        "price",
+        "cost",
+        "amount",
+        "total",
+        "balance",
+        "payment",
+        "fee",
+        "money",
+        "charge",
+        "refund",
+    ]
+)
 
 
 DIVISION_SINKS = frozenset(["divide", "div", "quotient", "average", "mean"])
@@ -146,9 +227,7 @@ def _check_money_float_arithmetic(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, var_name, expr in rows:
@@ -243,7 +322,9 @@ def _check_timezone_naive_datetime(db: RuleDB) -> list[StandardFinding]:
                 severity=Severity.MEDIUM,
                 category="datetime",
                 confidence=Confidence.MEDIUM,
-                snippet=f"{datetime_func}({args[:30]}...)" if len(args) > 30 else f"{datetime_func}({args})",
+                snippet=f"{datetime_func}({args[:30]}...)"
+                if len(args) > 30
+                else f"{datetime_func}({args})",
                 cwe_id="CWE-20",
             )
         )
@@ -258,7 +339,9 @@ def _check_email_regex_validation(db: RuleDB) -> list[StandardFinding]:
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function IN ('re.match', 're.search', 're.compile', 'RegExp', 'test', 'match')")
+        .where(
+            "callee_function IN ('re.match', 're.search', 're.compile', 'RegExp', 'test', 'match')"
+        )
         .order_by("file, line")
     )
 
@@ -292,9 +375,7 @@ def _check_divide_by_zero(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     division_operations = []
@@ -385,7 +466,11 @@ def _check_file_no_close(db: RuleDB) -> list[StandardFinding]:
         cfg_rows = db.query(
             Q("cfg_blocks")
             .select("id")
-            .where("file = ? AND block_type IN ('try', 'finally', 'with') AND ? BETWEEN start_line AND end_line", file, line)
+            .where(
+                "file = ? AND block_type IN ('try', 'finally', 'with') AND ? BETWEEN start_line AND end_line",
+                file,
+                line,
+            )
             .limit(1)
         )
         has_context_manager = len(cfg_rows) > 0
@@ -413,9 +498,7 @@ def _check_connection_no_close(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     connection_calls = []
@@ -465,9 +548,7 @@ def _check_transaction_no_end(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     transaction_starts = []
@@ -511,9 +592,7 @@ def _check_socket_no_close(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     socket_calls = []
@@ -559,9 +638,7 @@ def _check_percentage_calc_error(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, _target, expr in rows:
@@ -595,7 +672,9 @@ def _check_stream_no_cleanup(db: RuleDB) -> list[StandardFinding]:
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function")
-        .where("callee_function IN ('createReadStream', 'createWriteStream', 'stream', 'fs.createReadStream', 'fs.createWriteStream')")
+        .where(
+            "callee_function IN ('createReadStream', 'createWriteStream', 'stream', 'fs.createReadStream', 'fs.createWriteStream')"
+        )
         .order_by("file, line")
     )
 
@@ -610,9 +689,8 @@ def _check_stream_no_cleanup(db: RuleDB) -> list[StandardFinding]:
 
         has_cleanup = False
         for (cleanup_func,) in cleanup_rows:
-            if (
-                cleanup_func in ("end", "destroy", "close", "finish")
-                or (".on" in cleanup_func and ("error" in cleanup_func or "close" in cleanup_func))
+            if cleanup_func in ("end", "destroy", "close", "finish") or (
+                ".on" in cleanup_func and ("error" in cleanup_func or "close" in cleanup_func)
             ):
                 has_cleanup = True
                 break
@@ -640,9 +718,7 @@ def _check_async_no_error_handling(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     async_calls = []
@@ -686,9 +762,7 @@ def _check_lock_no_release(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     lock_calls = []

@@ -138,4 +138,4 @@ def get_available_memory() -> int:
         return _get_available_memory_windows()
     elif _SYSTEM == "Linux":
         return _get_available_memory_linux()
-    return -1  # Unsupported platform (Darwin)
+    return -1

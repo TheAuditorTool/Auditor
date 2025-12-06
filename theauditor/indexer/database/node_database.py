@@ -312,7 +312,6 @@ class NodeDatabaseMixin:
                 try:
                     paths_list = json.loads(style_paths)
                 except (json.JSONDecodeError, TypeError) as e:
-                    # ZERO FALLBACK: CRASH with full context
                     raise ValueError(
                         f"DATA CORRUPTION: Invalid style_paths JSON.\n"
                         f"  File: {file}\n"

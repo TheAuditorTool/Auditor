@@ -576,7 +576,7 @@ class PythonDatabaseMixin:
                 1 if is_async else 0,
                 1 if has_copy else 0,
                 1 if has_deepcopy else 0,
-                temp_id,  # Last element is temp_id for mapping
+                temp_id,
             )
         )
         return temp_id
@@ -668,7 +668,7 @@ class PythonDatabaseMixin:
                 type_param_5,
                 1 if is_runtime_checkable else 0,
                 methods,
-                temp_id,  # Last element is temp_id for mapping
+                temp_id,
             )
         )
         return temp_id
@@ -810,7 +810,7 @@ class PythonDatabaseMixin:
                 scope,
                 1 if autouse else 0,
                 in_function,
-                temp_id,  # Last element is temp_id for mapping
+                temp_id,
             )
         )
         return temp_id
@@ -839,13 +839,11 @@ class PythonDatabaseMixin:
         endpoint: str | None,
         cache_type: str | None,
         timeout: int | None,
-        # Option A expansion columns
         class_name: str | None,
         model_name: str | None,
         function_name: str | None,
         target_name: str | None,
         base_class: str | None,
-        # Middleware-specific
         has_process_request: bool,
         has_process_response: bool,
         has_process_exception: bool,
@@ -880,7 +878,7 @@ class PythonDatabaseMixin:
                 1 if has_process_exception else 0,
                 1 if has_process_view else 0,
                 1 if has_process_template_response else 0,
-                temp_id,  # Last element is temp_id for mapping
+                temp_id,
             )
         )
         return temp_id
@@ -921,7 +919,7 @@ class PythonDatabaseMixin:
                 name,
                 field_type,
                 1 if required else 0,
-                temp_id,  # Last element is temp_id for mapping
+                temp_id,
             )
         )
         return temp_id

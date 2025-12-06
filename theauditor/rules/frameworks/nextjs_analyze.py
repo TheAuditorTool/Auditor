@@ -30,94 +30,112 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# Response functions that may expose data
-RESPONSE_FUNCTIONS = frozenset([
-    "res.json",
-    "res.send",
-    "NextResponse.json",
-    "NextResponse.redirect",
-    "NextResponse.rewrite",
-])
 
-# Redirect functions susceptible to open redirect
-REDIRECT_FUNCTIONS = frozenset([
-    "router.push",
-    "router.replace",
-    "redirect",
-    "permanentRedirect",
-    "NextResponse.redirect",
-])
+RESPONSE_FUNCTIONS = frozenset(
+    [
+        "res.json",
+        "res.send",
+        "NextResponse.json",
+        "NextResponse.redirect",
+        "NextResponse.rewrite",
+    ]
+)
 
-# User input sources to track
-USER_INPUT_SOURCES = frozenset([
-    "query",
-    "params",
-    "searchParams",
-    "req.query",
-    "req.body",
-    "req.params",
-    "formData",
-])
 
-# Patterns indicating sensitive environment variables
-SENSITIVE_ENV_PATTERNS = frozenset([
-    "SECRET",
-    "PRIVATE",
-    "KEY",
-    "TOKEN",
-    "PASSWORD",
-    "API_KEY",
-    "CREDENTIAL",
-    "AUTH",
-])
+REDIRECT_FUNCTIONS = frozenset(
+    [
+        "router.push",
+        "router.replace",
+        "redirect",
+        "permanentRedirect",
+        "NextResponse.redirect",
+    ]
+)
 
-# Server-side rendering functions
-SSR_FUNCTIONS = frozenset([
-    "getServerSideProps",
-    "getStaticProps",
-    "getInitialProps",
-    "generateStaticParams",
-    "generateMetadata",
-])
 
-# Sanitization functions that mitigate XSS
-SANITIZATION_FUNCTIONS = frozenset([
-    "escape",
-    "sanitize",
-    "validate",
-    "DOMPurify",
-    "escapeHtml",
-    "sanitizeHtml",
-    "xss",
-])
+USER_INPUT_SOURCES = frozenset(
+    [
+        "query",
+        "params",
+        "searchParams",
+        "req.query",
+        "req.body",
+        "req.params",
+        "formData",
+    ]
+)
 
-# Rate limiting libraries
-RATE_LIMIT_LIBRARIES = frozenset([
-    "rate-limiter",
-    "express-rate-limit",
-    "next-rate-limit",
-    "rate-limiter-flexible",
-    "slowDown",
-])
 
-# CSRF protection indicators
-CSRF_INDICATORS = frozenset([
-    "csrf",
-    "CSRF",
-    "csrfToken",
-    "X-CSRF-Token",
-    "next-csrf",
-    "csurf",
-])
+SENSITIVE_ENV_PATTERNS = frozenset(
+    [
+        "SECRET",
+        "PRIVATE",
+        "KEY",
+        "TOKEN",
+        "PASSWORD",
+        "API_KEY",
+        "CREDENTIAL",
+        "AUTH",
+    ]
+)
 
-# Dangerous sinks for taint tracking
-DANGEROUS_SINKS = frozenset([
-    "dangerouslySetInnerHTML",
-    "eval",
-    "Function",
-    "setTimeout",
-    "setInterval",
-])
+
+SSR_FUNCTIONS = frozenset(
+    [
+        "getServerSideProps",
+        "getStaticProps",
+        "getInitialProps",
+        "generateStaticParams",
+        "generateMetadata",
+    ]
+)
+
+
+SANITIZATION_FUNCTIONS = frozenset(
+    [
+        "escape",
+        "sanitize",
+        "validate",
+        "DOMPurify",
+        "escapeHtml",
+        "sanitizeHtml",
+        "xss",
+    ]
+)
+
+
+RATE_LIMIT_LIBRARIES = frozenset(
+    [
+        "rate-limiter",
+        "express-rate-limit",
+        "next-rate-limit",
+        "rate-limiter-flexible",
+        "slowDown",
+    ]
+)
+
+
+CSRF_INDICATORS = frozenset(
+    [
+        "csrf",
+        "CSRF",
+        "csrfToken",
+        "X-CSRF-Token",
+        "next-csrf",
+        "csurf",
+    ]
+)
+
+
+DANGEROUS_SINKS = frozenset(
+    [
+        "dangerouslySetInnerHTML",
+        "eval",
+        "Function",
+        "setTimeout",
+        "setInterval",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -163,11 +181,9 @@ def _check_api_secret_exposure(db: RuleDB) -> list[StandardFinding]:
             if not response_data:
                 continue
 
-            # Only check API routes
             if "pages/api/" not in file and "app/api/" not in file:
                 continue
 
-            # Check for env var exposure (excluding public vars)
             if "process.env" not in response_data:
                 continue
 
@@ -184,7 +200,9 @@ def _check_api_secret_exposure(db: RuleDB) -> list[StandardFinding]:
                     category="security",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-200",
-                    snippet=f"{_callee}({response_data[:60]}...)" if len(response_data) > 60 else f"{_callee}({response_data})",
+                    snippet=f"{_callee}({response_data[:60]}...)"
+                    if len(response_data) > 60
+                    else f"{_callee}({response_data})",
                 )
             )
 
@@ -218,7 +236,9 @@ def _check_open_redirect(db: RuleDB) -> list[StandardFinding]:
                         category="security",
                         confidence=Confidence.HIGH,
                         cwe_id="CWE-601",
-                        snippet=f"{callee}({redirect_arg[:50]})" if len(redirect_arg) > 50 else f"{callee}({redirect_arg})",
+                        snippet=f"{callee}({redirect_arg[:50]})"
+                        if len(redirect_arg) > 50
+                        else f"{callee}({redirect_arg})",
                     )
                 )
 
@@ -229,21 +249,14 @@ def _check_ssr_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for SSR with potentially unvalidated user input."""
     findings = []
 
-    # Find files using SSR functions via two approaches:
-    # 1. Function definitions (symbols table) - where SSR functions are defined
-    # 2. Function calls (function_call_args) - where SSR functions call/are called
     ssr_files = set()
     for func in SSR_FUNCTIONS:
-        # Approach 1: Find SSR function definitions in symbols table
         symbol_rows = db.query(
-            Q("symbols")
-            .select("path")
-            .where("name = ? AND type = ?", func, "function")
+            Q("symbols").select("path").where("name = ? AND type = ?", func, "function")
         )
         for (file,) in symbol_rows:
             ssr_files.add(file)
 
-        # Approach 2: Find files where SSR functions are involved in calls
         call_rows = db.query(
             Q("function_call_args")
             .select("file")
@@ -253,12 +266,7 @@ def _check_ssr_injection(db: RuleDB) -> list[StandardFinding]:
             ssr_files.add(file)
 
     for file in ssr_files:
-        # Check if file has user input
-        rows = db.query(
-            Q("function_call_args")
-            .select("argument_expr")
-            .where("file = ?", file)
-        )
+        rows = db.query(Q("function_call_args").select("argument_expr").where("file = ?", file))
 
         has_user_input = False
         for (arg_expr,) in rows:
@@ -271,7 +279,6 @@ def _check_ssr_injection(db: RuleDB) -> list[StandardFinding]:
         if not has_user_input:
             continue
 
-        # Check for sanitization
         has_sanitization = False
         for san_func in SANITIZATION_FUNCTIONS:
             san_rows = db.query(
@@ -306,9 +313,7 @@ def _check_public_env_exposure(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, var_name, _value in rows:
@@ -341,7 +346,6 @@ def _check_csrf_protection(db: RuleDB) -> list[StandardFinding]:
     """Check for API routes handling mutations without CSRF protection."""
     findings = []
 
-    # Find API routes with mutation methods
     rows = db.query(
         Q("api_endpoints")
         .select("file", "method")
@@ -359,7 +363,6 @@ def _check_csrf_protection(db: RuleDB) -> list[StandardFinding]:
             api_routes.append((file, method))
 
     for file, method in api_routes:
-        # Check for CSRF indicators
         call_rows = db.query(
             Q("function_call_args")
             .select("callee_function", "argument_expr")
@@ -370,7 +373,9 @@ def _check_csrf_protection(db: RuleDB) -> list[StandardFinding]:
         for callee, arg_expr in call_rows:
             callee_lower = (callee or "").lower()
             arg_lower = (arg_expr or "").lower()
-            if any(ind.lower() in callee_lower or ind.lower() in arg_lower for ind in CSRF_INDICATORS):
+            if any(
+                ind.lower() in callee_lower or ind.lower() in arg_lower for ind in CSRF_INDICATORS
+            ):
                 has_csrf = True
                 break
 
@@ -410,7 +415,11 @@ def _check_error_details_exposure(db: RuleDB) -> list[StandardFinding]:
             if "pages/" not in file and "app/" not in file:
                 continue
 
-            if "error.stack" in error_data or "err.stack" in error_data or "error.message" in error_data:
+            if (
+                "error.stack" in error_data
+                or "err.stack" in error_data
+                or "error.message" in error_data
+            ):
                 findings.append(
                     StandardFinding(
                         rule_name="nextjs-error-details-exposed",
@@ -432,13 +441,14 @@ def _check_dangerous_html(db: RuleDB) -> list[StandardFinding]:
     """Check for dangerouslySetInnerHTML without sanitization."""
     findings = []
 
-    # Find dangerouslySetInnerHTML usage - filter in SQL for efficiency
-    # Check both callee_function and argument_expr (JSX compiles props to argument_expr)
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function = ? OR argument_expr LIKE ?",
-               "dangerouslySetInnerHTML", "%dangerouslySetInnerHTML%")
+        .where(
+            "callee_function = ? OR argument_expr LIKE ?",
+            "dangerouslySetInnerHTML",
+            "%dangerouslySetInnerHTML%",
+        )
         .order_by("file, line")
     )
 
@@ -447,13 +457,18 @@ def _check_dangerous_html(db: RuleDB) -> list[StandardFinding]:
         dangerous_calls.append((file, line, html_content))
 
     for file, line, html_content in dangerous_calls:
-        # Check for sanitization within ±10 lines
         has_sanitization = False
         for san_func in SANITIZATION_FUNCTIONS:
             san_rows = db.query(
                 Q("function_call_args")
                 .select("callee_function")
-                .where("file = ? AND line BETWEEN ? AND ? AND callee_function = ?", file, line - 10, line + 10, san_func)
+                .where(
+                    "file = ? AND line BETWEEN ? AND ? AND callee_function = ?",
+                    file,
+                    line - 10,
+                    line + 10,
+                    san_func,
+                )
                 .limit(1)
             )
             if san_rows:
@@ -471,7 +486,9 @@ def _check_dangerous_html(db: RuleDB) -> list[StandardFinding]:
                     category="xss",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-79",
-                    snippet=html_content[:60] if html_content and len(html_content) > 60 else html_content,
+                    snippet=html_content[:60]
+                    if html_content and len(html_content) > 60
+                    else html_content,
                 )
             )
 
@@ -482,30 +499,19 @@ def _check_rate_limiting(db: RuleDB) -> list[StandardFinding]:
     """Check for API routes without rate limiting."""
     findings = []
 
-    # Get API route files
-    rows = db.query(
-        Q("api_endpoints")
-        .select("file")
-    )
+    rows = db.query(Q("api_endpoints").select("file"))
 
     api_route_files = set()
     for (file,) in rows:
         if "pages/api/" in file or "app/api/" in file:
             api_route_files.add(file)
 
-    # Only flag if 3+ API routes (indicates API-heavy app)
     if len(api_route_files) < 3:
         return findings
 
-    # Check for rate limiting library imports
     has_rate_limiting = False
     for lib in RATE_LIMIT_LIBRARIES:
-        lib_rows = db.query(
-            Q("refs")
-            .select("value")
-            .where("value = ?", lib)
-            .limit(1)
-        )
+        lib_rows = db.query(Q("refs").select("value").where("value = ?", lib).limit(1))
         if lib_rows:
             has_rate_limiting = True
             break

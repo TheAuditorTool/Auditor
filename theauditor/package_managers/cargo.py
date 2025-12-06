@@ -64,26 +64,29 @@ class CargoPackageManager(BasePackageManager):
         with open(path, "rb") as f:
             data = tomllib.load(f)
 
-        # Parse regular dependencies
-        deps.extend(self._parse_cargo_deps(
-            data.get("dependencies", {}),
-            kind="normal",
-            source=str(path),
-        ))
+        deps.extend(
+            self._parse_cargo_deps(
+                data.get("dependencies", {}),
+                kind="normal",
+                source=str(path),
+            )
+        )
 
-        # Parse dev dependencies
-        deps.extend(self._parse_cargo_deps(
-            data.get("dev-dependencies", {}),
-            kind="dev",
-            source=str(path),
-        ))
+        deps.extend(
+            self._parse_cargo_deps(
+                data.get("dev-dependencies", {}),
+                kind="dev",
+                source=str(path),
+            )
+        )
 
-        # Parse build dependencies
-        deps.extend(self._parse_cargo_deps(
-            data.get("build-dependencies", {}),
-            kind="build",
-            source=str(path),
-        ))
+        deps.extend(
+            self._parse_cargo_deps(
+                data.get("build-dependencies", {}),
+                kind="build",
+                source=str(path),
+            )
+        )
 
         return deps
 
@@ -102,7 +105,6 @@ class CargoPackageManager(BasePackageManager):
                 features: list[str] = []
                 is_workspace = False
             elif isinstance(spec, dict):
-                # Handle workspace dependencies
                 if spec.get("workspace") is True:
                     is_workspace = True
                     version = "workspace"
@@ -114,16 +116,18 @@ class CargoPackageManager(BasePackageManager):
             else:
                 continue
 
-            deps.append(Dependency(
-                name=name,
-                version=version,
-                manager="cargo",
-                source=source,
-                features=features,
-                kind=kind,
-                is_dev=kind == "dev",
-                is_workspace=is_workspace,
-            ))
+            deps.append(
+                Dependency(
+                    name=name,
+                    version=version,
+                    manager="cargo",
+                    source=source,
+                    features=features,
+                    kind=kind,
+                    is_dev=kind == "dev",
+                    is_workspace=is_workspace,
+                )
+            )
 
         return deps
 
@@ -143,11 +147,10 @@ class CargoPackageManager(BasePackageManager):
         Returns:
             Latest version string or None
         """
-        # Skip workspace dependencies
+
         if dep.is_workspace:
             return None
 
-        # Rate limit
         limiter = get_rate_limiter("cargo")
         await limiter.acquire()
 
@@ -161,7 +164,6 @@ class CargoPackageManager(BasePackageManager):
         data = response.json()
         crate_data = data.get("crate", {})
 
-        # Use max_version for stable, newest_version includes pre-releases
         if allow_prerelease:
             return crate_data.get("newest_version")
         return crate_data.get("max_version")
@@ -186,16 +188,13 @@ class CargoPackageManager(BasePackageManager):
         """
         name = dep.name
 
-        # Check allowlist
         if allowlist and name not in allowlist:
             return "skipped"
 
-        # Check cache
         doc_file = output_path / f"{name}.md"
         if doc_file.exists():
             return "cached"
 
-        # Rate limit
         limiter = get_rate_limiter("cargo")
         await limiter.acquire()
 
@@ -212,13 +211,11 @@ class CargoPackageManager(BasePackageManager):
             crate_data = data.get("crate", {})
             readme = crate_data.get("readme")
 
-            # Source 1: Direct README from crates.io
             if readme:
                 output_path.mkdir(parents=True, exist_ok=True)
                 doc_file.write_text(readme, encoding="utf-8")
                 return "fetched"
 
-            # Source 2: GitHub README via repository link
             repository = crate_data.get("repository", "")
             if repository and "github.com" in repository:
                 github_readme = await self._fetch_github_readme(client, repository)
@@ -248,8 +245,7 @@ class CargoPackageManager(BasePackageManager):
         Returns:
             README content or None
         """
-        # Parse GitHub URL to get owner/repo
-        # Formats: https://github.com/owner/repo, git@github.com:owner/repo.git
+
         match = re.search(r"github\.com[:/]([^/]+)/([^/\s.]+)", repository_url)
         if not match:
             return None
@@ -257,11 +253,9 @@ class CargoPackageManager(BasePackageManager):
         owner = match.group(1)
         repo = match.group(2).rstrip(".git")
 
-        # Rate limit for GitHub
         limiter = get_rate_limiter("github")
         await limiter.acquire()
 
-        # Try common README filenames via GitHub raw content (main branch only)
         for readme_name in ["README.md", "readme.md", "Readme.md", "README.rst", "README"]:
             url = f"https://raw.githubusercontent.com/{owner}/{repo}/main/{readme_name}"
             response = await client.get(url, timeout=10.0, follow_redirects=True)
@@ -295,11 +289,9 @@ class CargoPackageManager(BasePackageManager):
         upgraded = {}
 
         for dep in deps:
-            # Only upgrade deps from this file
             if dep.source != str(path):
                 continue
 
-            # Skip workspace dependencies
             if dep.is_workspace:
                 continue
 
@@ -312,27 +304,24 @@ class CargoPackageManager(BasePackageManager):
             new_version = info["latest"]
             name = dep.name
 
-            # Pattern 1: simple string version
-            # serde = "1.0.0"
             pattern1 = rf'({re.escape(name)}\s*=\s*")({re.escape(old_version)})(")'
             if re.search(pattern1, content):
-                content = re.sub(pattern1, rf'\g<1>{new_version}\g<3>', content)
+                content = re.sub(pattern1, rf"\g<1>{new_version}\g<3>", content)
                 upgraded[name] = (old_version, new_version)
                 count += 1
                 continue
 
-            # Pattern 2: table with version key
-            # serde = { version = "1.0.0", features = ["derive"] }
-            pattern2 = rf'({re.escape(name)}\s*=\s*\{{[^}}]*version\s*=\s*")({re.escape(old_version)})(")'
+            pattern2 = (
+                rf'({re.escape(name)}\s*=\s*\{{[^}}]*version\s*=\s*")({re.escape(old_version)})(")'
+            )
             if re.search(pattern2, content):
-                content = re.sub(pattern2, rf'\g<1>{new_version}\g<3>', content)
+                content = re.sub(pattern2, rf"\g<1>{new_version}\g<3>", content)
                 upgraded[name] = (old_version, new_version)
                 count += 1
 
         if content != original:
             path.write_text(content, encoding="utf-8")
 
-        # Print upgrade summary
         check_mark = "[OK]" if IS_WINDOWS else "[OK]"
         arrow = "->" if IS_WINDOWS else "->"
         for name, (old_ver, new_ver) in upgraded.items():

@@ -2,10 +2,10 @@
 
 import ast
 
-from ..base import get_node_name
-from .utils.context import FileContext
 from theauditor.utils.logging import logger
 
+from ..base import get_node_name
+from .utils.context import FileContext
 
 CDK_V2_PATTERNS = {
     "aws_cdk.aws_s3",

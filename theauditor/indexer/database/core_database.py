@@ -29,14 +29,14 @@ class CoreDatabaseMixin:
         is_typed: bool | None = None,
     ):
         """Add a symbol record to the batch."""
-        # Check for duplicates in the current pending batch to avoid UNIQUE constraint violations
-        # Primary key is (path, name, line, type, col)
+
         symbol_key = (path, name, symbol_type, line, col)
 
         for s in reversed(self.generic_batches["symbols"]):
             if (s[0], s[1], s[2], s[3], s[4]) == symbol_key:
-                # Duplicate found in current batch - skip (extractor bug)
-                logger.debug(f"[CoreDatabase] DEDUP: Dropping duplicate symbol: {path}:{line} {name} ({symbol_type})")
+                logger.debug(
+                    f"[CoreDatabase] DEDUP: Dropping duplicate symbol: {path}:{line} {name} ({symbol_type})"
+                )
                 return
 
         self.generic_batches["symbols"].append(
@@ -56,11 +56,12 @@ class CoreDatabaseMixin:
     ):
         """Add a variable assignment record to the batch."""
 
-
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             batch_idx = len(self.generic_batches["assignments"])
 
-            logger.trace(f"add_assignment() call #{batch_idx}: {file_path}:{line}:{col} {target_var} in {in_function}")
+            logger.trace(
+                f"add_assignment() call #{batch_idx}: {file_path}:{line}:{col} {target_var} in {in_function}"
+            )
 
         self.generic_batches["assignments"].append(
             (file_path, line, col, target_var, source_expr, in_function, property_path)

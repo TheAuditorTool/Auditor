@@ -175,7 +175,6 @@ class BaseDatabaseManager:
             if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
                 logger.debug(f"Flush: {table_name} SUCCESS")
         except sqlite3.IntegrityError as e:
-            # FK VIOLATION DIAGNOSTIC: Print offending data before crash
             logger.critical(f"\n FK VIOLATION in table '{table_name}'")
             logger.error(f"  Error: {e}")
             logger.error(f"  Query: {query}")
@@ -183,7 +182,7 @@ class BaseDatabaseManager:
             logger.error("  Sample rows (first 5):")
             for i, row in enumerate(batch[:5]):
                 logger.error(f"    [{i}] {row}")
-            raise  # Re-raise: crash loud with forensics
+            raise
         except Exception as e:
             if os.environ.get("THEAUDITOR_DEBUG") == "1" and table_name.startswith("graphql_"):
                 logger.debug(f"Flush: {table_name} FAILED - {e}")
@@ -196,18 +195,12 @@ class BaseDatabaseManager:
         cursor = self.conn.cursor()
 
         try:
-            # === CRITICAL ARCHITECTURE FIX: FILES MUST EXIST FIRST ===
-            # We must flush 'files' and 'config_files' before processing any complex
-            # logic (CFG, Python parent tables) because those tables have FK to 'files'.
-            # Without this, FK violations occur because children reference non-existent parents.
-
             if "files" in self.generic_batches and self.generic_batches["files"]:
                 self.flush_generic_batch("files", "INSERT OR REPLACE")
 
             if "config_files" in self.generic_batches and self.generic_batches["config_files"]:
                 self.flush_generic_batch("config_files", "INSERT OR REPLACE")
 
-            # Now that parent files exist, we can proceed with complex logic.
             self._flush_jwt_patterns()
 
             if "cfg_blocks" in self.generic_batches and self.generic_batches["cfg_blocks"]:
@@ -400,15 +393,13 @@ class BaseDatabaseManager:
                     )
                     self.generic_batches["cfg_block_statements_jsx"] = []
 
-            # --- PYTHON SPECIAL HANDLING (Parent-Child Temp IDs) ---
-            # 1. Python Protocols -> python_protocol_methods
             if (
                 "python_protocols" in self.generic_batches
                 and self.generic_batches["python_protocols"]
             ):
                 id_map = {}
                 for item in self.generic_batches["python_protocols"]:
-                    data = item[:-1]  # All but last element (temp_id)
+                    data = item[:-1]
                     temp_id = item[-1]
                     cursor.execute(
                         """INSERT INTO python_protocols (
@@ -429,7 +420,6 @@ class BaseDatabaseManager:
                 if "python_protocol_methods" in self.generic_batches:
                     updated = []
                     for row in self.generic_batches["python_protocol_methods"]:
-                        # (file, protocol_id, method_name, method_order)
                         pid = id_map.get(row[1], row[1]) if row[1] < 0 else row[1]
                         updated.append((row[0], pid, row[2], row[3]))
                     cursor.executemany(
@@ -438,7 +428,6 @@ class BaseDatabaseManager:
                     )
                     self.generic_batches["python_protocol_methods"] = []
 
-            # 2. Python Type Definitions -> python_typeddict_fields
             if (
                 "python_type_definitions" in self.generic_batches
                 and self.generic_batches["python_type_definitions"]
@@ -460,7 +449,6 @@ class BaseDatabaseManager:
                 if "python_typeddict_fields" in self.generic_batches:
                     updated = []
                     for row in self.generic_batches["python_typeddict_fields"]:
-                        # (file, typeddict_id, field_name, field_type, required, field_order)
                         tid = id_map.get(row[1], row[1]) if row[1] < 0 else row[1]
                         updated.append((row[0], tid, row[2], row[3], row[4], row[5]))
                     cursor.executemany(
@@ -469,7 +457,6 @@ class BaseDatabaseManager:
                     )
                     self.generic_batches["python_typeddict_fields"] = []
 
-            # 3. Python Test Fixtures -> python_fixture_params
             if (
                 "python_test_fixtures" in self.generic_batches
                 and self.generic_batches["python_test_fixtures"]
@@ -490,7 +477,6 @@ class BaseDatabaseManager:
                 if "python_fixture_params" in self.generic_batches:
                     updated = []
                     for row in self.generic_batches["python_fixture_params"]:
-                        # (file, fixture_id, param_name, param_value, param_order)
                         fid = id_map.get(row[1], row[1]) if row[1] < 0 else row[1]
                         updated.append((row[0], fid, row[2], row[3], row[4]))
                     cursor.executemany(
@@ -499,7 +485,6 @@ class BaseDatabaseManager:
                     )
                     self.generic_batches["python_fixture_params"] = []
 
-            # 4. Python Framework Config -> python_framework_methods
             if (
                 "python_framework_config" in self.generic_batches
                 and self.generic_batches["python_framework_config"]
@@ -523,7 +508,6 @@ class BaseDatabaseManager:
                 if "python_framework_methods" in self.generic_batches:
                     updated = []
                     for row in self.generic_batches["python_framework_methods"]:
-                        # (file, config_id, method_name, method_order)
                         cid = id_map.get(row[1], row[1]) if row[1] < 0 else row[1]
                         updated.append((row[0], cid, row[2], row[3]))
                     cursor.executemany(
@@ -532,7 +516,6 @@ class BaseDatabaseManager:
                     )
                     self.generic_batches["python_framework_methods"] = []
 
-            # 5. Python Validation Schemas -> python_schema_validators
             if (
                 "python_validation_schemas" in self.generic_batches
                 and self.generic_batches["python_validation_schemas"]
@@ -553,7 +536,6 @@ class BaseDatabaseManager:
                 if "python_schema_validators" in self.generic_batches:
                     updated = []
                     for row in self.generic_batches["python_schema_validators"]:
-                        # (file, schema_id, validator_name, validator_type, validator_order)
                         sid = id_map.get(row[1], row[1]) if row[1] < 0 else row[1]
                         updated.append((row[0], sid, row[2], row[3], row[4]))
                     cursor.executemany(
@@ -562,17 +544,15 @@ class BaseDatabaseManager:
                     )
                     self.generic_batches["python_schema_validators"] = []
 
-            # Process remaining tables in FLUSH_ORDER (files/config_files already flushed at top)
             for table_name, insert_mode in FLUSH_ORDER:
                 if table_name in {"files", "config_files"}:
-                    continue  # Already flushed at top of method
+                    continue
                 if table_name in self.generic_batches and self.generic_batches[table_name]:
                     self.flush_generic_batch(table_name, insert_mode)
 
         except sqlite3.IntegrityError as e:
             error_msg = str(e)
 
-            # DIAGNOSTIC: Dump all pending batches to help identify the culprit
             logger.critical(f"\n IntegrityError in flush_batch: {error_msg}")
             logger.critical("Pending batches with data:")
             for tbl, batch in self.generic_batches.items():
@@ -671,9 +651,9 @@ class BaseDatabaseManager:
             file_path = f.get("file", "")
             if not isinstance(file_path, str):
                 file_path = str(file_path or "")
-            # Normalize path to forward slashes (match files table format)
+
             file_path = file_path.replace("\\", "/")
-            # Strip leading ./ (linters often prefix with this)
+
             if file_path.startswith("./"):
                 file_path = file_path[2:]
 
@@ -807,4 +787,6 @@ class BaseDatabaseManager:
         self.conn.commit()
 
         if hasattr(self, "_debug") and self._debug:
-            logger.info(f"Wrote {len(normalized)} findings from {tool_name} to findings_consolidated")
+            logger.info(
+                f"Wrote {len(normalized)} findings from {tool_name} to findings_consolidated"
+            )

@@ -32,7 +32,6 @@ class GoStorage(BaseStorage):
             "go_type_params": self._store_go_type_params,
             "go_captured_vars": self._store_go_captured_vars,
             "go_middleware": self._store_go_middleware,
-            # Go module (go.mod) package manager handlers
             "go_module_configs": self._store_go_module_configs,
             "go_module_dependencies": self._store_go_module_dependencies,
         }
@@ -373,7 +372,6 @@ class GoStorage(BaseStorage):
                 self.counts["go_middleware"] = 0
             self.counts["go_middleware"] += 1
 
-    # Go module (go.mod) package manager handlers
     def _store_go_module_configs(
         self, file_path: str, go_module_configs: list, jsx_pass: bool
     ) -> None:

@@ -223,7 +223,9 @@ class JavaScriptResolversMixin:
                 var_to_class[key] = class_name
 
         if debug:
-            logger.debug(f"Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations")
+            logger.debug(
+                f"Loaded {len(specifier_to_line)} specifiers, {len(line_to_module)} modules, {len(var_to_class)} class instantiations"
+            )
 
         updates = []
         resolved_count = 0
@@ -423,7 +425,9 @@ class JavaScriptResolversMixin:
                     resolved_count += 1
 
                     if debug and resolved_count <= 5:
-                        logger.debug(f"{callee_function}[{arg_index}]: {current_param_name} -> {actual_param_name}")
+                        logger.debug(
+                            f"{callee_function}[{arg_index}]: {current_param_name} -> {actual_param_name}"
+                        )
                 else:
                     unresolved_count += 1
             else:
@@ -563,7 +567,7 @@ def _normalize_path(path: str) -> str:
     unchanged because split("/") returns a single element, and the .. resolution
     logic never executes.
     """
-    # Convert backslashes to forward slashes first
+
     path = path.replace("\\", "/")
     parts = path.split("/")
     result = []

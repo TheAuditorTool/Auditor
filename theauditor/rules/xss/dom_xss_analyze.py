@@ -35,72 +35,78 @@ METADATA = RuleMetadata(
 )
 
 
-# Extend common sources with DOM-specific sources
-DOM_XSS_SOURCES = COMMON_INPUT_SOURCES | frozenset([
-    "history.pushState",
-    "history.replaceState",
-    "IndexedDB",
-    "document.forms",
-    "document.anchors",
-    "document.documentURI",
-    "document.baseURI",
-    "searchParams.get",
-])
+DOM_XSS_SOURCES = COMMON_INPUT_SOURCES | frozenset(
+    [
+        "history.pushState",
+        "history.replaceState",
+        "IndexedDB",
+        "document.forms",
+        "document.anchors",
+        "document.documentURI",
+        "document.baseURI",
+        "searchParams.get",
+    ]
+)
 
 
-# Extend universal sinks with DOM-specific sinks
-DOM_XSS_SINKS = UNIVERSAL_DANGEROUS_SINKS | frozenset([
-    "insertAdjacentElement",
-    "insertAdjacentText",
-    "element.setAttribute",
-    "document.createElement",
-    "location.href",
-    "location.replace",
-    "location.assign",
-    "window.open",
-    "document.domain",
-    "element.src",
-    "element.href",
-    "element.action",
-    "jQuery.html",
-    "jQuery.append",
-    "jQuery.prepend",
-    "jQuery.before",
-    "jQuery.after",
-    "jQuery.replaceWith",
-])
+DOM_XSS_SINKS = UNIVERSAL_DANGEROUS_SINKS | frozenset(
+    [
+        "insertAdjacentElement",
+        "insertAdjacentText",
+        "element.setAttribute",
+        "document.createElement",
+        "location.href",
+        "location.replace",
+        "location.assign",
+        "window.open",
+        "document.domain",
+        "element.src",
+        "element.href",
+        "element.action",
+        "jQuery.html",
+        "jQuery.append",
+        "jQuery.prepend",
+        "jQuery.before",
+        "jQuery.after",
+        "jQuery.replaceWith",
+    ]
+)
 
 
-EVENT_HANDLERS = frozenset([
-    "onclick",
-    "onmouseover",
-    "onmouseout",
-    "onload",
-    "onerror",
-    "onfocus",
-    "onblur",
-    "onchange",
-    "onsubmit",
-    "onkeydown",
-    "onkeyup",
-    "onkeypress",
-    "ondblclick",
-    "onmousedown",
-    "onmouseup",
-    "onmousemove",
-    "oncontextmenu",
-])
+EVENT_HANDLERS = frozenset(
+    [
+        "onclick",
+        "onmouseover",
+        "onmouseout",
+        "onload",
+        "onerror",
+        "onfocus",
+        "onblur",
+        "onchange",
+        "onsubmit",
+        "onkeydown",
+        "onkeyup",
+        "onkeypress",
+        "ondblclick",
+        "onmousedown",
+        "onmouseup",
+        "onmousemove",
+        "oncontextmenu",
+    ]
+)
 
 
-TEMPLATE_LIBRARIES = frozenset([
-    "Handlebars.compile",
-    "Mustache.compile",
-    "doT.compile",
-    "ejs.compile",
-    "underscore.compile",
-    "lodash.compile",
-    "_.template",
-])
+TEMPLATE_LIBRARIES = frozenset(
+    [
+        "Handlebars.compile",
+        "Mustache.compile",
+        "doT.compile",
+        "ejs.compile",
+        "underscore.compile",
+        "lodash.compile",
+        "_.template",
+    ]
+)
 
 
 EVAL_SINKS = frozenset(["eval", "setTimeout", "setInterval", "Function", "execScript"])
@@ -229,7 +235,13 @@ def _check_url_manipulation(db: RuleDB) -> list[StandardFinding]:
 
         has_url_source = any(
             s in source
-            for s in ["location.search", "location.hash", "URLSearchParams", "searchParams", "window.name"]
+            for s in [
+                "location.search",
+                "location.hash",
+                "URLSearchParams",
+                "searchParams",
+                "window.name",
+            ]
         )
 
         if has_url_source:
@@ -293,8 +305,6 @@ def _check_event_handler_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for event handler injection vulnerabilities."""
     findings: list[StandardFinding] = []
 
-    # Self-join to get both arguments of setAttribute(arg0, arg1)
-    # MUST select callee_function to check which function is being called
     sql, params = Q.raw("""
         SELECT f1.file, f1.line, f1.callee_function, f1.argument_expr, f2.argument_expr
         FROM function_call_args f1
@@ -308,22 +318,17 @@ def _check_event_handler_injection(db: RuleDB) -> list[StandardFinding]:
     rows = db.execute(sql, params)
 
     for file, line, callee_func, arg0, arg1 in rows:
-        # Check if this is a setAttribute call
         if "setAttribute" not in (callee_func or ""):
             continue
 
-        # Check if arg0 is an event handler (starts with "on")
         arg0_clean = (arg0 or "").strip("'\"").lower()
         if not arg0_clean.startswith("on"):
             continue
 
-        # Match against known event handlers
         matched_handler = next((h for h in EVENT_HANDLERS if h == arg0_clean), None)
         if not matched_handler:
-            # Could be unknown event handler like "onpointerdown" - still flag if starts with "on"
             matched_handler = arg0_clean
 
-        # Check if arg1 (the handler value) contains user input
         has_user_input = any(s in (arg1 or "") for s in DOM_XSS_SOURCES)
 
         if has_user_input:

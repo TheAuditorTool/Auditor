@@ -194,7 +194,6 @@ class NodeExpressStrategy(GraphStrategy):
         import_styles_map: dict[str, dict[str, str]] = defaultdict(dict)
         cursor.execute("SELECT file, package, alias_name FROM import_styles")
         for row in cursor.fetchall():
-            # GRAPH FIX G14: Normalize path for consistent lookups across tables
             normalized_file = self._normalize_path(row["file"])
             import_styles_map[normalized_file][row["alias_name"]] = row["package"]
 
@@ -213,8 +212,6 @@ class NodeExpressStrategy(GraphStrategy):
                 }
             )
 
-        # PERF FIX: Build suffix index for O(1) lookup instead of O(N) iteration
-        # Maps ".methodName" -> list of symbols ending with that suffix
         symbols_by_suffix: dict[str, list[dict]] = defaultdict(list)
         for sym_name, syms in symbols_by_name.items():
             if "." in sym_name:
@@ -231,7 +228,6 @@ class NodeExpressStrategy(GraphStrategy):
         stats["handlers_processed"] = len(handlers)
 
         for handler in handlers:
-            # GRAPH FIX G14: Normalize path for consistent lookups
             route_file = self._normalize_path(handler["file"])
             handler_expr = handler["handler_expr"]
 
@@ -299,9 +295,6 @@ class NodeExpressStrategy(GraphStrategy):
                     if candidates:
                         symbol_result = candidates[0]
 
-            # FIX #18: Handle TypeScript class methods stored as "ClassName.methodName"
-            # When handler is "controller.list", we need to find "AccountController.list"
-            # PERF FIX: Use suffix index for O(1) lookup instead of O(N) iteration
             if not symbol_result:
                 method_suffix = f".{method_name}"
                 suffix_candidates = symbols_by_suffix.get(method_suffix, [])
@@ -313,13 +306,11 @@ class NodeExpressStrategy(GraphStrategy):
             if not symbol_result:
                 stats["failed_resolutions"] += 1
 
-                # GRAPH FIX G6: Add file prefix to ghost IDs for proper cleanup.
-                # Without file prefix, store.py cannot delete ghosts on re-index.
                 ghost_id = f"{route_file}::UNRESOLVED::{object_name}.{method_name}"
                 if ghost_id not in nodes:
                     nodes[ghost_id] = DFGNode(
                         id=ghost_id,
-                        file=route_file,  # GRAPH FIX G6: Use actual file for cleanup
+                        file=route_file,
                         variable_name=f"{object_name}.{method_name}",
                         scope="UNRESOLVED",
                         type="ghost",

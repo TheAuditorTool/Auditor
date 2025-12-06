@@ -128,13 +128,15 @@ REACT_AUTO_ESCAPED = frozenset(
     ["React.createElement", "jsx", "JSXElement", "createElement", "cloneElement"]
 )
 
-REACT_DANGEROUS_PATTERNS = frozenset([
-    "dangerouslySetInnerHTML",
-    "__html",
-    "href=javascript:",
-    "href={'javascript:",
-    'href={"javascript:',
-])
+REACT_DANGEROUS_PATTERNS = frozenset(
+    [
+        "dangerouslySetInnerHTML",
+        "__html",
+        "href=javascript:",
+        "href={'javascript:",
+        'href={"javascript:',
+    ]
+)
 
 VUE_AUTO_ESCAPED = frozenset(
     ["createVNode", "h", "createElementVNode", "createTextVNode", "createCommentVNode"]
@@ -142,13 +144,15 @@ VUE_AUTO_ESCAPED = frozenset(
 
 ANGULAR_AUTO_ESCAPED = frozenset(["sanitize", "DomSanitizer.sanitize"])
 
-ANGULAR_BYPASS_SECURITY = frozenset([
-    "bypassSecurityTrustHtml",
-    "bypassSecurityTrustScript",
-    "bypassSecurityTrustStyle",
-    "bypassSecurityTrustUrl",
-    "bypassSecurityTrustResourceUrl",
-])
+ANGULAR_BYPASS_SECURITY = frozenset(
+    [
+        "bypassSecurityTrustHtml",
+        "bypassSecurityTrustScript",
+        "bypassSecurityTrustStyle",
+        "bypassSecurityTrustUrl",
+        "bypassSecurityTrustResourceUrl",
+    ]
+)
 
 
 SANITIZER_NAMES = frozenset(

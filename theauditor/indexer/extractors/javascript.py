@@ -1,13 +1,15 @@
 """JavaScript/TypeScript extractor."""
+
 import os
 from datetime import datetime
 from typing import Any
 
+from theauditor.indexer.fidelity_utils import FidelityToken
+from theauditor.utils.logging import logger
+
 from . import BaseExtractor
 from .javascript_resolvers import JavaScriptResolversMixin
 from .sql import parse_sql_query
-from theauditor.indexer.fidelity_utils import FidelityToken
-from theauditor.utils.logging import logger
 
 
 class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
@@ -326,12 +328,8 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
                 if di_injections:
                     result["di_injections"].extend(di_injections)
 
-        # STRICT SCHEMA IMPLEMENTATION - NO FALLBACKS
-        # The Schema Contract (schema.ts) guarantees imports are in extracted_data.imports
-        # We do NOT search legacy locations. If it's not here, the extractor failed.
         imports_data = []
         if isinstance(tree, dict):
-            # For semantic_ast wrapper, data is in tree["tree"]["extracted_data"]
             extracted_data = tree.get("extracted_data")
             if not extracted_data and tree.get("type") == "semantic_ast":
                 actual_tree = tree.get("tree")
@@ -409,31 +407,30 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
             )
 
             if not result.get("import_styles"):
-                result["import_styles"] = self._analyze_import_styles(imports_data, file_info["path"])
+                result["import_styles"] = self._analyze_import_styles(
+                    imports_data, file_info["path"]
+                )
 
         result["router_mounts"] = self._extract_router_mounts(
             result.get("function_calls", []), file_info.get("path", "")
         )
 
-        # Check if Node already generated manifest (new architecture)
         if "_extraction_manifest" in result:
             node_manifest = result["_extraction_manifest"]
-            # Validate it's the new rich format (dict of dicts with tx_id)
+
             first_value = next(iter(node_manifest.values()), None) if node_manifest else None
             if isinstance(first_value, dict) and "tx_id" in first_value:
-                # Node generated rich manifest - pass through
                 logger.debug("Using Node-generated manifest (new architecture)")
-                # Add metadata
+
                 node_manifest["_total"] = sum(
-                    v.get("count", 0) for v in node_manifest.values()
+                    v.get("count", 0)
+                    for v in node_manifest.values()
                     if isinstance(v, dict) and not str(v).startswith("_")
                 )
                 node_manifest["_timestamp"] = datetime.utcnow().isoformat()
                 node_manifest["_file"] = file_info.get("path", "unknown")
                 return result
 
-        # Build manifest from Node output using polymorphic FidelityToken
-        # Handles both lists (rows) and dicts (refs) automatically
         logger.debug("Building manifest from Node output (Python-side)")
         result = FidelityToken.attach_manifest(result)
 

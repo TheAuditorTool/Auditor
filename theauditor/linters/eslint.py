@@ -7,21 +7,19 @@ use dynamic batching based on actual path lengths.
 
 import asyncio
 import json
-from pathlib import Path
-
 import time
+from pathlib import Path
 
 from theauditor.linters.base import LINTER_TIMEOUT, BaseLinter, Finding, LinterResult
 from theauditor.utils.logging import logger
 
-# ESLint severity constants
 ESLINT_SEVERITY_ERROR = 2
 ESLINT_SEVERITY_WARNING = 1
 
-# Windows command line limit
-MAX_CMD_LENGTH = 8000  # Leave margin below 8191
 
-# Concurrency limit for parallel batch execution
+MAX_CMD_LENGTH = 8000
+
+
 MAX_CONCURRENT_BATCHES = 4
 
 
@@ -58,28 +56,24 @@ class EslintLinter(BaseLinter):
 
         start_time = time.perf_counter()
 
-        # Dynamic batching based on command length
         batches = self._create_batches(files, eslint_bin, config_path)
         logger.debug(f"[{self.name}] Split {len(files)} files into {len(batches)} batches")
 
-        # Run batches in parallel with limited concurrency
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_BATCHES)
 
         async def run_with_limit(batch: list[str], batch_num: int) -> list[Finding]:
             async with semaphore:
                 return await self._run_batch(batch, eslint_bin, config_path, batch_num)
 
-        tasks = [
-            run_with_limit(batch, batch_num)
-            for batch_num, batch in enumerate(batches, 1)
-        ]
+        tasks = [run_with_limit(batch, batch_num) for batch_num, batch in enumerate(batches, 1)]
         results = await asyncio.gather(*tasks)
 
-        # Flatten results from all batches
         all_findings = [finding for batch_findings in results for finding in batch_findings]
 
         duration = time.perf_counter() - start_time
-        logger.info(f"[{self.name}] Found {len(all_findings)} issues in {len(files)} files ({duration:.2f}s)")
+        logger.info(
+            f"[{self.name}] Found {len(all_findings)} issues in {len(files)} files ({duration:.2f}s)"
+        )
         return LinterResult.success(self.name, all_findings, duration)
 
     def _create_batches(
@@ -97,7 +91,7 @@ class EslintLinter(BaseLinter):
         Returns:
             List of file batches
         """
-        # Base command length (without files)
+
         base_cmd = f"{eslint_bin} --config {config_path} --format json --output-file temp.json "
         base_len = len(base_cmd)
 
@@ -106,7 +100,7 @@ class EslintLinter(BaseLinter):
         current_len = base_len
 
         for file in files:
-            file_len = len(file) + 1  # +1 for space separator
+            file_len = len(file) + 1
 
             if current_len + file_len > MAX_CMD_LENGTH and current_batch:
                 batches.append(current_batch)
@@ -182,7 +176,6 @@ class EslintLinter(BaseLinter):
             logger.error(f"[{self.name}] Batch {batch_num} invalid JSON: {e}")
             return []
         finally:
-            # Clean up temp file
             try:
                 output_file.unlink()
             except OSError:

@@ -105,7 +105,9 @@ class JavaScriptBuildGuard:
             logger.error(f"[JS GUARD] STDOUT:\n{result.stdout}")
 
             if "Cannot find module" in result.stderr or "node_modules" in result.stderr:
-                logger.error("[JS GUARD] HINT: Run 'npm install' in theauditor/ast_extractors/javascript")
+                logger.error(
+                    "[JS GUARD] HINT: Run 'npm install' in theauditor/ast_extractors/javascript"
+                )
 
             raise RuntimeError(
                 f"JavaScript extractor build failed. Fix the error and re-run. "
@@ -138,8 +140,10 @@ class JavaScriptBuildGuard:
         stored_hash = self.get_stored_signature()
 
         if current_hash != stored_hash:
-            logger.debug(f"[JS GUARD] Hash mismatch. Current: {current_hash[:12]}..., "
-                f"Stored: {stored_hash[:12] if stored_hash else 'None'}...")
+            logger.debug(
+                f"[JS GUARD] Hash mismatch. Current: {current_hash[:12]}..., "
+                f"Stored: {stored_hash[:12] if stored_hash else 'None'}..."
+            )
 
             self.rebuild()
             self.signature_file.write_text(current_hash)

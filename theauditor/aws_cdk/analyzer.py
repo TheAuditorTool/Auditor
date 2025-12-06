@@ -1,13 +1,15 @@
 """AWS CDK security analyzer."""
+
 import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from theauditor.utils.logging import logger
+
 from ..rules.base import Severity, StandardRuleContext
 from ..rules.orchestrator import RulesOrchestrator
-from theauditor.utils.logging import logger
 
 
 @dataclass

@@ -232,7 +232,6 @@ def suggest(
 
     import numpy as np
 
-    
     expected_features = scaler.n_features_in_
     actual_features = feature_matrix.shape[1]
     if expected_features != actual_features:
@@ -247,14 +246,11 @@ def suggest(
             f"current code generates {actual_features}. Run 'aud learn' to retrain.",
         }
 
-    
-    
     features_scaled = scaler.transform(feature_matrix)
 
-    
     root_cause_scores = root_cause_clf.predict_proba(feature_matrix)[:, 1]
     next_edit_scores = next_edit_clf.predict_proba(feature_matrix)[:, 1]
-    
+
     risk_scores = np.clip(risk_reg.predict(features_scaled), 0, 1)
 
     if root_cause_calibrator is not None:
@@ -262,8 +258,6 @@ def suggest(
     if next_edit_calibrator is not None:
         next_edit_scores = next_edit_calibrator.transform(next_edit_scores)
 
-    
-    
     root_cause_std = np.zeros(len(file_paths))
     next_edit_std = np.zeros(len(file_paths))
 

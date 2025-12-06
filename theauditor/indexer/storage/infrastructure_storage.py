@@ -28,14 +28,11 @@ class InfrastructureStorage(BaseStorage):
             "graphql_field_args": self._store_graphql_field_args,
             "graphql_resolver_mappings": self._store_graphql_resolver_mappings,
             "graphql_resolver_params": self._store_graphql_resolver_params,
-            # Docker handlers
             "docker_images": self._store_docker_images,
             "dockerfile_ports": self._store_dockerfile_ports,
             "dockerfile_env_vars": self._store_dockerfile_env_vars,
             "dockerfile_instructions": self._store_dockerfile_instructions,
-            # Prisma handlers
             "prisma_models": self._store_prisma_models,
-            # Compose/Nginx handlers (Stream C)
             "compose_services": self._store_compose_services,
             "compose_service_ports": self._store_compose_service_ports,
             "compose_service_volumes": self._store_compose_service_volumes,
@@ -43,7 +40,6 @@ class InfrastructureStorage(BaseStorage):
             "compose_service_capabilities": self._store_compose_service_capabilities,
             "compose_service_deps": self._store_compose_service_deps,
             "nginx_configs": self._store_nginx_configs,
-            # GitHub Actions handlers (Stream B)
             "github_workflows": self._store_github_workflows,
             "github_jobs": self._store_github_jobs,
             "github_steps": self._store_github_steps,
@@ -231,7 +227,6 @@ class InfrastructureStorage(BaseStorage):
                                     directive_args=json.dumps(directive.get("args", {})),
                                 )
                 except (json.JSONDecodeError, TypeError) as e:
-                    # ZERO FALLBACK: CRASH with full context
                     raise ValueError(
                         f"DATA CORRUPTION: Invalid GraphQL field directives JSON.\n"
                         f"  File: {file_path}\n"
@@ -273,7 +268,6 @@ class InfrastructureStorage(BaseStorage):
                                     directive_args=json.dumps(directive.get("args", {})),
                                 )
                 except (json.JSONDecodeError, TypeError) as e:
-                    # ZERO FALLBACK: CRASH with full context
                     raise ValueError(
                         f"DATA CORRUPTION: Invalid GraphQL arg directives JSON.\n"
                         f"  File: {file_path}\n"
@@ -339,19 +333,13 @@ class InfrastructureStorage(BaseStorage):
 
     def _store_terraform_modules(self, file_path: str, terraform_modules: list, jsx_pass: bool):
         """Store Terraform modules (stub - modules not yet extracted)."""
-        # Extractor currently produces empty list for modules
-        # Handler exists to prevent "No handler" warnings
+
         pass
 
-    def _store_terraform_providers(
-        self, file_path: str, terraform_providers: list, jsx_pass: bool
-    ):
+    def _store_terraform_providers(self, file_path: str, terraform_providers: list, jsx_pass: bool):
         """Store Terraform providers (stub - providers not yet extracted)."""
-        # Extractor currently produces empty list for providers
-        # Handler exists to prevent "No handler" warnings
-        pass
 
-    # ==================== Docker Handlers ====================
+        pass
 
     def _store_docker_images(self, file_path: str, docker_images: list, jsx_pass: bool):
         """Store Docker image records."""
@@ -378,9 +366,7 @@ class InfrastructureStorage(BaseStorage):
             self.counts["dockerfile_ports"] = 0
         self.counts["dockerfile_ports"] += len(dockerfile_ports)
 
-    def _store_dockerfile_env_vars(
-        self, file_path: str, dockerfile_env_vars: list, jsx_pass: bool
-    ):
+    def _store_dockerfile_env_vars(self, file_path: str, dockerfile_env_vars: list, jsx_pass: bool):
         """Store Dockerfile ENV/ARG variable records."""
         for item in dockerfile_env_vars:
             self.db_manager.add_dockerfile_env_var(
@@ -408,8 +394,6 @@ class InfrastructureStorage(BaseStorage):
             self.counts["dockerfile_instructions"] = 0
         self.counts["dockerfile_instructions"] += len(dockerfile_instructions)
 
-    # ==================== Prisma Handlers ====================
-
     def _store_prisma_models(self, file_path: str, prisma_models: list, jsx_pass: bool):
         """Store Prisma model field records."""
         for item in prisma_models:
@@ -424,8 +408,6 @@ class InfrastructureStorage(BaseStorage):
         if "prisma_models" not in self.counts:
             self.counts["prisma_models"] = 0
         self.counts["prisma_models"] += len(prisma_models)
-
-    # ==================== GitHub Actions Handlers (Stream B) ====================
 
     def _store_github_workflows(self, file_path: str, github_workflows: list, jsx_pass: bool):
         """Store GitHub Actions workflow records."""
@@ -524,8 +506,6 @@ class InfrastructureStorage(BaseStorage):
         if "github_job_dependencies" not in self.counts:
             self.counts["github_job_dependencies"] = 0
         self.counts["github_job_dependencies"] += len(github_job_dependencies)
-
-    # ==================== Compose/Nginx Handlers (Stream C) ====================
 
     def _store_compose_services(self, file_path: str, compose_services: list, jsx_pass: bool):
         """Store Docker Compose service records."""

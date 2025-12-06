@@ -24,7 +24,6 @@ class PythonExtractor(BaseExtractor):
     ) -> dict[str, Any]:
         """Extract all relevant information from a Python file."""
 
-
         if not hasattr(self.__class__, "_processed_files"):
             self.__class__._processed_files = set()
 
@@ -42,22 +41,17 @@ class PythonExtractor(BaseExtractor):
                     context = build_file_context(actual_tree, content, str(file_info["path"]))
 
                 except Exception:
-
                     logger.exception("")
 
         if not context:
             return self._empty_result()
 
-        # 1. Get base extraction data (ignore any stale manifest from python_impl)
         result = extract_all_python_data(context)
 
-        # 2. Add resolved_imports (additional data not available in python_impl)
         resolved = self._resolve_imports_from_context(file_info, context)
         if resolved:
             result["resolved_imports"] = resolved
 
-        # 3. LATE BINDING: Generate manifest LAST after ALL data is assembled
-        # This uses the polymorphic FidelityToken that handles both lists and dicts
         result = FidelityToken.attach_manifest(result)
 
         return result

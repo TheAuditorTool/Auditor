@@ -17,16 +17,13 @@ from .ruff import RuffLinter
 from .shellcheck import ShellcheckLinter
 
 __all__ = [
-    # Main entry point
-    "LinterOrchestrator",
-    # Types
-    "Finding",
     "BaseLinter",
-    # Individual linters
-    "RuffLinter",
-    "EslintLinter",
-    "MypyLinter",
     "ClippyLinter",
+    "EslintLinter",
+    "Finding",
     "GolangciLinter",
+    "LinterOrchestrator",
+    "MypyLinter",
+    "RuffLinter",
     "ShellcheckLinter",
 ]

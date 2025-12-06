@@ -113,9 +113,7 @@ class GraphDatabaseCache:
             (normalized,),
         )
 
-        results = frozenset(
-            self._normalize_path(row[0]) for row in cursor.fetchall()
-        )
+        results = frozenset(self._normalize_path(row[0]) for row in cursor.fetchall())
 
         conn.close()
         return results

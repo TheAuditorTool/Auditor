@@ -29,94 +29,102 @@ METADATA = RuleMetadata(
     primary_table="api_endpoints",
 )
 
-# User input sources in Express.js
-USER_INPUT_SOURCES = frozenset([
-    "req.body",
-    "req.query",
-    "req.params",
-    "req.cookies",
-    "req.headers",
-    "req.ip",
-    "req.hostname",
-    "req.path",
-    "request.body",
-    "request.query",
-    "request.params",
-    "request.headers",
-    "request.cookies",
-])
 
-# Response sinks for XSS
-RESPONSE_SINKS = frozenset([
-    "res.send",
-    "res.json",
-    "res.jsonp",
-    "res.render",
-    "res.write",
-    "res.end",
-    "response.send",
-    "response.json",
-    "response.render",
-    "response.write",
-])
+USER_INPUT_SOURCES = frozenset(
+    [
+        "req.body",
+        "req.query",
+        "req.params",
+        "req.cookies",
+        "req.headers",
+        "req.ip",
+        "req.hostname",
+        "req.path",
+        "request.body",
+        "request.query",
+        "request.params",
+        "request.headers",
+        "request.cookies",
+    ]
+)
 
-# Redirect sinks for open redirect
-REDIRECT_SINKS = frozenset([
-    "res.redirect",
-    "response.redirect",
-    "res.location",
-])
 
-# Sync operations that block event loop
-SYNC_OPERATIONS = frozenset([
-    # File system operations
-    "fs.readFileSync",
-    "fs.writeFileSync",
-    "fs.appendFileSync",
-    "fs.unlinkSync",
-    "fs.mkdirSync",
-    "fs.rmdirSync",
-    "fs.readdirSync",
-    "fs.statSync",
-    "fs.lstatSync",
-    "fs.existsSync",
-    "fs.accessSync",
-    # Child process operations
-    "child_process.execSync",
-    "child_process.spawnSync",
-    # Crypto operations - common CPU blockers in auth routes
-    "crypto.pbkdf2Sync",
-    "crypto.scryptSync",
-    "crypto.randomFillSync",
-    "crypto.generateKeyPairSync",
-    "crypto.generateKeySync",
-    # bcrypt sync operations - kills event loop on auth routes
-    "bcrypt.hashSync",
-    "bcrypt.compareSync",
-    "bcryptjs.hashSync",
-    "bcryptjs.compareSync",
-])
+RESPONSE_SINKS = frozenset(
+    [
+        "res.send",
+        "res.json",
+        "res.jsonp",
+        "res.render",
+        "res.write",
+        "res.end",
+        "response.send",
+        "response.json",
+        "response.render",
+        "response.write",
+    ]
+)
 
-# Rate limiting libraries
-RATE_LIMIT_LIBS = frozenset([
-    "express-rate-limit",
-    "rate-limiter-flexible",
-    "express-slow-down",
-    "express-brute",
-    "rate-limiter",
-])
 
-# Sanitization functions
-SANITIZATION_FUNCS = frozenset([
-    "sanitize",
-    "escape",
-    "encode",
-    "DOMPurify",
-    "xss",
-    "validator",
-    "clean",
-    "strip",
-])
+REDIRECT_SINKS = frozenset(
+    [
+        "res.redirect",
+        "response.redirect",
+        "res.location",
+    ]
+)
+
+
+SYNC_OPERATIONS = frozenset(
+    [
+        "fs.readFileSync",
+        "fs.writeFileSync",
+        "fs.appendFileSync",
+        "fs.unlinkSync",
+        "fs.mkdirSync",
+        "fs.rmdirSync",
+        "fs.readdirSync",
+        "fs.statSync",
+        "fs.lstatSync",
+        "fs.existsSync",
+        "fs.accessSync",
+        "child_process.execSync",
+        "child_process.spawnSync",
+        "crypto.pbkdf2Sync",
+        "crypto.scryptSync",
+        "crypto.randomFillSync",
+        "crypto.generateKeyPairSync",
+        "crypto.generateKeySync",
+        "bcrypt.hashSync",
+        "bcrypt.compareSync",
+        "bcryptjs.hashSync",
+        "bcryptjs.compareSync",
+    ]
+)
+
+
+RATE_LIMIT_LIBS = frozenset(
+    [
+        "express-rate-limit",
+        "rate-limiter-flexible",
+        "express-slow-down",
+        "express-brute",
+        "rate-limiter",
+    ]
+)
+
+
+SANITIZATION_FUNCS = frozenset(
+    [
+        "sanitize",
+        "escape",
+        "encode",
+        "DOMPurify",
+        "xss",
+        "validator",
+        "clean",
+        "strip",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -134,7 +142,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings: list[StandardFinding] = []
 
-        # Load Express app context
         express_files = _get_express_files(db)
         if not express_files:
             return RuleResult(findings=findings, manifest=db.get_manifest())
@@ -142,7 +149,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         imports = _get_imports(db)
         endpoints = _get_api_endpoints(db)
 
-        # Run all checks
         findings.extend(_check_missing_helmet(db, express_files, imports))
         findings.extend(_check_missing_error_handler(db, endpoints))
         findings.extend(_check_sync_operations(db))
@@ -166,21 +172,13 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
 def _get_express_files(db: RuleDB) -> list[str]:
     """Get files that import Express."""
-    rows = db.query(
-        Q("refs")
-        .select("src")
-        .where("value = ?", "express")
-    )
+    rows = db.query(Q("refs").select("src").where("value = ?", "express"))
     return [row[0] for row in rows]
 
 
 def _get_imports(db: RuleDB) -> dict[str, set[str]]:
     """Get all imports grouped by file."""
-    rows = db.query(
-        Q("refs")
-        .select("src", "value")
-        .where("kind = ?", "import")
-    )
+    rows = db.query(Q("refs").select("src", "value").where("kind = ?", "import"))
     imports: dict[str, set[str]] = {}
     for file, import_val in rows:
         if file not in imports:
@@ -208,12 +206,10 @@ def _check_missing_helmet(
     """Check for missing Helmet security middleware."""
     findings = []
 
-    # Check if helmet is imported
     has_helmet = any("helmet" in file_imports for file_imports in imports.values())
     if has_helmet:
         return findings
 
-    # Check if helmet is called via app.use(helmet())
     rows = db.query(
         Q("function_call_args")
         .select("callee_function", "argument_expr")
@@ -223,7 +219,6 @@ def _check_missing_helmet(
     if list(rows):
         return findings
 
-    # No helmet found
     if express_files:
         findings.append(
             StandardFinding(
@@ -251,12 +246,17 @@ def _check_missing_error_handler(db: RuleDB, endpoints: list[dict]) -> list[Stan
         if not handler:
             continue
 
-        # Check if handler has try/catch blocks
         rows = db.query(
             Q("cfg_blocks")
             .select("block_type")
-            .where("file = ? AND function_name = ? AND block_type IN (?, ?, ?)",
-                   endpoint["file"], handler, "try", "except", "catch")
+            .where(
+                "file = ? AND function_name = ? AND block_type IN (?, ?, ?)",
+                endpoint["file"],
+                handler,
+                "try",
+                "except",
+                "catch",
+            )
             .limit(1)
         )
 
@@ -282,11 +282,9 @@ def _check_sync_operations(db: RuleDB) -> list[StandardFinding]:
     """Check for synchronous file operations in route handlers."""
     findings = []
 
-    # Build WHERE clause for sync operations
-    sync_ops_list = list(SYNC_OPERATIONS)[:10]  # Top 10 most common
+    sync_ops_list = list(SYNC_OPERATIONS)[:10]
     placeholders = ",".join("?" * len(sync_ops_list))
 
-    # Use raw query for complex subquery
     sql, params = Q.raw(
         f"""
         SELECT DISTINCT file, line, callee_function, caller_function
@@ -324,7 +322,6 @@ def _check_xss_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
     """Check for direct output of user input (XSS)."""
     findings = []
 
-    # Get response outputs
     response_methods = ("res.send", "res.json", "res.write", "res.render")
     placeholders = ",".join("?" * len(response_methods))
 
@@ -339,7 +336,6 @@ def _check_xss_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
         if not arg_expr:
             continue
 
-        # Check for user input in arguments
         input_source = None
         for source in USER_INPUT_SOURCES:
             if source in arg_expr:
@@ -349,15 +345,19 @@ def _check_xss_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
         if not input_source:
             continue
 
-        # Check for sanitization in nearby lines
         sanitization_funcs = ("sanitize", "escape", "encode", "DOMPurify", "xss")
         sanitization_placeholders = ",".join("?" * len(sanitization_funcs))
 
         sanitize_rows = db.query(
             Q("function_call_args")
             .select("callee_function")
-            .where(f"file = ? AND line BETWEEN ? AND ? AND callee_function IN ({sanitization_placeholders})",
-                   file, line - 5, line + 5, *sanitization_funcs)
+            .where(
+                f"file = ? AND line BETWEEN ? AND ? AND callee_function IN ({sanitization_placeholders})",
+                file,
+                line - 5,
+                line + 5,
+                *sanitization_funcs,
+            )
             .limit(1)
         )
 
@@ -383,7 +383,6 @@ def _check_open_redirect(db: RuleDB) -> list[StandardFinding]:
     """Check for open redirect vulnerabilities."""
     findings = []
 
-    # Get redirect calls
     redirect_methods = tuple(REDIRECT_SINKS)
     placeholders = ",".join("?" * len(redirect_methods))
 
@@ -398,7 +397,6 @@ def _check_open_redirect(db: RuleDB) -> list[StandardFinding]:
         if not arg_expr:
             continue
 
-        # Check for user input in redirect target
         for source in USER_INPUT_SOURCES:
             if source in arg_expr:
                 findings.append(
@@ -428,15 +426,12 @@ def _check_missing_rate_limiting(
     """
     findings = []
 
-    # Only check if there are API routes
     api_routes = [ep for ep in endpoints if "/api" in ep.get("pattern", "")]
     if not api_routes:
         return findings
 
-    # Check for rate limiting library import
     has_rate_limit_import = any(
-        any(lib in file_imports for lib in RATE_LIMIT_LIBS)
-        for file_imports in imports.values()
+        any(lib in file_imports for lib in RATE_LIMIT_LIBS) for file_imports in imports.values()
     )
 
     if not has_rate_limit_import:
@@ -455,7 +450,6 @@ def _check_missing_rate_limiting(
         )
         return findings
 
-    # Rate limiter imported - verify it's actually applied via app.use()
     rate_limit_patterns = ("limiter", "rateLimit", "rateLimiter", "slowDown", "brute")
     applied = False
 
@@ -463,8 +457,7 @@ def _check_missing_rate_limiting(
         rows = db.query(
             Q("function_call_args")
             .select("callee_function", "argument_expr")
-            .where("callee_function LIKE ? AND argument_expr LIKE ?",
-                   "%use%", f"%{pattern}%")
+            .where("callee_function LIKE ? AND argument_expr LIKE ?", "%use%", f"%{pattern}%")
             .limit(1)
         )
         if list(rows):
@@ -472,12 +465,12 @@ def _check_missing_rate_limiting(
             break
 
     if not applied:
-        # Also check for router.use() or direct middleware application
         rows = db.query(
             Q("function_call_args")
             .select("callee_function")
-            .where("callee_function LIKE ? OR callee_function LIKE ?",
-                   "%rateLimit%", "%rateLimiter%")
+            .where(
+                "callee_function LIKE ? OR callee_function LIKE ?", "%rateLimit%", "%rateLimiter%"
+            )
             .limit(1)
         )
         if list(rows):
@@ -508,8 +501,13 @@ def _check_body_parser_limits(db: RuleDB) -> list[StandardFinding]:
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function IN (?, ?, ?, ?)",
-               "bodyParser.json", "bodyParser.urlencoded", "json", "urlencoded")
+        .where(
+            "callee_function IN (?, ?, ?, ?)",
+            "bodyParser.json",
+            "bodyParser.urlencoded",
+            "json",
+            "urlencoded",
+        )
         .order_by("file, line")
     )
 
@@ -542,9 +540,19 @@ def _check_db_in_routes(db: RuleDB, endpoints: list[dict]) -> list[StandardFindi
 
     route_files = {ep["file"] for ep in endpoints}
     db_methods = (
-        "query", "find", "findOne", "findById", "create",
-        "update", "updateOne", "updateMany", "delete",
-        "deleteOne", "deleteMany", "save", "exec",
+        "query",
+        "find",
+        "findOne",
+        "findById",
+        "create",
+        "update",
+        "updateOne",
+        "updateMany",
+        "delete",
+        "deleteOne",
+        "deleteMany",
+        "save",
+        "exec",
     )
     placeholders = ",".join("?" * len(db_methods))
 
@@ -552,15 +560,16 @@ def _check_db_in_routes(db: RuleDB, endpoints: list[dict]) -> list[StandardFindi
         rows = db.query(
             Q("function_call_args")
             .select("line", "callee_function", "caller_function")
-            .where(f"file = ? AND callee_function IN ({placeholders})",
-                   route_file, *db_methods)
+            .where(f"file = ? AND callee_function IN ({placeholders})", route_file, *db_methods)
             .order_by("line")
         )
 
         for line, db_method, caller in rows:
             caller_lower = (caller or "").lower()
-            # Skip if already in service/repository layer
-            if any(pattern in caller_lower for pattern in ("service", "repository", "model", "dao")):
+
+            if any(
+                pattern in caller_lower for pattern in ("service", "repository", "model", "dao")
+            ):
                 continue
 
             findings.append(
@@ -593,7 +602,7 @@ def _check_cors_wildcard(db: RuleDB) -> list[StandardFinding]:
 
     for file, line, _callee, config in rows:
         config_str = config or ""
-        # Check for dangerous CORS patterns
+
         dangerous_patterns = (
             "origin:*",
             "origin: *",
@@ -626,30 +635,24 @@ def _check_missing_csrf(
     """Check for missing CSRF protection."""
     findings = []
 
-    # Only check state-changing endpoints
     modifying_endpoints = [
-        ep for ep in endpoints
-        if ep.get("method", "").upper() in ("POST", "PUT", "DELETE", "PATCH")
+        ep for ep in endpoints if ep.get("method", "").upper() in ("POST", "PUT", "DELETE", "PATCH")
     ]
 
     if not modifying_endpoints:
         return findings
 
-    # Check for CSRF library import
     has_csrf = any(
-        "csurf" in file_imports or "csrf" in file_imports
-        for file_imports in imports.values()
+        "csurf" in file_imports or "csrf" in file_imports for file_imports in imports.values()
     )
 
     if has_csrf:
         return findings
 
-    # Check for CSRF middleware usage
     rows = db.query(
         Q("function_call_args")
         .select("callee_function", "argument_expr")
-        .where("callee_function IN (?, ?) OR argument_expr LIKE ?",
-               "csurf", "csrf", "%csrf%")
+        .where("callee_function IN (?, ?) OR argument_expr LIKE ?", "csurf", "csrf", "%csrf%")
         .limit(1)
     )
 
@@ -678,8 +681,7 @@ def _check_session_security(db: RuleDB) -> list[StandardFinding]:
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function LIKE ? OR argument_expr LIKE ?",
-               "%session%", "%session%")
+        .where("callee_function LIKE ? OR argument_expr LIKE ?", "%session%", "%session%")
         .order_by("file, line")
     )
 
@@ -689,19 +691,16 @@ def _check_session_security(db: RuleDB) -> list[StandardFinding]:
 
         config_lower = config.lower()
 
-        # Skip if not a session configuration
         if "session" not in callee.lower() and "session" not in config_lower:
             continue
 
         issues = []
 
-        # Check for weak secret
         if "secret" in config_lower:
             weak_secrets = ("secret", "keyboard cat", "default", "changeme", "password")
             if any(weak in config_lower for weak in weak_secrets):
                 issues.append("weak secret")
 
-        # Check cookie security flags
         if "cookie" in config_lower:
             if "httponly" not in config_lower:
                 issues.append("missing httpOnly")
@@ -732,10 +731,16 @@ def _check_prototype_pollution(db: RuleDB) -> list[StandardFinding]:
     """Check for prototype pollution vulnerabilities via object merge/extend."""
     findings = []
 
-    # Dangerous merge/extend functions that can cause prototype pollution
     merge_funcs = (
-        "Object.assign", "_.merge", "_.extend", "_.defaultsDeep",
-        "merge", "extend", "deepMerge", "deepExtend", "$.extend",
+        "Object.assign",
+        "_.merge",
+        "_.extend",
+        "_.defaultsDeep",
+        "merge",
+        "extend",
+        "deepMerge",
+        "deepExtend",
+        "$.extend",
     )
     placeholders = ",".join("?" * len(merge_funcs))
 
@@ -748,7 +753,7 @@ def _check_prototype_pollution(db: RuleDB) -> list[StandardFinding]:
 
     for file, line, callee, arg_expr in rows:
         arg_expr = arg_expr or ""
-        # Check if user input flows into merge operation
+
         if any(source in arg_expr for source in USER_INPUT_SOURCES):
             findings.append(
                 StandardFinding(
@@ -771,28 +776,38 @@ def _check_nosql_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for NoSQL injection vulnerabilities in MongoDB queries."""
     findings = []
 
-    # MongoDB query methods
     mongo_methods = (
-        "find", "findOne", "findById", "findOneAndUpdate", "findOneAndDelete",
-        "updateOne", "updateMany", "deleteOne", "deleteMany", "aggregate",
-        "where", "elemMatch",
+        "find",
+        "findOne",
+        "findById",
+        "findOneAndUpdate",
+        "findOneAndDelete",
+        "updateOne",
+        "updateMany",
+        "deleteOne",
+        "deleteMany",
+        "aggregate",
+        "where",
+        "elemMatch",
     )
     placeholders = ",".join("?" * len(mongo_methods))
 
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where(f"callee_function IN ({placeholders}) OR callee_function LIKE ?",
-               *mongo_methods, "%.find%")
+        .where(
+            f"callee_function IN ({placeholders}) OR callee_function LIKE ?",
+            *mongo_methods,
+            "%.find%",
+        )
         .order_by("file, line")
     )
 
     for file, line, callee, arg_expr in rows:
         arg_expr = arg_expr or ""
-        # Check if user input is used directly in query without sanitization
+
         for source in USER_INPUT_SOURCES:
             if source in arg_expr:
-                # Check for dangerous operators that could be injected
                 if "$" in arg_expr or "where" in callee.lower():
                     findings.append(
                         StandardFinding(
@@ -808,7 +823,6 @@ def _check_nosql_injection(db: RuleDB) -> list[StandardFinding]:
                         )
                     )
                 else:
-                    # User input in query but no obvious operator injection
                     findings.append(
                         StandardFinding(
                             rule_name="express-nosql-injection-risk",
@@ -831,12 +845,17 @@ def _check_path_traversal(db: RuleDB) -> list[StandardFinding]:
     """Check for path traversal in express.static and file operations."""
     findings = []
 
-    # Check express.static with user-controlled paths
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function IN (?, ?, ?, ?, ?)",
-               "express.static", "res.sendFile", "res.download", "path.join", "path.resolve")
+        .where(
+            "callee_function IN (?, ?, ?, ?, ?)",
+            "express.static",
+            "res.sendFile",
+            "res.download",
+            "path.join",
+            "path.resolve",
+        )
         .order_by("file, line")
     )
 
@@ -866,7 +885,6 @@ def _check_header_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for HTTP header injection vulnerabilities."""
     findings = []
 
-    # Header setting methods
     header_methods = ("res.set", "res.header", "res.setHeader", "response.set", "response.header")
     placeholders = ",".join("?" * len(header_methods))
 
@@ -903,12 +921,25 @@ def _check_ssrf(db: RuleDB) -> list[StandardFinding]:
     """Check for Server-Side Request Forgery vulnerabilities."""
     findings = []
 
-    # HTTP request functions that could be SSRF vectors
     http_funcs = (
-        "axios", "axios.get", "axios.post", "axios.put", "axios.delete",
-        "fetch", "request", "request.get", "request.post",
-        "http.get", "http.request", "https.get", "https.request",
-        "got", "got.get", "got.post", "superagent", "needle",
+        "axios",
+        "axios.get",
+        "axios.post",
+        "axios.put",
+        "axios.delete",
+        "fetch",
+        "request",
+        "request.get",
+        "request.post",
+        "http.get",
+        "http.request",
+        "https.get",
+        "https.request",
+        "got",
+        "got.get",
+        "got.post",
+        "superagent",
+        "needle",
     )
     placeholders = ",".join("?" * len(http_funcs))
 
@@ -945,18 +976,16 @@ def _check_trust_proxy(db: RuleDB, express_files: list[str]) -> list[StandardFin
     """Check for trust proxy misconfiguration allowing IP spoofing."""
     findings = []
 
-    # Check for trust proxy set to true (trusts all proxies)
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function LIKE ? AND argument_expr LIKE ?",
-               "%set%", "%trust proxy%")
+        .where("callee_function LIKE ? AND argument_expr LIKE ?", "%set%", "%trust proxy%")
         .order_by("file, line")
     )
 
     for file, line, callee, arg_expr in rows:
         arg_expr = arg_expr or ""
-        # Check for dangerous trust proxy values
+
         if "true" in arg_expr.lower() or "'*'" in arg_expr or '"*"' in arg_expr:
             findings.append(
                 StandardFinding(
@@ -972,7 +1001,6 @@ def _check_trust_proxy(db: RuleDB, express_files: list[str]) -> list[StandardFin
                 )
             )
 
-    # Check if req.ip is used but trust proxy may not be configured
     ip_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "argument_expr")
@@ -982,7 +1010,6 @@ def _check_trust_proxy(db: RuleDB, express_files: list[str]) -> list[StandardFin
 
     files_using_req_ip = {row[0] for row in ip_rows}
 
-    # Check if trust proxy is configured in those files
     for ip_file in files_using_req_ip:
         proxy_rows = db.query(
             Q("function_call_args")
@@ -991,7 +1018,6 @@ def _check_trust_proxy(db: RuleDB, express_files: list[str]) -> list[StandardFin
             .limit(1)
         )
         if not list(proxy_rows):
-            # Using req.ip without trust proxy configuration
             findings.append(
                 StandardFinding(
                     rule_name="express-req-ip-no-trust-proxy",

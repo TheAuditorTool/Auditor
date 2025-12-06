@@ -44,7 +44,6 @@ def run_fce(
         }
 
     try:
-        # Get convergence points
         points = engine.get_convergence_points(min_vectors=min_vectors)
         summary = engine.get_summary()
 
@@ -107,7 +106,6 @@ def write_fce_report(root_path: str, min_vectors: int = 2) -> Path:
     """
     json_output = get_fce_json(root_path=root_path, min_vectors=min_vectors)
 
-    # Check for error
     data = json.loads(json_output)
     if "error" in data and data["error"]:
         raise RuntimeError(data["error"])

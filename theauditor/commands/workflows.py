@@ -11,7 +11,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.logging import logger
 
 from .. import __version__
@@ -112,12 +112,10 @@ def analyze(root, workset, severity, output, db, chunk_size):
     try:
         db_path = Path(db)
         if not db_path.exists():
-            err_console.print(
-                f"[error]Error: Database not found: {db}[/error]", highlight=False
-            )
+            err_console.print(f"[error]Error: Database not found: {db}[/error]", highlight=False)
             err_console.print(
                 "[error]Run 'aud full' first to extract GitHub Actions workflows.[/error]",
-                )
+            )
             raise click.Abort()
 
         conn = sqlite3.connect(str(db_path))
@@ -129,7 +127,7 @@ def analyze(root, workset, severity, output, db, chunk_size):
             if not workset_path.exists():
                 err_console.print(
                     "[error]Error: Workset file not found. Run 'aud workset' first.[/error]",
-                    )
+                )
                 raise click.Abort()
 
             with open(workset_path) as f:

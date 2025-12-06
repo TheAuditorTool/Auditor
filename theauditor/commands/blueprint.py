@@ -12,7 +12,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.error_handler import handle_exceptions
 
 VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_endpoints"})
@@ -152,8 +152,12 @@ def blueprint(
     graphs_db = pf_dir / "graphs.db"
 
     if not pf_dir.exists() or not repo_db.exists():
-        err_console.print("[error]\nERROR: No indexed database found[/error]", )
-        err_console.print("[error]Run: aud full[/error]", )
+        err_console.print(
+            "[error]\nERROR: No indexed database found[/error]",
+        )
+        err_console.print(
+            "[error]Run: aud full[/error]",
+        )
         raise click.Abort()
 
     if monoliths:
@@ -927,7 +931,6 @@ def _show_structure_drilldown(data: dict, cursor: sqlite3.Cursor):
             lang_name = lang.capitalize()
             console.print(f"\n  {lang_name}:", highlight=False)
 
-            # Different languages have different symbol categories
             symbol_types = ["functions", "classes"]
             if lang == "go":
                 symbol_types = ["functions", "structs"]
@@ -1497,7 +1500,6 @@ def _get_dependencies(cursor) -> dict:
                     }
                 )
 
-    # Cargo (Rust) dependencies
     cursor.execute("""
         SELECT file_path, package_name, package_version, edition
         FROM cargo_package_configs
@@ -1534,7 +1536,6 @@ def _get_dependencies(cursor) -> dict:
         deps["by_manager"]["cargo"] = deps["by_manager"].get("cargo", 0) + 1
         deps["total"] += 1
 
-    # Go module dependencies
     cursor.execute("""
         SELECT file_path, module_path, go_version
         FROM go_module_configs
@@ -1565,7 +1566,7 @@ def _get_dependencies(cursor) -> dict:
                 "name": row["module_path"],
                 "version": row["version"] or "",
                 "manager": "go",
-                "dev": is_indirect,  # indirect deps treated as "dev"
+                "dev": is_indirect,
             }
         )
         deps["by_manager"]["go"] = deps["by_manager"].get("go", 0) + 1

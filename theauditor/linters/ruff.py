@@ -44,7 +44,6 @@ class RuffLinter(BaseLinter):
 
         start_time = time.perf_counter()
 
-        # No batching - Ruff handles parallelization internally
         cmd = [
             str(ruff_bin),
             "check",
@@ -68,7 +67,9 @@ class RuffLinter(BaseLinter):
         try:
             results = json.loads(stdout)
         except json.JSONDecodeError as e:
-            return LinterResult.failed(self.name, f"Invalid JSON output: {e}", time.perf_counter() - start_time)
+            return LinterResult.failed(
+                self.name, f"Invalid JSON output: {e}", time.perf_counter() - start_time
+            )
 
         findings = []
         for item in results:
@@ -91,5 +92,7 @@ class RuffLinter(BaseLinter):
             )
 
         duration = time.perf_counter() - start_time
-        logger.info(f"[{self.name}] Found {len(findings)} issues in {len(files)} files ({duration:.2f}s)")
+        logger.info(
+            f"[{self.name}] Found {len(findings)} issues in {len(files)} files ({duration:.2f}s)"
+        )
         return LinterResult.success(self.name, findings, duration)

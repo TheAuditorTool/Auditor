@@ -48,144 +48,149 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# User input sources - expanded for modern frameworks
-USER_INPUT_SOURCES: frozenset[str] = frozenset([
-    # Express.js
-    "req.body",
-    "req.query",
-    "req.params",
-    "req.headers",
-    "req.cookies",
-    "req.files",  # File uploads (multer)
-    "request.body",
-    "request.query",
-    "request.params",
-    "request.headers",
-    # Koa.js
-    "ctx.request.body",
-    "ctx.query",
-    "ctx.params",
-    "ctx.request.query",
-    # Fastify
-    "request.body",
-    "request.query",
-    "request.params",
-    # WebSockets
-    "socket.handshake.query",
-    "socket.handshake.auth",
-    "message.data",
-    # AWS Lambda
-    "event.body",
-    "event.queryStringParameters",
-    "event.pathParameters",
-    "event.headers",
-    # Environment/CLI
-    "process.argv",
-    "process.env",
-    # Browser
-    "location.search",
-    "location.hash",
-    "location.pathname",
-    "window.location",
-    "document.location",
-    "URLSearchParams",
-    "document.referrer",
-])
 
-# Command execution functions
-EXEC_FUNCTIONS: frozenset[str] = frozenset([
-    "exec",
-    "execSync",
-    "execFile",
-    "execFileSync",
-    "spawn",
-    "spawnSync",
-    "fork",
-    "execCommand",
-    "child_process.exec",
-    "child_process.spawn",
-    "child_process.execSync",
-    "child_process.spawnSync",
-    "shelljs.exec",
-    "execa",
-])
+USER_INPUT_SOURCES: frozenset[str] = frozenset(
+    [
+        "req.body",
+        "req.query",
+        "req.params",
+        "req.headers",
+        "req.cookies",
+        "req.files",
+        "request.body",
+        "request.query",
+        "request.params",
+        "request.headers",
+        "ctx.request.body",
+        "ctx.query",
+        "ctx.params",
+        "ctx.request.query",
+        "request.body",
+        "request.query",
+        "request.params",
+        "socket.handshake.query",
+        "socket.handshake.auth",
+        "message.data",
+        "event.body",
+        "event.queryStringParameters",
+        "event.pathParameters",
+        "event.headers",
+        "process.argv",
+        "process.env",
+        "location.search",
+        "location.hash",
+        "location.pathname",
+        "window.location",
+        "document.location",
+        "URLSearchParams",
+        "document.referrer",
+    ]
+)
 
-# Object merge functions (prototype pollution risk)
-MERGE_FUNCTIONS: frozenset[str] = frozenset([
-    "Object.assign",
-    "merge",
-    "extend",
-    "deepMerge",
-    "mergeDeep",
-    "mergeRecursive",
-    "_.merge",
-    "_.extend",
-    "_.defaultsDeep",
-    "lodash.merge",
-    "jQuery.extend",
-    "$.extend",
-])
 
-# Code evaluation functions
-EVAL_FUNCTIONS: frozenset[str] = frozenset([
-    "eval",
-    "Function",
-    "setTimeout",
-    "setInterval",
-    "setImmediate",
-    "execScript",
-    "vm.runInContext",
-    "vm.runInNewContext",
-    "vm.runInThisContext",
-    "new Function",
-])
+EXEC_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "exec",
+        "execSync",
+        "execFile",
+        "execFileSync",
+        "spawn",
+        "spawnSync",
+        "fork",
+        "execCommand",
+        "child_process.exec",
+        "child_process.spawn",
+        "child_process.execSync",
+        "child_process.spawnSync",
+        "shelljs.exec",
+        "execa",
+    ]
+)
 
-# File system operations
-FILE_OPERATIONS: frozenset[str] = frozenset([
-    "readFile",
-    "readFileSync",
-    "writeFile",
-    "writeFileSync",
-    "createReadStream",
-    "createWriteStream",
-    "open",
-    "openSync",
-    "access",
-    "accessSync",
-    "stat",
-    "statSync",
-    "unlink",
-    "unlinkSync",
-    "mkdir",
-    "mkdirSync",
-    "rmdir",
-    "rmdirSync",
-    "readdir",
-    "readdirSync",
-    "fs.readFile",
-    "fs.writeFile",
-    "fs.unlink",
-])
 
-# Path functions that provide SOME sanitization
-# NOTE: path.resolve is intentionally EXCLUDED - it allows traversal
-# path.resolve('/safe/root', '../../../etc/passwd') resolves to /etc/passwd
-PATH_SAFE_FUNCTIONS: frozenset[str] = frozenset([
-    "path.join",
-    "path.normalize",
-    "path.basename",
-])
+MERGE_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "Object.assign",
+        "merge",
+        "extend",
+        "deepMerge",
+        "mergeDeep",
+        "mergeRecursive",
+        "_.merge",
+        "_.extend",
+        "_.defaultsDeep",
+        "lodash.merge",
+        "jQuery.extend",
+        "$.extend",
+    ]
+)
 
-# Dangerous prototype keys
-DANGEROUS_KEYS: frozenset[str] = frozenset([
-    "__proto__",
-    "constructor",
-    "prototype",
-    "__defineGetter__",
-    "__defineSetter__",
-    "__lookupGetter__",
-    "__lookupSetter__",
-])
+
+EVAL_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "eval",
+        "Function",
+        "setTimeout",
+        "setInterval",
+        "setImmediate",
+        "execScript",
+        "vm.runInContext",
+        "vm.runInNewContext",
+        "vm.runInThisContext",
+        "new Function",
+    ]
+)
+
+
+FILE_OPERATIONS: frozenset[str] = frozenset(
+    [
+        "readFile",
+        "readFileSync",
+        "writeFile",
+        "writeFileSync",
+        "createReadStream",
+        "createWriteStream",
+        "open",
+        "openSync",
+        "access",
+        "accessSync",
+        "stat",
+        "statSync",
+        "unlink",
+        "unlinkSync",
+        "mkdir",
+        "mkdirSync",
+        "rmdir",
+        "rmdirSync",
+        "readdir",
+        "readdirSync",
+        "fs.readFile",
+        "fs.writeFile",
+        "fs.unlink",
+    ]
+)
+
+
+PATH_SAFE_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "path.join",
+        "path.normalize",
+        "path.basename",
+    ]
+)
+
+
+DANGEROUS_KEYS: frozenset[str] = frozenset(
+    [
+        "__proto__",
+        "constructor",
+        "prototype",
+        "__defineGetter__",
+        "__defineSetter__",
+        "__lookupGetter__",
+        "__lookupSetter__",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -203,10 +208,8 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Build tainted variables map for cross-reference
         tainted_vars = _identify_tainted_variables(db)
 
-        # Run all detection checks
         findings.extend(_detect_command_injection(db, tainted_vars))
         findings.extend(_detect_spawn_shell_true(db))
         findings.extend(_detect_prototype_pollution(db))
@@ -229,9 +232,7 @@ def _identify_tainted_variables(db: RuleDB) -> dict[str, tuple[str, int, str]]:
     tainted: dict[str, tuple[str, int, str]] = {}
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, var, source in rows:
@@ -264,7 +265,6 @@ def _detect_command_injection(
     """
     findings: list[StandardFinding] = []
 
-    # Check function calls for exec/spawn with user input
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -275,19 +275,16 @@ def _detect_command_injection(
         if not args:
             continue
 
-        # Check if this is an exec function
         is_exec = any(exec_func in func for exec_func in EXEC_FUNCTIONS)
         if not is_exec:
             continue
 
-        # Check for direct user input
         found_source = None
         for source in USER_INPUT_SOURCES:
             if source in args:
                 found_source = source
                 break
 
-        # Check for tainted variables
         if not found_source:
             for var_name in tainted_vars:
                 if var_name in args:
@@ -309,24 +306,18 @@ def _detect_command_injection(
                 )
             )
 
-    # Check for template literals with user input near exec
     assignment_rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, _target, expr in assignment_rows:
-        # Look for template literals with interpolation
         if not ("`" in expr and "$" in expr):
             continue
 
-        # Check for user input in template
         has_user_input = any(source in expr for source in USER_INPUT_SOURCES)
         if not has_user_input:
             continue
 
-        # Check for nearby exec call
         nearby_rows = db.query(
             Q("function_call_args")
             .select("callee_function")
@@ -335,8 +326,7 @@ def _detect_command_injection(
         )
 
         near_exec = any(
-            any(exec_func in callee for exec_func in EXEC_FUNCTIONS)
-            for (callee,) in nearby_rows
+            any(exec_func in callee for exec_func in EXEC_FUNCTIONS) for (callee,) in nearby_rows
         )
 
         if near_exec:
@@ -380,7 +370,6 @@ def _detect_spawn_shell_true(db: RuleDB) -> list[StandardFinding]:
         if not args or "shell" not in args or "true" not in args:
             continue
 
-        # Check for user input
         has_user_input = any(source in args for source in USER_INPUT_SOURCES)
 
         if has_user_input:
@@ -417,7 +406,6 @@ def _detect_prototype_pollution(db: RuleDB) -> list[StandardFinding]:
     """
     findings: list[StandardFinding] = []
 
-    # Check merge functions with user input
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -432,7 +420,6 @@ def _detect_prototype_pollution(db: RuleDB) -> list[StandardFinding]:
         if not is_merge:
             continue
 
-        # Spread operator with user input is dangerous
         if "..." in args:
             for source in USER_INPUT_SOURCES:
                 if source in args:
@@ -445,13 +432,14 @@ def _detect_prototype_pollution(db: RuleDB) -> list[StandardFinding]:
                             severity=Severity.HIGH,
                             category="injection",
                             confidence=Confidence.HIGH,
-                            snippet=f"{func}({args[:50]}...)" if len(args) > 50 else f"{func}({args})",
+                            snippet=f"{func}({args[:50]}...)"
+                            if len(args) > 50
+                            else f"{func}({args})",
                             cwe_id="CWE-1321",
                         )
                     )
                     break
 
-    # Check for...in without hasOwnProperty (LOW confidence - many false positives)
     symbol_rows = db.query(
         Q("symbols")
         .select("path", "line", "name")
@@ -460,7 +448,6 @@ def _detect_prototype_pollution(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, _ in symbol_rows:
-        # Check for validation in nearby lines
         validation_rows = db.query(
             Q("symbols")
             .select("name")
@@ -479,9 +466,9 @@ def _detect_prototype_pollution(db: RuleDB) -> list[StandardFinding]:
                     message="for...in loop without hasOwnProperty check may enable prototype pollution",
                     file_path=file,
                     line=line,
-                    severity=Severity.LOW,  # Reduced from MEDIUM - too many false positives
+                    severity=Severity.LOW,
                     category="injection",
-                    confidence=Confidence.LOW,  # Low confidence - needs manual review
+                    confidence=Confidence.LOW,
                     snippet="for...in without hasOwnProperty check",
                     cwe_id="CWE-1321",
                 )
@@ -518,7 +505,6 @@ def _detect_eval_injection(
         if not is_eval:
             continue
 
-        # Check for direct user input
         found_source = None
         confidence = Confidence.HIGH
 
@@ -527,14 +513,12 @@ def _detect_eval_injection(
                 found_source = source
                 break
 
-        # Check for tainted variables
         if not found_source:
             for var_name in tainted_vars:
                 if var_name in args:
                     found_source = f"tainted variable '{var_name}'"
                     break
 
-        # Check for suspicious parameter names (lower confidence)
         if not found_source:
             suspicious = ["input", "data", "user", "param", "query", "code", "script"]
             for pattern in suspicious:
@@ -584,10 +568,8 @@ def _detect_unsafe_regex(db: RuleDB) -> list[StandardFinding]:
         if not args:
             continue
 
-        # Check for user input in RegExp constructor
         has_user_input = any(source in args for source in USER_INPUT_SOURCES)
 
-        # Check for suspicious parameter names
         if not has_user_input:
             suspicious = ["input", "user", "search", "pattern", "query", "filter"]
             has_user_input = any(pattern in args.lower() for pattern in suspicious)
@@ -635,12 +617,10 @@ def _detect_path_traversal(db: RuleDB) -> list[StandardFinding]:
         if not is_file_op:
             continue
 
-        # Check for user input
         has_user_input = any(source in args for source in USER_INPUT_SOURCES)
         if not has_user_input:
             continue
 
-        # Check for path sanitization (only truly safe functions)
         has_sanitization = any(safe_func in args for safe_func in PATH_SAFE_FUNCTIONS)
 
         if not has_sanitization:

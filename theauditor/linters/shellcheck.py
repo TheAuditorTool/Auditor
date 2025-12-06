@@ -36,18 +36,16 @@ class ShellcheckLinter(BaseLinter):
         if not files:
             return LinterResult.success(self.name, [], 0.0)
 
-        # Optional tool - silently skip if not found
         shellcheck_bin = self.toolbox.get_shellcheck(required=False)
         if not shellcheck_bin:
             return LinterResult.skipped(self.name, "shellcheck not found")
 
         start_time = time.perf_counter()
 
-        # shellcheck accepts multiple files
         cmd = [
             str(shellcheck_bin),
             "--format=json",
-            "--external-sources",  # Allow sourcing external files
+            "--external-sources",
             *files,
         ]
 
@@ -61,7 +59,6 @@ class ShellcheckLinter(BaseLinter):
             logger.debug(f"[{self.name}] No issues found")
             return LinterResult.success(self.name, [], duration)
 
-        # shellcheck may return empty array "[]" for no issues
         if stdout.strip() == "[]":
             duration = time.perf_counter() - start_time
             logger.debug(f"[{self.name}] No issues found")
@@ -70,7 +67,9 @@ class ShellcheckLinter(BaseLinter):
         try:
             issues = json.loads(stdout)
         except json.JSONDecodeError as e:
-            return LinterResult.failed(self.name, f"Invalid JSON output: {e}", time.perf_counter() - start_time)
+            return LinterResult.failed(
+                self.name, f"Invalid JSON output: {e}", time.perf_counter() - start_time
+            )
 
         findings = []
         for issue in issues:
@@ -79,7 +78,9 @@ class ShellcheckLinter(BaseLinter):
                 findings.append(finding)
 
         duration = time.perf_counter() - start_time
-        logger.info(f"[{self.name}] Found {len(findings)} issues in {len(files)} files ({duration:.2f}s)")
+        logger.info(
+            f"[{self.name}] Found {len(findings)} issues in {len(files)} files ({duration:.2f}s)"
+        )
         return LinterResult.success(self.name, findings, duration)
 
     def _parse_issue(self, issue: dict) -> Finding | None:
@@ -98,13 +99,11 @@ class ShellcheckLinter(BaseLinter):
         line = issue.get("line", 0)
         column = issue.get("column", 0)
 
-        # Rule is SC#### code
         code = issue.get("code", 0)
         rule = f"SC{code}" if code else "shellcheck"
 
         message = issue.get("message", "")
 
-        # Map shellcheck levels: error, warning, info, style
         level = issue.get("level", "warning").lower()
         severity_map = {
             "error": "error",

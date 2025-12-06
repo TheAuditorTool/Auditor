@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.logging import logger
 
 
@@ -117,11 +117,10 @@ def provision(root, workset, output, db, graphs_db):
     try:
         db_path = Path(db)
         if not db_path.exists():
+            err_console.print(f"[error]Error: Database not found: {db}[/error]", highlight=False)
             err_console.print(
-                f"[error]Error: Database not found: {db}[/error]", highlight=False
+                "[error]Run 'aud full' first to extract Terraform resources.[/error]",
             )
-            err_console.print(
-                "[error]Run 'aud full' first to extract Terraform resources.[/error]", )
             raise click.Abort()
 
         file_filter = None
@@ -130,7 +129,7 @@ def provision(root, workset, output, db, graphs_db):
             if not workset_path.exists():
                 err_console.print(
                     "[error]Error: Workset file not found. Run 'aud workset' first.[/error]",
-                    )
+                )
                 raise click.Abort()
 
             with open(workset_path) as f:
@@ -243,11 +242,10 @@ def analyze(root, severity, categories, output, db):
     try:
         db_path = Path(db)
         if not db_path.exists():
+            err_console.print(f"[error]Error: Database not found: {db}[/error]", highlight=False)
             err_console.print(
-                f"[error]Error: Database not found: {db}[/error]", highlight=False
+                "[error]Run 'aud full' first to extract Terraform resources.[/error]",
             )
-            err_console.print(
-                "[error]Run 'aud full' first to extract Terraform resources.[/error]", )
             raise click.Abort()
 
         console.print("Analyzing Terraform configurations for security issues...")
@@ -348,7 +346,9 @@ def report(format, output, severity):
     This command will be implemented in Phase 7.
     """
     err_console.print(
-        "[error]Error: 'terraform report' not yet implemented (Phase 7)[/error]", )
+        "[error]Error: 'terraform report' not yet implemented (Phase 7)[/error]",
+    )
     err_console.print(
-        "[error]Run 'aud terraform provision' to build provisioning graph.[/error]", )
+        "[error]Run 'aud terraform provision' to build provisioning graph.[/error]",
+    )
     raise click.Abort()

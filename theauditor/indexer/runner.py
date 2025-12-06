@@ -70,9 +70,7 @@ def run_repository_index(
         try:
             _module_resolver_cache._load_all_configs_from_db()
         except Exception as e:
-            # ZERO FALLBACK FIX: Log error visibly instead of silent pass
             logger.info(f"WARNING: Module resolver config load failed: {e}")
-            # Continue without cached configs - resolution will use defaults
 
     orchestrator = IndexerOrchestrator(
         root_path=root,

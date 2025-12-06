@@ -27,7 +27,7 @@ METADATA = RuleMetadata(
     primary_table="graphql_resolver_mappings",
 )
 
-# Loop block types that indicate iteration
+
 LOOP_BLOCK_TYPES = frozenset(["for", "while", "loop", "for_each", "foreach", "for_of", "for_in"])
 
 
@@ -49,7 +49,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        # Get list-returning fields with resolvers
         rows = db.query(
             Q("graphql_fields")
             .select(
@@ -72,7 +71,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             if not resolver_path or not resolver_line:
                 continue
 
-            # Find loop blocks within resolver scope (100 lines)
             loop_rows = db.query(
                 Q("cfg_blocks")
                 .select("id", "block_type", "start_line", "end_line")
@@ -84,14 +82,12 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             for loop_row in loop_rows:
                 block_id, block_type, loop_start, loop_end = loop_row
 
-                # Skip if not a loop construct
                 if not block_type or block_type.lower() not in LOOP_BLOCK_TYPES:
                     continue
 
                 if not loop_start or not loop_end:
                     continue
 
-                # Check for database queries inside this loop
                 query_rows = db.query(
                     Q("sql_queries")
                     .select("query_text", "line_number", "command")
@@ -100,9 +96,9 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                     .where("line_number <= ?", loop_end)
                 )
 
-                # Filter out batched queries (WHERE IN clauses indicate DataLoader-style batching)
                 db_queries = [
-                    q for q in query_rows
+                    q
+                    for q in query_rows
                     if q[0] and " in (" not in q[0].lower() and " in(" not in q[0].lower()
                 ]
                 if db_queries:
@@ -130,6 +126,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                             },
                         )
                     )
-                    break  # One finding per field is enough
+                    break
 
         return RuleResult(findings=findings, manifest=db.get_manifest())

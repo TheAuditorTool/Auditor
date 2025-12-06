@@ -56,7 +56,7 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff==0.14.5",
     "black==25.11.0",
-    "mypy==1.18.2",
+    "mypy==1.19.0",
     "bandit==1.9.1",
     "pylint==4.0.3",
     # Codemod for logging migration
@@ -110,6 +110,24 @@ pythonpath = ["."]
 addopts = "-v"
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.14"
 strict = true
 warn_unused_configs = true
+packages = ["theauditor"]
+plugins = ["pydantic.mypy"]
+exclude = [
+    "tests/",
+    "scripts/",
+    "theauditor/ast_extractors/javascript/",
+    "theauditor/test_fixtures/",
+    "\\.pf/",
+    "\\.venv/",
+    "\\.auditor_venv/",
+    "dist/",
+    "build/",
+]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true

@@ -19,7 +19,7 @@ from theauditor.rules.base import (
 from theauditor.rules.fidelity import RuleDB
 from theauditor.rules.query import Q
 
-from .config import DEV_ONLY_PACKAGES, DependencyThresholds, LOCK_FILES
+from .config import DEV_ONLY_PACKAGES, LOCK_FILES, DependencyThresholds
 
 METADATA = RuleMetadata(
     name="dependency_bloat",
@@ -46,13 +46,10 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        # Check JavaScript/Node package dependencies
         findings.extend(_check_js_dependency_bloat(db))
 
-        # Check Python package dependencies
         findings.extend(_check_python_dependency_bloat(db))
 
-        # Check for dev-only packages in production
         findings.extend(_check_misplaced_dev_packages(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
@@ -62,14 +59,12 @@ def _check_js_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
     """Check JavaScript package dependency counts."""
     findings = []
 
-    # Get counts per file
     rows = db.query(
         Q("package_dependencies")
         .select("file_path", "is_dev", "COUNT(*) as count")
         .group_by("file_path", "is_dev")
     )
 
-    # Aggregate counts by file
     file_counts: dict[str, dict[str, int]] = {}
     for file_path, is_dev, count in rows:
         if file_path not in file_counts:
@@ -84,12 +79,16 @@ def _check_js_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
         dev_count = counts["dev"]
         total_count = prod_count + dev_count
 
-        # Lockfiles naturally have hundreds of transitive deps - use higher threshold
         is_lockfile = any(file_path.endswith(lf) for lf in LOCK_FILES)
-        threshold = DependencyThresholds.MAX_TRANSITIVE_DEPS if is_lockfile else DependencyThresholds.MAX_DIRECT_DEPS
-        warn_threshold = threshold // 2 if is_lockfile else DependencyThresholds.WARN_PRODUCTION_DEPS
+        threshold = (
+            DependencyThresholds.MAX_TRANSITIVE_DEPS
+            if is_lockfile
+            else DependencyThresholds.MAX_DIRECT_DEPS
+        )
+        warn_threshold = (
+            threshold // 2 if is_lockfile else DependencyThresholds.WARN_PRODUCTION_DEPS
+        )
 
-        # Check production dependencies
         if prod_count > threshold:
             dep_type = "transitive" if is_lockfile else "production"
             findings.append(
@@ -119,7 +118,6 @@ def _check_js_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-        # Check dev dependencies
         if dev_count > DependencyThresholds.MAX_DEV_DEPS:
             findings.append(
                 StandardFinding(
@@ -141,14 +139,12 @@ def _check_python_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
     """Check Python package dependency counts."""
     findings = []
 
-    # Get counts per file
     rows = db.query(
         Q("python_package_dependencies")
         .select("file_path", "is_dev", "COUNT(*) as count")
         .group_by("file_path", "is_dev")
     )
 
-    # Aggregate counts by file
     file_counts: dict[str, dict[str, int]] = {}
     for file_path, is_dev, count in rows:
         if file_path not in file_counts:
@@ -162,16 +158,14 @@ def _check_python_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
         prod_count = counts["prod"]
         dev_count = counts["dev"]
 
-        # Lockfiles (poetry.lock, Pipfile.lock) have transitive deps - use higher threshold
         is_lockfile = any(file_path.endswith(lf) for lf in LOCK_FILES)
 
-        # Python typically has fewer deps - use lower thresholds for manifests
         if is_lockfile:
-            python_prod_threshold = DependencyThresholds.MAX_TRANSITIVE_DEPS // 2  # 250
-            python_warn_threshold = DependencyThresholds.MAX_TRANSITIVE_DEPS // 4  # 125
+            python_prod_threshold = DependencyThresholds.MAX_TRANSITIVE_DEPS // 2
+            python_warn_threshold = DependencyThresholds.MAX_TRANSITIVE_DEPS // 4
         else:
-            python_prod_threshold = DependencyThresholds.MAX_DIRECT_DEPS // 2  # 25
-            python_warn_threshold = DependencyThresholds.WARN_PRODUCTION_DEPS // 2  # 15
+            python_prod_threshold = DependencyThresholds.MAX_DIRECT_DEPS // 2
+            python_warn_threshold = DependencyThresholds.WARN_PRODUCTION_DEPS // 2
 
         if prod_count > python_prod_threshold:
             findings.append(
@@ -207,15 +201,12 @@ def _check_misplaced_dev_packages(db: RuleDB) -> list[StandardFinding]:
     """Check for dev-only packages in production dependencies."""
     findings = []
 
-    # Build pattern for dev-only packages
-    # Some packages like @types/* need pattern matching
     exact_packages = [p for p in DEV_ONLY_PACKAGES if not p.endswith("/")]
     prefix_packages = [p for p in DEV_ONLY_PACKAGES if p.endswith("/")]
 
     if exact_packages:
         placeholders = ",".join(["?" for _ in exact_packages])
 
-        # Query production deps that match dev-only packages
         rows = db.query(
             Q("package_dependencies")
             .select("file_path", "name")
@@ -237,7 +228,6 @@ def _check_misplaced_dev_packages(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check prefix patterns (like @types/)
     for prefix in prefix_packages:
         rows = db.query(
             Q("package_dependencies")

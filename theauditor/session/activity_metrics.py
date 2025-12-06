@@ -14,16 +14,15 @@ from theauditor.session.parser import AssistantMessage, Session, UserMessage
 class ActivityType(Enum):
     """Classification of turn activity."""
 
-    PLANNING = "planning"  # Discussion, approach design, no tools
-    WORKING = "working"  # Edit, Write, Bash - actual code changes
-    RESEARCH = "research"  # Read, Grep, Glob, Task - gathering info
-    CONVERSATION = "conversation"  # Questions, clarifications, feedback
+    PLANNING = "planning"
+    WORKING = "working"
+    RESEARCH = "research"
+    CONVERSATION = "conversation"
 
 
-# Tool categorization
 WORKING_TOOLS = frozenset({"Edit", "Write", "Bash", "NotebookEdit"})
 RESEARCH_TOOLS = frozenset({"Read", "Grep", "Glob", "Task", "WebFetch", "WebSearch"})
-META_TOOLS = frozenset({"TodoWrite", "AskUserQuestion"})  # Don't count as work
+META_TOOLS = frozenset({"TodoWrite", "AskUserQuestion"})
 
 
 @dataclass
@@ -34,7 +33,7 @@ class TurnClassification:
     timestamp: datetime
     activity: ActivityType
     tokens: int
-    duration_seconds: float  # Time until next turn (0 for last)
+    duration_seconds: float
     tool_calls: list[str] = field(default_factory=list)
     is_user: bool = False
     text_length: int = 0
@@ -44,45 +43,38 @@ class TurnClassification:
 class ActivityMetrics:
     """Aggregated activity metrics for a session."""
 
-    # Turn counts
     total_turns: int = 0
     planning_turns: int = 0
     working_turns: int = 0
     research_turns: int = 0
     conversation_turns: int = 0
 
-    # Token counts
     total_tokens: int = 0
     planning_tokens: int = 0
     working_tokens: int = 0
     research_tokens: int = 0
     conversation_tokens: int = 0
 
-    # Duration (seconds)
     total_duration: float = 0.0
     planning_duration: float = 0.0
     working_duration: float = 0.0
     research_duration: float = 0.0
     conversation_duration: float = 0.0
 
-    # Ratios (0.0 - 1.0)
     planning_ratio: float = 0.0
     working_ratio: float = 0.0
     research_ratio: float = 0.0
     conversation_ratio: float = 0.0
 
-    # Token ratios
     planning_token_ratio: float = 0.0
     working_token_ratio: float = 0.0
     research_token_ratio: float = 0.0
     conversation_token_ratio: float = 0.0
 
-    # Efficiency metrics
-    work_to_talk_ratio: float = 0.0  # working / (planning + conversation)
-    research_to_work_ratio: float = 0.0  # research / working
-    tokens_per_edit: float = 0.0  # total_tokens / edit_count
+    work_to_talk_ratio: float = 0.0
+    research_to_work_ratio: float = 0.0
+    tokens_per_edit: float = 0.0
 
-    # Raw data
     turn_classifications: list[TurnClassification] = field(default_factory=list)
 
     def to_dict(self) -> dict[str, Any]:
@@ -133,49 +125,46 @@ class ActivityClassifier:
         """Classify all turns in a session and compute metrics."""
         classifications = []
 
-        # Build chronological list of all turns
         all_turns = self._build_turn_sequence(session)
 
-        # Classify each turn
         for i, turn in enumerate(all_turns):
-            # Calculate duration to next turn
             if i < len(all_turns) - 1:
                 next_turn = all_turns[i + 1]
                 duration = (next_turn["timestamp"] - turn["timestamp"]).total_seconds()
-                duration = max(0, min(duration, 3600))  # Cap at 1 hour
+                duration = max(0, min(duration, 3600))
             else:
                 duration = 0.0
 
             classification = self._classify_turn(turn, i, duration)
             classifications.append(classification)
 
-        # Aggregate into metrics
         return self._aggregate_metrics(classifications, session)
 
     def _build_turn_sequence(self, session: Session) -> list[dict[str, Any]]:
         """Build chronological sequence of all turns."""
         turns = []
 
-        # Add user messages
         for msg in session.user_messages:
-            turns.append({
-                "type": "user",
-                "message": msg,
-                "timestamp": msg.datetime,
-                "tokens": 0,  # User messages don't consume output tokens
-            })
+            turns.append(
+                {
+                    "type": "user",
+                    "message": msg,
+                    "timestamp": msg.datetime,
+                    "tokens": 0,
+                }
+            )
 
-        # Add assistant messages
         for msg in session.assistant_messages:
             tokens = msg.tokens_used.get("output_tokens", 0)
-            turns.append({
-                "type": "assistant",
-                "message": msg,
-                "timestamp": msg.datetime,
-                "tokens": tokens,
-            })
+            turns.append(
+                {
+                    "type": "assistant",
+                    "message": msg,
+                    "timestamp": msg.datetime,
+                    "tokens": tokens,
+                }
+            )
 
-        # Sort by timestamp
         turns.sort(key=lambda t: t["timestamp"])
         return turns
 
@@ -187,7 +176,6 @@ class ActivityClassifier:
         is_user = turn["type"] == "user"
 
         if is_user:
-            # User turns are always CONVERSATION
             return TurnClassification(
                 turn_index=index,
                 timestamp=turn["timestamp"],
@@ -199,7 +187,6 @@ class ActivityClassifier:
                 text_length=len(msg.content) if hasattr(msg, "content") else 0,
             )
 
-        # Assistant turn - classify based on tool usage
         tool_names = [tc.tool_name for tc in msg.tool_calls]
         text_length = len(msg.text_content) if msg.text_content else 0
 
@@ -216,26 +203,20 @@ class ActivityClassifier:
             text_length=text_length,
         )
 
-    def _classify_assistant_turn(
-        self, tool_names: list[str], text_length: int
-    ) -> ActivityType:
+    def _classify_assistant_turn(self, tool_names: list[str], text_length: int) -> ActivityType:
         """Classify an assistant turn based on tools used and text length."""
         if not tool_names:
-            # No tools - PLANNING if substantial text, else CONVERSATION
             if text_length >= self.planning_text_threshold:
                 return ActivityType.PLANNING
             return ActivityType.CONVERSATION
 
-        # Filter out meta tools
         meaningful_tools = [t for t in tool_names if t not in META_TOOLS]
 
         if not meaningful_tools:
-            # Only meta tools (TodoWrite, AskUserQuestion)
             if text_length >= self.planning_text_threshold:
                 return ActivityType.PLANNING
             return ActivityType.CONVERSATION
 
-        # Check for working tools (highest priority)
         has_working = any(t in WORKING_TOOLS for t in meaningful_tools)
         has_research = any(t in RESEARCH_TOOLS for t in meaningful_tools)
 
@@ -245,7 +226,6 @@ class ActivityClassifier:
         if has_research:
             return ActivityType.RESEARCH
 
-        # Unknown tools - default to WORKING
         return ActivityType.WORKING
 
     def _aggregate_metrics(
@@ -256,12 +236,8 @@ class ActivityClassifier:
         metrics.turn_classifications = classifications
         metrics.total_turns = len(classifications)
 
-        # Count edit operations for tokens_per_edit
-        edit_count = sum(
-            1 for tc in session.all_tool_calls if tc.tool_name in ("Edit", "Write")
-        )
+        edit_count = sum(1 for tc in session.all_tool_calls if tc.tool_name in ("Edit", "Write"))
 
-        # Aggregate by activity type
         for tc in classifications:
             if tc.activity == ActivityType.PLANNING:
                 metrics.planning_turns += 1
@@ -275,7 +251,7 @@ class ActivityClassifier:
                 metrics.research_turns += 1
                 metrics.research_tokens += tc.tokens
                 metrics.research_duration += tc.duration_seconds
-            else:  # CONVERSATION
+            else:
                 metrics.conversation_turns += 1
                 metrics.conversation_tokens += tc.tokens
                 metrics.conversation_duration += tc.duration_seconds
@@ -283,31 +259,24 @@ class ActivityClassifier:
             metrics.total_tokens += tc.tokens
             metrics.total_duration += tc.duration_seconds
 
-        # Calculate ratios (by turns)
         if metrics.total_turns > 0:
             metrics.planning_ratio = metrics.planning_turns / metrics.total_turns
             metrics.working_ratio = metrics.working_turns / metrics.total_turns
             metrics.research_ratio = metrics.research_turns / metrics.total_turns
             metrics.conversation_ratio = metrics.conversation_turns / metrics.total_turns
 
-        # Calculate token ratios
         if metrics.total_tokens > 0:
             metrics.planning_token_ratio = metrics.planning_tokens / metrics.total_tokens
             metrics.working_token_ratio = metrics.working_tokens / metrics.total_tokens
             metrics.research_token_ratio = metrics.research_tokens / metrics.total_tokens
-            metrics.conversation_token_ratio = (
-                metrics.conversation_tokens / metrics.total_tokens
-            )
+            metrics.conversation_token_ratio = metrics.conversation_tokens / metrics.total_tokens
 
-        # Efficiency metrics
         talk_tokens = metrics.planning_tokens + metrics.conversation_tokens
         if talk_tokens > 0:
             metrics.work_to_talk_ratio = metrics.working_tokens / talk_tokens
 
         if metrics.working_tokens > 0:
-            metrics.research_to_work_ratio = (
-                metrics.research_tokens / metrics.working_tokens
-            )
+            metrics.research_to_work_ratio = metrics.research_tokens / metrics.working_tokens
 
         if edit_count > 0:
             metrics.tokens_per_edit = metrics.total_tokens / edit_count
@@ -333,7 +302,6 @@ def analyze_multiple_sessions(sessions: list[Session]) -> dict[str, Any]:
     if not all_metrics:
         return {}
 
-    # Aggregate across sessions
     total_planning = sum(m.planning_tokens for m in all_metrics)
     total_working = sum(m.working_tokens for m in all_metrics)
     total_research = sum(m.research_tokens for m in all_metrics)

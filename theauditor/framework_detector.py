@@ -24,12 +24,23 @@ class FrameworkDetector:
 
         self._cargo_workspace_cache: dict[str, dict] = {}
 
-        # Centralized ignore set for O(1) lookups
-        self._ignored_dirs = frozenset({
-            "node_modules", "venv", ".venv", ".auditor_venv",
-            "vendor", "dist", "build", "__pycache__", ".git",
-            ".tox", ".pytest_cache", ".mypy_cache", ".ruff_cache",
-        })
+        self._ignored_dirs = frozenset(
+            {
+                "node_modules",
+                "venv",
+                ".venv",
+                ".auditor_venv",
+                "vendor",
+                "dist",
+                "build",
+                "__pycache__",
+                ".git",
+                ".tox",
+                ".pytest_cache",
+                ".mypy_cache",
+                ".ruff_cache",
+            }
+        )
 
     def _should_skip(self, relative_path: Path) -> bool:
         """Centralized ignore logic for path filtering.
@@ -39,26 +50,22 @@ class FrameworkDetector:
         """
         parts = relative_path.parts
 
-        # Fast set intersection check - O(1) average case
         if not self._ignored_dirs.isdisjoint(parts):
             return True
 
-        # Check user-defined exclude patterns
         if self.exclude_patterns:
             path_str = relative_path.as_posix()
             for pattern in self.exclude_patterns:
                 if pattern.endswith("/"):
-                    # Directory pattern
                     dir_pattern = pattern.rstrip("/")
                     if path_str.startswith(dir_pattern + "/"):
                         return True
                 elif "*" in pattern:
-                    # Glob pattern
                     from fnmatch import fnmatch
+
                     if fnmatch(path_str, pattern):
                         return True
                 elif path_str == pattern:
-                    # Exact match
                     return True
 
         return False
@@ -73,7 +80,6 @@ class FrameworkDetector:
 
         self._detect_from_workspaces()
 
-        # Build lookup of manifest-detected frameworks for version enrichment
         manifest_frameworks = {}
         for fw in self.detected_frameworks:
             key = (fw["framework"], fw["language"])
@@ -118,23 +124,31 @@ class FrameworkDetector:
         """
         parser = ManifestParser()
 
-        # O(1) lookup set for manifest filenames
-        target_manifests = frozenset({
-            "pyproject.toml", "package.json", "requirements.txt",
-            "requirements-dev.txt", "requirements-test.txt", "setup.py",
-            "setup.cfg", "Gemfile", "Gemfile.lock", "Cargo.toml",
-            "go.mod", "pom.xml", "build.gradle", "build.gradle.kts",
-            "composer.json",
-        })
+        target_manifests = frozenset(
+            {
+                "pyproject.toml",
+                "package.json",
+                "requirements.txt",
+                "requirements-dev.txt",
+                "requirements-test.txt",
+                "setup.py",
+                "setup.cfg",
+                "Gemfile",
+                "Gemfile.lock",
+                "Cargo.toml",
+                "go.mod",
+                "pom.xml",
+                "build.gradle",
+                "build.gradle.kts",
+                "composer.json",
+            }
+        )
 
         manifests = {}
 
-        # Single-pass walk with directory pruning
         for root, dirs, files in os.walk(self.project_path):
-            # Prune ignored directories IN-PLACE (prevents descending)
             dirs[:] = [d for d in dirs if d not in self._ignored_dirs]
 
-            # Check files against target set
             for fname in files:
                 if fname not in target_manifests:
                     continue
@@ -142,11 +156,9 @@ class FrameworkDetector:
                 manifest_path = Path(root) / fname
                 relative_path = manifest_path.relative_to(self.project_path)
 
-                # Additional filtering via exclude patterns
                 if self._should_skip(relative_path):
                     continue
 
-                # Normalize key using .as_posix() for consistent forward slashes
                 manifest_key = relative_path.as_posix()
                 manifests[manifest_key] = manifest_path
 
@@ -157,7 +169,6 @@ class FrameworkDetector:
 
             filename = path.name
 
-            # ManifestParser methods handle their own exceptions internally
             if filename.endswith(".toml"):
                 parsed_data[manifest_key] = parser.parse_toml(path)
             elif filename.endswith(".json"):
@@ -174,7 +185,6 @@ class FrameworkDetector:
                 or filename.endswith((".xml", ".gradle", ".kts", ".mod"))
                 or filename == "setup.py"
             ):
-                # Raw file read - handle specific exceptions
                 try:
                     with open(path, encoding="utf-8") as f:
                         parsed_data[manifest_key] = f.read()
@@ -331,7 +341,7 @@ class FrameworkDetector:
             return
 
         parser = ManifestParser()
-        # parse_json returns None on failure
+
         data = parser.parse_json(package_json) or {}
 
         workspaces = data.get("workspaces", [])
@@ -360,7 +370,7 @@ class FrameworkDetector:
 
     def _check_workspace_package(self, pkg_path: Path, parser: ManifestParser):
         """Check a single workspace package.json for frameworks."""
-        # parse_json returns None on failure
+
         data = parser.parse_json(pkg_path) or {}
 
         all_deps = {}
@@ -378,7 +388,6 @@ class FrameworkDetector:
                 version = all_deps[package_name]
                 version = re.sub(r"^[~^>=<]+", "", str(version)).strip()
 
-                # Use .as_posix() for consistent path normalization
                 try:
                     rel_path = pkg_path.parent.relative_to(self.project_path)
                     path = rel_path.as_posix() if rel_path != Path(".") else "."

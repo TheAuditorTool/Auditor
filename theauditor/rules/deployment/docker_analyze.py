@@ -39,77 +39,83 @@ METADATA = RuleMetadata(
 )
 
 
-SENSITIVE_ENV_KEYWORDS = frozenset([
-    "PASSWORD",
-    "PASS",
-    "PWD",
-    "SECRET",
-    "TOKEN",
-    "KEY",
-    "API_KEY",
-    "ACCESS_KEY",
-    "PRIVATE",
-    "CREDENTIAL",
-    "AUTH",
-])
+SENSITIVE_ENV_KEYWORDS = frozenset(
+    [
+        "PASSWORD",
+        "PASS",
+        "PWD",
+        "SECRET",
+        "TOKEN",
+        "KEY",
+        "API_KEY",
+        "ACCESS_KEY",
+        "PRIVATE",
+        "CREDENTIAL",
+        "AUTH",
+    ]
+)
 
-WEAK_PASSWORDS = frozenset([
-    "password",
-    "123456",
-    "admin",
-    "root",
-    "test",
-    "demo",
-    "secret",
-    "changeme",
-    "password123",
-    "admin123",
-    "letmein",
-    "welcome",
-    "monkey",
-    "dragon",
-    "master",
-])
+WEAK_PASSWORDS = frozenset(
+    [
+        "password",
+        "123456",
+        "admin",
+        "root",
+        "test",
+        "demo",
+        "secret",
+        "changeme",
+        "password123",
+        "admin123",
+        "letmein",
+        "welcome",
+        "monkey",
+        "dragon",
+        "master",
+    ]
+)
 
-VULNERABLE_BASE_IMAGES = frozenset([
-    "elasticsearch:2",
-    "elasticsearch:5",
-    "mysql:5.6",
-    "postgres:9",
-    "mongo:3",
-    "redis:3",
-    "node:8",
-    "node:10",
-    "node:12",
-    "python:2",
-    "ruby:2.4",
-    "php:5",
-    "php:7.0",
-    "php:7.1",
-    "php:7.2",
-])
+VULNERABLE_BASE_IMAGES = frozenset(
+    [
+        "elasticsearch:2",
+        "elasticsearch:5",
+        "mysql:5.6",
+        "postgres:9",
+        "mongo:3",
+        "redis:3",
+        "node:8",
+        "node:10",
+        "node:12",
+        "python:2",
+        "ruby:2.4",
+        "php:5",
+        "php:7.0",
+        "php:7.1",
+        "php:7.2",
+    ]
+)
 
 SECRET_VALUE_PATTERNS = [
-    re.compile(r"^ghp_[A-Za-z0-9]{36}$"),  # GitHub PAT
-    re.compile(r"^ghs_[A-Za-z0-9]{36}$"),  # GitHub Server PAT
-    re.compile(r"^gho_[A-Za-z0-9]{36}$"),  # GitHub OAuth
-    re.compile(r"^ghu_[A-Za-z0-9]{36}$"),  # GitHub User-to-server
-    re.compile(r"^sk-[A-Za-z0-9]{48}$"),   # OpenAI API key
-    re.compile(r"^xox[baprs]-[A-Za-z0-9-]+$"),  # Slack tokens
-    re.compile(r"^AKIA[A-Z0-9]{16}$"),     # AWS Access Key ID
-    re.compile(r"^ASIA[A-Z0-9]{16}$"),     # AWS Temporary Access Key
-    re.compile(r"^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$"),  # JWT token
-    re.compile(r"^sk_live_[A-Za-z0-9]{24,}$"),  # Stripe live key
-    re.compile(r"^sk_test_[A-Za-z0-9]{24,}$"),  # Stripe test key
-    re.compile(r"^rk_live_[A-Za-z0-9]{24,}$"),  # Stripe restricted key
-    re.compile(r"^AC[a-f0-9]{32}$"),       # Twilio Account SID
-    re.compile(r"^SK[a-f0-9]{32}$"),       # Twilio API Key
-    re.compile(r"^np_[A-Za-z0-9_-]{30,}$"),  # npm token
-    re.compile(r"^pypi-[A-Za-z0-9_-]{30,}$"),  # PyPI token
-    re.compile(r"^glpat-[A-Za-z0-9_-]{20,}$"),  # GitLab PAT
+    re.compile(r"^ghp_[A-Za-z0-9]{36}$"),
+    re.compile(r"^ghs_[A-Za-z0-9]{36}$"),
+    re.compile(r"^gho_[A-Za-z0-9]{36}$"),
+    re.compile(r"^ghu_[A-Za-z0-9]{36}$"),
+    re.compile(r"^sk-[A-Za-z0-9]{48}$"),
+    re.compile(r"^xox[baprs]-[A-Za-z0-9-]+$"),
+    re.compile(r"^AKIA[A-Z0-9]{16}$"),
+    re.compile(r"^ASIA[A-Z0-9]{16}$"),
+    re.compile(r"^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$"),
+    re.compile(r"^sk_live_[A-Za-z0-9]{24,}$"),
+    re.compile(r"^sk_test_[A-Za-z0-9]{24,}$"),
+    re.compile(r"^rk_live_[A-Za-z0-9]{24,}$"),
+    re.compile(r"^AC[a-f0-9]{32}$"),
+    re.compile(r"^SK[a-f0-9]{32}$"),
+    re.compile(r"^np_[A-Za-z0-9_-]{30,}$"),
+    re.compile(r"^pypi-[A-Za-z0-9_-]{30,}$"),
+    re.compile(r"^glpat-[A-Za-z0-9_-]{20,}$"),
 ]
 
-# Patterns that indicate private key material (substring match, not full value)
+
 PRIVATE_KEY_INDICATORS = [
     "-----BEGIN RSA PRIVATE KEY-----",
     "-----BEGIN EC PRIVATE KEY-----",
@@ -124,8 +130,8 @@ SENSITIVE_PORTS = {
     135: "Windows RPC",
     139: "NetBIOS",
     445: "SMB",
-    2375: "Docker API (unencrypted)",  # CRITICAL - unauthenticated container access
-    2376: "Docker API (TLS)",          # Still sensitive - container management
+    2375: "Docker API (unencrypted)",
+    2376: "Docker API (TLS)",
     3389: "RDP",
     3306: "MySQL",
     5432: "PostgreSQL",
@@ -138,12 +144,12 @@ SENSITIVE_PORTS = {
     9300: "Elasticsearch (transport)",
 }
 
-# Ports that are CRITICAL severity (not just HIGH)
-CRITICAL_PORTS = {2375, 2376}  # Docker API = full container escape
 
-OFFICIAL_BASE_IMAGES = frozenset([
-    "alpine", "ubuntu", "debian", "centos", "fedora", "busybox", "scratch"
-])
+CRITICAL_PORTS = {2375, 2376}
+
+OFFICIAL_BASE_IMAGES = frozenset(
+    ["alpine", "ubuntu", "debian", "centos", "fedora", "busybox", "scratch"]
+)
 
 
 def find_docker_issues(context: StandardRuleContext) -> RuleResult:
@@ -154,7 +160,6 @@ def find_docker_issues(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Load all data from correct tables
         images = _load_images(db)
         env_vars_by_file = _load_env_vars(db)
         ports_by_file = _load_ports(db)
@@ -165,28 +170,20 @@ def find_docker_issues(context: StandardRuleContext) -> RuleResult:
             ports = ports_by_file.get(file_path, [])
             instructions = instructions_by_file.get(file_path, [])
 
-            # Check: Root user
             findings.extend(_check_root_user(file_path, image_data))
 
-            # Check: Exposed secrets in ENV/ARG
             findings.extend(_check_exposed_secrets(file_path, env_vars))
 
-            # Check: Vulnerable base images
             findings.extend(_check_vulnerable_images(file_path, image_data))
 
-            # Check: Missing healthcheck
             findings.extend(_check_missing_healthcheck(file_path, image_data))
 
-            # Check: Sensitive ports
             findings.extend(_check_sensitive_ports(file_path, ports))
 
-            # Check: ADD usage (prefer COPY)
             findings.extend(_check_add_usage(file_path, instructions))
 
-            # Check: sudo in RUN
             findings.extend(_check_sudo_usage(file_path, instructions))
 
-            # Check: Missing WORKDIR
             findings.extend(_check_missing_workdir(file_path, instructions))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
@@ -196,10 +193,7 @@ def _load_images(db: RuleDB) -> dict[str, dict]:
     """Load all docker images into a dictionary keyed by file_path."""
     images = {}
 
-    rows = db.query(
-        Q("docker_images")
-        .select("file_path", "base_image", "user", "has_healthcheck")
-    )
+    rows = db.query(Q("docker_images").select("file_path", "base_image", "user", "has_healthcheck"))
 
     for file_path, base_image, user, has_healthcheck in rows:
         images[file_path] = {
@@ -216,8 +210,7 @@ def _load_env_vars(db: RuleDB) -> dict[str, dict[str, dict[str, str]]]:
     env_by_file = {}
 
     rows = db.query(
-        Q("dockerfile_env_vars")
-        .select("file_path", "var_name", "var_value", "is_build_arg")
+        Q("dockerfile_env_vars").select("file_path", "var_name", "var_value", "is_build_arg")
     )
 
     for file_path, var_name, var_value, is_build_arg in rows:
@@ -236,18 +229,17 @@ def _load_ports(db: RuleDB) -> dict[str, list[dict]]:
     """Load all exposed ports grouped by file_path."""
     ports_by_file = {}
 
-    rows = db.query(
-        Q("dockerfile_ports")
-        .select("file_path", "port", "protocol")
-    )
+    rows = db.query(Q("dockerfile_ports").select("file_path", "port", "protocol"))
 
     for file_path, port, protocol in rows:
         if file_path not in ports_by_file:
             ports_by_file[file_path] = []
-        ports_by_file[file_path].append({
-            "port": port,
-            "protocol": protocol or "tcp",
-        })
+        ports_by_file[file_path].append(
+            {
+                "port": port,
+                "protocol": protocol or "tcp",
+            }
+        )
 
     return ports_by_file
 
@@ -265,11 +257,13 @@ def _load_instructions(db: RuleDB) -> dict[str, list[dict]]:
     for file_path, line, instruction, arguments in rows:
         if file_path not in instructions_by_file:
             instructions_by_file[file_path] = []
-        instructions_by_file[file_path].append({
-            "line": line,
-            "instruction": instruction,
-            "arguments": arguments or "",
-        })
+        instructions_by_file[file_path].append(
+            {
+                "line": line,
+                "instruction": instruction,
+                "arguments": arguments or "",
+            }
+        )
 
     return instructions_by_file
 
@@ -279,8 +273,6 @@ def _check_root_user(file_path: str, image_data: dict) -> list[StandardFinding]:
     findings = []
     user = image_data.get("user")
 
-    # Explicit root is CRITICAL, no user specified is MEDIUM
-    # (many base images already run as non-root by default)
     if user and user.lower() in ("root", "0"):
         findings.append(
             StandardFinding(
@@ -315,7 +307,6 @@ def _check_exposed_secrets(file_path: str, env_vars: dict) -> list[StandardFindi
     """Detect hardcoded secrets in ENV and ARG instructions."""
     findings = []
 
-    # Check ENV variables
     for key, value in env_vars.get("env", {}).items():
         if not value or not isinstance(value, str):
             continue
@@ -352,7 +343,6 @@ def _check_exposed_secrets(file_path: str, env_vars: dict) -> list[StandardFindi
                 )
             continue
 
-        # Check for known secret patterns
         for pattern in SECRET_VALUE_PATTERNS:
             if pattern.match(value):
                 findings.append(
@@ -369,7 +359,6 @@ def _check_exposed_secrets(file_path: str, env_vars: dict) -> list[StandardFindi
                 )
                 break
 
-        # Check for private key material
         for indicator in PRIVATE_KEY_INDICATORS:
             if indicator in value:
                 findings.append(
@@ -386,7 +375,6 @@ def _check_exposed_secrets(file_path: str, env_vars: dict) -> list[StandardFindi
                 )
                 break
 
-        # Check for high entropy values
         if _is_high_entropy(value):
             findings.append(
                 StandardFinding(
@@ -401,7 +389,6 @@ def _check_exposed_secrets(file_path: str, env_vars: dict) -> list[StandardFindi
                 )
             )
 
-    # Check ARG (build arguments)
     for key, value in env_vars.get("args", {}).items():
         if not value or not isinstance(value, str):
             continue
@@ -434,7 +421,6 @@ def _check_vulnerable_images(file_path: str, image_data: dict) -> list[StandardF
     if not base_image:
         return findings
 
-    # Check for known vulnerable images
     for vuln_pattern in VULNERABLE_BASE_IMAGES:
         if base_image.startswith(vuln_pattern):
             findings.append(
@@ -451,7 +437,6 @@ def _check_vulnerable_images(file_path: str, image_data: dict) -> list[StandardF
             )
             break
 
-    # Check for unpinned versions
     if ":latest" in base_image or (":" not in base_image and "@" not in base_image):
         findings.append(
             StandardFinding(
@@ -466,7 +451,6 @@ def _check_vulnerable_images(file_path: str, image_data: dict) -> list[StandardF
             )
         )
 
-    # Extract image name without tag/digest
     if "@" in base_image:
         image_name = base_image.split("@")[0]
     elif ":" in base_image:
@@ -474,7 +458,6 @@ def _check_vulnerable_images(file_path: str, image_data: dict) -> list[StandardF
     else:
         image_name = base_image
 
-    # Check for potentially unofficial images (typosquatting risk)
     if "/" not in image_name and image_name not in OFFICIAL_BASE_IMAGES:
         findings.append(
             StandardFinding(
@@ -523,7 +506,7 @@ def _check_sensitive_ports(file_path: str, ports: list[dict]) -> list[StandardFi
 
         if port_num in SENSITIVE_PORTS:
             service_name = SENSITIVE_PORTS[port_num]
-            # Docker API ports are CRITICAL - they allow full container escape
+
             severity = Severity.CRITICAL if port_num in CRITICAL_PORTS else Severity.HIGH
             message = (
                 f"Container exposes Docker API port {port_num} - FULL CONTAINER ESCAPE POSSIBLE"
@@ -553,7 +536,7 @@ def _check_add_usage(file_path: str, instructions: list[dict]) -> list[StandardF
     for instr in instructions:
         if instr["instruction"] == "ADD":
             args = instr["arguments"]
-            # ADD is acceptable for extracting local tarballs, but flag anyway as warning
+
             findings.append(
                 StandardFinding(
                     rule_name="dockerfile-use-copy",
@@ -577,7 +560,7 @@ def _check_sudo_usage(file_path: str, instructions: list[dict]) -> list[Standard
     for instr in instructions:
         if instr["instruction"] == "RUN":
             args = instr["arguments"]
-            # Check for sudo command
+
             if "sudo " in args or args.startswith("sudo"):
                 findings.append(
                     StandardFinding(
@@ -619,15 +602,13 @@ def _check_missing_workdir(file_path: str, instructions: list[dict]) -> list[Sta
 
 def _is_high_entropy(value: str, threshold: float = 4.0) -> bool:
     """Check if a string has high Shannon entropy (potential secret)."""
-    # Skip short values
+
     if len(value) < 10:
         return False
 
-    # Skip values with spaces (likely not secrets)
     if " " in value:
         return False
 
-    # Calculate Shannon entropy
     char_freq = {}
     for char in value:
         char_freq[char] = char_freq.get(char, 0) + 1

@@ -25,31 +25,35 @@ METADATA = RuleMetadata(
     primary_table="assignments",
 )
 
-# Mutable type literals that create shared mutable state
-MUTABLE_LITERALS = frozenset([
-    "{}",
-    "[]",
-    "dict(",
-    "list(",
-    "set(",
-    "defaultdict(",
-    "OrderedDict(",
-    "Counter(",
-    "deque(",
-])
 
-# Safe patterns that look mutable but aren't problematic
-SAFE_PATTERNS = frozenset([
-    "logging.getLogger",
-    "getLogger",
-    "frozenset(",
-    "tuple(",
-    "namedtuple(",
-    "Enum(",
-    "Lock(",
-    "RLock(",
-    "Semaphore(",
-])
+MUTABLE_LITERALS = frozenset(
+    [
+        "{}",
+        "[]",
+        "dict(",
+        "list(",
+        "set(",
+        "defaultdict(",
+        "OrderedDict(",
+        "Counter(",
+        "deque(",
+    ]
+)
+
+
+SAFE_PATTERNS = frozenset(
+    [
+        "logging.getLogger",
+        "getLogger",
+        "frozenset(",
+        "tuple(",
+        "namedtuple(",
+        "Enum(",
+        "Lock(",
+        "RLock(",
+        "Semaphore(",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -107,7 +111,7 @@ def _check_global_mutable_state(db: RuleDB, add_finding) -> None:
     Global mutable state (dicts, lists, sets) shared across threads/requests
     causes race conditions, data corruption, and hard-to-debug issues.
     """
-    # Find all module-level assignments with mutable literals
+
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -121,24 +125,19 @@ def _check_global_mutable_state(db: RuleDB, add_finding) -> None:
         if not expr or not var:
             continue
 
-        # Check for mutable type creation
         if any(literal in str(expr) for literal in MUTABLE_LITERALS):
             candidates.append((file, line, var, expr))
 
     for file, line, var, expr in candidates:
-        # Skip private/protected variables (convention for internal use)
         if var.startswith("_"):
             continue
 
-        # Skip CONSTANTS (ALL_CAPS naming convention)
         if var.isupper():
             continue
 
-        # Skip safe patterns
         if any(safe in str(expr) for safe in SAFE_PATTERNS):
             continue
 
-        # Check if this variable is used inside functions (scope_level > 0)
         usage_count = _count_function_usages(db, file, var)
 
         if usage_count == 0:

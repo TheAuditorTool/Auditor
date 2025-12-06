@@ -32,33 +32,29 @@ METADATA = RuleMetadata(
 )
 
 
-# Triggers where untrusted external actors can influence workflow execution
-UNTRUSTED_TRIGGERS = frozenset([
-    "pull_request_target",  # Runs with write access but can checkout PR code
-    "issue_comment",        # Anyone who can comment can trigger
-    "workflow_run",         # Can be triggered by untrusted PR workflows
-    "discussion_comment",   # Similar to issue_comment
-])
+UNTRUSTED_TRIGGERS = frozenset(
+    [
+        "pull_request_target",
+        "issue_comment",
+        "workflow_run",
+        "discussion_comment",
+    ]
+)
 
 
-# Permissions that are dangerous in untrusted contexts
-# Organized by severity - all are dangerous but some more than others
-DANGEROUS_WRITE_PERMISSIONS = frozenset([
-    # CRITICAL - Can modify code or bypass security
-    "contents",        # Can push code, create releases
-    "actions",         # Can modify workflows (self-propagating attacks)
-    "id-token",        # OIDC token for cloud access (AWS, GCP, Azure)
-    "security-events", # Can dismiss security alerts
-
-    # HIGH - Can affect deployment or bypass checks
-    "packages",        # Can publish packages (supply chain)
-    "deployments",     # Can trigger deployments
-    "statuses",        # Can mark commits as passing (bypass branch protection)
-    "checks",          # Can create/modify check runs (bypass CI)
-
-    # MEDIUM - Can affect repository state
-    "pull-requests",   # Can approve/merge PRs
-])
+DANGEROUS_WRITE_PERMISSIONS = frozenset(
+    [
+        "contents",
+        "actions",
+        "id-token",
+        "security-events",
+        "packages",
+        "deployments",
+        "statuses",
+        "checks",
+        "pull-requests",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -84,34 +80,24 @@ def find_excessive_pr_permissions(context: StandardRuleContext) -> list[Standard
     return result.findings
 
 
-# =============================================================================
-# DETECTION LOGIC
-# =============================================================================
-
-
 def _find_excessive_permissions(db: RuleDB) -> list[StandardFinding]:
     """Core detection logic for excessive permissions."""
     findings: list[StandardFinding] = []
 
-    # Get all workflows
     workflow_rows = db.query(
-        Q("github_workflows")
-        .select("workflow_path", "workflow_name", "on_triggers", "permissions")
+        Q("github_workflows").select("workflow_path", "workflow_name", "on_triggers", "permissions")
     )
 
     for workflow_path, workflow_name, on_triggers_json, permissions_json in workflow_rows:
-        # Parse triggers
         try:
             triggers = json.loads(on_triggers_json) if on_triggers_json else []
         except json.JSONDecodeError:
             triggers = []
 
-        # Only check workflows with untrusted triggers
         has_untrusted = any(trigger in UNTRUSTED_TRIGGERS for trigger in triggers)
         if not has_untrusted:
             continue
 
-        # Check workflow-level permissions
         workflow_perms = _parse_permissions(permissions_json)
         if workflow_perms:
             dangerous = _check_dangerous_permissions(workflow_perms)
@@ -128,7 +114,6 @@ def _find_excessive_permissions(db: RuleDB) -> list[StandardFinding]:
                     )
                 )
 
-        # Check job-level permissions
         job_rows = db.query(
             Q("github_jobs")
             .select("job_key", "permissions")
@@ -186,9 +171,10 @@ def _check_dangerous_permissions(permissions: dict) -> list[str]:
     return dangerous
 
 
-# Permissions categorized by severity
-CRITICAL_PERMISSIONS = frozenset(["write-all", "contents", "actions", "id-token", "security-events"])
-# pull-requests: write allows auto-merge/approval, can bypass branch protection
+CRITICAL_PERMISSIONS = frozenset(
+    ["write-all", "contents", "actions", "id-token", "security-events"]
+)
+
 HIGH_PERMISSIONS = frozenset(["packages", "deployments", "statuses", "checks", "pull-requests"])
 
 
@@ -203,7 +189,6 @@ def _build_permission_finding(
 ) -> StandardFinding:
     """Build finding for excessive permissions vulnerability."""
 
-    # Determine severity based on most dangerous permission
     perms_set = set(dangerous_perms)
     if perms_set & CRITICAL_PERMISSIONS:
         severity = Severity.CRITICAL

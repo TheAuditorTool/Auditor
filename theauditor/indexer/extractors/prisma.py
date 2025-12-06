@@ -28,7 +28,6 @@ class PrismaExtractor(BaseExtractor):
         """Extract Prisma models and return data dict with manifest."""
         file_path_str = str(file_info["path"])
 
-        # Initialize result with empty list (meaningful empty result)
         result: dict[str, Any] = {
             "prisma_models": [],
         }
@@ -36,21 +35,21 @@ class PrismaExtractor(BaseExtractor):
         try:
             models = self._parse_schema(content)
 
-            # Build prisma_models data
             for model in models:
                 for field in model["fields"]:
-                    result["prisma_models"].append({
-                        "model_name": model["name"],
-                        "field_name": field["name"],
-                        "field_type": field["type"],
-                        "is_indexed": field["is_indexed"],
-                        "is_unique": field["is_unique"],
-                        "is_relation": field["is_relation"],
-                    })
+                    result["prisma_models"].append(
+                        {
+                            "model_name": model["name"],
+                            "field_name": field["name"],
+                            "field_type": field["type"],
+                            "is_indexed": field["is_indexed"],
+                            "is_unique": field["is_unique"],
+                            "is_relation": field["is_relation"],
+                        }
+                    )
 
         except Exception as e:
             logger.error(f"Failed to parse Prisma schema {file_path_str}: {e}")
-            # Return empty result with manifest - exposes the failure in fidelity counts
 
         return FidelityToken.attach_manifest(result)
 

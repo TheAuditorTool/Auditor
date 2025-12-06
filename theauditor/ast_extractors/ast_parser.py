@@ -57,7 +57,9 @@ class ASTParser:
         except ImportError:
             logger.warning("\n AST parsing dependencies not fully installed.")
             logger.info("  - Python analysis: ✓ Will work (uses built-in ast module)")
-            logger.info("  - JavaScript/TypeScript analysis: ✗ Will fail (requires Node.js semantic parser)")
+            logger.info(
+                "  - JavaScript/TypeScript analysis: ✗ Will fail (requires Node.js semantic parser)"
+            )
             logger.info("  - Terraform/HCL analysis: ✗ Limited functionality")
             logger.info("\nTo enable full analysis capabilities, run:")
             logger.info("  aud setup-ai --target .\n")
@@ -103,8 +105,10 @@ class ASTParser:
                 self.languages["hcl"] = hcl_lang
             except Exception as e:
                 logger.info(f"HCL tree-sitter not available: {e}")
-                logger.info("Terraform analysis requires the tree-sitter HCL grammar. "
-                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' .")
+                logger.info(
+                    "Terraform analysis requires the tree-sitter HCL grammar. "
+                    "Install language support with 'pip install -e .[ast]' or run 'aud setup-ai --target .' ."
+                )
 
             try:
                 rust_lang = get_language("rust")
@@ -131,7 +135,9 @@ class ASTParser:
                 logger.info(f"Bash tree-sitter not available: {e}")
 
         except ImportError as e:
-            logger.info(f"ERROR: tree-sitter is installed but tree-sitter-language-pack is not: {e}")
+            logger.info(
+                f"ERROR: tree-sitter is installed but tree-sitter-language-pack is not: {e}"
+            )
             logger.info("This means tree-sitter AST analysis cannot work properly.")
             logger.info("Please install with: pip install tree-sitter-language-pack")
             logger.info("Or install TheAuditor with full AST support: pip install -e '.[ast]'")
@@ -210,7 +216,9 @@ class ASTParser:
 
                     if os.environ.get("THEAUDITOR_DEBUG"):
                         cfg_count = len(semantic_result.get("extracted_data", {}).get("cfg", []))
-                        logger.debug(f"Single-pass result for {file_path}: {cfg_count} CFGs in extracted_data")
+                        logger.debug(
+                            f"Single-pass result for {file_path}: {cfg_count} CFGs in extracted_data"
+                        )
 
                 except Exception as e:
                     raise RuntimeError(
@@ -262,21 +270,18 @@ class ASTParser:
                         "content": content.decode("utf-8", errors="ignore"),
                     }
 
-            # Unknown language - return None (not an error, just unsupported)
             return None
 
         except RuntimeError:
-            # Re-raise RuntimeError (our explicit failures) without wrapping
             raise
         except Exception as e:
-            # For JS/TS files, any failure is fatal - no silent data loss
             if language in ["javascript", "typescript"]:
                 raise RuntimeError(
                     f"FATAL: Failed to parse {file_path}: {e}\n"
                     f"JavaScript/TypeScript files REQUIRE successful parsing.\n"
                     f"NO FALLBACKS ALLOWED - fix the error or exclude the file."
                 ) from e
-            # For other languages, also fail loud
+
             raise RuntimeError(f"FATAL: Failed to parse {file_path}: {e}") from e
 
     def _detect_language(self, file_path: Path) -> str:
@@ -307,14 +312,15 @@ class ASTParser:
         try:
             return ast.parse(content)
         except SyntaxError as e:
-            # Use ParseError with structured line info instead of regex-parseable strings
             raise ParseError(
                 f"Python syntax error: {e.msg}",
                 file=file_path,
                 line=e.lineno or 1,
             ) from e
 
-    def _parse_python_cached(self, content_hash: str, content: str, file_path: str = "unknown") -> ast.AST:
+    def _parse_python_cached(
+        self, content_hash: str, content: str, file_path: str = "unknown"
+    ) -> ast.AST:
         """Parse Python code (caching removed - error messages need file context)."""
         return self._parse_python_builtin(content, file_path)
 
@@ -406,7 +412,6 @@ class ASTParser:
                 "content": content,
             }
 
-        # Unknown language - return None (not an error, just unsupported)
         return None
 
     def parse_files_batch(
@@ -432,7 +437,6 @@ class ASTParser:
             else:
                 other_files.append(file_path)
 
-        # Process JS/TS files with batch semantic parser
         if js_ts_files:
             if not get_semantic_ast_batch:
                 raise RuntimeError(
@@ -450,7 +454,6 @@ class ASTParser:
                 if tsconfig_for_file:
                     tsconfig_map[normalized_path] = str(tsconfig_for_file).replace("\\", "/")
 
-            # Batch process - NO try/except wrapper, let errors propagate
             batch_results = get_semantic_ast_batch(
                 js_ts_paths,
                 project_root=root_path,
@@ -458,11 +461,9 @@ class ASTParser:
                 tsconfig_map=tsconfig_map,
             )
 
-            # Process each file result - NO FALLBACKS
             for file_path in js_ts_files:
                 file_str = str(file_path).replace("\\", "/")
 
-                # File MUST be in batch results
                 if file_str not in batch_results:
                     raise RuntimeError(
                         f"FATAL: Batch processor did not return result for {file_path}\n"
@@ -473,12 +474,11 @@ class ASTParser:
                 semantic_result = batch_results[file_str]
 
                 if os.environ.get("THEAUDITOR_DEBUG"):
-                    cfg_count = len(
-                        semantic_result.get("extracted_data", {}).get("cfg", [])
+                    cfg_count = len(semantic_result.get("extracted_data", {}).get("cfg", []))
+                    logger.debug(
+                        f"Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data"
                     )
-                    logger.debug(f"Single-pass result for {Path(file_path).name}: {cfg_count} CFGs in extracted_data")
 
-                # Parsing MUST succeed
                 if not semantic_result.get("success"):
                     raise RuntimeError(
                         f"FATAL: Semantic parser failed for {file_path}\n"
@@ -486,7 +486,6 @@ class ASTParser:
                         f"NO FALLBACKS ALLOWED - fix the error or exclude the file."
                     )
 
-                # Read file content - failure is fatal
                 with open(file_path, "rb") as f:
                     content = f.read()
 
@@ -500,13 +499,11 @@ class ASTParser:
                     "symbols": semantic_result.get("symbols", []),
                 }
 
-        # Process Python files individually (parse_file handles errors)
         for file_path in python_files:
             results[str(file_path).replace("\\", "/")] = self.parse_file(
                 file_path, root_path=root_path, jsx_mode=jsx_mode
             )
 
-        # Process other files individually (parse_file handles errors)
         for file_path in other_files:
             results[str(file_path).replace("\\", "/")] = self.parse_file(
                 file_path, root_path=root_path, jsx_mode=jsx_mode

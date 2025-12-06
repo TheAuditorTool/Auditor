@@ -367,7 +367,6 @@ def find_upstream_dependencies_batch(
     if not symbols:
         return {}
 
-    # Extract unique symbol names
     symbol_names = list({s[1] for s in symbols})
     if not symbol_names:
         return {}
@@ -398,10 +397,9 @@ def find_upstream_dependencies_batch(
           )
         ORDER BY call.name, call.path, call.line
     """,
-        symbol_names + symbol_names,  # First for call.name IN, second for NOT IN
+        symbol_names + symbol_names,
     )
 
-    # Group results by target symbol name
     results: dict[str, dict[tuple[str, str], dict[str, Any]]] = {name: {} for name in symbol_names}
 
     for row in cursor.fetchall():
@@ -420,7 +418,6 @@ def find_upstream_dependencies_batch(
                 "calls": target_name,
             }
 
-    # Convert to list format
     return {name: list(deps.values()) for name, deps in results.items()}
 
 
@@ -439,7 +436,6 @@ def find_downstream_dependencies_batch(
     if not symbols:
         return {}
 
-    # Step 1: Get all function/class boundaries for all files in one query
     file_paths = list({s[0] for s in symbols})
     placeholders = ",".join("?" * len(file_paths))
 
@@ -454,20 +450,17 @@ def find_downstream_dependencies_batch(
         file_paths,
     )
 
-    # Build boundary map: file -> [(line, name, type), ...]
     file_symbols: dict[str, list[tuple[int, str, str]]] = {}
     for path, name, sym_type, line in cursor.fetchall():
         if path not in file_symbols:
             file_symbols[path] = []
         file_symbols[path].append((line, name, sym_type))
 
-    # Step 2: For each symbol, determine its end_line
-    symbol_ranges: list[tuple[str, int, int, str]] = []  # (file, start, end, name)
+    symbol_ranges: list[tuple[str, int, int, str]] = []
     for file_path, start_line, symbol_name in symbols:
         if file_path not in file_symbols:
             continue
 
-        # Find end_line (next symbol's start or 999999)
         end_line = 999999
         found_start = False
         for line, name, _ in file_symbols[file_path]:
@@ -483,8 +476,6 @@ def find_downstream_dependencies_batch(
     if not symbol_ranges:
         return {}
 
-    # Step 3: Get all calls within all function bodies in one query
-    # Build a complex WHERE clause with ORs
     where_clauses = []
     params = []
     for file_path, start_line, end_line, _ in symbol_ranges:
@@ -504,7 +495,6 @@ def find_downstream_dependencies_batch(
         params,
     )
 
-    # Group calls by file_path -> {call_name: first_line}
     file_calls: dict[str, dict[str, int]] = {}
     for path, call_name, call_line in cursor.fetchall():
         if path not in file_calls:
@@ -512,17 +502,14 @@ def find_downstream_dependencies_batch(
         if call_name not in file_calls[path]:
             file_calls[path][call_name] = call_line
 
-    # Step 4: Collect all unique call names and resolve definitions in one query
     all_call_names = set()
     for calls in file_calls.values():
         all_call_names.update(calls.keys())
 
-    # Remove self-references (symbol names we're analyzing)
     symbol_names_set = {s[2] for s in symbols}
     all_call_names -= symbol_names_set
 
     if not all_call_names:
-        # No external calls, return empty for all
         return {f"{fp}:{name}": [] for fp, _, name in symbols}
 
     call_name_list = list(all_call_names)
@@ -538,13 +525,11 @@ def find_downstream_dependencies_batch(
         call_name_list,
     )
 
-    # Build definitions map: name -> (path, type, line)
     definitions: dict[str, tuple[str, str, int]] = {}
     for def_path, def_name, def_type, def_line in cursor.fetchall():
         if def_name not in definitions:
             definitions[def_name] = (def_path, def_type, def_line)
 
-    # Step 5: Build results for each symbol
     results: dict[str, list[dict[str, Any]]] = {}
 
     for file_path, start_line, end_line, symbol_name in symbol_ranges:
@@ -553,32 +538,35 @@ def find_downstream_dependencies_batch(
 
         if file_path in file_calls:
             for call_name, call_line in file_calls[file_path].items():
-                # Skip if call is outside this function's range
                 if call_line <= start_line or call_line >= end_line:
                     continue
-                # Skip self-references
+
                 if call_name == symbol_name:
                     continue
 
                 if call_name in definitions:
                     def_path, def_type, def_line = definitions[call_name]
-                    downstream.append({
-                        "file": def_path,
-                        "symbol": call_name,
-                        "type": def_type,
-                        "line": def_line,
-                        "called_from_line": call_line,
-                        "called_by": symbol_name,
-                    })
+                    downstream.append(
+                        {
+                            "file": def_path,
+                            "symbol": call_name,
+                            "type": def_type,
+                            "line": def_line,
+                            "called_from_line": call_line,
+                            "called_by": symbol_name,
+                        }
+                    )
                 else:
-                    downstream.append({
-                        "file": "external",
-                        "symbol": call_name,
-                        "type": "unknown",
-                        "line": 0,
-                        "called_from_line": call_line,
-                        "called_by": symbol_name,
-                    })
+                    downstream.append(
+                        {
+                            "file": "external",
+                            "symbol": call_name,
+                            "type": "unknown",
+                            "line": 0,
+                            "called_from_line": call_line,
+                            "called_by": symbol_name,
+                        }
+                    )
 
         results[key] = downstream
 

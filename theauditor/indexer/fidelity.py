@@ -22,24 +22,22 @@ def reconcile_fidelity(
         m_data = manifest.get(table, {})
         r_data = receipt.get(table, {})
 
-        # ZERO FALLBACK: Reject legacy int format. All producers must send dict.
         if isinstance(m_data, int):
             raise DataFidelityError(
                 f"LEGACY FORMAT VIOLATION: manifest['{table}'] is int ({m_data}). "
                 "Extractor must send dict with tx_id/columns/count/bytes.",
-                details={"table": table, "value": m_data, "source": "manifest"}
+                details={"table": table, "value": m_data, "source": "manifest"},
             )
         if isinstance(r_data, int):
             raise DataFidelityError(
                 f"LEGACY FORMAT VIOLATION: receipt['{table}'] is int ({r_data}). "
                 "Storage must send dict with tx_id/columns/count/bytes.",
-                details={"table": table, "value": r_data, "source": "receipt"}
+                details={"table": table, "value": r_data, "source": "receipt"},
             )
 
         m_count = m_data.get("count", 0)
         r_count = r_data.get("count", 0)
 
-        # IDENTITY CHECK: Did Storage process THIS batch?
         m_tx = m_data.get("tx_id")
         r_tx = r_data.get("tx_id")
 
@@ -50,7 +48,6 @@ def reconcile_fidelity(
                 "Possible pipeline cross-talk or stale buffer."
             )
 
-        # TOPOLOGY CHECK: Did Storage preserve all columns?
         m_cols = set(m_data.get("columns", []))
         r_cols = set(r_data.get("columns", []))
 
@@ -62,14 +59,12 @@ def reconcile_fidelity(
                 f"Dropped columns: {dropped_cols}"
             )
 
-        # COUNT CHECK: Row-level data loss (existing logic)
         if m_count > 0 and r_count == 0:
             errors.append(f"{table}: extracted {m_count} -> stored 0 (100% LOSS)")
         elif m_count != r_count:
             delta = m_count - r_count
             warnings.append(f"{table}: extracted {m_count} -> stored {r_count} (delta: {delta})")
 
-        # VOLUME CHECK: Rough data integrity (warning only)
         m_bytes = m_data.get("bytes", 0)
         r_bytes = r_data.get("bytes", 0)
 
