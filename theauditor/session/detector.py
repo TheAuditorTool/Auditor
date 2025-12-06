@@ -1,8 +1,9 @@
 """Auto-detect Claude Code and Codex session directories."""
 
 import json
+from itertools import islice
 from pathlib import Path
-from typing import Literal
+from typing import Iterator, Literal
 
 from theauditor.utils.logging import logger
 
@@ -26,7 +27,6 @@ def detect_session_directory(root_path: Path) -> Path | None:
 
 def detect_claude_code_sessions(root_path: Path, home: Path) -> Path | None:
     """Detect Claude Code session directory."""
-
     project_name = str(root_path).replace("/", "-").replace("\\", "-").replace(":", "-")
 
     candidates = [
@@ -35,26 +35,30 @@ def detect_claude_code_sessions(root_path: Path, home: Path) -> Path | None:
     ]
 
     for candidate in candidates:
-        if candidate.exists() and list(candidate.glob("*.jsonl")):
-            return candidate
+        if candidate.exists():
+            
+            if any(candidate.glob("*.jsonl")):
+                return candidate
 
     return None
 
 
 def detect_codex_sessions(root_path: Path, home: Path) -> Path | None:
-    """Detect Codex session directory by scanning for matching cwd."""
+    """Detect Codex session directory by scanning for matching cwd.
+
+    Uses lazy evaluation (generator) to avoid loading thousands of files into memory.
+    """
     codex_sessions = home / ".codex" / "sessions"
 
     if not codex_sessions.exists():
         return None
 
     try:
-        session_files = list(codex_sessions.rglob("*.jsonl"))
+        
+        session_files_gen = codex_sessions.rglob("*.jsonl")
 
-        if not session_files:
-            return None
-
-        for session_file in session_files[:50]:
+        
+        for session_file in islice(session_files_gen, 50):
             try:
                 with open(session_file) as f:
                     first_line = f.readline()
@@ -76,11 +80,20 @@ def detect_codex_sessions(root_path: Path, home: Path) -> Path | None:
         return None
 
 
-def get_matching_codex_sessions(root_path: Path, sessions_dir: Path) -> list[Path]:
-    """Get all Codex session files matching the project root path."""
-    matching = []
+def get_matching_codex_sessions(
+    root_path: Path, sessions_dir: Path, limit: int = 1000
+) -> Iterator[Path]:
+    """Get Codex session files matching the project root path.
 
+    Returns a generator to avoid loading all paths into memory.
+    Use limit to cap the number of files checked.
+    """
+    checked = 0
     for session_file in sessions_dir.rglob("*.jsonl"):
+        if checked >= limit:
+            break
+        checked += 1
+
         try:
             with open(session_file) as f:
                 first_line = f.readline()
@@ -91,17 +104,14 @@ def get_matching_codex_sessions(root_path: Path, sessions_dir: Path) -> list[Pat
                     cwd = payload.get("cwd", "")
 
                     if Path(cwd).resolve() == root_path.resolve():
-                        matching.append(session_file)
+                        yield session_file
         except (json.JSONDecodeError, OSError) as e:
             logger.warning(f"Skipping corrupt session file: {session_file}: {e}")
             continue
 
-    return matching
-
 
 def detect_agent_type(session_dir: Path) -> AgentType:
     """Detect what type of AI agent created the sessions by inspecting .jsonl format."""
-
     for jsonl_file in session_dir.glob("*.jsonl"):
         try:
             with open(jsonl_file, encoding="utf-8") as f:

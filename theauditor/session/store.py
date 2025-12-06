@@ -1,10 +1,12 @@
-"""SessionExecutionStore - Persist session execution data following dual-write principle."""
+"""SessionExecutionStore - Persist session execution data to SQLite."""
 
 import json
 import sqlite3
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any
+
 from theauditor.utils.logging import logger
 
 
@@ -33,17 +35,16 @@ class SessionExecution:
 
 
 class SessionExecutionStore:
-    """Store session execution data to database and JSON."""
+    """Store session execution data to SQLite database.
 
-    def __init__(self, db_path: Path = None, json_dir: Path = None):
+    Note: JSON dual-write removed - was creating thousands of files.
+    Use database queries for data access instead.
+    """
+
+    def __init__(self, db_path: Path = None):
         """Initialize session execution store."""
-
         self.db_path = db_path or Path(".pf/ml/session_history.db")
-        self.json_dir = json_dir or Path(".pf/ml/session_analysis")
-
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self.json_dir.mkdir(parents=True, exist_ok=True)
-
         self._create_session_executions_table()
 
     def _create_session_executions_table(self):
@@ -96,18 +97,68 @@ class SessionExecutionStore:
             logger.error(f"Failed to create session_executions table: {e}")
             conn.rollback()
             conn.close()
-            raise  # Zero Fallback: Fail fast on DB initialization
+            raise  
         finally:
             conn.close()
 
     def store_execution(self, execution: SessionExecution):
-        """Store session execution (dual-write: DB + JSON)."""
-
+        """Store single session execution to database."""
         self._write_to_db(execution)
+        logger.debug(f"Stored session execution: {execution.session_id}")
 
-        self._write_to_json(execution)
+    def store_executions_batch(self, executions: list[SessionExecution]):
+        """Store multiple executions in a single transaction (much faster)."""
+        if not executions:
+            return
 
-        logger.info(f"Stored session execution: {execution.session_id}")
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        try:
+            last_modified = datetime.now().isoformat()
+            data_to_insert = []
+
+            for exc in executions:
+                diffs_json = json.dumps(exc.diffs_scored)
+                data_to_insert.append((
+                    exc.session_id,
+                    exc.task_description,
+                    1 if exc.workflow_compliant else 0,
+                    exc.compliance_score,
+                    exc.risk_score,
+                    1 if exc.task_completed else 0,
+                    1 if exc.corrections_needed else 0,
+                    1 if exc.rollback else 0,
+                    exc.timestamp,
+                    exc.tool_call_count,
+                    exc.files_modified,
+                    exc.user_message_count,
+                    exc.user_engagement_rate,
+                    diffs_json,
+                    last_modified,
+                ))
+
+            cursor.executemany(
+                """
+                INSERT OR REPLACE INTO session_executions (
+                    session_id, task_description, workflow_compliant,
+                    compliance_score, risk_score, task_completed,
+                    corrections_needed, rollback, timestamp,
+                    tool_call_count, files_modified, user_message_count,
+                    user_engagement_rate, diffs_scored, last_modified
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                data_to_insert,
+            )
+
+            conn.commit()
+            logger.info(f"Batch stored {len(executions)} session executions")
+        except sqlite3.Error as e:
+            logger.error(f"Failed batch write: {e}")
+            conn.rollback()
+            raise  
+        finally:
+            conn.close()
 
     def _write_to_db(self, execution: SessionExecution):
         """Write session execution to database."""
@@ -116,9 +167,6 @@ class SessionExecutionStore:
 
         try:
             diffs_json = json.dumps(execution.diffs_scored)
-
-            from datetime import datetime
-
             last_modified = datetime.now().isoformat()
 
             cursor.execute(
@@ -155,20 +203,9 @@ class SessionExecutionStore:
         except sqlite3.Error as e:
             logger.error(f"Failed to write to database: {e}")
             conn.rollback()
+            raise  
         finally:
             conn.close()
-
-    def _write_to_json(self, execution: SessionExecution):
-        """Write session execution to JSON file."""
-        try:
-            json_file = self.json_dir / f"session_{execution.session_id}.json"
-
-            with open(json_file, "w", encoding="utf-8") as f:
-                json.dump(execution.to_dict(), f, indent=2)
-
-            logger.debug(f"Wrote session to JSON: {json_file}")
-        except Exception as e:
-            logger.error(f"Failed to write JSON: {e}")
 
     def query_executions_for_file(self, file_path: str) -> list[SessionExecution]:
         """Query session executions that modified a specific file."""
