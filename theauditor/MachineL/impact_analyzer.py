@@ -463,7 +463,7 @@ def find_downstream_dependencies_batch(
 
         end_line = 999999
         found_start = False
-        for line, name, _ in file_symbols[file_path]:
+        for line, _name, _ in file_symbols[file_path]:
             if line == start_line:
                 found_start = True
                 continue

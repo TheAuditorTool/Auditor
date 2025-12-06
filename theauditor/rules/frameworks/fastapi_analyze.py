@@ -224,7 +224,7 @@ def _check_no_dependency_injection(db: RuleDB) -> list[StandardFinding]:
 
     di_functions = set()
     di_files = set()
-    for file, caller, callee in di_rows:
+    for file, caller, _callee in di_rows:
         if caller:
             di_functions.add((file, caller))
         di_files.add(file)
@@ -828,7 +828,7 @@ def _check_jwt_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
         .order_by("file, line")
     )
 
-    for file, line, callee, arg_expr in rows:
+    for file, line, _callee, arg_expr in rows:
         arg_expr = arg_expr or ""
         arg_lower = arg_expr.lower()
 

@@ -156,7 +156,7 @@ def _check_python_dependency_bloat(db: RuleDB) -> list[StandardFinding]:
 
     for file_path, counts in file_counts.items():
         prod_count = counts["prod"]
-        dev_count = counts["dev"]
+        counts["dev"]
 
         is_lockfile = any(file_path.endswith(lf) for lf in LOCK_FILES)
 

@@ -337,7 +337,7 @@ class ReactRenderAnalyzer:
             .limit(500)
         )
 
-        for file, line, callee, args in rows:
+        for file, line, _callee, args in rows:
             args_str = str(args) if args else ""
 
             has_index_key = (
@@ -422,7 +422,7 @@ class ReactRenderAnalyzer:
         )
 
         component_ranges: dict[str, list[tuple]] = {}
-        for file, name, start, end, has_jsx in components:
+        for file, name, start, end, _has_jsx in components:
             if file not in component_ranges:
                 component_ranges[file] = []
             component_ranges[file].append((name, start or 0, end or 0))

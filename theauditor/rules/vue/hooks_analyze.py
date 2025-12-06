@@ -464,7 +464,7 @@ def _find_incorrect_hook_order(db: RuleDB, vue_files: set[str]) -> list[Standard
         hooks.sort(key=lambda x: x[0])
         for i in range(len(hooks) - 1):
             current_line, current_hook, current_order = hooks[i]
-            next_line, next_hook, next_order = hooks[i + 1]
+            _next_line, next_hook, next_order = hooks[i + 1]
 
             if current_order > next_order:
                 findings.append(

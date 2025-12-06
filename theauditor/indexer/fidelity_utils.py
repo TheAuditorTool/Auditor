@@ -7,8 +7,6 @@ Enables transactional integrity verification beyond simple counts.
 import uuid
 from typing import Any
 
-from theauditor.utils.logging import logger
-
 
 class FidelityToken:
     """Standardizes fidelity manifest and receipt creation."""
@@ -36,7 +34,7 @@ class FidelityToken:
                 return {
                     "count": len(data),
                     "tx_id": str(uuid.uuid4()),
-                    "columns": sorted(list(first_row.keys())),
+                    "columns": sorted(first_row.keys()),
                     "bytes": sum(len(str(v)) for row in data for v in row.values()),
                 }
             else:

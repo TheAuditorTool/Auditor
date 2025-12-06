@@ -219,7 +219,7 @@ def _check_debug_mode(db: RuleDB) -> list[StandardFinding]:
         .order_by("file, line")
     )
 
-    for file, line, callee, args in rows:
+    for file, line, _callee, args in rows:
         args = args or ""
         if "debug" in args and "True" in args:
             findings.append(

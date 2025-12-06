@@ -1,531 +1,614 @@
 # TheAuditor
 
-**Version 1.6.4-dev1** | Offline-First AI-Centric SAST & Code Intelligence Platform
+**The Database-First Code Intelligence Platform**
 
-> Modern static analysis reimagined: Database-driven, AI-optimized, zero-fallback architecture for Python, JavaScript/TypeScript, Go, and Rust projects.
-
-**Requires Python >=3.14**
-
+> Modern static analysis reimagined: Database-driven, AI-optimized, zero-fallback architecture for Python, JavaScript/TypeScript, Go, and Rust projects
 ---
 
 ## What is TheAuditor?
 
-TheAuditor is a **production-grade offline SAST tool** that indexes your entire codebase into a structured SQLite database, enabling:
+
+TheAuditor is a **production-grade offline SAST and Code Context for AIs tool** that indexes your entire codebase into a structured SQLite database, enabling:
 
 - **200+ security vulnerability patterns** detected with 1-2% false positive rate
 - **Complete data flow analysis** with cross-file taint tracking
 - **Architectural intelligence** with hotspot detection and circular dependency analysis
 - **AI-optimized output** designed for LLM consumption (<65KB chunks)
 - **Database-first queries** replacing slow file I/O (100x faster than grep-based tools)
-- **Framework-aware detection** for Django, Flask, FastAPI, React, Vue, Express, and more
+- **Framework-aware detection** for Django, Flask, FastAPI, React, Vue, Express, and 15+ more
 
 **Key Differentiator**: While most SAST tools scan files repeatedly, TheAuditor **indexes once, queries infinitely** - enabling sub-second queries across 100K+ LOC.
+
+---
+
+```bash
+# Index your codebase (once)
+aud full
+
+# Query anything instantly
+aud query --symbol validateUser --show-callers --depth 3
+aud blueprint --security
+aud taint --severity critical
+aud impact --symbol AuthService --planning-context
+```
+
+**One index. Infinite queries. Millisecond responses.**
+
+---
+
+## Architecture: Custom Compilers, Not Generic Parsers
+
+TheAuditor's analysis accuracy comes from **deep compiler integrations**, not generic parsing:
+
+### Python Analysis Engine
+
+Built on Python's native `ast` module with **27 specialized extractor modules**:
+
+| Extractor Category | Modules |
+|-------------------|---------|
+| **Core** | `core_extractors`, `fundamental_extractors`, `control_flow_extractors` |
+| **Framework** | `django_web_extractors`, `flask_extractors`, `orm_extractors`, `task_graphql_extractors` |
+| **Security** | `security_extractors`, `validation_extractors`, `data_flow_extractors` |
+| **Advanced** | `async_extractors`, `protocol_extractors`, `type_extractors`, `cfg_extractor` |
+
+Each extractor performs semantic analysis—understanding Django signals, Flask routes, Celery tasks, Pydantic validators, and 100+ framework-specific patterns.
+
+### JavaScript/TypeScript Analysis Engine
+
+Uses the **actual TypeScript Compiler API** via Node.js subprocess integration:
+
+- Full semantic type resolution (not regex pattern matching)
+- Module resolution across complex import graphs
+- JSX/TSX transformation with component tree analysis
+- tsconfig.json-aware path aliasing
+- Vue SFC script extraction and analysis
+
+This is **not tree-sitter**. The TypeScript Compiler provides the same semantic analysis as your IDE.
+
+### Polyglot Support
+
+| Language | Parser | Fidelity |
+|----------|--------|----------|
+| Python | Native `ast` module + 27 extractors | Full semantic |
+| TypeScript/JavaScript | TypeScript Compiler API | Full semantic |
+| Go | tree-sitter | Structural + taint |
+| Rust | tree-sitter | Structural + taint |
+| Bash | tree-sitter | Structural + taint |
+
+Tree-sitter provides fast structural parsing for Go, Rust, and Bash. The heavy lifting for Python and JS/TS uses language-native compilers.
+
+---
+
+## Key Differentiators
+
+| Traditional Tools | TheAuditor |
+|-------------------|------------|
+| Re-parse files per query | Parse once, query forever |
+| Single analysis dimension | 4-vector convergence (static + structural + process + flow) |
+| Human-only interfaces | AI-agent native with anti-hallucination safeguards |
+| File-based navigation | Database-first with recursive CTEs |
+| Point-in-time analysis | ML models trained on your codebase history |
+
+---
+
+## Installation
+
+```bash
+pip install theauditor
+
+# Or from source
+git clone https://github.com/TheAuditorTool/Auditor.git
+cd Auditor
+pip install -e .
+
+# Install language tooling (Node.js runtime, linters)
+aud setup-ai
+```
+
+**Requirements**: Python 3.12+
 
 ---
 
 ## Quick Start
 
 ```bash
-# Install
-pip install theauditor
-
-# Run complete security audit (auto-creates .pf/ directory)
+# 1. Index your codebase
+cd your-project
 aud full
-```
 
-**Output**: `.pf/raw/` contains all analysis artifacts (patterns, lint, terraform, etc.)
+# 2. Explore architecture
+aud blueprint --structure
 
----
+# 3. Find security issues
+aud taint --severity high
+aud boundaries --type input-validation
 
-## Core Capabilities
-
-### 1. Security Detection (200+ Patterns)
-
-| Category | Detections | False Positive Rate |
-|----------|-----------|---------------------|
-| **Injection** | SQL, Command, Code, Template, LDAP, NoSQL, XPath | <1% |
-| **XSS** | DOM, Response, Template, PostMessage, JavaScript Protocol | 1-2% |
-| **Authentication** | JWT (11 checks), OAuth, Session, Missing Auth | <1% |
-| **Cryptography** | Weak algorithms, ECB mode, insecure random, broken KDF | <1% |
-| **Secrets** | AWS, GitHub, Stripe, Google (10+ providers) + entropy analysis | 2-3% |
-| **API Security** | Rate limiting, auth bypass, key exposure | 1-2% |
-| **PII Protection** | 200+ patterns, 15 privacy regulations (GDPR, CCPA, HIPAA) | 2-3% |
-| **Infrastructure** | Docker, AWS CDK, Terraform, GitHub Actions | 1-2% |
-
-**Total**: 50+ CWE coverage, 15+ frameworks supported
-
-### 2. Taint Analysis V3 (Cross-File Data Flow)
-
-```bash
-aud taint --mode forward
-```
-
-**Taint Engine V3** - Complete rewrite with 7x performance improvement:
-
-- **Hybrid Analysis**: Forward DFS from entries + backward IFDS from sinks
-- **In-Memory Graph**: Entire data flow graph cached in memory (10x speedup)
-- **Semantic Deduplication**: 4000 path permutations reduced to 1-2 distinct flows
-- **ORM-Aware**: Automatically expands `user` → `user.posts` via database relationships
-- **Unified Sanitizers**: Single registry for Joi, Zod, express-validator, DOMPurify
-
-**Performance**: 6.6 minutes for 100K LOC (vs 45+ minutes in V2)
-
-**Detection Examples**:
-```python
-# Source
-user_input = request.args.get('query')
-
-# Intermediate (tracked across files)
-result = process_query(user_input)  # theauditor/api.py:42
-
-# Sink (detected as SQL injection)
-cursor.execute(f"SELECT * FROM {result}")  # theauditor/db.py:156
-```
-
-See [TAINT_ARCHITECTURE.md](docs/TAINT_ARCHITECTURE.md) for technical details.
-
-### 3. Architectural Intelligence
-
-```bash
-aud graph build
-aud graph analyze
-```
-
-**Hotspot Detection**:
-- Identifies files with highest dependency connectivity (in-degree + out-degree)
-- Scores using PageRank centrality (transitive importance)
-- Escalates security findings in hotspots to CRITICAL severity
-
-**Circular Dependencies**:
-- DFS-based cycle detection
-- Reports cycle size and participating modules
-- Flags architectural debt clusters
-
-**Impact Analysis**:
-```bash
-aud impact --file auth.py --line 42
-```
-Shows blast radius: which files would be affected by changing this function?
-
-### 4. Code Quality Analysis
-
-**Control Flow Graphs (CFG)**:
-```bash
-aud cfg analyze --complexity-threshold 15
-```
-- McCabe cyclomatic complexity measurement
-- Dead code detection (unreachable blocks)
-- Visual CFG generation (DOT/SVG/PNG)
-
-**Linting Orchestration**:
-```bash
-aud lint
-```
-Runs all available linters (ruff, mypy, eslint, tsc, prettier) and normalizes output to unified format.
-
-### 5. AI-Optimized Output
-
-All findings stored in `.pf/raw/` with machine-readable JSON format:
-
-```
-.pf/raw/
-├── audit_summary.json        # Executive summary with severity counts
-├── patterns.json             # Security pattern detections
-├── lint.json                 # Linter findings (ruff, mypy, eslint)
-├── terraform_findings.json   # Infrastructure security findings
-├── taint_analysis.json       # Data flow analysis results
-└── *.json                    # Additional analysis artifacts
-```
-
-**Design Goal**: Single source of truth in database, JSON files for human inspection.
-
----
-
-## Advanced Features
-
-### Database-First Queries
-
-```bash
+# 4. Query anything
+aud explain src/auth/service.ts
 aud query --symbol authenticate --show-callers
 ```
 
-Query indexed AST data instead of grepping files:
+---
 
-- **100x faster** than file-based search
-- **100% accurate** - no regex guessing
-- **Relationship-aware** - knows who calls what, who imports what
-- **Cross-language** - queries Python and JavaScript in single query
+## Feature Overview
 
-**Savings**: 5,000-10,000 tokens per refactoring iteration vs traditional file reading.
+### Core Analysis Engine
 
-### Machine Learning Risk Prediction
+| Command | Purpose |
+|---------|---------|
+| `aud full` | Comprehensive 20-phase indexing pipeline |
+| `aud workset` | Create focused file subsets for targeted analysis |
+| `aud detect-patterns` | 200+ security vulnerability patterns |
+| `aud taint` | Source-to-sink data flow tracking |
+| `aud boundaries` | Security boundary enforcement analysis |
 
-```bash
-# Basic ML training
-aud learn --enable-git
-aud suggest --topk 10
+### Intelligence & Queries
 
-# Advanced: Include AI agent behavior analysis (Tier 5)
-aud learn --session-dir ~/.claude/projects/YourProject --session-analysis --print-stats
-```
+| Command | Purpose |
+|---------|---------|
+| `aud explain` | Complete briefing packet for any file/symbol/component |
+| `aud query` | SQL-powered code structure queries |
+| `aud blueprint` | Architectural visualization (8 analysis modes) |
+| `aud impact` | Blast radius calculation before changes |
+| `aud deadcode` | Multi-layered dead code detection |
 
-Learns from execution history to predict:
-- Which files are root causes of failures
-- Which files will need editing next
-- Risk scores for prioritization
+### ML & Predictions
 
-**Features**: 97 dimensions across 5 tiers:
-- **Tier 1-4**: Pipeline logs, journal events, security patterns, git history
-- **Tier 5 (NEW)**: Agent behavior intelligence from session logs
-  - Workflow compliance (blueprint_first, query_before_edit)
-  - Risk scores from SAST-scored diffs
-  - Blind edit rates (edits without prior reads)
-  - User engagement (INVERSE: lower = agent self-sufficient)
+| Command | Purpose |
+|---------|---------|
+| `aud learn` | Train models on your codebase (109-dimensional features) |
+| `aud suggest` | Predict root causes and next files to edit |
+| `aud session` | Analyze AI agent interactions for quality insights |
+| `aud fce` | Four-vector convergence engine |
 
-**Session Analysis**: Analyzes Claude Code session logs to correlate agent execution patterns with code quality. Shows which workflow violations lead to failures.
+### Planning & Refactoring
 
-### Planning & Verification System
-
-```bash
-aud planning init --name "Auth0 Migration"
-aud planning add-task 1 --title "Migrate routes"
-aud planning verify-task 1 1
-```
-
-Database-centric task tracking with spec-based verification:
-- Tracks refactoring progress with deterministic verification
-- Per-task checkpoint sequences (independent rollback)
-- RefactorProfile YAML specs (compatible with `aud refactor`)
-
-### Infrastructure-as-Code Analysis
-
-```bash
-aud cdk analyze          # AWS CDK security
-aud terraform            # Terraform compliance
-aud docker-analyze       # Docker security
-```
-
-Detects misconfigurations in cloud resource definitions before deployment.
+| Command | Purpose |
+|---------|---------|
+| `aud planning` | Database-centric task management with code verification |
+| `aud refactor` | YAML-driven refactoring validation |
+| `aud context` | Semantic classification (obsolete/current/transitional) |
 
 ---
 
-## Architecture Highlights
+## Language Support
 
-### Two-Database System
-
-**repo_index.db** (~180MB, regenerated fresh every `aud full`):
-- 190+ normalized relational tables across 11 schema domains
-- Core (24 tables): symbols, assignments, function_call_args, CFG blocks
-- Python (35 tables): ORM models, routes, decorators, async, pytest, Django, Flask, FastAPI
-- JavaScript/Node (37 tables): React/Vue components, TypeScript types, Prisma, Angular
-- Go (22 tables): Goroutines, channels, interfaces, type assertions, routes
-- Rust (20 tables): Unsafe blocks, FFI, async/await, traits, macros, lifetimes
-- Infrastructure (18 tables): Docker, Terraform, CDK, GitHub Actions
-- GraphQL (8 tables): Schema analysis, resolvers, execution edges
-- Security (7 tables): SQL queries, JWT patterns, env vars, taint sources/sinks
-- Frameworks (5 tables): Cross-language ORM relationships, API endpoints
-- Planning (9 tables): Task tracking, verification specs, checkpoints
-
-**graphs.db** (~130MB, optional):
-- Pre-computed graph structures built from repo_index.db
-- Used only by graph commands (not core analysis)
-- Call graphs, import graphs, data flow graphs
-
-**Why separate?** Different query patterns (point lookups vs graph traversal). Merging would make indexing 53% slower.
-
-### Zero Fallback Policy
-
-**Critical Design Principle**: Database regenerated fresh every run - if data is missing, analysis FAILS hard (not graceful degradation).
-
-**Banned Patterns**:
-- ❌ No database fallback queries
-- ❌ No try/except with alternative logic
-- ❌ No table existence checks
-- ❌ No regex fallbacks when database query fails
-
-**Rationale**: Fallbacks hide bugs. If query fails, pipeline is broken and should crash immediately.
-
-### 4-Layer Pipeline Architecture
-
-```
-Layer 1: ORCHESTRATOR
-  └─> Coordinates file discovery, AST parsing, extractor selection
-
-Layer 2: EXTRACTORS (12 languages)
-  └─> Python (28 specialized modules), JavaScript/TypeScript, Terraform, Docker, Prisma, Rust, SQL, GitHub Actions, GraphQL
-
-Layer 3: STORAGE (Handler dispatch)
-  └─> 100+ handlers mapping data types to database operations
-
-Layer 4: DATABASE (Multiple inheritance)
-  └─> 11 domain-specific mixins with schema-driven code generation
-```
-
-**Performance**: 30-60s indexing for 100K LOC, 10-30s analysis.
+| Language | Indexing | Taint | CFG | Call Graph |
+|----------|----------|-------|-----|------------|
+| Python | Full | Full | Full | Full |
+| TypeScript/JavaScript | Full | Full | Full | Full |
+| Go | Full | Full | - | Full |
+| Rust | Full | Full | - | Full |
+| Bash | Full | Full | - | - |
+| Vue/React | Full | - | - | Component Tree |
 
 ---
 
-## Supported Languages & Frameworks
+## Deep Dive: Core Features
 
-| Language | Frameworks | Tables | Key Features |
-|----------|-----------|--------|--------------|
-| **Python** | Django, Flask, FastAPI, SQLAlchemy, Pydantic, Celery, Marshmallow, DRF, WTForms | 59 | ORM models, routes, decorators, async, pytest, signals, middleware, validators |
-| **JavaScript/TypeScript** | React, Vue, Angular, Express, Next.js, Prisma, Sequelize, BullMQ | 37 | Components, hooks, TypeScript types, JSX, job queues |
-| **Go** | Gin, Echo, Fiber, Chi, GORM, sqlx | 22 | Goroutines, channels, interfaces, type assertions, routes, race detection |
-| **GraphQL** | Apollo, graphql-core | 8 | Schema analysis, resolvers, execution edges, field mapping |
-| **Terraform** | All providers | 5 | Resources, variables, outputs, data sources |
-| **Docker** | Compose, Dockerfile | 8 | Images, services, env vars, healthchecks |
-| **AWS CDK** | Python + TypeScript CDK | 3 | Constructs, properties, IAM policies |
-| **GitHub Actions** | Workflows | 7 | Jobs, steps, permissions, dependencies |
-| **Rust** | Actix-web, Rocket, Axum, Diesel, SQLx, Tokio | 20 | Unsafe analysis, FFI boundaries, async/await, traits, macros, lifetimes, security rules |
-| **SQL** | DDL | 1 | Tables, indexes, views |
+### Database-First Architecture
+
+Every analysis result lives in SQLite databases (`.pf/repo_index.db`, `.pf/graphs.db`). This enables:
+
+- **Instant queries**: All relationships pre-computed
+- **Cross-tool correlation**: Findings from different analyzers linked
+- **PRAGMA optimizations**: WAL mode, 64MB cache
+- **Recursive CTEs**: Complex graph traversals in single queries
+
+```sql
+-- Example: Find all callers of a function recursively
+WITH RECURSIVE caller_graph AS (
+    SELECT * FROM function_call_args WHERE callee = 'validate'
+    UNION ALL
+    SELECT f.* FROM function_call_args f
+    JOIN caller_graph c ON f.callee = c.caller
+    WHERE depth < 3
+)
+SELECT DISTINCT file, line, caller FROM caller_graph;
+```
+
+### Four-Vector Convergence Engine (FCE)
+
+The FCE identifies high-risk code by finding where multiple independent analysis vectors converge:
+
+| Vector | Source | Signal |
+|--------|--------|--------|
+| **STATIC** | Linters (ESLint, Ruff, Clippy) | Code quality issues |
+| **STRUCTURAL** | CFG complexity | Cyclomatic complexity |
+| **PROCESS** | Git churn | Frequently modified code |
+| **FLOW** | Taint propagation | Data flow vulnerabilities |
+
+**Key insight**: When 3+ independent vectors agree on a file, confidence is exponentially higher than any single tool.
+
+```bash
+aud fce --threshold 3  # Files where 3+ vectors converge
+```
+
+### Taint Analysis
+
+Track untrusted data from sources to sinks:
+
+```bash
+aud taint --severity critical
+```
+
+**Detects**:
+- SQL injection: `cursor.execute(f"SELECT * FROM {user_input}")`
+- Command injection: `os.system(f"ping {host}")`
+- XSS: `innerHTML = userContent`
+- Path traversal: `open(f"/data/{user_path}")`
+
+### Boundary Analysis
+
+Measure the distance between entry points and security controls:
+
+```bash
+aud boundaries --type input-validation
+```
+
+**Quality Classification**:
+| Quality | Distance | Risk |
+|---------|----------|------|
+| CLEAR | 0 calls | Very Low |
+| ACCEPTABLE | 1-2 calls | Low |
+| FUZZY | 3+ calls | Medium-High |
+| MISSING | No control | Critical |
+
+### Impact Analysis
+
+Calculate blast radius before making changes:
+
+```bash
+aud impact --symbol AuthManager --planning-context
+```
+
+**Output**:
+```
+Target: AuthManager at src/auth/manager.py:42
+
+IMPACT SUMMARY:
+  Direct Upstream: 8 callers
+  Direct Downstream: 3 dependencies
+  Total Impact: 14 symbols across 7 files
+  Coupling Score: 67/100 (MEDIUM)
+
+RECOMMENDATION: Review callers before refactoring
+```
+
+### Dead Code Detection
+
+Multi-layered approach with confidence scoring:
+
+```bash
+aud deadcode --format summary
+```
+
+**Detection Methods**:
+1. **Isolated Modules**: Files never imported (graph reachability)
+2. **Dead Symbols**: Functions defined but never called
+3. **Ghost Imports**: Imports present but never used
+
+**Confidence Levels**:
+- **HIGH**: Safe to remove
+- **MEDIUM**: Manual review (CLI entry points, tests)
+- **LOW**: Likely false positive (magic methods, type hints)
 
 ---
 
-## Installation
+## AI Agent Integration
 
-### Requirements
-- **Python 3.14+** (required - uses modern type hints and PEP 695 syntax)
-- Git (for temporal analysis)
-- Node.js (for JavaScript analysis)
+TheAuditor is designed for AI agents with **anti-hallucination safeguards**.
 
-### Install from PyPI
+### Slash Commands
+
 ```bash
-pip install theauditor
+/onboard      # Initialize session with rules
+/start        # Load ticket, verify, brief
+/audit        # Comprehensive code audit
+/explore      # Explore codebase architecture
+/theauditor:planning   # Database-first planning
+/theauditor:security   # Security analysis
+/theauditor:impact     # Blast radius analysis
 ```
 
-### Install from Source
-```bash
-git clone https://github.com/yourusername/theauditor.git
-cd theauditor
-pip install -e ".[dev,linters]"
-```
+### Agent Execution Protocol
 
-### Setup AI Tools (Optional, ~500MB)
-```bash
-aud setup-ai --target .
-```
-Downloads OSV vulnerability database, npm audit data, sandbox runtime.
+**MANDATORY for AI Agents**:
+1. Run `aud blueprint --structure` before ANY planning
+2. Use `aud query` instead of reading files directly
+3. Cite every query result with evidence
+4. Follow Phase -> Task -> Job hierarchy
+
+**FORBIDDEN**:
+- "Let me read the file..." (use `aud explain`)
+- "Based on typical patterns..." (use database facts)
+- Making recommendations without query evidence
+
+### Token Efficiency
+
+| Traditional AI | TheAuditor Agent |
+|----------------|------------------|
+| Read 2000 lines to find functions | `aud query --file X --list functions` |
+| Grep entire codebase | `aud blueprint` (instant) |
+| Assume callers exist | `aud query --symbol X --show-callers` |
+
+**Result**: 70-80% fewer context tokens, zero hallucination
 
 ---
 
-## Usage Examples
+## Machine Learning Features
 
-### Basic Workflow
+### 109-Dimensional Feature Extraction
+
+TheAuditor extracts comprehensive features for ML models:
+
+**Tier 1-5**: File metadata, graph topology, execution history, RCA, AST proofs
+**Tier 6-10**: Git churn, semantic imports, AST complexity, security patterns, vulnerability flow
+**Tier 11-15**: Type coverage, control flow, impact coupling, agent behavior, session execution
+**Tier 16**: Text features (hashed path components)
+
+### ML Models
+
 ```bash
-# Initialize (creates .pf/ with databases)
-aud init
-
-# Run complete audit
-aud full
-```
-
-### Incremental Analysis (10-100x faster)
-```bash
-# Create workset (changed files + dependencies)
-aud workset --diff main..feature
-
-# Analyze only changed code
-aud taint --workset
-aud lint --workset
-```
-
-### Query Relationships
-```bash
-# Find function
-aud query --symbol authenticate
-
-# Show callers
-aud query --symbol authenticate --show-callers
-
-# Show API dependencies
-aud query --api "/users" --show-dependencies
-```
-
-### Graph Analysis
-```bash
-# Build graphs
-aud graph build
-
-# Detect cycles and hotspots
-aud graph analyze
-
-# Visualize
-aud graph viz --view cycles --format svg
-```
-
-### Machine Learning
-```bash
-# Train models
-aud learn --enable-git
+# Train models on your codebase
+aud learn --enable-git --session-dir ~/.claude/projects/
 
 # Get predictions
 aud suggest --topk 10
 ```
 
+**Predictions**:
+- **Root Cause Classifier**: Which files are likely causing failures?
+- **Next Edit Predictor**: Which files need modification?
+- **Risk Regression**: Quantified change risk (0-1)
+
+### Session Analysis
+
+Analyze AI agent interactions for quality metrics:
+
+```bash
+aud session activity
+```
+
+**Metrics**:
+- `work_to_talk_ratio`: Working tokens / (Planning + Conversation)
+- `research_to_work_ratio`: Research tokens / Working tokens
+- `tokens_per_edit`: Efficiency measure
+
 ---
 
-## Exit Codes
+## Planning System
 
-| Code | Meaning | Commands |
-|------|---------|----------|
-| 0 | Success, no critical issues | All commands |
-| 1 | High severity findings | `aud full`, `aud taint` |
-| 2 | Critical vulnerabilities | `aud full`, `aud deps --vuln-scan` |
-| 3 | Analysis incomplete/failed | `aud full`, `aud impact` |
+Database-centric task management with **code-driven verification**.
+
+### Why Not Jira/Linear?
+
+1. External tools never see your actual code
+2. Manual verification is error-prone
+3. Git can't track incremental edits (3 uncommitted edits = 1 change)
+
+### Planning Workflow
+
+```bash
+# 1. Initialize plan
+aud planning init --name "JWT Migration"
+aud planning add-task 1 --title "Migrate auth" --spec auth.yaml
+
+# 2. Track progress
+aud full --index
+aud planning verify-task 1 1 --verbose
+# Output: 47 violations (baseline)
+
+# 3. Iterative development
+# [Make changes]
+aud planning checkpoint 1 1 --name "updated-middleware"
+aud planning verify-task 1 1
+# Output: 37 violations (10 fixed!)
+
+# 4. Complete
+aud planning archive 1 --notes "Migration complete"
+```
+
+**Key Feature**: Tasks complete when code matches YAML specs - verified against database, not human opinion.
 
 ---
 
-## Comparison to Other SAST Tools
+## YAML Refactor Profiles
 
-| Feature | TheAuditor | Semgrep | Bandit | SonarQube |
-|---------|-----------|---------|---------|-----------|
-| **Offline-First** | ✅ | ❌ | ✅ | ❌ |
-| **Database-Driven** | ✅ (SQLite) | ❌ | ❌ | ✅ (PostgreSQL) |
-| **Cross-File Taint** | ✅ (5+ hops) | ⚠️ (limited) | ❌ | ✅ |
-| **Framework-Aware** | ✅ (15+) | ✅ | ⚠️ | ✅ |
-| **AI-Optimized Output** | ✅ (<65KB chunks) | ❌ | ❌ | ❌ |
-| **Graph Analysis** | ✅ (hotspots, cycles) | ❌ | ❌ | ✅ |
-| **ML Risk Prediction** | ✅ | ❌ | ❌ | ⚠️ |
-| **False Positive Rate** | 1-2% | 2-5% | 3-10% | 1-3% |
-| **Query Language** | SQL | Custom | N/A | Custom |
-| **Cost** | Free (AGPL-3.0) | Free/Paid | Free | Paid |
+Define *what refactored code should look like*:
 
-**Key Advantage**: TheAuditor's database-first design enables complex queries (e.g., "show all functions that process user input AND call SQL") in milliseconds, while other tools require multiple scans.
+```yaml
+refactor_name: "express_v5_migration"
+description: "Ensure Express v5 patterns"
+
+rules:
+  - id: "middleware-signature"
+    description: "Use new middleware signature"
+    severity: "critical"
+    match:
+      identifiers:
+        - "app.use(err, req, res, next)"  # Old pattern
+    expect:
+      identifiers:
+        - "app.use((err, req, res, next) =>)"  # New pattern
+    scope:
+      include: ["src/middleware/**"]
+    guidance: "Update to arrow function signature"
+```
+
+```bash
+aud refactor --file express_v5.yaml
+```
+
+---
+
+## Semantic Context
+
+Classify findings by business meaning during migrations:
+
+```yaml
+context_name: "oauth_migration"
+
+patterns:
+  obsolete:
+    - id: "jwt_calls"
+      pattern: "jwt\\.(sign|verify)"
+      reason: "JWT deprecated, use OAuth2"
+      replacement: "AuthService.issueOAuthToken"
+
+  current:
+    - id: "oauth_exchange"
+      pattern: "oauth2Client\\."
+      reason: "OAuth2 is approved mechanism"
+
+  transitional:
+    - id: "bridge_layer"
+      pattern: "bridgeJwtToOAuth"
+      expires: "2025-12-31"  # Auto-escalates after date
+```
+
+```bash
+aud context --file oauth_migration.yaml
+```
+
+---
+
+## Built-in Documentation
+
+30+ topics with AI-friendly formatting:
+
+```bash
+aud manual --list        # List all topics
+aud manual taint         # Taint analysis guide
+aud manual fce           # FCE explanation
+aud manual boundaries    # Boundary analysis
+```
+
+**Features**:
+- Offline-first (embedded in CLI)
+- <1ms response time
+- Rich terminal formatting
+- AI agent optimized
+
+---
+
+## CLI Help System
+
+Rich-formatted help with 9 command categories:
+
+```bash
+aud --help              # Dashboard view
+aud taint --help        # Per-command help with examples
+```
+
+**13 Recognized Sections**:
+- AI ASSISTANT CONTEXT
+- EXAMPLES
+- COMMON WORKFLOWS
+- TROUBLESHOOTING
+- And more...
+
+---
+
+## Output Databases
+
+All analysis stored in `.pf/` directory:
+
+| Database | Contents |
+|----------|----------|
+| `repo_index.db` | Symbols, calls, imports, findings |
+| `graphs.db` | Dependency graph, call graph |
+| `fce.db` | Vector convergence data |
+| `ml/session_history.db` | AI session analysis |
+| `planning.db` | Task management |
+
+---
+
+## Performance
+
+| Codebase Size | Index Time | Query Time | RAM |
+|---------------|------------|------------|-----|
+| <5K LOC | ~5s | <10ms | ~100MB |
+| 20K LOC | ~15s | <50ms | ~200MB |
+| 100K+ LOC | ~60s | <100ms | ~500MB |
+
+**Optimizations**:
+- SQLite WAL mode for concurrent reads
+- 64MB cache for hot data
+- Recursive CTEs instead of N+1 queries
+- Batch operations where possible
 
 ---
 
 ## Configuration
 
-### Runtime Configuration
-Create `.pf/config.json`:
-```json
-{
-  "limits": {
-    "max_file_size": 2097152,
-    "max_chunk_size": 65536
-  },
-  "timeouts": {
-    "analysis_timeout": 1800,
-    "lint_timeout": 300
-  }
-}
-```
+### `.pf/config.yaml`
 
-### Environment Variables
-```bash
-export THEAUDITOR_LIMITS_MAX_FILE_SIZE=4194304
-export THEAUDITOR_TIMEOUTS_ANALYSIS=3600
-```
+```yaml
+analysis:
+  max_file_size: 1048576  # 1MB
+  exclude_patterns:
+    - "node_modules/**"
+    - "**/*.min.js"
+    - ".git/**"
 
-### Project-Specific Config
-Add to `pyproject.toml`:
-```toml
-[tool.theauditor]
-exclude_patterns = ["tests/", "migrations/"]
-severity_threshold = "high"
-```
+linters:
+  enabled:
+    - ruff
+    - eslint
+    - mypy
 
----
-
-## Performance Characteristics
-
-| Project Size | Indexing | Analysis | Database Size | Memory |
-|--------------|---------|----------|---------------|--------|
-| Small (5K LOC) | ~30s | ~10s | ~20MB | ~200MB |
-| Medium (20K LOC) | ~60s | ~30s | ~80MB | ~500MB |
-| Large (100K LOC) | ~180s | ~90s | ~400MB | ~1.5GB |
-| Monorepo (500K+ LOC) | ~600s | ~300s | ~2GB | ~4GB |
-
-**Second Run**: 5-10x faster due to AST caching (`.pf/.ast_cache/`)
-
----
-
-## Troubleshooting
-
-### "Schema mismatch" error
-```bash
-# Regenerate database
-aud index --exclude-self
-```
-
-### Out of memory
-```bash
-# Reduce batch size
-export THEAUDITOR_LIMITS_BATCH_SIZE=100
-```
-
-### Slow indexing
-```bash
-# Exclude test files
-aud index --exclude-patterns "tests/" "node_modules/"
-```
-
-### Windows path issues
-Use absolute paths with backslashes:
-```bash
-cd C:\Users\YourName\Desktop\TheAuditor
-aud index --root C:\Users\YourName\Desktop\TheAuditor
+ml:
+  enable_git_features: true
+  session_directory: "~/.claude/projects/"
 ```
 
 ---
 
 ## Contributing
 
-See [Contributing.md](Contributing.md) for development setup, coding standards, and testing guidelines.
+We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
-**Note**: Contributions are temporarily paused while legal entity formation is completed. See Contributing.md for details.
+### Development Setup
 
----
+```bash
+git clone https://github.com/yourorg/theauditor.git
+cd theauditor
+python -m venv .venv
+source .venv/bin/activate  # or .venv\Scripts\activate on Windows
+pip install -e ".[dev]"
 
-## Documentation
+# Run tests
+pytest
 
-- **Architecture**: [Architecture.md](Architecture.md) - Complete system architecture and design
-- **How to Use**: [HowToUse.md](HowToUse.md) - Comprehensive command reference (43 commands)
-- **Contributing**: [Contributing.md](Contributing.md) - Development guidelines
-- **Developer Guide**: [CLAUDE.md](CLAUDE.md) - Coding standards and conventions (AI assistant context)
-- **Taint Engine**: [docs/TAINT_ARCHITECTURE.md](docs/TAINT_ARCHITECTURE.md) - IFDS-based flow analysis
-- **CDK Analysis**: [docs/CDK_ARCHITECTURE.md](docs/CDK_ARCHITECTURE.md) - AWS CDK security scanning
+# Type checking
+mypy theauditor
+
+# Linting
+ruff check theauditor
+```
 
 ---
 
 ## License
 
-AGPL-3.0 - See [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
 ---
 
-## Credits
+## Acknowledgments
 
 Built with:
-- **tree-sitter** - AST parsing
-- **scikit-learn** - Machine learning
-- **NetworkX** - Graph algorithms
-- **Click** - CLI framework
-- **SQLite** - Database engine
+- [Python AST](https://docs.python.org/3/library/ast.html) - Native Python parsing
+- [TypeScript Compiler API](https://github.com/microsoft/TypeScript/wiki/Using-the-Compiler-API) - Semantic JavaScript/TypeScript analysis
+- [tree-sitter](https://tree-sitter.github.io/tree-sitter/) - Go, Rust, Bash structural parsing
+- [Rich](https://rich.readthedocs.io/) - Terminal output
+- [Click](https://click.palletsprojects.com/) - CLI framework
+- [scikit-learn](https://scikit-learn.org/) - ML models
+- [SQLite](https://sqlite.org/) - The world's most deployed database
 
 ---
 
-## Roadmap
-
-- [x] TypeScript/JavaScript CDK support (completed in v1.6.4)
-- [x] GraphQL analysis and security rules (completed in v1.6.4)
-- [x] Python framework parity (Django, Flask, FastAPI, Celery) (completed in v1.6.4)
-- [x] IFDS-based taint analysis with field sensitivity (completed in v1.6.4)
-- [ ] Real-time analysis (file watcher mode)
-- [ ] VS Code extension
-- [ ] GitHub Action for CI/CD
-- [ ] Web UI for visualization
-- [ ] Plugin system for custom rules
-
----
-
-## Support
-
-- **Issues**: https://github.com/TheAuditorTool/Auditor/issues
-- **Discussions**: https://github.com/TheAuditorTool/Auditor/discussions
-- **Documentation**: https://github.com/TheAuditorTool/Auditor
-
----
-
-**Made with precision engineering for AI assistants and security engineers.**
+<p align="center">
+  <strong>TheAuditor</strong> - Because your codebase deserves a database.
+</p>

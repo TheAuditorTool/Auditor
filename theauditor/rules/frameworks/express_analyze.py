@@ -332,7 +332,7 @@ def _check_xss_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
         .order_by("file, line")
     )
 
-    for file, line, method, arg_expr in rows:
+    for file, line, _method, arg_expr in rows:
         if not arg_expr:
             continue
 
@@ -393,7 +393,7 @@ def _check_open_redirect(db: RuleDB) -> list[StandardFinding]:
         .order_by("file, line")
     )
 
-    for file, line, method, arg_expr in rows:
+    for file, line, _method, arg_expr in rows:
         if not arg_expr:
             continue
 
@@ -983,7 +983,7 @@ def _check_trust_proxy(db: RuleDB, express_files: list[str]) -> list[StandardFin
         .order_by("file, line")
     )
 
-    for file, line, callee, arg_expr in rows:
+    for file, line, _callee, arg_expr in rows:
         arg_expr = arg_expr or ""
 
         if "true" in arg_expr.lower() or "'*'" in arg_expr or '"*"' in arg_expr:

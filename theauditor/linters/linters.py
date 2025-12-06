@@ -6,7 +6,6 @@ Individual linter implementations are in separate modules.
 
 import asyncio
 import json
-import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -94,7 +93,7 @@ class LinterOrchestrator:
             workset_set = set(workset_files)
             js_files = [f for f in js_files if f in workset_set]
             py_files = [f for f in py_files if f in workset_set]
-            rs_files = [f for f in rs_files if f in workset_set]
+            rs_files = list(filter(workset_set.__contains__, rs_files))
             go_files = [f for f in go_files if f in workset_set]
             sh_files = [f for f in sh_files if f in workset_set]
 
@@ -111,7 +110,7 @@ class LinterOrchestrator:
             logger.info(f"Queuing Mypy for {len(py_files)} Python files")
             linters.append(("mypy", MypyLinter(self.toolbox, self.root), py_files))
 
-        if rs_files:
+        if len(rs_files) > 0:
             logger.info(f"Queuing Clippy for {len(rs_files)} Rust files")
             linters.append(("clippy", ClippyLinter(self.toolbox, self.root), rs_files))
 
@@ -133,7 +132,7 @@ class LinterOrchestrator:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         all_findings: list[Finding] = []
-        for (name, linter, files), result in zip(linters, results, strict=True):
+        for (name, _linter, _files), result in zip(linters, results, strict=True):
             if isinstance(result, Exception):
                 logger.error(f"[{name}] Failed with exception: {result}")
                 continue

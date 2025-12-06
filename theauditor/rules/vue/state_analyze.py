@@ -390,7 +390,7 @@ def _find_large_stores(db: RuleDB, store_files: set[str]) -> list[StandardFindin
         action_count = 0
         mutation_count = 0
 
-        for path, name in symbol_rows:
+        for _path, name in symbol_rows:
             if name.startswith("state.") or name.startswith("state:"):
                 state_count += 1
 

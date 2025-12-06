@@ -85,10 +85,7 @@ def _format_stderr_output(stderr: str, max_chars: int = 300) -> list[str]:
         if not line:
             continue
 
-        if _LOGURU_PATTERN.match(line):
-            formatted = f"  {line}"
-        else:
-            formatted = f"  Error: {line}"
+        formatted = f"  {line}" if _LOGURU_PATTERN.match(line) else f"  Error: {line}"
 
         if char_count + len(formatted) > max_chars:
             remaining = max_chars - char_count
@@ -165,7 +162,7 @@ def _format_phase_output(stdout: str, phase_name: str, max_lines: int = 3) -> li
             if shown >= max_lines:
                 break
 
-    remaining = len([l for l in lines if l.strip()]) - shown
+    remaining = len([line for line in lines if line.strip()]) - shown
     if remaining > 0:
         output.append(f"  [dim]... ([cyan]{remaining}[/cyan] more lines)[/dim]")
 
@@ -213,8 +210,6 @@ async def run_command_async(cmd: list[str], cwd: str, timeout: int = 900) -> Pha
         )
 
         try:
-            stdout_chunks = []
-            stderr_chunks = []
 
             while True:
                 if is_stop_requested():

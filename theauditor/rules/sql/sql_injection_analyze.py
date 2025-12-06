@@ -440,7 +440,7 @@ def _check_stored_procedure_injection(db: RuleDB) -> list[StandardFinding]:
             .order_by("file, line")
         )
 
-        for file, line, func, args in rows:
+        for file, line, _func, args in rows:
             if not args:
                 continue
 

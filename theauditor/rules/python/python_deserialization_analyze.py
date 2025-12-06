@@ -239,7 +239,7 @@ def _check_pickle_usage(db: RuleDB, add_finding) -> None:
     )
 
     for row in rows:
-        file, line, method, args, caller = row[0], row[1], row[2], row[3], row[4]
+        file, line, method, args, _caller = row[0], row[1], row[2], row[3], row[4]
 
         data_source = _check_data_source(db, file, line, args)
 

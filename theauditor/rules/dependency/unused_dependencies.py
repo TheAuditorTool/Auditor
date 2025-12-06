@@ -225,7 +225,7 @@ def _get_script_referenced_packages(db: RuleDB) -> set[str]:
         Q("package_scripts").select("script_name", "script_command").order_by("script_name")
     )
 
-    for script_name, script_command in rows:
+    for _script_name, script_command in rows:
         if not script_command:
             continue
 
@@ -408,7 +408,4 @@ def _is_exempt_package(package: str) -> bool:
         "-preset",
         "-config",
     )
-    if any(pattern in pkg_lower for pattern in exempt_patterns):
-        return True
-
-    return False
+    return bool(any(pattern in pkg_lower for pattern in exempt_patterns))

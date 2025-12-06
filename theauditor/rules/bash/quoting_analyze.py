@@ -102,7 +102,7 @@ def _check_unquoted_expansion(db: RuleDB, add_finding) -> None:
         .where("is_quoted = ? AND has_expansion = ?", 0, 1)
     )
 
-    for file, command_line, arg_value, is_quoted, has_expansion in rows:
+    for file, command_line, arg_value, _is_quoted, _has_expansion in rows:
         arg = arg_value or ""
 
         if "$((" in arg:
@@ -197,7 +197,7 @@ def _check_unquoted_array_expansion(db: RuleDB, add_finding) -> None:
         .where("is_quoted = ? AND (arg_value LIKE ? OR arg_value LIKE ?)", 0, "%[@]%", "%[*]%")
     )
 
-    for file, line, arg_value, is_quoted in rows:
+    for file, line, arg_value, _is_quoted in rows:
         arg = arg_value or ""
 
         if "${" in arg and ("[@]" in arg or "[*]" in arg):

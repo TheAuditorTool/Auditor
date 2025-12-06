@@ -9,9 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import yaml
-
-from theauditor import __version__
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter

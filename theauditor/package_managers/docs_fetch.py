@@ -9,7 +9,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import (
     RATE_LIMIT_BACKOFF,
     TIMEOUT_CRAWL,

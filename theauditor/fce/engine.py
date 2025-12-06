@@ -11,7 +11,6 @@ from typing import Any
 
 from theauditor.fce.formatter import FCEFormatter
 from theauditor.fce.query import FCEQueryEngine
-from theauditor.fce.schema import ConvergencePoint
 
 
 def run_fce(

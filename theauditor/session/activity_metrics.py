@@ -4,11 +4,11 @@ Answers the question: "How much do we talk to the AI vs how much does it work vs
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from theauditor.session.parser import AssistantMessage, Session, UserMessage
+from theauditor.session.parser import Session
 
 
 class ActivityType(Enum):

@@ -324,7 +324,7 @@ class ASTParser:
         """Parse Python code (caching removed - error messages need file context)."""
         return self._parse_python_builtin(content, file_path)
 
-    @lru_cache(maxsize=10000)
+    @lru_cache(maxsize=10000)  # noqa: B019 - singleton, lives entire session
     def _parse_treesitter_cached(self, content_hash: str, content: bytes, language: str) -> Any:
         """Parse code using Tree-sitter with caching based on content hash."""
         parser = self.parsers[language]

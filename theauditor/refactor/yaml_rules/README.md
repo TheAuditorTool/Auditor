@@ -37,6 +37,6 @@ For the field-by-field schema (including regex pattern syntax), see `templates_i
 ## Relationship to semantic contexts
 
 - **Refactor profiles** (this folder) → used by `aud refactor --file`, operate directly on code/migration data.
-- **Semantic contexts** (`theauditor/insights/semantic_rules/`) → used by `aud context --file`, reclassify security findings.
+- **Semantic contexts** (`theauditor/context/semantic_rules/`) → used by `aud context --file`, reclassify security findings.
 
 Keep them separate; they solve different problems.

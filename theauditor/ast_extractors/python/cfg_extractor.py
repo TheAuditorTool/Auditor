@@ -4,7 +4,6 @@ import ast
 from typing import Any
 
 from theauditor.ast_extractors.python.utils.context import FileContext
-from theauditor.utils.logging import logger
 
 
 def extract_python_cfg(context: FileContext) -> list[dict[str, Any]]:

@@ -536,7 +536,7 @@ class FlowResolver:
         )
         return final_list
 
-    @lru_cache(maxsize=10_000)
+    @lru_cache(maxsize=10_000)  # noqa: B019 - singleton, lives entire session
     def _get_successors_cached(self, node_id: str) -> tuple[str, ...]:
         """Internal cached query for successors.
 
@@ -761,7 +761,7 @@ class FlowResolver:
         """
         return self._get_edge_type_cached(from_node, to_node)
 
-    @lru_cache(maxsize=20_000)
+    @lru_cache(maxsize=20_000)  # noqa: B019 - singleton, lives entire session
     def _get_edge_type_cached(self, from_node: str, to_node: str) -> str:
         """Internal cached query for edge type."""
         cursor = self.graph_conn.cursor()

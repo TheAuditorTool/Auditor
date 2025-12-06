@@ -73,14 +73,7 @@ def _render_convergence_report(points: list[ConvergencePoint], detailed: bool = 
 
 def _get_density_style(vector_count: int) -> str:
     """Get Rich style tag for density level."""
-    if vector_count == 4:
-        return "[bold red]"
-    elif vector_count == 3:
-        return "[yellow]"
-    elif vector_count == 2:
-        return "[cyan]"
-    else:
-        return "[dim]"
+    return {4: "[bold red]", 3: "[yellow]", 2: "[cyan]"}.get(vector_count, "[dim]")
 
 
 def _render_compact_list(points: list[ConvergencePoint]) -> None:
@@ -285,12 +278,12 @@ def fce(root, output_format, min_vectors, detailed, write):
             err_console.print(
                 f"[error]Error:[/error] {e}",
             )
-            raise click.ClickException(str(e))
+            raise click.ClickException(str(e)) from e
         except RuntimeError as e:
             err_console.print(
                 f"[error]Error:[/error] {e}",
             )
-            raise click.ClickException(str(e))
+            raise click.ClickException(str(e)) from e
 
     if output_format == "json":
         json_output = get_fce_json(root_path=root, min_vectors=min_vectors)

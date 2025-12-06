@@ -124,7 +124,7 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
         .where("is_anonymous = ?", 1)
     )
 
-    for file_path, line, containing_func in goroutine_rows:
+    for file_path, line, _containing_func in goroutine_rows:
         if file_path not in pkg_vars:
             continue
 

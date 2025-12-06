@@ -1,1225 +1,1791 @@
 # TheAuditor Architecture
 
-**Version 1.6.4-dev1** | Complete System Architecture | **Python >=3.14 Required**
-
-> Database-driven SAST platform with 4-layer pipeline, 250-table schema, and zero-fallback design
-
-**Codebase Statistics:**
-- **Tables**: 250 database tables across 9 schema domains
-- **Schema Domains**: Core (24), Python (59), Node/JS (26), Infrastructure (18), GraphQL (8), Security (7), Frameworks (5), Planning (9), Graphs (4)
-- **Python Extractors**: 28 specialized modules with 236+ extraction functions
-- **Security Rules**: 200+ across 23 categories
-- **CLI Commands**: 43 registered commands
-- **Taint Engine**: IFDS-based with field-sensitive tracking
-
----
-
-## Table of Contents
-
-1. [System Overview](#system-overview)
-2. [4-Layer Data Pipeline](#4-layer-data-pipeline)
-3. [Database Architecture](#database-architecture)
-4. [Rule Engine System](#rule-engine-system)
-5. [Taint Analysis Pipeline](#taint-analysis-pipeline)
-6. [Graph Analysis System](#graph-analysis-system)
-7. [CLI & Command Structure](#cli--command-structure)
-8. [Advanced Features](#advanced-features)
-9. [Design Principles](#design-principles)
-10. [Comprehensive Audit Results](#comprehensive-audit-results)
-11. [Critical Issues & Recommendations](#critical-issues--recommendations)
+A comprehensive polyglot security analysis platform with 12 specialized engines for deep code understanding, vulnerability detection, and AI-assisted development workflows.
 
 ---
 
 ## System Overview
 
-```mermaid
-graph TB
-    subgraph "Input Layer"
-        A[Source Files<br/>Python/JS/TS/Terraform/Docker]
-    end
-
-    subgraph "4-Layer Pipeline"
-        B[Layer 1: Orchestrator<br/>File Discovery & AST Parsing]
-        C[Layer 2: Extractors<br/>12 Language-Specific]
-        D[Layer 3: Storage<br/>Handler Dispatch]
-        E[Layer 4: Database<br/>250 Tables in SQLite]
-    end
-
-    subgraph "Analysis Layer"
-        F[Rule Engine<br/>200+ Rules]
-        G[Taint Analysis<br/>Cross-File Tracking]
-        H[Graph Analysis<br/>Hotspots & Cycles]
-        I[ML Insights<br/>Risk Prediction]
-    end
-
-    subgraph "Output Layer"
-        J[findings_consolidated<br/>Unified Results]
-        K[AI-Optimized JSON<br/>&lt;65KB Chunks]
-        L[CLI Reports<br/>Human-Readable]
-    end
-
-    A --> B
-    B --> C
-    C --> D
-    D --> E
-    E --> F
-    E --> G
-    E --> H
-    E --> I
-    F --> J
-    G --> J
-    H --> J
-    I --> J
-    J --> K
-    J --> L
-
-    style E fill:#f9f,stroke:#333,stroke-width:4px
-    style J fill:#ff9,stroke:#333,stroke-width:4px
 ```
-
-**Key Insight**: TheAuditor **indexes once, queries infinitely**. Most SAST tools re-scan files for each analysis; TheAuditor builds a comprehensive database upfront, enabling sub-second queries.
+                                    USER INPUT
+                                         |
+                                         v
+                              +------------------+
+                              |   CLI Commands   |  (36 commands, 9 categories)
+                              +------------------+
+                                         |
+                    +--------------------+--------------------+
+                    |                    |                    |
+                    v                    v                    v
+          +-----------------+   +-----------------+   +-----------------+
+          |    Pipeline     |   |     Query       |   |    Session      |
+          |  Orchestrator   |   |     System      |   |    Analyzer     |
+          +-----------------+   +-----------------+   +-----------------+
+                    |                    |                    |
+    +---------------+---------------+    |                    |
+    |               |               |    |                    |
+    v               v               v    v                    v
++-------+     +--------+     +---------+----+           +---------+
+|Indexer|---->|  AST   |---->|   Graph      |           | MachineL|
+|       |     |Extract |     |   Engine     |           |   (ML)  |
++-------+     +--------+     +------+-------+           +---------+
+    |               |               |                         ^
+    v               v               v                         |
++-------+     +--------+     +---------+                      |
+|Linters|     | Rules  |     |  Taint  |                      |
+|       |     |Orchestr|     | Engine  |                      |
++-------+     +--------+     +---------+                      |
+    |               |               |                         |
+    +-------+-------+-------+-------+                         |
+            |               |                                 |
+            v               v                                 |
+      +-----------+   +-----------+                           |
+      |    FCE    |   |  Context  |--------------------------+
+      | (Evidence)|   |   Query   |
+      +-----------+   +-----------+
+            |               |
+            v               v
+      +--------------------------+
+      |    SQLite Databases      |
+      |  repo_index.db (181MB)   |
+      |  graphs.db (126MB)       |
+      +--------------------------+
+```
 
 ---
 
-## 4-Layer Data Pipeline
+## Core Design Principles
 
-### Complete Pipeline Flow
+| Principle | Description |
+|-----------|-------------|
+| **Zero Fallback** | No silent failures. If a parser fails, analysis fails visibly. |
+| **Database-First** | Query indexed facts, never re-parse files during analysis. |
+| **Manifest-Receipt Pairing** | Every extraction paired with verification receipt. |
+| **Polyglot Native** | 7+ languages with unified extraction format. |
+| **Evidence Over Opinion** | FCE provides facts, not subjective risk scores. |
 
-```mermaid
-graph LR
-    subgraph "Layer 1: ORCHESTRATOR"
-        A1[IndexerOrchestrator<br/>orchestrator.py:740 lines]
-        A2[File Discovery<br/>.gitignore aware]
-        A3[AST Parsing<br/>tree-sitter/ast]
-        A4[Extractor Selection<br/>by extension]
-    end
+---
 
-    subgraph "Layer 2: EXTRACTORS"
-        B1[PythonExtractor<br/>1,265 lines]
-        B2[JavaScriptExtractor<br/>1,298 lines]
-        B3[TerraformExtractor<br/>538 lines]
-        B4[GenericExtractor<br/>397 lines]
-        B5[+8 more extractors]
-    end
+## Engine 1: Indexer + Fidelity System
 
-    subgraph "Layer 3: STORAGE"
-        C1[DataStorer<br/>Handler Dispatch]
-        C2[60+ Handlers<br/>_store_* methods]
-        C3[Batch Accumulation<br/>5000 rows/flush]
-    end
+The **foundation layer** that transforms source code into queryable facts with cryptographic integrity verification.
 
-    subgraph "Layer 4: DATABASE"
-        D1[DatabaseManager<br/>Multiple Inheritance]
-        D2[BaseDatabaseManager<br/>+ 7 Mixins]
-        D3[90+ add_* methods<br/>INSERT operations]
-        D4[repo_index.db<br/>108 Tables]
-    end
+### Architecture
 
-    A1 --> A2
-    A2 --> A3
-    A3 --> A4
-    A4 --> B1
-    A4 --> B2
-    A4 --> B3
-    A4 --> B4
-    A4 --> B5
-
-    B1 --> C1
-    B2 --> C1
-    B3 --> C1
-    B4 --> C1
-    B5 --> C1
-
-    C1 --> C2
-    C2 --> C3
-    C3 --> D1
-    D1 --> D2
-    D2 --> D3
-    D3 --> D4
-
-    style A1 fill:#e1f5ff,stroke:#01579b,stroke-width:2px
-    style C1 fill:#fff3e0,stroke:#e65100,stroke-width:2px
-    style D4 fill:#f3e5f5,stroke:#4a148c,stroke-width:3px
+```
+Source Files → AST Parser → Extractors → DataStorer → SQLite
+                                ↓
+                          Fidelity Token
+                          (manifest/receipt)
 ```
 
-### Layer 1: Orchestrator
+### The "Holy Trio" Fidelity System
 
-**File**: `theauditor\indexer\orchestrator.py` (740 lines)
-
-**Responsibilities**:
-- File discovery (respects `.gitignore`)
-- AST parsing (delegates to tree-sitter/ast module)
-- Extractor selection by file extension
-- Two-pass JSX processing (transformed + preserved)
-- Batch coordination
-
-**Key Methods**:
+**1. Manifest Generation** (`fidelity_utils.py`)
 ```python
-IndexerOrchestrator._process_file(file_path: str) -> dict
-  # Core workflow:
-  # 1. Read file content
-  # 2. Parse to AST (language-specific parser)
-  # 3. Select extractor based on extension
-  # 4. Call extractor.extract(file_info, content, ast_tree)
-  # 5. Pass extracted dict to DataStorer
-```
-
-**Critical Design**: Orchestrator provides **file_path** context; extractors return **line numbers only**.
-
-### Layer 2: Extractors
-
-**12 Language-Specific Extractors** (5,075 total lines):
-
-| Extractor | Extensions | Size | Key Features |
-|-----------|-----------|------|--------------|
-| PythonExtractor | .py, .pyx | 1,265 | ORM (SQLAlchemy, Django), routes (Flask, FastAPI), decorators, async |
-| JavaScriptExtractor | .js, .jsx, .ts, .tsx, .vue | 1,298 | React/Vue components, SQL queries, JWT patterns |
-| TerraformExtractor | .tf, .tfvars | 538 | HCL parsing, resources, variables |
-| GenericExtractor | pattern-based | 397 | Docker Compose, nginx.conf, package.json |
-| GitHubWorkflowExtractor | .yml, .yaml | 360 | Workflows, jobs, permissions |
-| JsonConfigExtractor | .json, .lock | 288 | Package.json, lock files, duplicates |
-| PrismaExtractor | schema.prisma | 203 | ORM models, relations |
-| RustExtractor | .rs | 196 | tree-sitter Rust |
-| DockerExtractor | Dockerfile* | 151 | Base images, ENV vars, healthchecks |
-| SQLExtractor | .sql, .ddl | 106 | DDL parsing (CREATE TABLE/INDEX/VIEW) |
-
-**Pattern**: Each extractor delegates to implementation layer (stateless functions in `ast_extractors\*_impl.py`).
-
-**Extracted Dict Structure** (no file_path keys - orchestrator provides context):
-```python
-{
-    'imports': [...],       # module, from, alias, line
-    'symbols': [...],       # name, type, line, col
-    'routes': [...],        # method, path, line
-    'function_calls': [...],# line, caller, callee, arg_idx, arg_expr
-    'assignments': [...],   # line, target_var, source_expr, source_vars
-    'returns': [...],       # line, function_name, return_expr
-    'cfg': [...],           # block_id, statements, next_blocks
-    # Framework-specific:
-    'python_orm_models': [...],
-    'react_components': [...],
-    'jwt_patterns': [...],
+token = {
+    "count": len(data),           # Items extracted
+    "tx_id": str(uuid.uuid4()),   # Transaction ID
+    "columns": sorted(columns),    # Schema verification
+    "bytes": byte_size,           # Data size
 }
 ```
 
-### Layer 3: Storage
+**2. Receipt Generation** (DataStorer)
+- Storage layer echoes back tx_id with actual stored counts
+- Enables comparison of "what was found" vs "what was saved"
 
-**File**: `theauditor\indexer\storage.py` (1,200+ lines)
+**3. Reconciliation** (`fidelity.py`)
+- **Transaction Mismatch**: `m_tx != r_tx` → Pipeline cross-talk detected
+- **Schema Violation**: Dropped columns → Data corruption
+- **100% Data Loss**: `m_count > 0 && r_count == 0` → Storage failure
 
-**Handler Dispatch Pattern**:
+### Three-Layer Stack
+
+| Layer | Module | Responsibility |
+|-------|--------|----------------|
+| **Orchestration** | `orchestrator.py` | File discovery, AST parsing, extractor selection |
+| **Storage Orchestration** | `storage/__init__.py` | Priority ordering, manifest attachment |
+| **Domain Handlers** | 7 handlers | Language-specific storage logic |
+
+### Domain-Specific Storage Handlers
+
+| Handler | Languages/Features |
+|---------|-------------------|
+| `CoreStorage` | Imports, routes, SQL, symbols (all languages) |
+| `PythonStorage` | Django, FastAPI, SQLAlchemy, decorators |
+| `NodeStorage` | React hooks, Angular, Sequelize, Vue.js |
+| `RustStorage` | Modules, traits, async/await, lifetimes |
+| `GoStorage` | Goroutines, channels, error handling |
+| `BashStorage` | Variables, commands, control flow |
+| `InfrastructureStorage` | Docker, Compose, Terraform, CDK |
+
+### Transaction Safety
+
 ```python
-class DataStorer:
-    def store(self, file_path: str, extracted: dict):
-        # Dispatch to 60+ handlers based on keys in extracted dict
-        if 'imports' in extracted:
-            self._store_imports(file_path, extracted['imports'])
-        if 'symbols' in extracted:
-            self._store_symbols(file_path, extracted['symbols'])
-        if 'python_orm_models' in extracted:
-            self._store_python_orm_models(file_path, extracted['python_orm_models'])
-        # ... 57 more handlers
+# WAL mode for concurrent reads during writes
+conn.execute("PRAGMA journal_mode=WAL")
+conn.execute("PRAGMA synchronous=NORMAL")
+conn.execute("PRAGMA foreign_keys = ON")
 
-    def _store_imports(self, file_path: str, imports: List[dict]):
-        for imp in imports:
-            self.db_manager.add_import(
-                file_path=file_path,
-                module=imp['module'],
-                line=imp['line']
-            )
+# Gatekeeper pattern prevents orphaned records
+if construct_id not in self._valid_construct_ids:
+    logger.warning("GATEKEEPER: Skipping orphaned property...")
+    continue
 ```
 
-**Batching**:
-- Accumulates 5,000 rows before flushing to database
-- Generic batch dict: `{table_name: [row_dicts]}`
-- Flushes on: batch size reached, file processing complete, pass end
+### Performance Optimizations
 
-### Layer 4: Database
+- **Batch JS/TS Parsing**: 50 files per Node.js invocation
+- **AST Caching**: SHA256-keyed cache in `.pf/.cache/`
+- **Schema-Driven Batch Flush**: Generic INSERT for 70+ tables
+- **Monorepo Detection**: Early detection prevents scanning irrelevant directories
 
-**File**: `theauditor\indexer\database\__init__.py` + 7 mixins (2,313 lines total)
+### Key Metrics
 
-**Multiple Inheritance Design**:
-```mermaid
-graph TB
-    A[DatabaseManager]
-    B[BaseDatabaseManager<br/>Core CRUD operations]
-    C[CoreDatabaseMixin<br/>symbols, imports, refs]
-    D[PythonDatabaseMixin<br/>ORM, routes, decorators]
-    E[NodeDatabaseMixin<br/>React, TypeScript, Vue]
-    F[InfrastructureDatabaseMixin<br/>Docker, Terraform, CDK]
-    G[SecurityDatabaseMixin<br/>SQL, JWT, secrets]
-    H[FrameworksDatabaseMixin<br/>Shared ORM, API endpoints]
-    I[PlanningDatabaseMixin<br/>Plans, tasks, specs]
-
-    A --> B
-    A --> C
-    A --> D
-    A --> E
-    A --> F
-    A --> G
-    A --> H
-    A --> I
-```
-
-**90+ add_* Methods** (one per data type):
-```python
-# Examples:
-add_symbol(file_path, name, type, line, col)
-add_import(file_path, module, from_module, alias, line)
-add_function_call_arg(file_path, line, caller, callee, arg_idx, arg_expr)
-add_assignment(file_path, line, target_var, source_expr, source_vars)
-add_python_orm_model(file_path, line, model_name, table_name)
-add_react_component(file_path, line, component_name, is_class_component)
-add_docker_image(file_path, line, base_image, env_vars, ports)
-# ... 83 more methods
-```
-
-**Generic Batching System**:
-```python
-# Replaces 93 individual batch lists with single dict
-self.generic_batches = {}  # {table_name: [row_dicts]}
-
-def _add_generic_row(self, table_name: str, row: dict):
-    if table_name not in self.generic_batches:
-        self.generic_batches[table_name] = []
-    self.generic_batches[table_name].append(row)
-
-def flush_generic_batches(self):
-    for table_name, rows in self.generic_batches.items():
-        self._batch_insert(table_name, rows)
-    self.generic_batches.clear()
-```
+- ~2,000 lines across orchestrator, core, and storage
+- 70+ database tables spanning 10 schema modules
+- 8 domain-specific storage handlers
 
 ---
 
-## Database Architecture
+## Engine 2: AST Extractors (Polyglot Parsing)
 
-### Two-Database System
+A **multi-language AST extraction system** providing unified semantic output across 7+ programming languages.
 
-```mermaid
-graph TB
-    subgraph "repo_index.db (~180MB)"
-        A[Raw Facts from AST<br/>Generated fresh on aud full]
-        B[250 Normalized Tables<br/>9 Schema Domains]
-        C[Used by ALL analysis<br/>Rules, Taint, FCE, ML]
-    end
+### Parser Strategy
 
-    subgraph "graphs.db (~130MB, optional)"
-        D[Pre-computed Graphs<br/>Built from repo_index.db]
-        E[4 Polymorphic Tables<br/>nodes, edges, analysis, metadata]
-        F[Used by graph commands ONLY<br/>query, viz, analyze]
-    end
+| Language | Parser | Rationale |
+|----------|--------|-----------|
+| **Python** | Built-in `ast` | No external deps, full fidelity |
+| **JavaScript/TypeScript** | TypeScript Compiler API | Type information, JSX/TSX support |
+| **Go** | Tree-sitter | Fast, consistent cross-platform |
+| **Rust** | Tree-sitter | Complex syntax, macros |
+| **Bash** | Tree-sitter | Shell constructs, heredocs |
+| **HCL/Terraform** | Tree-sitter | IaC patterns |
 
-    G[aud full] --> A
-    A --> B
-    B --> C
+### Language Implementation Details
 
-    H[aud graph build] --> D
-    D --> E
-    E --> F
+#### Python (`python_impl.py` - 1005 lines)
 
-    C -.FCE reads repo_index.db.-> I[Taint Analysis]
-    C -.Rules query repo_index.db.-> J[Pattern Detection]
+**47 data categories** extracted:
+- **Core**: imports, symbols, assignments, function_calls, returns
+- **Advanced**: async/await, comprehensions, lambda, decorators
+- **Framework**: Django models/views, Flask routes, Celery tasks
+- **Security**: SQL injection, command injection, JWT, crypto
+- **Type System**: protocols, generics, TypedDict
 
-    style A fill:#ff9,stroke:#333,stroke-width:2px
-    style D fill:#9cf,stroke:#333,stroke-width:2px
+**25+ specialized modules** in `python/` subdirectory for deep extraction.
+
+#### JavaScript/TypeScript (`js_semantic_parser.py`)
+
+**Architecture**: Python wrapper around Node.js bundle
+
+```
+javascript/
+├── src/           # TypeScript source
+└── dist/
+    └── extractor.cjs  # 10MB compiled bundle
 ```
 
-**Why Separate?**
-- **Different update cadences**: repo_index.db fresh every run; graphs.db opt-in rebuild
-- **Different query patterns**: repo_index = point lookups; graphs.db = traversal
-- **Performance**: Merging would make indexing 53% slower to build graphs most users never use
+**Features**:
+- JSX/TSX with configurable preservation modes
+- Type extraction via TypeScript API
+- tsconfig.json path resolution
+- Two-pass system: standard + preserved JSX
 
-### Schema Organization (250 Tables)
+#### Go (`go_impl.py` - 1372 lines)
 
-```mermaid
-graph TB
-    subgraph "Core Schema (24 tables)"
-        A1[symbols<br/>62,662 rows]
-        A2[imports<br/>module dependencies]
-        A3[refs<br/>1,275 import references]
-        A4[assignments<br/>23,786 variable assignments]
-        A5[function_call_args<br/>78,096 function calls]
-        A6[cfg_blocks, cfg_edges<br/>control flow graphs]
-        A7[findings_consolidated<br/>22,242 analysis results]
-        A8[+17 more tables]
-    end
+- Structs and interfaces with generics
+- Goroutines with captured variable tracking
+- **Race condition detection** for loop variables in goroutines
+- Defer statements, type assertions, error returns
 
-    subgraph "Python Schema (159 tables)"
-        B1[python_orm_models<br/>53 SQLAlchemy/Django models]
-        B2[python_routes<br/>41 Flask/FastAPI endpoints]
-        B3[python_decorators<br/>1,733 decorator usages]
-        B4[python_async_functions<br/>56 async functions]
-        B5[python_validators<br/>9 Pydantic validators]
-        B6[+154 more tables]
-    end
+#### Rust (`rust_impl.py` - 800+ lines)
 
-    subgraph "Node Schema (26 tables)"
-        C1[react_components<br/>Components & props]
-        C2[typescript_types<br/>Type definitions]
-        C3[vue_components<br/>Vue SFC structure]
-        C4[prisma_models<br/>Prisma schema]
-        C5[+22 more tables]
-    end
+- Modules with inline `declaration_list`
+- Structs, enums, unions, traits
+- Unsafe blocks, extern blocks
+- Generic types and where clauses
+- Macro definitions and invocations
 
-    subgraph "Infrastructure (18 tables)"
-        D1[docker_images<br/>Dockerfile analysis]
-        D2[terraform_resources<br/>IaC resources]
-        D3[cdk_constructs<br/>AWS CDK definitions]
-        D4[github_workflows<br/>Actions workflows]
-        D5[+14 more tables]
-    end
+#### Bash (`bash_impl.py` - 1053 lines)
 
-    subgraph "Security (7 tables)"
-        E1[sql_queries<br/>Raw SQL extraction]
-        E2[jwt_patterns<br/>JWT usage patterns]
-        E3[env_var_usage<br/>Environment variables]
-        E4[taint_sources, taint_sinks<br/>Taint boundaries]
-        E5[resolved_flow_audit<br/>1,135 taint paths]
-    end
+- Function definitions (POSIX vs bash style)
+- Variable assignments (local/global/exported/readonly)
+- Pipelines with position tracking
+- Heredoc quoting detection
+- Wrapper command detection (sudo, time, env)
 
-    subgraph "Frameworks (6 tables)"
-        F1[orm_relationships<br/>108 cross-language ORM]
-        F2[api_endpoints<br/>Unified API routes]
-        F3[+4 more tables]
-    end
+### Unified Output Format
 
-    subgraph "Planning (9 tables)"
-        G1[plans, plan_tasks<br/>Task tracking]
-        G2[plan_specs<br/>Verification specs]
-        G3[code_snapshots, code_diffs<br/>Checkpoint system]
-    end
-
-    subgraph "GraphQL (8 tables)"
-        H1[graphql_schemas<br/>Schema metadata]
-        H2[graphql_types<br/>Type definitions]
-        H3[graphql_fields<br/>Field definitions]
-        H4[+5 more tables]
-    end
-
-    A7 --> B1
-    A7 --> C1
-    A7 --> D1
-    A7 --> E1
-
-    style A7 fill:#f99,stroke:#333,stroke-width:3px
-    style A5 fill:#ff9,stroke:#333,stroke-width:2px
-```
-
-### Critical Tables for Taint Analysis
-
-**Taint Flow**: `assignments` → `function_call_args` → dangerous function = VULNERABILITY
-
-```sql
--- Source: Variable assignment from user input
-SELECT target_var, source_expr, line
-FROM assignments
-WHERE source_expr LIKE '%request.args%'
-AND file_path = 'app.py';
-
--- Trace: Follow data flow through functions
-SELECT file_path, line, callee_function, arg_expr
-FROM function_call_args
-WHERE arg_expr LIKE '%user_input%';
-
--- Sink: Dangerous function call
-SELECT file_path, line, arg_expr
-FROM function_call_args
-WHERE callee_function IN ('cursor.execute', 'subprocess.call', 'eval')
-AND arg_expr NOT LIKE '%?%';  -- No parameterization
-```
-
-### Schema Contract System
-
-**File**: `theauditor\indexer\schemas\utils.py`
+All extractors produce standardized dict:
 
 ```python
-class ColumnSchema:
-    name: str
-    type: str  # TEXT, INTEGER, REAL, BLOB
-    nullable: bool = True
-    default: Optional[str] = None
-    primary_key: bool = False
-    autoincrement: bool = False
-    check: Optional[str] = None
-
-class TableSchema:
-    name: str
-    columns: List[ColumnSchema]
-    indexes: List[IndexSchema] = []
-    primary_key: Optional[List[str]] = None
-    unique_constraints: List[List[str]] = []
-    foreign_keys: List[ForeignKeySchema] = []  # Metadata only, NOT enforced
-
-    def to_create_table_sql(self) -> str:
-        # Generates CREATE TABLE statement from schema
-
-    def to_create_indexes_sql(self) -> List[str]:
-        # Generates CREATE INDEX statements
+{
+    "type": "semantic_ast" | "python_ast" | "tree_sitter",
+    "tree": <parsed AST>,
+    "language": <language_name>,
+    "content": <file_content>,
+    "has_types": bool,      # JS/TS only
+    "diagnostics": list,    # JS/TS only
+}
 ```
 
-**Validation**:
+### Zero Fallback in Action
+
 ```python
-from theauditor.indexer.schema import validate_all_tables
-
-conn = sqlite3.connect('repo_index.db')
-cursor = conn.cursor()
-mismatches = validate_all_tables(cursor)
-
-if mismatches:
-    for table, issues in mismatches.items():
-        print(f"{table}: {issues}")
-    # ERROR: Schema mismatch - run 'aud full'
-```
-
-**Critical Rule**: NO database migrations. Database regenerated fresh every `aud full` run.
-
----
-
-## Rule Engine System
-
-### Unified Orchestrator Pattern
-
-```mermaid
-graph TB
-    subgraph "Discovery Phase"
-        A1[RulesOrchestrator.__init__]
-        A2[_discover_all_rules<br/>Scans theauditor/rules/]
-        A3[Finds all find_* functions<br/>Auto-discovery]
-        A4[Inspects signatures<br/>Categorizes by type]
-    end
-
-    subgraph "Execution Phase"
-        B1[run_all_rules<br/>Main entry point]
-        B2[Schema Validation<br/>validate_all_tables]
-        B3[Infrastructure Rules<br/>Docker, Terraform, CDK]
-        B4[Discovery Rules<br/>Populate taint registry]
-        B5[Taint Analysis<br/>Cross-file data flow]
-        B6[Taint-Dependent Rules<br/>Use taint results]
-        B7[Database Rules<br/>Query-based detection]
-        B8[File Rules<br/>Per-file analysis]
-        B9[Consolidation<br/>Enrich & deduplicate]
-    end
-
-    subgraph "Output"
-        C1[findings_consolidated<br/>Unified table]
-        C2[AI-Optimized JSON<br/>&lt;65KB chunks]
-    end
-
-    A1 --> A2
-    A2 --> A3
-    A3 --> A4
-
-    B1 --> B2
-    B2 --> B3
-    B3 --> B4
-    B4 --> B5
-    B5 --> B6
-    B6 --> B7
-    B7 --> B8
-    B8 --> B9
-    B9 --> C1
-    C1 --> C2
-
-    style B5 fill:#f99,stroke:#333,stroke-width:3px
-    style C1 fill:#ff9,stroke:#333,stroke-width:2px
-```
-
-### Rule Categories (200+ Total Rules)
-
-```mermaid
-graph LR
-    subgraph "Security (8 rules)"
-        A1[crypto<br/>15 patterns]
-        A2[input_validation<br/>4 types]
-        A3[cors<br/>15+ patterns]
-        A4[api_auth<br/>Missing auth]
-        A5[rate_limit<br/>15+ patterns]
-        A6[pii<br/>200+ patterns]
-        A7[sourcemap<br/>Exposure]
-        A8[websocket<br/>Security]
-    end
-
-    subgraph "Injection (13 rules)"
-        B1[sql_injection<br/>4 patterns]
-        B2[command_injection<br/>subprocess]
-        B3[xss<br/>DOM, Response, Template]
-        B4[ldap_injection<br/>Filter escape]
-        B5[nosql_injection<br/>MongoDB]
-        B6[xpath_injection<br/>XML queries]
-        B7[template_injection<br/>Jinja2, Twig]
-    end
-
-    subgraph "Authentication (4 rules)"
-        C1[jwt<br/>11 sub-checks]
-        C2[oauth<br/>State validation]
-        C3[password<br/>Weak algorithms]
-        C4[session<br/>Secure cookies]
-    end
-
-    subgraph "Infrastructure (14 rules)"
-        D1[docker<br/>Security issues]
-        D2[terraform<br/>IaC compliance]
-        D3[aws_cdk<br/>4 sub-rules]
-        D4[github_actions<br/>6 sub-rules]
-    end
-
-    subgraph "Framework-Specific (13 rules)"
-        E1[react<br/>XSS, hooks, render]
-        E2[vue<br/>XSS, reactivity, state]
-        E3[orm<br/>Prisma, TypeORM, Sequelize]
-        E4[python<br/>Deserialization, globals]
-        E5[node<br/>Runtime, async]
-    end
-```
-
-### Rule Execution Flow
-
-**Standardized Interface**:
-```python
-from theauditor.rules.base import StandardRuleContext, StandardFinding
-
-def find_sql_injection(context: StandardRuleContext) -> List[StandardFinding]:
-    findings = []
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
-
-    # Query database unconditionally (NO fallbacks, NO table checks)
-    cursor.execute("""
-        SELECT fca.file_path, fca.line, fca.arg_expr, fca.callee_function
-        FROM function_call_args fca
-        WHERE fca.callee_function LIKE '%execute%'
-        AND fca.arg_expr LIKE '%f"%'  -- f-string SQL
-    """)
-
-    for file_path, line, arg_expr, callee in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='sql-injection',
-            message=f'SQL injection via f-string: {arg_expr}',
-            file_path=file_path,
-            line=line,
-            severity=Severity.CRITICAL,
-            confidence=Confidence.HIGH,
-            category='security',
-            cwe_id='CWE-89'
-        ))
-
-    conn.close()
-    return findings
-```
-
-**Auto-Discovery**:
-- Function name MUST start with `find_`
-- Parameter MUST be `context: StandardRuleContext`
-- Return MUST be `List[StandardFinding]`
-- NO manual registration required
-
-### Zero Fallback Mandate
-
-**BANNED PATTERNS**:
-```python
-# ❌ CANCER - Database query fallback
-cursor.execute("SELECT * FROM table WHERE name = ?", (normalized_name,))
-result = cursor.fetchone()
-if not result:
-    cursor.execute("SELECT * FROM table WHERE name = ?", (original_name,))  # BANNED
-
-# ❌ CANCER - Table existence check
-if 'function_call_args' in existing_tables:
-    cursor.execute("SELECT ...")  # BANNED
-
-# ❌ CANCER - Try/except fallback
+# Python - explicit failure
 try:
-    data = load_from_db(db_path)
-except Exception:
-    data = load_from_json('fallback.json')  # BANNED
+    return ast.parse(content)
+except SyntaxError as e:
+    raise ParseError(f"Python syntax error: {e.msg}",
+                     file=file_path, line=e.lineno) from e
+
+# JS/TS - no fallbacks allowed
+if not semantic_result.get("success"):
+    raise RuntimeError(
+        f"FATAL: TypeScript semantic parser failed for {file_path}\n"
+        f"NO FALLBACKS ALLOWED - fix the error or exclude the file."
+    )
 ```
 
-**CORRECT PATTERN**:
-```python
-# ✅ CORRECT - Single query, hard fail if wrong
-cursor.execute("SELECT * FROM symbols WHERE name = ?", (name,))
-result = cursor.fetchone()
-if not result:
-    if debug:
-        print(f"Symbol not found: {name}")
-    continue  # Skip, DO NOT try alternative query
-```
+### Design Patterns
 
-**Rationale**: Database regenerated fresh every run. If data missing, **pipeline is broken** and should crash immediately (not hide bug with fallback).
+- **Lazy Initialization**: Tree-sitter grammars loaded on-demand
+- **Content Hashing**: Python AST cached by MD5 hash
+- **Batch Optimization**: JS/TS files processed in single Node.js invocation
+- **Error Context**: ParseError includes file path and line number
+- **Monorepo Support**: tsconfig discovery walks up directory tree
 
 ---
 
-## Taint Analysis Pipeline
+## Engine 3: Graph Engine
 
-### 3-Layer Refactored Architecture
+A **multi-layer dependency analysis system** constructing and analyzing 4 graph types for deep code understanding.
 
-**Status**: Functional with issues
-**Lines**: 4,280 (NOT ~2,000 as claimed)
+### Graph Types
 
-```mermaid
-graph TB
-    subgraph "Layer 1: Schema Layer"
-        A1[codegen.py<br/>Auto-generates TypedDicts]
-        A2[generated_cache.py<br/>Memory cache from schema]
-        A3[250 tables<br/>Single source of truth]
-    end
-
-    subgraph "Layer 2: Discovery Layer"
-        B1[discovery.py<br/>Database-driven patterns]
-        B2[No hardcoded sources/sinks<br/>Framework-aware]
-        B3[ORM model filtering<br/>Reduces false positives]
-    end
-
-    subgraph "Layer 3: Analysis Layer"
-        C1[ifds_analyzer.py<br/>Backward IFDS from sinks]
-        C2[flow_resolver.py<br/>Forward flow resolution]
-        C3[sanitizer_util.py<br/>Framework sanitizers]
-        C4[taint_path.py<br/>Path data structure]
-    end
-
-    A1 --> A2 --> A3
-    A3 --> B1
-    B1 --> B2 --> B3
-    B3 --> C1
-    B3 --> C2
-    C1 --> C3 --> C4
-    C2 --> C3 --> C4
-
-    style A1 fill:#9cf,stroke:#333,stroke-width:2px
-    style C1 fill:#f99,stroke:#333,stroke-width:3px
-```
-
-### Polyglot Taint Architecture (2025-11-28)
-
-**Design**: Database-driven pattern loading replaces hardcoded Express-specific patterns.
-
-```
-BUILD TIME (Indexing)                    ANALYSIS TIME (Taint)
---------------------                     --------------------
-orchestrator.py                          TaintRegistry
-    |                                        |
-    v                                        v
-_seed_express_patterns()              load_from_database()
-_seed_flask_patterns()                    |
-_seed_django_patterns()                   v
-    |                                 _load_taint_patterns()
-    v                                 _load_safe_sinks()
-framework_taint_patterns table        _load_validation_sanitizers()
-    |                                        |
-    v                                        v
-repo_index.db                         get_source_patterns(lang)
-                                      get_sink_patterns(lang)
-                                      get_sanitizer_patterns(lang)
-```
-
-**Key Tables**:
-- `framework_taint_patterns` - Sources/sinks per framework (pattern, pattern_type, category)
-- `framework_safe_sinks` - Safe sink patterns (sink_pattern, is_safe, reason)
-- `validation_framework_usage` - Zod/Joi/Yup sanitizers
-
-**Supported Frameworks**:
-| Language | Frameworks | Sources | Sinks |
-|----------|------------|---------|-------|
-| JavaScript | Express | req.body, req.params, req.query, req.headers, req.cookies | eval, Function, child_process.*, res.send, query, execute |
-| Python | Flask | request.args, request.form, request.json, request.data | eval, exec, os.system, subprocess.*, cursor.execute |
-| Python | Django | request.GET, request.POST, request.body, request.FILES | eval, exec, cursor.execute, raw, mark_safe |
-
-**FlowResolver Entry Node Discovery**:
-- Queries `graphs.db` directly for nodes matching source patterns (e.g., `%::req.body`)
-- No longer constructs node IDs from `express_middleware_chains` (wrong format)
-- Collects patterns from ALL languages in registry
-
-### Taint Source/Sink Registry
-
-**Sources** (loaded from `framework_taint_patterns` table):
-```python
-# TaintRegistry.get_source_patterns('javascript') returns:
-['req.body', 'req.params', 'req.query', 'req.headers', 'req.cookies', 'req.files', 'req.file']
-
-# TaintRegistry.get_source_patterns('python') returns:
-['request.args', 'request.form', 'request.json', 'request.data', 'request.values',
- 'request.GET', 'request.POST', 'request.body', 'request.FILES', 'request.META']
-```
-
-**Sinks** (loaded from `framework_taint_patterns` table):
-```python
-# TaintRegistry.get_sink_patterns('javascript') returns:
-['eval', 'Function', 'child_process.exec', 'child_process.spawn', 'res.send',
- 'res.write', 'res.render', 'query', 'execute', 'raw']
-
-# TaintRegistry.get_sink_patterns('python') returns:
-['eval', 'exec', 'os.system', 'subprocess.call', 'subprocess.run', 'subprocess.Popen',
- 'cursor.execute', 'render_template_string', 'mark_safe', 'HttpResponse']
-```
-
-### Taint Issues Found
-
-1. **6+ ZERO FALLBACK violations** - Returns empty instead of crashing
-2. **Backup files in taint/backup/** - 2,590 lines of dead code
-3. **Missing Python sinks** - pickle.loads, yaml.load not detected
-4. **Line count discrepancy** - 4,280 lines, not ~2,000 as documented
-
----
-
-## Graph Analysis System
-
-### Graph Architecture
-
-```mermaid
-graph TB
-    subgraph "Graph Building"
-        A1[aud graph build<br/>Parse repo_index.db]
-        A2[Import Graph<br/>Module dependencies]
-        A3[Call Graph<br/>Function relationships]
-        A4[Data Flow Graph<br/>Variable propagation]
-    end
-
-    subgraph "Graph Storage"
-        B1[graphs.db<br/>Polymorphic schema]
-        B2[nodes table<br/>74,189 vertices]
-        B3[edges table<br/>148,052 relationships]
-        B4[analysis_results table<br/>0 rows (unused)]
-    end
-
-    subgraph "Graph Analysis"
-        C1[Hotspot Detection<br/>Degree centrality]
-        C2[Cycle Detection<br/>Iterative DFS]
-        C3[Impact Analysis<br/>Transitive dependencies]
-        C4[Layer Detection<br/>Architectural tiers]
-    end
-
-    subgraph "Visualization"
-        D1[DOT format<br/>Graphviz]
-        D2[SVG output<br/>Interactive]
-        D3[PNG output<br/>Static images]
-    end
-
-    A1 --> A2
-    A1 --> A3
-    A1 --> A4
-
-    A2 --> B1
-    A3 --> B1
-    A4 --> B1
-
-    B1 --> B2 --> B3 --> B4
-
-    B4 --> C1 --> C2 --> C3 --> C4
-
-    C1 --> D1 --> D2
-    C1 --> D3
-
-    style C1 fill:#9cf,stroke:#333,stroke-width:2px
-    style C2 fill:#9cf,stroke:#333,stroke-width:2px
-```
-
-### Cycle Detection (Stack-Safe DFS)
+#### 1. Import Graph (Module Dependencies)
 
 ```python
-def detect_cycles(graph: dict[str, Any]) -> list[dict[str, Any]]:
-    # ITERATIVE DFS - No recursion (stack-safe for deep graphs)
-    stack = [(start_node, iter(adj[start_node]))]
-    path_set = {start_node}
-    path_list = [start_node]
+# Nodes
+{"id": "file.py", "type": "module", "lang": "python"}
 
-    while stack:
-        parent, children = stack[-1]
-        try:
-            child = next(children)
-            if child in path_set:
-                # CYCLE FOUND!
-                cycle_start_index = path_list.index(child)
-                cycle_nodes = path_list[cycle_start_index:] + [child]
-                cycles.append({"nodes": cycle_nodes, "size": len(cycle_nodes) - 1})
+# Edges
+{"source": "a.py", "target": "b.py", "type": "import"}
 ```
 
----
+- Internal vs external module distinction
+- Language-aware resolution (Python relative imports, JS tsconfig paths)
 
-## CLI & Command Structure
+#### 2. Call Graph (Function Relationships)
 
-### Command Organization (43 Commands)
+```python
+# Nodes
+{"id": "file.py::function_name", "type": "function"}
 
-```mermaid
-graph TB
-    subgraph "Foundation (4)"
-        A1[init<br/>First-time setup]
-        A2[index<br/>Build databases]
-        A3[workset<br/>Changed files]
-        A4[setup-ai<br/>Download tools]
-    end
-
-    subgraph "Security (3)"
-        B1[detect-patterns<br/>200+ patterns]
-        B2[taint<br/>Data flow]
-        B3[docker-analyze<br/>Container security]
-    end
-
-    subgraph "Analysis (5)"
-        C1[graph<br/>Import/call graphs]
-        C2[cfg<br/>Control flow]
-        C3[fce<br/>Correlation engine]
-        C4[impact<br/>Blast radius]
-        C5[refactor<br/>Incomplete refactorings]
-    end
-
-    subgraph "Quality (2)"
-        D1[lint<br/>Linter orchestration]
-        D2[deps<br/>Dependency analysis]
-    end
-
-    subgraph "Advanced (4)"
-        E1[learn<br/>Train ML models]
-        E2[suggest<br/>Risk predictions]
-        E3[planning<br/>Task tracking]
-        E4[insights<br/>Interpretations]
-    end
-
-    subgraph "Utilities (6)"
-        F1[query<br/>Database queries]
-        F2[context<br/>Symbol context]
-        F3[explain<br/>Concept docs]
-        F4[structure<br/>Project tree]
-        F5[report<br/>Generate reports]
-        F6[full<br/>Complete pipeline]
-    end
-
-    subgraph "Infrastructure (4)"
-        G1[cdk<br/>AWS CDK analysis]
-        G2[terraform<br/>IaC analysis]
-        G3[workflows<br/>GitHub Actions]
-        G4[docs<br/>Dependency docs]
-    end
-
-    style F6 fill:#f99,stroke:#333,stroke-width:3px
+# Edges
+{"source": "caller", "target": "callee", "type": "call"}
 ```
 
-### CLI Issues Found
+- Resolution status: `local_def`, `imported_def`, `ambiguous`, `unresolved`
 
-1. **Emojis in context.py** - Will crash on Windows CP1252
-2. **Inconsistent --workset flag** - Boolean in some commands, path in others
-3. **10-hour timeouts** - May mask hung processes
-4. **No global debug flag** - Each command handles verbosity differently
-5. **29 commands without tests** - Only 30% CLI test coverage
+#### 3. Control Flow Graph (CFG)
 
----
+- **Block Types**: entry, exit, condition, loop_condition, normal, try
+- **Edge Types**: fall_through, true, false, back_edge
+- **Analytics**: Cyclomatic complexity, max nesting, dead code detection
 
-## Advanced Features
+#### 4. Data Flow Graph (DFG)
 
-### Machine Learning Risk Prediction
+- Assignment flow: Variable → Variable through assignments
+- Return flow: Function return values
+- **9 pluggable strategies** for framework-specific edges
 
-**5-Tier Intelligence System** with 97 feature dimensions:
+### DFG Strategies
 
-```mermaid
-graph TB
-    subgraph "Data Sources"
-        A1[Pipeline Logs<br/>Execution traces]
-        A2[Journal Events<br/>26+ event types]
-        A3[Security Artifacts<br/>Findings JSON]
-        A4[Git History<br/>90-day window]
-        A5[Agent Sessions<br/>Claude Code logs]
-    end
+| Strategy | Purpose | Language |
+|----------|---------|----------|
+| `PythonOrmStrategy` | SQLAlchemy, Django ORM | Python |
+| `NodeOrmStrategy` | Prisma, TypeORM | Node.js |
+| `NodeExpressStrategy` | Middleware chains | Node.js/Express |
+| `GoHttpStrategy` | HTTP handler patterns | Go |
+| `RustTraitStrategy` | Trait implementations | Rust |
+| `BashPipeStrategy` | Pipe chains | Bash |
+| `InterceptorStrategy` | HTTP interceptor chains | Cross-language |
 
-    subgraph "Feature Engineering"
-        B1[97 dimensions<br/>Graph, Security, Complexity]
-        B2[Agent behavior<br/>8 features]
-    end
+### Key Algorithms
 
-    subgraph "Models"
-        C1[Root Cause Classifier]
-        C2[Next Edit Predictor]
-        C3[Risk Scorer]
-    end
+#### Cycle Detection (Iterative DFS)
 
-    A1 --> B1
-    A2 --> B1
-    A3 --> B1
-    A4 --> B1
-    A5 --> B2
-
-    B1 --> C1
-    B1 --> C2
-    B1 --> C3
-    B2 --> C1
-    B2 --> C2
-    B2 --> C3
-
-    style B1 fill:#9f9,stroke:#333,stroke-width:2px
+```python
+def detect_cycles(graph: dict) -> list[dict]:
+    # Filter out _reverse edges (G3 fix for IFDS)
+    for edge in graph["edges"]:
+        if edge.get("type", "").endswith("_reverse"):
+            continue
+    # Iterative DFS with path tracking...
 ```
 
-### Planning & Verification System
+#### Impact Analysis (Bidirectional BFS)
 
-**Database**: `.pf\planning.db` (separate from repo_index.db)
-
-```mermaid
-graph LR
-    subgraph "Planning Tables"
-        A1[plans<br/>Plan metadata]
-        A2[plan_tasks<br/>Tasks with specs]
-        A3[plan_specs<br/>YAML verification]
-        A4[code_snapshots<br/>Checkpoint metadata]
-        A5[code_diffs<br/>Full diffs per file]
-    end
-
-    A1 --> A2 --> A3
-    A2 --> A4 --> A5
+```python
+def impact_of_change(targets, import_graph, call_graph, max_depth=3):
+    # Upstream: Who depends on me? (files that break if I change)
+    # Downstream: What do I depend on? (files my changes might affect)
+    return {"upstream": set, "downstream": set, "total_impacted": int}
 ```
 
----
+#### Hotspot Detection (Degree Centrality)
 
-## Design Principles
+- Ranks nodes by `in_degree + out_degree`
+- High-degree nodes = architectural hubs requiring careful modification
 
-### 1. Zero Fallback Policy
+### Critical Fixes
 
-**Rule**: If database query fails, crash immediately (don't try alternative).
+| Fix | Problem | Solution |
+|-----|---------|----------|
+| **G3** | IFDS needs reverse edges for backward traversal | Create bidirectional edges: forward + `*_reverse` |
+| **G7** | Cache corruption from consumer modifications | Use `MappingProxyType` for immutable cached dicts |
+| **G13/G14** | Path format mismatches (./ vs \\) | Normalize to forward-slash format everywhere |
 
-**Rationale**: Database regenerated fresh every run. Missing data = broken pipeline (should crash, not hide bug).
+### Database Caching (Lazy-Loading LRU)
 
-### 2. Single Source of Truth
+**Problem**: Eager loading of 500K+ rows exhausts memory
 
-**Database is authoritative**:
-- File paths: ONLY in Orchestrator
-- Line numbers: ONLY in Implementation layer
-- Data flow: Orchestrator → Extractor → Storage → Database (never circular)
+**Solution**:
+```python
+class GraphDatabaseCache:
+    IMPORTS_CACHE_SIZE = 2000
+    EXPORTS_CACHE_SIZE = 2000
+    RESOLVE_CACHE_SIZE = 5000
 
-### 3. Database-First Queries
-
-Traditional approach:
-```bash
-grep -r "authenticate" .  # O(n) file scan
+    @lru_cache(maxsize=IMPORTS_CACHE_SIZE)
+    def get_imports(self, file_path: str) -> tuple[MappingProxyType, ...]:
+        # Returns immutable proxies (G7 fix)
 ```
 
-TheAuditor approach:
-```bash
-aud query --symbol authenticate  # O(log n) index lookup
-```
-
-**Performance**: 100x faster, 100% accurate.
-
-### 4. Fresh Generation (No Migrations)
-
-**Database regenerated from scratch every `aud full` run**:
-- No schema migrations
-- No ALTER TABLE
-- No version tracking
-- Tables created fresh with correct schema
-
-### 5. AI-Optimized Output
-
-**All findings chunked <65KB** for LLM context windows.
-
-### 6. Framework-Aware Detection
-
-**Not just pattern matching - understands frameworks**:
+### Storage Schema (graphs.db)
 
 ```sql
-SELECT fca.file_path, fca.line, fca.arg_expr
-FROM function_call_args fca
-WHERE fca.callee_function LIKE '%execute%'
-AND fca.arg_expr LIKE '%f"%'  -- f-string SQL
-AND fca.callee_function NOT IN (
-    SELECT safe_sink FROM framework_safe_sinks WHERE framework = 'sqlalchemy'
+TABLE nodes (
+    id TEXT PRIMARY KEY,
+    file TEXT,
+    lang TEXT,
+    type TEXT,          -- "module", "function", "variable"
+    graph_type TEXT,    -- "import", "call", "data_flow"
+    metadata JSON
+);
+
+TABLE edges (
+    source TEXT,
+    target TEXT,
+    type TEXT,          -- "import", "call", "assignment", "*_reverse"
+    graph_type TEXT,
+    metadata JSON
+);
+```
+
+### Performance
+
+| Codebase Size | Build Time | Memory |
+|---------------|------------|--------|
+| 100 files | 2-5s | ~150MB |
+| 500 files | 10-20s | ~300MB |
+| 2K+ files | 30-60s | ~500MB |
+
+---
+
+## Engine 4: Taint Analysis Engine
+
+A **dual-mode, multi-hop data flow analysis system** tracing untrusted data from sources to dangerous sinks with field-sensitive access path tracking.
+
+### Architecture
+
+```
+                    +------------------+
+                    |  Taint Registry  |
+                    | (140+ sources,   |
+                    |  200+ sinks)     |
+                    +--------+---------+
+                             |
+         +-------------------+-------------------+
+         |                                       |
+         v                                       v
++------------------+                   +------------------+
+|  IFDS Analyzer   |                   |  FlowResolver    |
+|  (Backward)      |                   |  (Forward)       |
++------------------+                   +------------------+
+         |                                       |
+         +-------------------+-------------------+
+                             |
+                             v
+                    +------------------+
+                    |  Vulnerability   |
+                    |  Report          |
+                    +------------------+
+```
+
+### Three Analysis Modes
+
+| Mode | Engine(s) | Speed | Precision | Use Case |
+|------|-----------|-------|-----------|----------|
+| **Backward** | IFDS only | 30s-5m | Highest | Default, respects sanitization |
+| **Forward** | FlowResolver only | 10-30s | Medium | Quick reachability check |
+| **Complete** | Both (handshake) | 1-7m | Highest | Full analysis with confirmation |
+
+### IFDS Backward Worklist Algorithm
+
+```python
+worklist = [(sink_ap, depth=0, [], matched_source=None)]
+visited_states = set()
+
+while worklist:
+    current_ap, depth, hop_chain, matched_source = worklist.popleft()
+
+    if current_ap matches any source:
+        matched_source = source
+
+    if depth >= max_depth OR no predecessors:
+        if matched_source:
+            if path_goes_through_sanitizer(hop_chain):
+                record as SANITIZED
+            else:
+                record as VULNERABLE
+        continue
+
+    for pred_ap in _get_predecessors(current_ap):
+        worklist.append((pred_ap, depth+1, [hop]+hop_chain, matched_source))
+```
+
+### Predecessor Resolution (Dual-Direction)
+
+```sql
+-- 1. Explicit reverse edges
+SELECT * FROM edges WHERE source = current AND type LIKE '%_reverse'
+
+-- 2. Forward edges traversed backward
+SELECT * FROM edges WHERE target = current AND type NOT LIKE '%_reverse'
+
+-- 3. Call graph edges (inter-procedural)
+SELECT * FROM edges WHERE target = current AND graph_type = 'call'
+```
+
+### Access Path: Field-Sensitive Tracking
+
+```python
+@dataclass(frozen=True)
+class AccessPath:
+    file: str
+    function: str
+    base: str           # e.g., "req"
+    fields: tuple       # e.g., ("body", "email")
+
+    # node_id = "api.py::handler::req.body.email"
+```
+
+**Example Flow**:
+```
+Source: req.body.email → AccessPath("api.py", "handler", "req", ("body", "email"))
+Assignment: user_input = req.body.email → taint propagates
+Sink: db.query(f"...{user_input}") → VULNERABLE
+```
+
+### Vulnerability Coverage (18+ Classes)
+
+| Type | Risk | Detection Method |
+|------|------|------------------|
+| SQL Injection | CRITICAL | Sink: db.query(), interpolation |
+| Command Injection | CRITICAL | Sink: os.system(), subprocess |
+| XSS | HIGH | Sink: innerHTML, dangerouslySetInnerHTML |
+| Path Traversal | HIGH | Sink: open() with user input |
+| SSRF | HIGH | Sink: requests.get() with user URL |
+| Template Injection | HIGH | Sink: render_template() |
+| Deserialization | CRITICAL | Sink: pickle.loads(), eval() |
+| NoSQL Injection | MEDIUM | Sink: db.find(), collection queries |
+| Open Redirect | MEDIUM | Sink: redirect() with user URL |
+
+### Sanitizer Detection
+
+1. **Registry Lookup**: `registry.is_sanitizer(function_name, language)`
+2. **Validation Framework Detection**: Zod, Joi, Yup, express-validator
+3. **Safe Sink Patterns**: Pre-marked safe functions
+4. **Heuristic Detection**: Names containing `validate`, `sanitize`, `escape`
+
+### Source & Sink Registry
+
+**Sources (140+ Patterns)**:
+- HTTP: `request.args`, `request.form`, `request.json`
+- Environment: `os.environ`, `process.env`, `sys.argv`
+- File I/O: `open().read()`, `fs.readFile()`
+- Database: `cursor.fetchall()` (secondary taint)
+
+**Sinks (200+ Patterns)**:
+- SQL: `cursor.execute()`, `db.query()`, `sequelize.query()`
+- Command: `os.system()`, `subprocess.call()`, `eval()`
+- XSS: `dangerouslySetInnerHTML`, `innerHTML`
+- File: `open()`, `fs.writeFile()`
+
+### Configuration
+
+```python
+max_depth = os.environ.get("AUD_IFDS_DEPTH", 100)
+max_paths_per_sink = os.environ.get("AUD_IFDS_MAX_PATHS", 1000)
+time_budget_seconds = os.environ.get("AUD_IFDS_BUDGET", 60)
+```
+
+### Performance
+
+| Codebase | Forward | Backward | Complete |
+|----------|---------|----------|----------|
+| 5K LOC | 5s | 15s | 20s |
+| 20K LOC | 20s | 60s | 80s |
+| 100K+ LOC | 2m | 5m | 7m |
+
+---
+
+## Engine 5: FCE (Factual Correlation Engine)
+
+The **evidence convergence system** that identifies locations where multiple independent analysis vectors converge—without imposing subjective risk judgments.
+
+### Core Philosophy
+
+> "I am not the judge, I am the evidence locker."
+
+### The 4 Independent Vectors
+
+| Vector | Source | Measures |
+|--------|--------|----------|
+| **STATIC (S)** | Linters (ruff, eslint, bandit) | Code quality, security patterns |
+| **FLOW (F)** | Taint analysis | Source-to-sink data flow risks |
+| **PROCESS (P)** | Git history (churn-analysis) | File volatility, change patterns |
+| **STRUCTURAL (T)** | CFG analysis | Cyclomatic complexity, nesting depth |
+
+**Critical Rule**: Multiple tools within the SAME vector do NOT increase density. 5 linters screaming about the same issue = 1 STATIC vector, not 5 signals.
+
+### Convergence Scoring
+
+```python
+density = len(vectors_present) / 4  # Pure math, no opinions
+```
+
+| Density | Vectors | Interpretation |
+|---------|---------|----------------|
+| **1.0** | 4/4 | Everything is screaming - investigate immediately |
+| **0.75** | 3/4 | Strong convergence - high priority |
+| **0.5** | 2/4 | Multiple signals - worth attention |
+| **0.25** | 1/4 | Single dimension - normal finding |
+
+### Core Data Structures
+
+```python
+class VectorSignal:
+    file_path: str
+    vectors_present: set[Vector]  # {STATIC, FLOW, PROCESS, STRUCTURAL}
+
+    @property
+    def density(self) -> float:
+        return len(self.vectors_present) / 4
+
+    @property
+    def density_label(self) -> str:
+        return f"{len(self.vectors_present)}/4 vectors"
+
+class ConvergencePoint:
+    file_path: str
+    line_start: int
+    line_end: int
+    signal: VectorSignal
+    facts: list[Fact]  # The evidence
+
+class Fact:
+    vector: Vector       # Which vector detected this
+    source: str          # Which tool (ruff, taint_flows, etc.)
+    file_path: str
+    line: int
+    observation: str     # Human-readable (NO opinions)
+    raw_data: dict       # Full structured data
+```
+
+### Vector Detection Logic
+
+```python
+def _build_vector_index(self) -> dict[str, set[Vector]]:
+    # Query 1: findings_consolidated for STATIC, PROCESS, STRUCTURAL
+    for row in cursor.execute("SELECT file, tool FROM findings_consolidated"):
+        if tool == "cfg-analysis":
+            index[file].add(Vector.STRUCTURAL)
+        elif tool == "churn-analysis":
+            index[file].add(Vector.PROCESS)
+        else:
+            index[file].add(Vector.STATIC)
+
+    # Query 2: taint_flows for FLOW vector
+    for row in cursor.execute("SELECT source_file, sink_file FROM taint_flows"):
+        index[row["source_file"]].add(Vector.FLOW)
+        index[row["sink_file"]].add(Vector.FLOW)
+```
+
+### AIContextBundle
+
+Wraps ConvergencePoint with additional context for LLM consumption:
+
+```python
+class AIContextBundle:
+    convergence: ConvergencePoint
+    context_layers: dict  # Related tables' data
+
+    # Registry includes ~148 categorized tables:
+    # - RISK_SOURCES: 7 tables
+    # - CONTEXT_FRAMEWORK: 34 framework tables
+    # - CONTEXT_SECURITY: 6 security tables
+    # - CONTEXT_LANGUAGE: 93 language-specific tables
+```
+
+### CLI Output
+
+```bash
+aud fce --min-vectors 2
+```
+
+```
+[3/4] [SF-T] src/auth/login.py
+  |     |    |
+  |     |    +-- File path
+  |     +------- Vectors: S=Static, F=Flow, P=Process, T=Structural
+  +------------- Density: 3 of 4 vectors
+```
+
+### Key Design Principles
+
+1. **No Fallback Logic**: Hard fail if data missing
+2. **Bulk Loading**: 2 queries to build index, not N+1
+3. **Pure Math**: Density = vectors / 4, no thresholds
+4. **Evidence Aggregation**: Package facts + context for AI
+5. **Signal != Noise**: Vector count is signal, tool count is noise
+
+---
+
+## Engine 6: Rules Orchestrator
+
+A **unified, dynamically-discovered security rules system** with 25 categories and 113+ rule functions.
+
+### Dynamic Rule Discovery
+
+```python
+def _discover_all_rules(self) -> dict[str, list[RuleInfo]]:
+    for subdir in rules_dir.iterdir():
+        for py_file in subdir.glob("*.py"):
+            module = importlib.import_module(module_name)
+
+            for name, obj in inspect.getmembers(module, inspect.isfunction):
+                if name.startswith("find_") or name == "analyze":
+                    rule_info = self._analyze_rule(name, obj, ...)
+```
+
+**Discovery Criteria**:
+- Functions named `analyze` or `find_*`
+- Defined in the module (not imported)
+- Metadata captured from `METADATA` object
+
+### All 25 Rule Categories
+
+| Category | Files | Primary Focus |
+|----------|-------|---------------|
+| **dependency** | 10 | Package bloat, ghost deps, version lag |
+| **github_actions** | 8 | Workflow risks, untrusted checkout |
+| **security** | 8 | CORS, crypto, input validation, PII |
+| **deployment** | 7 | AWS CDK, IAM wildcards, security groups |
+| **graphql** | 7 | Query depth, N+1, overfetch, injection |
+| **xss** | 7 | Template injection, unsafe escaping |
+| **frameworks** | 6 | Express, FastAPI, Flask, Next.js, React |
+| **rust** | 6 | Memory safety, unsafe blocks, panic |
+| **vue** | 6 | Lifecycle hooks, state management |
+| **python** | 5 | Deserialization, crypto, injection |
+| **auth** | 4 | JWT, OAuth, password, session |
+| **go** | 4 | Concurrency, crypto, error handling |
+| **react** | 4 | Hooks, component lifecycle, state |
+| **sql** | 4 | SQL injection, ORM raw queries |
+| **bash** | 3 | Dangerous patterns, injection, quoting |
+| **orm** | 3 | Sequelize, TypeORM vulnerabilities |
+| + 9 more... | | |
+
+### Rule Architecture
+
+```python
+@dataclass
+class RuleInfo:
+    name: str                   # Function name
+    module: str                 # Full module path
+    function: Callable          # Actual function
+    category: str               # Category folder
+
+    requires_ast: bool          # Needs AST tree?
+    requires_db: bool           # Needs database?
+    requires_file: bool         # Needs file path?
+    requires_content: bool      # Needs file content?
+
+    rule_type: str              # standalone | discovery | taint-dependent
+    execution_scope: str        # database | file
+```
+
+### Rule Types
+
+1. **Standalone Rules** - No dependencies, execute independently
+2. **Discovery Rules** - Populate taint registry with sources/sinks
+3. **Taint-Dependent Rules** - Query taint analysis results
+
+### Query System: The Q Class
+
+Type-safe, composable database queries:
+
+```python
+from theauditor.rules.query import Q
+
+rows = db.query(
+    Q("function_call_args")
+    .select("file", "line", "callee_function")
+    .where("callee_function IN (?)", "eval", "exec")
+    .where("file NOT LIKE ?", "%test%")
+    .order_by("file, line")
 )
 ```
 
----
+**Benefits**:
+- Column validation against schema at build time
+- Foreign key auto-detection
+- Parameterized queries (no SQL injection)
 
-## Comprehensive Audit Results
+### Standardized Interfaces
 
-### Audit Methodology
+```python
+@dataclass
+class StandardRuleContext:
+    file_path: Path
+    content: str
+    language: str
+    project_path: Path
+    ast_wrapper: dict | None
+    db_path: str | None
+    taint_checker: Callable | None
 
-**Date**: 2025-11-22
-**Method**: 15 parallel specialized AI agents analyzed entire codebase
-**Scope**: 357 Python files, 158,638 LOC, 255 database tables, 200+ security rules
+@dataclass
+class StandardFinding:
+    rule_name: str              # Identifier (kebab-case)
+    message: str                # Human-readable
+    file_path: str
+    line: int
+    severity: Severity          # CRITICAL | HIGH | MEDIUM | LOW | INFO
+    confidence: Confidence      # HIGH | MEDIUM | LOW
+    cwe_id: str | None          # CWE-123 format
+```
 
-### Major Engine Health Summary
+### Rule Execution Pipeline
 
-| Engine | Status | Issues | Performance |
-|--------|--------|--------|-------------|
-| **Indexer** | HEALTHY | FastAPI dependency bug | Good with batch optimizations |
-| **Taint Analysis** | FUNCTIONAL | 6+ ZERO FALLBACK violations | 4,280 LOC (not ~2,000) |
-| **Rules Engine** | CRITICAL | 4 files violate ZERO FALLBACK | Only 6% have tests |
-| **Graph Engine** | EXCELLENT | Missing aggregate index | 9/10 performance |
-| **Context Query** | GOOD | No workset filtering | <50ms queries |
-| **FCE** | FUNCTIONAL | 8 separate DB connections | Needs optimization |
-| **CLI System** | WELL-DESIGNED | Emojis crash Windows | 43 commands |
+```python
+# Phase 1: Discovery rules populate taint registry
+registry = TaintRegistry()
+orchestrator.run_discovery_rules(registry)
 
-### Critical Security Findings
+# Phase 2: Standalone rules (database scope)
+all_findings.extend(orchestrator.run_standalone_rules())
 
-| Finding | Severity | Locations |
-|---------|----------|-----------|
-| **SQL Injection via f-strings** | CRITICAL | blueprint.py:577, query.py:1082,1175, base_database.py:168 |
-| **Command Injection (shell=True)** | CRITICAL | cli.py:15, workset.py:58, vulnerability_scanner.py:218 |
-| **Weak Hash (MD5)** | HIGH | ast_parser.py:218,415, docs_fetch.py:191,239 |
-| **Race Conditions** | HIGH | universal_detector.py:339-345 |
-| **Path Traversal Risk** | MEDIUM | Multiple file operations |
-| **JSON Deserialization** | MEDIUM | 50+ occurrences without validation |
+# Phase 3: Taint analysis
+taint_checker = orchestrator._create_taint_checker(context)
 
-### Performance Bottlenecks
+# Phase 4: Taint-dependent rules
+all_findings.extend(orchestrator.run_taint_dependent_rules(taint_checker))
+```
 
-| Issue | Impact | Fix |
-|-------|--------|-----|
-| **FCE 8 DB connections** | 400-800ms overhead | Use connection pool (87% reduction) |
-| **GraphQL N+1 queries** | 101 queries for 100 types | Use JOIN (99% reduction) |
-| **FlowResolver entry discovery** | O(n) queries | Bulk load (99% reduction) |
-| **Missing composite indexes** | Full table scans | Add 5 indexes (10-100x speedup) |
-| **LIKE '%...%' patterns** | No index use | Use exact matches (2-10x speedup) |
+### Fidelity Verification
 
-**Total estimated speedup possible**: 15-50% on large codebases
+```python
+@dataclass
+class RuleResult:
+    findings: list[StandardFinding]
+    manifest: dict  # {items_scanned, tables_queried, queries_executed}
+```
 
-### Code Quality Metrics
-
-| Metric | Value | Severity |
-|--------|-------|----------|
-| **ZERO FALLBACK violations** | 10+ files | CRITICAL |
-| **Test coverage** | 15-20% | CRITICAL |
-| **Rules with tests** | 6% (5/83) | CRITICAL |
-| **Type hints coverage** | 36.4% | MEDIUM |
-| **Dead code removable** | 4,000 lines (2.5%) | LOW |
-| **Duplicate functions** | 6 framework checks | LOW |
-| **TODO/FIXME comments** | 75+ | LOW |
-
-### Database Analysis
-
-| Issue | Count | Impact |
-|-------|-------|--------|
-| **Missing indexes** | refs (kind, value), findings_consolidated (tool, rule) | Query performance |
-| **Foreign keys not enforced** | All tables | Data integrity risk |
-| **Empty tables** | python_celery_task_calls, python_crypto_operations | Incomplete extractors |
-| **Unknown vulnerability types** | 1,134/1,135 flows | Classification accuracy |
-
-### Framework Extraction Coverage
-
-**Python (95% complete):**
-- ✅ Django, Flask, FastAPI, SQLAlchemy, Pydantic
-- ❌ FastAPI dependencies bug
-
-**JavaScript/TypeScript (80% complete):**
-- ✅ React, Vue, Angular, Express
-- ❌ Next.js, Redux, Webpack configs
-- ❌ TypeScript interfaces excluded
-
-### Documentation Gaps
-
-| Category | Current | Target | Gap |
-|----------|---------|--------|-----|
-| Module docstrings | 98.9% | 100% | 1.1% |
-| Function docstrings | 97.3% | 100% | 2.7% |
-| Type hints | 36.4% | 80% | 43.6% |
-| Security rule CWE IDs | 0% | 100% | 100% |
-| Missing files | DATABASE_SCHEMA.md, RULES_REFERENCE.md, CHANGELOG.md | Required | Critical |
+**Purpose**: Catch "silent failures" where a rule scans nothing but reports no findings.
 
 ---
 
-## Critical Issues & Recommendations
+## Engine 7: Linters Integration
 
-### P0 - CRITICAL (Immediate Action Required)
+A **unified wrapper layer** for external static analysis tools with async parallel orchestration.
 
-1. **Fix SQL Injection Vulnerabilities**
-   - Use parameterized queries for all dynamic values
-   - Validate table names against allowlist
+### Supported Linters
 
-2. **Remove shell=True from Subprocess Calls**
-   - Use full paths to executables
-   - Never use shell interpretation
+| Linter | Language | Features |
+|--------|----------|----------|
+| **RuffLinter** | Python | Fast, internally parallelized |
+| **MypyLinter** | Python | Type checking, needs full context |
+| **EslintLinter** | JS/TS | Dynamic batching (Windows limit) |
+| **ClippyLinter** | Rust | Crate-level, output filtering |
+| **GolangciLinter** | Go | Internally parallelized |
+| **ShellcheckLinter** | Bash | Shell script analysis |
 
-3. **Fix ZERO FALLBACK Violations**
-   - Remove all try/except fallbacks in FCE (6+ locations)
-   - Fix express_analyze.py (10 violations)
-   - Fix sql_injection_analyze.py table checks
-   - Hard fail on missing data
+### Unified Interface
 
-4. **Delete Backup Files**
-   - Remove entire `theauditor/taint/backup/` directory (2,590 lines)
+```python
+class BaseLinter(ABC):
+    @abstractmethod
+    async def run(self, files: list[str]) -> LinterResult:
+        """Run linter on files, return normalized results."""
+        pass
 
-5. **Improve Test Coverage**
-   - Add tests for 78 untested security rules (94% gap)
-   - Test FCE module (1,846 LOC untested)
-   - Test pipelines.py (1,776 LOC untested)
+@dataclass
+class LinterResult:
+    status: str          # SUCCESS | SKIPPED | FAILED
+    findings: list[Finding]
+    tool: str
+    elapsed: float
 
-### P1 - HIGH (This Sprint)
+@dataclass
+class Finding:
+    file: str
+    line: int
+    column: int
+    severity: str        # error | warning | info
+    message: str
+    rule: str
+    tool: str
+```
 
-1. **Implement Connection Pooling**
-   - Create DBConnectionManager singleton
-   - Share connections across FCE loaders
-   - Estimated 20-30% overall speedup
+### Parallel Orchestration
 
-2. **Add Missing Database Indexes**
-   ```sql
-   CREATE INDEX idx_refs_kind ON refs(kind);
-   CREATE INDEX idx_refs_value ON refs(value);
-   CREATE INDEX idx_findings_tool_rule ON findings_consolidated(tool, rule);
-   CREATE INDEX idx_findings_file_line_tool ON findings_consolidated(file, line, tool);
-   CREATE INDEX idx_edges_source_type ON edges(source, graph_type);
-   ```
+```python
+class LinterOrchestrator:
+    async def run_all_linters(self, workset_files: list[str]) -> dict:
+        results = await asyncio.gather(
+            self.ruff.run(python_files),
+            self.mypy.run(python_files),
+            self.eslint.run(js_files),
+            self.clippy.run(rust_files),
+            self.golangci.run(go_files),
+            self.shellcheck.run(bash_files),
+            return_exceptions=True
+        )
+```
 
-3. **Replace MD5 with SHA-256**
-   - Update all hash operations in ast_parser.py and docs_fetch.py
+**Features**:
+- Parallel execution via `asyncio.gather()`
+- Individual failures don't affect others
+- Workset filtering for targeted analysis
 
-4. **Remove Emojis from context.py**
-   - Replace with ASCII-safe indicators
+### Batching Strategies
 
-5. **Fix N+1 Queries**
-   - GraphQL visualizer: Use JOIN
-   - FlowResolver: Bulk load node IDs
-   - 20+ rules with N+1 patterns
+| Linter | Strategy | Reason |
+|--------|----------|--------|
+| Ruff | No batching | Internally parallelized |
+| Mypy | No batching | Needs full project context |
+| ESLint | Dynamic batching | 8191 char Windows cmd limit |
+| Clippy | Crate-level | Rust compilation unit |
+| GolangCI | No batching | Internally parallelized |
+| ShellCheck | No batching | Fast enough |
 
-### P2 - MEDIUM (This Quarter)
+### ESLint Dynamic Batching
 
-1. **Improve Type Hints**
-   - Increase from 36% to 80% coverage
-   - Focus on public APIs first
+```python
+def _batch_files(self, files: list[str]) -> list[list[str]]:
+    MAX_CMD_LENGTH = 8191  # Windows limit
+    batches = []
+    current_batch = []
+    current_length = len(base_cmd)
 
-2. **Create Missing Documentation**
-   - DATABASE_SCHEMA.md (255 tables)
-   - RULES_REFERENCE.md (200+ rules with CWE IDs)
-   - CHANGELOG.md
+    for file in files:
+        if current_length + len(file) + 1 > MAX_CMD_LENGTH:
+            batches.append(current_batch)
+            current_batch = []
+            current_length = len(base_cmd)
+        current_batch.append(file)
+        current_length += len(file) + 1
+```
 
-3. **Add Workset Filtering**
-   - Implement in context query engine
-   - Standardize --workset flag behavior
+### Performance
 
-4. **Add Progress Indicators**
-   - Use click.progressbar() for long operations
-   - Especially for 10-hour timeout commands
-
-5. **Fix FastAPI Dependency Extraction**
-   - Check node.args.defaults for Depends() calls
-   - Currently checks only annotations
-
-### P3 - LOW (Nice to Have)
-
-1. **Remove Dead Code**
-   - 4,000 lines identified as removable
-   - Consolidate duplicate framework detection functions
-
-2. **Add VS Code Integration**
-   - Language Server Protocol support
-   - Context queries in editor
-
-3. **Add Performance Benchmarks**
-   - Establish baseline metrics
-   - Track regression
-
-4. **Add Missing Extractors**
-   - NestJS, Svelte, aiohttp
-   - Redux state management
-   - Webpack configurations
-
-### Architectural Strengths (Despite Issues)
-
-1. **Database-First Design** - Enables 100x faster queries
-2. **Schema-Driven Architecture** - Auto-generates code from definitions
-3. **Comprehensive Security Coverage** - 200+ rules, 18 categories
-4. **AI-Optimized Output** - <65KB chunks for LLMs
-5. **Cross-Language Support** - Python and JS/TS
-6. **Sophisticated Graph Analysis** - Cycle detection, hotspots
-7. **IFDS Taint Analysis** - Cross-file flow tracking
-8. **Windows Compatibility** - Proper path handling
+| Linter | Typical Time (1K files) |
+|--------|-------------------------|
+| Ruff | 1-3 sec |
+| Mypy | 5-15 sec |
+| ESLint | 3-10 sec |
+| Clippy | 5-20 sec |
+| GolangCI | 3-10 sec |
+| ShellCheck | 1-3 sec |
+| **Total (parallel)** | **5-20 sec** |
 
 ---
 
-**This comprehensive audit identified critical security vulnerabilities, significant performance bottlenecks, and major test coverage gaps. However, the underlying architecture is sound and the system successfully analyzes 100K+ LOC projects with <2% false positive rates.**
+## Engine 8: MachineL (ML/Intelligence System)
 
-**Audit performed by:** 15 parallel specialized AI agents
-**Total findings:** 21 security issues, 10+ ZERO FALLBACK violations, 4,000 lines of dead code
-**Recommended actions:** 20 P0/P1 items requiring immediate attention
+An **intelligent machine learning and impact analysis engine** for risk prediction and change impact forecasting.
+
+### Three-Model Ensemble
+
+| Model | Purpose | Algorithm |
+|-------|---------|-----------|
+| **Root Cause** | Identifies files likely causing failures | HistGradientBoostingClassifier |
+| **Next Edit** | Forecasts files needing future editing | HistGradientBoostingClassifier |
+| **Risk Regression** | Continuous risk score (0-1) | Ridge with L2 regularization |
+
+### Pipeline Structure
+
+```python
+Pipeline([
+    ("scaler", StandardScaler()),
+    ("clf", HistGradientBoostingClassifier(
+        learning_rate=0.1,
+        max_iter=100,
+        max_depth=5,
+        class_weight="balanced",
+    )),
+])
+
+# Probability calibration for reliable confidence
+calibrator = IsotonicRegression(out_of_bounds="clip")
+```
+
+### Feature Engineering (109 Dimensions)
+
+| Tier | Features | Source |
+|------|----------|--------|
+| 1. File Metadata | bytes, loc | `files` table |
+| 2. Language | is_js, is_py | Extension detection |
+| 3. Graph Topology | in_degree, out_degree, has_routes | `refs` table |
+| 4. Historical Journal | touches, failures, successes | `.pf/history/` |
+| 5. Root Cause | rca_fails | FCE results |
+| 6. AST Invariants | invariant_fails, passes | `ast_proofs.json` |
+| 7. Git Churn | commits_90d, unique_authors | `git log` |
+| 8. Semantic Imports | has_http, has_db, has_auth | Import classification |
+| 9. AST Complexity | function_count, class_count | `symbols` table |
+| 10. Security Patterns | jwt_usage, sql_query_count | Security tables |
+| 11. Findings & CWE | critical/high/medium findings | `findings_consolidated` |
+| 12. Type Coverage | type_annotation_count, any_type | Type tables |
+| 13. Control Flow | cfg_blocks, cyclomatic_complexity | CFG tables |
+| 14. Impact Radius | blast_radius, coupling_score | Impact analyzer |
+| 15. AI Agent Behavior | blind_edit_count, hallucination_rate | Session logs |
+
+### Impact Analyzer
+
+#### Blast Radius Calculation
+
+```python
+def analyze_impact(db_path, target_file, target_line):
+    # 1. Find symbol at target_line
+    # 2. Find UPSTREAM (who calls this)
+    # 3. Find DOWNSTREAM (what this calls)
+    # 4. Expand to transitive dependencies (2 hops)
+    # 5. Classify into production/tests/config/external
+```
+
+#### Coupling Score (0-100)
+
+```python
+def calculate_coupling_score(impact_data) -> int:
+    base_score = (direct_upstream * 3) + (direct_downstream * 2)
+    spread_multiplier = min(affected_files / 5, 3)
+    return min(score, 100)
+```
+
+**Interpretation**:
+- 0-30: Low coupling - safe to refactor
+- 30-70: Medium coupling - needs careful review
+- 70-100: High coupling - requires design change
+
+### Probability Calibration
+
+```python
+calibrator = IsotonicRegression(out_of_bounds="clip")
+calibrator.fit(raw_probs, actual_labels)
+calibrated_probs = calibrator.transform(raw_probs)
+```
+
+**Why**: Raw model saying "0.92" doesn't mean 92% actual frequency. Calibration ensures it does.
+
+### CLI Commands
+
+```bash
+# Training
+aud learn --db-path .pf/repo_index.db \
+          --enable-git \
+          --session-dir ~/.claude/projects/
+
+# Inference
+aud suggest --workset .pf/workset.json --topk 10
+```
+
+### Model Persistence
+
+```python
+model_data = {
+    "root_cause_clf": root_cause_clf,
+    "next_edit_clf": next_edit_clf,
+    "risk_reg": risk_reg,
+    "scaler": scaler,
+    "root_cause_calibrator": calibrator,
+}
+joblib.dump(model_data, ".pf/ml/model.joblib")
+```
+
+### Cold Start Handling
+
+When training on <500 samples:
+- `class_weight="balanced"` over-weights rare class
+- Human feedback (`feedback_path`) boosts sample weight 5x
+- Large feature set (109 dims) helps interpolate
+
+---
+
+## Engine 9: Pipeline & Orchestration
+
+The `aud full` command orchestrates a **20-phase security audit pipeline** organized into **4 sequential stages** with intelligent parallelization.
+
+### Pipeline Architecture
+
+```
+        STAGE 1: Foundation (Sequential, Hard Fail)
+        ├── Phase 1: Index repository (AST parsing)
+        └── Phase 2: Detect frameworks
+                          |
+                          v
+        STAGE 2: Data Preparation (Sequential, Hard Fail)
+        ├── Phases 3-11: Dependencies, workset, linting,
+        │                patterns, graphs
+                          |
+                          v
+        STAGE 3: Heavy Analysis (3 Parallel Tracks, Non-Blocking)
+        ├── Track A (Taint): IFDS + FlowResolver
+        ├── Track B (Static): Terraform, CDK, GitHub Actions, Graph Viz
+        └── Track C (Network): Dependency versions, Doc fetching
+                          |
+                          v
+        STAGE 4: Final Aggregation (Sequential, Non-Blocking)
+        └── Phases 21-25: CFG, churn, FCE, session analysis
+```
+
+### The 20 Phases
+
+| # | Phase | Stage | Timeout |
+|---|-------|-------|---------|
+| 1 | index | 1 | 600s |
+| 2 | detect-frameworks | 1 | 180s |
+| 3 | deps --vuln-scan | 2 | 1200s |
+| 4 | deps --check-latest | 2 | 1200s |
+| 5 | docs fetch | 2 | 600s |
+| 6 | workset --all | 2 | 600s |
+| 7 | lint --workset | 2 | 600s |
+| 8 | detect-patterns | 2 | 1800s |
+| 9 | graph build | 2 | 600s |
+| 10 | graph build-dfg | 2 | 600s |
+| 11 | terraform provision | 2 | 600s |
+| 12 | taint | 3A | 1800s |
+| 13-16 | terraform/cdk/workflows/graph analyze | 3B | 600s |
+| 17-20 | graph viz (4 views) | 3B | 600s |
+| 21 | cfg analyze | 4 | 600s |
+| 22 | metadata churn | 4 | 600s |
+| 23 | fce | 4 | 900s |
+| 24 | session analyze | 4 | 600s |
+
+### Async Architecture
+
+```python
+# Parallel execution of 3 tracks
+tasks = []
+if track_a_commands:
+    tasks.append(run_taint_async())
+if track_b_commands:
+    tasks.append(run_chain_silent(track_b_commands))
+if track_c_commands:
+    tasks.append(run_chain_silent(track_c_commands))
+
+parallel_results = await asyncio.gather(*tasks, return_exceptions=True)
+```
+
+### Subprocess Execution with Timeout
+
+```python
+async def run_command_async(cmd, cwd, timeout=900):
+    process = await asyncio.create_subprocess_exec(
+        *cmd,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+
+    while True:
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=0.5
+            )
+            return PhaseResult(...)
+        except TimeoutError:
+            if time.time() - start > timeout:
+                process.kill()
+                return PhaseResult(status=FAILED, stderr="Timed out")
+```
+
+### Error Recovery Strategy
+
+| Stage | On Failure |
+|-------|------------|
+| **1 & 2** | Hard fail - STOP PIPELINE |
+| **3 & 4** | Continue with partial results |
+
+### Pipeline Modes
+
+| Mode | Flag | Behavior |
+|------|------|----------|
+| **Full** | (default) | All 20 phases |
+| **Offline** | `--offline` | Skip Track C (network I/O) |
+| **Index-Only** | `--index` | Only Stages 1 & 2 |
+
+### Rich Terminal UI
+
+```python
+class DynamicTable:
+    def _build_live_table(self):
+        table = Table(title="Pipeline Progress")
+        for name, info in self._phases.items():
+            status = info["status"]
+            elapsed = time.time() - info["start_time"]
+            table.add_row(name, status, f"{elapsed:.1f}s")
+```
+
+**Features**:
+- 4 updates/second refresh
+- Real-time elapsed timers
+- Colored status indicators
+- Parallel track output buffering
+
+### Performance
+
+| Codebase | Full Run | --offline | --index |
+|----------|----------|-----------|---------|
+| < 5K LOC | 2-3 min | 1-2 min | 1-2 min |
+| 20K LOC | 5-10 min | 3-5 min | 2-3 min |
+| 100K+ LOC | 15-20 min | 10-15 min | 5-10 min |
+
+### Database Output
+
+| Database | Size | Contents |
+|----------|------|----------|
+| **repo_index.db** | ~181MB | symbols, imports, function_calls, api_endpoints, findings, graphql_*, cdk_*, terraform_*, workflow_* |
+| **graphs.db** | ~126MB | Precomputed call/import/DFG graphs, visualization metadata |
+
+### ML-Friendly Audit Journal
+
+```python
+# Events: phase_start, phase_end, file_touch, finding, pipeline_summary
+# Format: Newline-delimited JSON (.ndjson)
+# Location: .pf/history/{run_type}/{timestamp}/journal.ndjson
+```
+
+---
+
+## Engine 10: Context & Query System
+
+A **database-first approach** to code navigation. Instead of re-reading files, the system queries indexed relationships through SQLite.
+
+### Database Architecture
+
+```python
+repo_db = sqlite3.connect(".pf/repo_index.db")   # Raw facts (181MB)
+graph_db = sqlite3.connect(".pf/graphs.db")      # Pre-computed graphs (126MB)
+```
+
+### CodeQueryEngine
+
+#### Symbol Resolution (Priority-Based)
+
+```python
+def _resolve_symbol(self, name: str) -> list[str]:
+    # Priority 1: Exact match
+    # Priority 2: Suffix match (*.name)
+    # Priority 3: Last segment match
+    # Returns helpful "Did you mean?" on no match
+```
+
+#### Call Tracing (Recursive CTE)
+
+```sql
+WITH RECURSIVE caller_graph AS (
+    SELECT ... FROM function_call_args
+    WHERE callee_function IN (targets)
+
+    UNION ALL
+
+    SELECT ... FROM function_call_args
+    JOIN caller_graph ON ...
+    WHERE depth < depth_limit
+)
+```
+
+#### Variable Flow
+
+- BFS through assignments table
+- Tracks def-use chains
+- Depth-limited to 5 levels
+
+### Context Bundles
+
+**File Context**:
+```python
+def get_file_context_bundle(file_path):
+    return {
+        "symbols": get_file_symbols(file_path),
+        "hooks": get_file_hooks(file_path),
+        "imports": get_file_imports(file_path),
+        "importers": get_file_importers(file_path),
+        "outgoing_calls": get_file_outgoing_calls(file_path),
+        "incoming_calls": get_file_incoming_calls(file_path),
+        "framework_info": get_file_framework_info(file_path),
+    }
+```
+
+**Symbol Context**:
+```python
+def get_symbol_context_bundle(symbol_name, depth=2):
+    return {
+        "definition": find_symbol(symbol_name),
+        "callers": get_callers(symbol_name, depth),
+        "callees": get_callees(symbol_name),
+    }
+```
+
+### Dead Code Detection
+
+#### Three Detection Methods
+
+| Method | Target | Confidence |
+|--------|--------|------------|
+| **Isolated Modules** | Never-imported files | HIGH (never imported), MEDIUM (migration), LOW (init) |
+| **Dead Symbols** | Defined but never called | HIGH (never called), MEDIUM (private `_name`), LOW (test_*) |
+| **Ghost Imports** | Imported but never used | Cross-database verification |
+
+#### Implementation
+
+```sql
+WITH RECURSIVE reachable(file_path) AS (
+    SELECT source FROM edges WHERE source IN (entry_points)
+    UNION ALL
+    SELECT e.target FROM edges e
+    JOIN reachable r ON e.source = r.file_path
+)
+-- Dead modules = all_nodes - reachable
+```
+
+### Explain System
+
+#### Target Type Detection
+
+```python
+def detect_target_type(target):
+    # 1. Known extension → file
+    # 2. Path separator → file
+    # 3. PascalCase.method → symbol
+    # 4. PascalCase in react_components → component
+    # 5. Default → symbol
+```
+
+#### Output Aggregation
+
+| Target Type | Included Data |
+|-------------|---------------|
+| **File** | Symbols, hooks, dependencies, dependents, calls, framework info |
+| **Symbol** | Definition, callers (transitive), callees |
+| **Component** | Metadata, hooks used, child components |
+
+### Semantic Context
+
+#### Pattern Matching
+
+```python
+@dataclass
+class ContextPattern:
+    id: str               # "jwt_deprecated"
+    pattern: str          # Regex pattern
+    reason: str           # Why this matters
+    category: str         # obsolete | current | transitional
+    severity: str | None
+    replacement: str | None
+    expires: str | None   # For transitional (YYYY-MM-DD)
+```
+
+#### Migration Progress
+
+```python
+def get_migration_progress(self) -> dict:
+    return {
+        "total_files": ...,
+        "files_need_migration": ...,
+        "files_fully_migrated": ...,
+        "migration_percentage": 100 * (migrated / total)
+    }
+```
+
+### Query CLI
+
+```bash
+# Symbol lookup
+aud query --symbol validateUser --show-callers --depth 2
+
+# File analysis
+aud query --file src/auth.ts --show-dependents
+
+# API endpoints
+aud query --api "/users/:id"
+
+# Component tree
+aud query --component Dashboard --show-tree
+
+# Variable flow
+aud query --variable userId --show-flow --depth 3
+```
+
+### Key Principles
+
+1. **Zero Fallback**: Hard fail if query wrong
+2. **Database-First**: Never re-parse files
+3. **Recursive CTEs**: Graph traversal in SQL, not Python
+4. **Limits at SQL Level**: Performance enforced in database
+5. **Error Messages Expose Fix**: "Did you mean?" suggestions
+
+---
+
+## Engine 11: Session Analyzer
+
+A **Tier 5 (ML training) pipeline** that parses AI agent session logs, analyzes behavior patterns, and detects anti-patterns for quality improvement.
+
+### Core Question
+
+> "How efficiently did the AI work? Did it follow instructions?"
+
+### Key Components
+
+#### 1. Session Parser (`parser.py`)
+
+- Reads `.jsonl` session files
+- Extracts: user messages, assistant messages, tool calls
+- Creates `Session` dataclass with chronological turns
+- Location: `~/.claude/projects/` or `~/.codex/sessions/`
+
+#### 2. Activity Classifier (`activity_metrics.py`)
+
+| Activity Type | Definition | Tools |
+|---------------|------------|-------|
+| **PLANNING** | Discussion & design | Text >200 chars, no tools |
+| **WORKING** | Code changes | Edit, Write, Bash, NotebookEdit |
+| **RESEARCH** | Info gathering | Read, Grep, Glob, Task, WebFetch |
+| **CONVERSATION** | Questions, clarifications | User messages, short responses |
+
+**Key Metrics**:
+- `work_to_talk_ratio`: Working tokens / (Planning + Conversation)
+- `research_to_work_ratio`: Research tokens / Working tokens
+- `tokens_per_edit`: Total tokens / (Edit + Write count)
+
+#### 3. Workflow Compliance Checker (`workflow_checker.py`)
+
+**Checks**:
+- `blueprint_first`: Run `aud blueprint` before modifications
+- `query_before_edit`: Use `aud query` before editing
+- `no_blind_reads`: Read files before editing them
+
+```python
+@dataclass
+class WorkflowCompliance:
+    compliant: bool
+    score: float      # 0-1
+    violations: list[str]
+```
+
+#### 4. Diff Risk Scorer (`diff_scorer.py`)
+
+**Risk Factors (0-1)**:
+- Taint analysis (40%): SQL injection, command injection, eval()
+- Pattern detection (30%): Hardcoded credentials, TODO/FIXME
+- FCE completeness (20%): File completion estimate
+- RCA historical (10%): Prior failure rates
+
+### Finding Categories
+
+| Finding | Severity | Meaning |
+|---------|----------|---------|
+| `blind_edit` | WARNING | Edit without Read |
+| `duplicate_read` | INFO | File read >3 times |
+| `missing_search` | INFO | Write without Grep/Glob |
+| `comment_hallucination` | WARNING | AI references non-existent comments |
+| `duplicate_implementation` | WARNING | Creates symbols already in DB |
+
+### Activity Classification Logic
+
+```
+Turn Classification:
+├─ User message? → CONVERSATION
+├─ No tools?
+│  └─ Text >200 chars? → PLANNING, else CONVERSATION
+├─ Only META tools? (TodoWrite, AskUserQuestion)
+│  └─ Text >200 chars? → PLANNING, else CONVERSATION
+├─ Has WORKING tools? (Edit, Write, Bash)
+│  └─ WORKING
+└─ Has RESEARCH tools? (Read, Grep, Glob)
+   └─ RESEARCH
+```
+
+### Storage Layer
+
+**Database**: `.pf/ml/session_history.db`
+
+```sql
+TABLE session_executions (
+    session_id TEXT,
+    workflow_compliant BOOL,
+    compliance_score FLOAT,
+    risk_score FLOAT,
+    task_completed BOOL,
+    corrections_needed BOOL,
+    user_engagement_rate FLOAT,
+    diffs_scored JSON
+);
+```
+
+### ML Integration (Tier 5 Features)
+
+```python
+load_session_execution_features(db_path, file_paths) → {
+    "session_workflow_compliance": 0.85,
+    "session_avg_risk_score": 0.32,
+    "session_blind_edit_rate": 0.0,
+    "session_user_engagement": 1.5
+}
+```
+
+**Correlation Statistics**:
+```
+Compliant sessions:
+  - Avg risk score: 0.28
+  - Correction rate: 12%
+
+Non-compliant sessions:
+  - Avg risk score: 0.42 (50% higher)
+  - Correction rate: 34% (3x higher)
+```
+
+### CLI Commands
+
+```bash
+aud session analyze    # Parse and store to DB
+aud session report     # Aggregate findings
+aud session inspect    # Deep-dive single session
+aud session activity   # Work/talk/planning ratios
+aud session list       # List available sessions
+```
+
+### Why This Matters
+
+1. **Quality Feedback Loop**: Detect when AI doesn't follow instructions
+2. **Productivity Metrics**: Quantify work vs overhead
+3. **Risk Prediction**: Learn which patterns correlate with failures
+4. **Behavioral Learning**: Train models on successful execution patterns
+5. **Compliance Verification**: Ensure workflows are followed
+
+---
+
+## Engine 12: CLI Commands
+
+**36 active commands** across **9 functional categories**, managed through Rich-formatted help with categorized panels.
+
+### Command Categories
+
+| Category | Commands | Focus |
+|----------|----------|-------|
+| **PROJECT_SETUP** | setup-ai, tools | Environment initialization |
+| **CORE_ANALYSIS** | full, workset | Main audit pipeline |
+| **SECURITY** | detect-patterns, detect-frameworks, taint, boundaries, rules, docker-analyze, terraform, cdk, workflows | Security scanning |
+| **DEPENDENCIES** | deps, docs | Package analysis |
+| **CODE_QUALITY** | lint, cfg, graph, graphql, deadcode | Quality metrics |
+| **DATA_REPORTING** | fce, metadata, blueprint | Evidence aggregation |
+| **ADVANCED_QUERIES** | query, explain, impact, refactor, context | Database queries |
+| **INSIGHTS_ML** | insights, learn, suggest, learn-feedback, session | ML-driven analysis |
+| **UTILITIES** | planning, manual, _archive | Support functions |
+
+### Full Command List
+
+| # | Command | Description |
+|---|---------|-------------|
+| 1 | `setup-ai` | Create isolated analysis environment |
+| 2 | `tools` | Tool detection and verification |
+| 3 | `full` | Run complete audit pipeline |
+| 4 | `workset` | Compute targeted file subset |
+| 5 | `detect-patterns` | Detect 100+ security patterns |
+| 6 | `detect-frameworks` | Display detected frameworks |
+| 7 | `taint` | IFDS taint analysis |
+| 8 | `boundaries` | Security boundary analysis |
+| 9 | `rules` | Inspect detection rules |
+| 10 | `docker-analyze` | Dockerfile security |
+| 11 | `terraform` | Terraform IaC security |
+| 12 | `cdk` | AWS CDK security |
+| 13 | `workflows` | GitHub Actions security |
+| 14 | `deps` | Dependency analysis |
+| 15 | `docs` | Documentation fetching |
+| 16 | `lint` | Run linters |
+| 17 | `cfg` | Control flow analysis |
+| 18 | `graph` | Dependency graphs |
+| 19 | `graphql` | GraphQL schema analysis |
+| 20 | `deadcode` | Dead code detection |
+| 21 | `fce` | Factual Correlation Engine |
+| 22 | `metadata` | Churn and coverage |
+| 23 | `blueprint` | Architecture visualization |
+| 24 | `query` | Database query API |
+| 25 | `explain` | Symbol/file context |
+| 26 | `impact` | Blast radius analysis |
+| 27 | `refactor` | Refactoring impact |
+| 28 | `context` | Semantic rule application |
+| 29 | `insights` | Insight generation |
+| 30 | `learn` | Train ML models |
+| 31 | `suggest` | ML-based suggestions |
+| 32 | `learn-feedback` | Human feedback for ML |
+| 33 | `session` | AI session analysis |
+| 34 | `planning` | Planning system |
+| 35 | `manual` | Documentation system |
+| 36 | `_archive` | Artifact segregation |
+
+### Command Groups (with Subcommands)
+
+#### `session` - AI Agent Analysis
+- `analyze` - Parse and store sessions
+- `report` - Detailed analysis report
+- `inspect` - Single session deep-dive
+- `activity` - Work/talk ratios
+- `list` - List available sessions
+
+#### `graph` - Dependency Analysis
+- `build` - Construct graphs
+- `analyze` - Cycles, hotspots
+- `query` - Interactive queries
+- `viz` - Visualizations
+
+#### `cfg` - Control Flow
+- `analyze` - Complexity analysis
+- `viz` - DOT diagrams
+
+#### `terraform`/`cdk`/`workflows`
+- `analyze` - Run security rules
+- `report` - Generate reports
+
+### Usage Patterns
+
+#### Initial Audit
+```bash
+aud setup-ai --target .
+aud full --offline
+aud blueprint --structure
+aud taint
+```
+
+#### Incremental Review
+```bash
+aud workset --diff main..HEAD
+aud lint --workset
+aud impact --symbol changedFunction
+```
+
+#### Security Deep Dive
+```bash
+aud explain src/auth.ts
+aud query --symbol loginHandler --show-callers
+aud boundaries --type input-validation
+aud taint --severity high
+```
+
+#### Architecture Review
+```bash
+aud blueprint --structure
+aud graph analyze
+aud deadcode
+aud metadata churn --days 30
+```
+
+#### ML-Driven Analysis
+```bash
+aud learn --session-dir ~/.claude/projects/
+aud suggest
+```
+
+### Performance
+
+| Command | Typical Time | Dependencies |
+|---------|--------------|--------------|
+| `full` | 2-10 min | Network (first run) |
+| `full --offline` | 1-5 min | Local only |
+| `workset` | 1-3 sec | repo_index.db |
+| `query` | <1 sec | repo_index.db |
+| `explain` | 1-5 sec | repo_index.db |
+| `taint` | 30-60 sec | repo_index.db |
+| `lint --workset` | 5-15 sec | External linters |
+
+### Database Requirements
+
+| Database | Size | Required By |
+|----------|------|-------------|
+| **repo_index.db** | ~181MB | query, explain, impact, refactor, context, taint, boundaries, deadcode, fce, all security scanning |
+| **graphs.db** | ~126MB | graph query, graph viz, impact analysis (optional) |
+
+### Rich Help System
+
+```bash
+aud --help          # 9 colored category panels
+aud <cmd> --help    # Per-command Rich sections:
+                    # - AI ASSISTANT CONTEXT
+                    # - EXAMPLES
+                    # - COMMON WORKFLOWS
+                    # - OUTPUT FILES
+                    # - RELATED COMMANDS
+```
+
+---
+
+## Data Flow Summary
+
+```
+                          SOURCE CODE
+                               |
+                               v
+    +------------------+  +------------------+
+    |   AST Extractors |  |    Linters       |
+    | (Python, JS, Go, |  | (Ruff, ESLint,   |
+    |  Rust, Bash)     |  |  Clippy, etc.)   |
+    +--------+---------+  +--------+---------+
+             |                     |
+             v                     v
+    +------------------+  +------------------+
+    |     Indexer      |  |   Linter         |
+    | (Fidelity Layer) |  |   Orchestrator   |
+    +--------+---------+  +--------+---------+
+             |                     |
+             +----------+----------+
+                        |
+                        v
+             +---------------------+
+             |  repo_index.db      |
+             |  (181MB, 70+ tables)|
+             +----------+----------+
+                        |
+        +---------------+---------------+
+        |               |               |
+        v               v               v
++-------------+  +-------------+  +-------------+
+|   Graph     |  |   Rules     |  |   Taint     |
+|   Engine    |  | Orchestrator|  |   Engine    |
++------+------+  +------+------+  +------+------+
+       |                |                |
+       v                |                |
++-------------+         |                |
+| graphs.db   |         |                |
+| (126MB)     |         |                |
++------+------+         |                |
+       |                |                |
+       +-------+--------+--------+-------+
+               |                 |
+               v                 v
+        +-------------+   +-------------+
+        |     FCE     |   |   Context   |
+        | (Evidence)  |   |    Query    |
+        +------+------+   +------+------+
+               |                 |
+               +--------+--------+
+                        |
+                        v
+               +------------------+
+               |    Session       |
+               |    Analyzer      |
+               +--------+---------+
+                        |
+                        v
+               +------------------+
+               |    MachineL      |
+               |    (ML Models)   |
+               +------------------+
+```
+
+---
+
+## Performance Characteristics
+
+### By Codebase Size
+
+| Size | Index | Full Analysis | Memory |
+|------|-------|---------------|--------|
+| <5K LOC | 30-60s | 2-3 min | ~500MB |
+| 5-20K LOC | 1-2 min | 5-10 min | ~1GB |
+| 20-50K LOC | 2-5 min | 10-15 min | ~1.5GB |
+| 100K+ LOC | 5-10 min | 15-20 min | ~2GB |
+
+### Database Sizes
+
+| Files Indexed | repo_index.db | graphs.db |
+|---------------|---------------|-----------|
+| 500 files | ~50MB | ~30MB |
+| 2,000 files | ~181MB | ~126MB |
+| 10,000 files | ~500MB | ~300MB |
+
+---
+
+## Key Technologies
+
+| Component | Technology | Reason |
+|-----------|------------|--------|
+| **Database** | SQLite + WAL mode | Concurrent reads, transactional safety |
+| **Parsing** | Tree-sitter + TypeScript API | Polyglot support, type information |
+| **ML** | scikit-learn | Production-grade, interpretable |
+| **CLI** | Click + Rich | Beautiful terminal UI |
+| **Async** | asyncio | Parallel linter execution |
+| **Graphs** | NetworkX-compatible | Standard algorithms |
+
+---
+
+## Configuration
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AUD_IFDS_DEPTH` | 100 | Max taint analysis hops |
+| `AUD_IFDS_MAX_PATHS` | 1000 | Max paths per sink |
+| `AUD_IFDS_BUDGET` | 60 | Time budget (seconds) |
+| `THEAUDITOR_TIMEOUT_INDEX_SECONDS` | 600 | Indexing timeout |
+| `THEAUDITOR_TIMEOUT_TAINT_SECONDS` | 1800 | Taint analysis timeout |
+| `THEAUDITOR_TIMEOUT_DEPS_SECONDS` | 1200 | Dependency check timeout |
+
+### Output Directories
+
+```
+.pf/
+├── repo_index.db          # Main indexed database
+├── graphs.db              # Pre-computed graphs
+├── raw/                   # JSON exports
+│   ├── fce.json
+│   ├── lint.json
+│   └── taint.json
+├── history/               # Audit journals
+│   └── {run_type}/{timestamp}/journal.ndjson
+├── ml/                    # ML artifacts
+│   ├── model.joblib
+│   └── session_history.db
+└── .cache/                # AST cache (SHA256-keyed)
+```
+
+---
+
+## Summary
+
+TheAuditor is a **12-engine polyglot security analysis platform** that transforms source code into queryable facts through a sophisticated pipeline of AST extraction, graph construction, taint analysis, and ML-driven insights. The system enforces **Zero Fallback** (no silent failures), **Database-First** navigation (never re-parse during analysis), and **Evidence Over Opinion** (FCE provides facts, not subjective scores).
+
+The architecture enables:
+- Deep semantic understanding of 7+ programming languages
+- Multi-hop interprocedural taint analysis
+- 4-vector evidence convergence (FCE)
+- ML-based risk prediction and impact forecasting
+- AI agent behavior analysis for quality improvement
+- Comprehensive CLI with 36 commands across 9 categories
+
+All components share a common SQLite backend with transactional integrity (WAL mode, manifest-receipt pairing), enabling reliable incremental analysis and efficient database-first querying.

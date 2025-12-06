@@ -9,13 +9,12 @@ import click
 from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console, err_console
 from theauditor.session.activity_metrics import (
-    ActivityClassifier,
     analyze_activity,
 )
 from theauditor.session.activity_metrics import (
     analyze_multiple_sessions as analyze_activity_multiple,
 )
-from theauditor.session.analysis import Finding, SessionAnalysis, SessionStats
+from theauditor.session.analysis import SessionAnalysis
 from theauditor.session.detector import detect_agent_type, detect_session_directory
 from theauditor.session.parser import SessionParser, load_session
 from theauditor.utils.error_handler import handle_exceptions

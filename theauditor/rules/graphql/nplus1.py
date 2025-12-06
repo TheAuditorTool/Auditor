@@ -66,7 +66,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         )
 
         for row in rows:
-            field_id, field_name, return_type, type_name, resolver_path, resolver_line = row
+            _field_id, field_name, return_type, type_name, resolver_path, resolver_line = row
 
             if not resolver_path or not resolver_line:
                 continue
@@ -80,7 +80,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             )
 
             for loop_row in loop_rows:
-                block_id, block_type, loop_start, loop_end = loop_row
+                _block_id, block_type, loop_start, loop_end = loop_row
 
                 if not block_type or block_type.lower() not in LOOP_BLOCK_TYPES:
                     continue

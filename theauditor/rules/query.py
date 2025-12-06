@@ -247,7 +247,7 @@ class Q:
                         f"Provide explicit on= parameter."
                     )
                 if fk:
-                    on_pairs = list(zip(fk.local_columns, fk.foreign_columns))
+                    on_pairs = list(zip(fk.local_columns, fk.foreign_columns, strict=False))
                     on_sql = self._build_on_clause(join_table, on_pairs)
                 else:
                     raise ValueError(f"CTE '{join_table}' requires explicit on= parameter.")

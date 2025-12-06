@@ -56,7 +56,7 @@ class ClippyLinter(BaseLinter):
         ]
 
         try:
-            returncode, stdout, stderr = await self._run_command(cmd, timeout=LINTER_TIMEOUT)
+            _returncode, stdout, _stderr = await self._run_command(cmd, timeout=LINTER_TIMEOUT)
         except TimeoutError:
             return LinterResult.failed(self.name, "Timed out", time.perf_counter() - start_time)
 
