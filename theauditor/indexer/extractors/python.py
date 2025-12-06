@@ -46,9 +46,13 @@ class PythonExtractor(BaseExtractor):
         if not context:
             return self._empty_result()
 
-        result = extract_all_python_data(context)
-
+        # Resolve imports FIRST so they're available for cross-file call linking
         resolved = self._resolve_imports_from_context(file_info, context)
+
+        # Pass resolved imports to extraction layer for callee_file_path population
+        result = extract_all_python_data(context, resolved_imports=resolved)
+
+        # Ensure resolved_imports are attached to result for storage as refs
         if resolved:
             result["resolved_imports"] = resolved
 

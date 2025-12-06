@@ -83,17 +83,17 @@ class LinterResult:
     error_message: str | None = None
 
     @classmethod
-    def success(cls, tool: str, findings: list[Finding], duration: float) -> "LinterResult":
+    def success(cls, tool: str, findings: list[Finding], duration: float) -> LinterResult:
         """Create a SUCCESS result."""
         return cls(tool=tool, status="SUCCESS", findings=findings, duration=duration)
 
     @classmethod
-    def skipped(cls, tool: str, reason: str) -> "LinterResult":
+    def skipped(cls, tool: str, reason: str) -> LinterResult:
         """Create a SKIPPED result (tool not installed, config missing, etc.)."""
         return cls(tool=tool, status="SKIPPED", findings=[], duration=0.0, error_message=reason)
 
     @classmethod
-    def failed(cls, tool: str, error: str, duration: float = 0.0) -> "LinterResult":
+    def failed(cls, tool: str, error: str, duration: float = 0.0) -> LinterResult:
         """Create a FAILED result (timeout, crash, invalid output)."""
         return cls(tool=tool, status="FAILED", findings=[], duration=duration, error_message=error)
 
@@ -109,7 +109,7 @@ class BaseLinter(ABC):
         root: Project root directory
     """
 
-    def __init__(self, toolbox: "Toolbox", root: Path):
+    def __init__(self, toolbox: Toolbox, root: Path):
         """Initialize linter with toolbox and project root.
 
         Args:

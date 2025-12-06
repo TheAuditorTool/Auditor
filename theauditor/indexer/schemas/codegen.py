@@ -69,9 +69,9 @@ class SchemaCodeGenerator:
         """Generate TypedDict for each table."""
         code = []
         code.append("# Auto-generated TypedDict definitions from schema")
-        code.append("from typing import TypedDict, Any")
+        code.append("from typing import Any, TypedDict")
         code.append("")
-
+        code.append("")
         for table_name, schema in sorted(TABLES.items()):
             class_name = f"{cls._to_pascal_case(table_name)}Row"
             code.append(f"class {class_name}(TypedDict):")
@@ -92,11 +92,12 @@ class SchemaCodeGenerator:
         """Generate accessor class for each table."""
         code = []
         code.append("# Auto-generated accessor classes from schema")
-        code.append("from typing import Any")
         code.append("import sqlite3")
+        code.append("from typing import Any")
+        code.append("")
         code.append("from ..schema import build_query")
         code.append("")
-
+        code.append("")
         for table_name, schema in sorted(TABLES.items()):
             class_name = f"{cls._to_pascal_case(table_name)}Table"
 
@@ -150,9 +151,10 @@ class SchemaCodeGenerator:
         schema_hash = cls.get_schema_hash()
         code.append("# AUTO-GENERATED FILE - DO NOT EDIT")
         code.append(f"# SCHEMA_HASH: {schema_hash}")
-        code.append("from typing import Any")
-        code.append("from collections import defaultdict")
         code.append("import sqlite3")
+        code.append("from collections import defaultdict")
+        code.append("from typing import Any")
+        code.append("")
         code.append("from ..schema import TABLES, build_query")
         code.append("")
         code.append("")
@@ -232,7 +234,7 @@ class SchemaCodeGenerator:
         code.append('        """Estimate memory usage of the cache in MB."""')
         code.append("        import sys")
         code.append("        total_bytes = 0")
-        code.append("        for attr, value in self.__dict__.items():")
+        code.append("        for _attr, value in self.__dict__.items():")
         code.append("            total_bytes += sys.getsizeof(value)")
         code.append("            if isinstance(value, list):")
         code.append("                total_bytes += sum(sys.getsizeof(i) for i in value)")
@@ -241,6 +243,7 @@ class SchemaCodeGenerator:
             "                total_bytes += sum(sys.getsizeof(k) + sys.getsizeof(v) for k, v in value.items())"
         )
         code.append("        return total_bytes / (1024 * 1024)")
+        code.append("")
 
         return "\n".join(code)
 
@@ -249,8 +252,10 @@ class SchemaCodeGenerator:
         """Generate validation decorators for storage methods."""
         code = []
         code.append("# Auto-generated validators from schema")
-        code.append("from typing import Any, Callable")
+        code.append("from collections.abc import Callable")
         code.append("from functools import wraps")
+        code.append("from typing import Any")
+        code.append("")
         code.append("from ..schema import TABLES")
         code.append("from .codegen import SchemaCodeGenerator")
         code.append("")
@@ -263,19 +268,19 @@ class SchemaCodeGenerator:
         code.append("            # Get the table schema")
         code.append("            if table_name not in TABLES:")
         code.append("                raise ValueError(f'Unknown table: {table_name}')")
-        code.append("            ")
+        code.append("")
         code.append("            schema = TABLES[table_name]")
         code.append(
             "            required_cols = {col.name for col in schema.columns if not col.nullable}"
         )
-        code.append("            ")
+        code.append("")
         code.append("            # Validate that required columns are present in kwargs")
         code.append("            for col_name in required_cols:")
         code.append("                if col_name not in kwargs:")
         code.append(
             "                    raise ValueError(f'Missing required column {col_name} for table {table_name}')"
         )
-        code.append("            ")
+        code.append("")
         code.append("            return func(*args, **kwargs)")
         code.append("        return wrapper")
         code.append("    return decorator")
@@ -285,7 +290,7 @@ class SchemaCodeGenerator:
         code.append('    """Validate column types match schema."""')
         code.append("    if table_name not in TABLES:")
         code.append("        raise ValueError(f'Unknown table: {table_name}')")
-        code.append("    ")
+        code.append("")
         code.append("    schema = TABLES[table_name]")
         code.append("    for col in schema.columns:")
         code.append("        if col.name in data:")
@@ -311,6 +316,7 @@ class SchemaCodeGenerator:
         code.append(
             "                    raise TypeError(f'Column {col.name} expects bool, got {type(value).__name__}')"
         )
+        code.append("")
 
         return "\n".join(code)
 

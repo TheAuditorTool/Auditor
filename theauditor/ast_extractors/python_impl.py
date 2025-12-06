@@ -34,10 +34,14 @@ from theauditor.ast_extractors.python import (
 from theauditor.ast_extractors.python.utils.context import FileContext
 
 
-def extract_all_python_data(context: FileContext) -> dict[str, Any]:
+def extract_all_python_data(
+    context: FileContext,
+    resolved_imports: dict[str, str] | None = None,
+) -> dict[str, Any]:
     """Extract all Python data by delegating to specialized extractors."""
 
-    # print(f"[PYTHON_IMPL ENTRY] Context type: {type(context)}", file=sys.stderr)
+    # Ensure resolved_imports is not None for downstream use
+    resolved_imports = resolved_imports or {}
 
     result = {
         "imports": [],
@@ -46,6 +50,7 @@ def extract_all_python_data(context: FileContext) -> dict[str, Any]:
         "function_calls": [],
         "returns": [],
         "variable_usage": [],
+        "func_params": [],  # For cross-file parameter binding
         "cfg": [],
         "object_literals": [],
         "type_annotations": [],
@@ -92,6 +97,22 @@ def extract_all_python_data(context: FileContext) -> dict[str, Any]:
             func["type"] = "function"
         result["symbols"].extend(functions)
 
+    # Extract function parameters for cross-file parameter binding
+    # Transform dict format to list format expected by storage layer
+    raw_func_params = core_extractors.extract_python_function_params(context)
+    for func in functions:
+        func_name = func.get("name", "")
+        func_line = func.get("line", 0)
+        param_names = raw_func_params.get(func_name, [])
+        for idx, param_name in enumerate(param_names):
+            result["func_params"].append({
+                "function_name": func_name,
+                "function_line": func_line,
+                "param_index": idx,
+                "param_name": param_name,
+                "param_type": None,  # Python AST doesn't always have type info
+            })
+
     classes = core_extractors.extract_python_classes(context)
     if classes:
         for cls in classes:
@@ -114,7 +135,12 @@ def extract_all_python_data(context: FileContext) -> dict[str, Any]:
     if variable_usage:
         result["variable_usage"].extend(variable_usage)
 
-    calls_with_args = core_extractors.extract_python_calls_with_args(context)
+    # Pass function_params (for intra-file param binding) and resolved_imports (for cross-file callee linking)
+    calls_with_args = core_extractors.extract_python_calls_with_args(
+        context,
+        function_params=raw_func_params,
+        resolved_imports=resolved_imports,
+    )
     for call in calls_with_args:
         callee = call.get("callee_function", "")
         if callee:
