@@ -389,6 +389,18 @@ class InfrastructureDatabaseMixin:
             (file_path, var_name, var_value, 1 if is_build_arg else 0)
         )
 
+    def add_dockerfile_instruction(
+        self,
+        file_path: str,
+        line: int,
+        instruction: str,
+        arguments: str | None,
+    ):
+        """Add a Dockerfile instruction to the batch."""
+        self.generic_batches["dockerfile_instructions"].append(
+            (file_path, line, instruction, arguments)
+        )
+
     def add_compose_service_port(
         self,
         file_path: str,

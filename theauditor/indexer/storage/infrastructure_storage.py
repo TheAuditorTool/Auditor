@@ -32,6 +32,7 @@ class InfrastructureStorage(BaseStorage):
             "docker_images": self._store_docker_images,
             "dockerfile_ports": self._store_dockerfile_ports,
             "dockerfile_env_vars": self._store_dockerfile_env_vars,
+            "dockerfile_instructions": self._store_dockerfile_instructions,
             # Prisma handlers
             "prisma_models": self._store_prisma_models,
             # Compose/Nginx handlers (Stream C)
@@ -391,6 +392,21 @@ class InfrastructureStorage(BaseStorage):
         if "dockerfile_env_vars" not in self.counts:
             self.counts["dockerfile_env_vars"] = 0
         self.counts["dockerfile_env_vars"] += len(dockerfile_env_vars)
+
+    def _store_dockerfile_instructions(
+        self, file_path: str, dockerfile_instructions: list, jsx_pass: bool
+    ):
+        """Store Dockerfile instruction records."""
+        for item in dockerfile_instructions:
+            self.db_manager.add_dockerfile_instruction(
+                file_path=item["file_path"],
+                line=item["line"],
+                instruction=item["instruction"],
+                arguments=item.get("arguments"),
+            )
+        if "dockerfile_instructions" not in self.counts:
+            self.counts["dockerfile_instructions"] = 0
+        self.counts["dockerfile_instructions"] += len(dockerfile_instructions)
 
     # ==================== Prisma Handlers ====================
 
