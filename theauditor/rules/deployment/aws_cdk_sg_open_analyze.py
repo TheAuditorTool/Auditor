@@ -145,7 +145,7 @@ def _check_unrestricted_ingress(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
+    for construct_id, file_path, _line, construct_name, cdk_class in rows:
         if not (
             "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
@@ -227,7 +227,7 @@ def _check_dangerous_ports_exposed(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
+    for construct_id, file_path, _line, construct_name, cdk_class in rows:
         if not (
             "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
@@ -294,7 +294,7 @@ def _check_all_traffic_rules(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
+    for construct_id, file_path, _line, construct_name, cdk_class in rows:
         if not (
             "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
@@ -356,7 +356,7 @@ def _check_allow_all_outbound(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
+    for construct_id, file_path, _line, construct_name, cdk_class in rows:
         if not (
             "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):

@@ -453,7 +453,7 @@ def _check_dangerous_html(db: RuleDB) -> list[StandardFinding]:
     )
 
     dangerous_calls = []
-    for file, line, callee, html_content in rows:
+    for file, line, _callee, html_content in rows:
         dangerous_calls.append((file, line, html_content))
 
     for file, line, html_content in dangerous_calls:

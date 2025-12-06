@@ -976,10 +976,7 @@ class BashExtractor:
                         if key not in seen:
                             seen.add(key)
 
-                            if is_variadic:
-                                idx = -1
-                            else:
-                                idx = int(suffix) - 1
+                            idx = -1 if is_variadic else int(suffix) - 1
 
                             func_line = func_lines.get(func_name, 0)
 
@@ -1009,10 +1006,7 @@ class BashExtractor:
                             if key not in seen:
                                 seen.add(key)
 
-                                if is_variadic:
-                                    idx = -1
-                                else:
-                                    idx = int(var_name) - 1
+                                idx = -1 if is_variadic else int(var_name) - 1
 
                                 func_line = func_lines.get(func_name, 0)
 

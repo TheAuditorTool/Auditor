@@ -366,10 +366,7 @@ def _has_validation_nearby(
     if file not in validation_by_file:
         return False
 
-    for val_line in validation_by_file[file]:
-        if line - window <= val_line <= line:
-            return True
-    return False
+    return any(line - window <= val_line <= line for val_line in validation_by_file[file])
 
 
 def _detect_prototype_pollution(

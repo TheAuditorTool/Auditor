@@ -894,7 +894,7 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
         else:
             logger.warning(f"\\ ESLint config not found at {eslint_config_source}")
 
-        python_config_source = theauditor_root / "theauditor" / "linters" / "pyproject.toml"
+        python_config_source = theauditor_root / "theauditor" / "linters" / "pyproject_template.toml"
         python_config_dest = sandbox_dir / "pyproject.toml"
 
         if python_config_source.exists():

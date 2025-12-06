@@ -17,7 +17,6 @@ import yaml
 
 from theauditor import __version__
 from theauditor.pipeline.ui import console
-from theauditor.utils.logging import logger
 
 from .base import BasePackageManager, Dependency
 

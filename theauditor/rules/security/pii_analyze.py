@@ -1565,7 +1565,7 @@ def _detect_pii_in_logging(db: RuleDB, pii_categories: dict) -> list[StandardFin
         detected_pii = _detect_pii_matches(args, pii_categories)
 
         if detected_pii:
-            pii_pattern, pii_category = detected_pii[0]
+            pii_pattern, _pii_category = detected_pii[0]
             regulations = get_applicable_regulations(pii_pattern)
 
             findings.append(

@@ -1,5 +1,5 @@
 # AUTO-GENERATED FILE - DO NOT EDIT
-# SCHEMA_HASH: 269482ee9c86e367e0015f56f436d15307c6dc310dfc9bc2720e319eb93201fa
+# SCHEMA_HASH: 0b66d0a7e6ddf98e43aef3a63c40005e999866c35d0c3963de78b977287c4cc9
 from typing import Any
 from collections import defaultdict
 import sqlite3

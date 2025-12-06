@@ -245,7 +245,7 @@ def _check_weak_hashes(db: RuleDB, add_finding) -> None:
     )
 
     for row in rows:
-        file, line, method, args = row[0], row[1], row[2], row[3]
+        file, line, method, _args = row[0], row[1], row[2], row[3]
         if not method:
             continue
 
@@ -365,7 +365,7 @@ def _check_insecure_random(db: RuleDB, add_finding) -> None:
     )
 
     for row in rows:
-        file, line, method, args, caller = row[0], row[1], row[2], row[3], row[4]
+        file, line, method, _args, caller = row[0], row[1], row[2], row[3], row[4]
 
         is_crypto = _check_crypto_context(db, file, line, caller)
 

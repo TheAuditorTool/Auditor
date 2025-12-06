@@ -101,10 +101,7 @@ def _is_mutable_version(version: str) -> bool:
     if version_lower in MUTABLE_BRANCH_NAMES:
         return True
 
-    if MAJOR_ONLY_VERSION_PATTERN.match(version):
-        return True
-
-    return False
+    return bool(MAJOR_ONLY_VERSION_PATTERN.match(version))
 
 
 def _find_reusable_workflow_risks(db: RuleDB) -> list[StandardFinding]:

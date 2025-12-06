@@ -80,7 +80,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         )
 
         for row in rows:
-            arg_name, arg_type, field_id, field_name, type_name, resolver_path, resolver_line = row
+            arg_name, arg_type, _field_id, field_name, type_name, resolver_path, resolver_line = row
 
             sql_rows = db.query(
                 Q("sql_queries")

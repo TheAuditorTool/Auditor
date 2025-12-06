@@ -591,7 +591,7 @@ class IFDSTaintAnalyzer:
         if not self.registry:
             raise ValueError("Registry is MANDATORY. NO FALLBACKS.")
 
-        for i, hop in enumerate(hop_chain):
+        for _i, hop in enumerate(hop_chain):
             if isinstance(hop, dict):
                 hop_file = hop.get("from_file") or hop.get("to_file")
                 hop_line = hop.get("line", 0)

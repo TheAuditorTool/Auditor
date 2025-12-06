@@ -856,7 +856,7 @@ def _check_insecure_logging(db: RuleDB, findings: list[StandardFinding]) -> None
         .order_by("file, line")
     )
 
-    for file, line, func, args in func_rows:
+    for file, line, _func, args in func_rows:
         if not args:
             continue
 

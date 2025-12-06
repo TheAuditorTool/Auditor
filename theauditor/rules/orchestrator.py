@@ -187,7 +187,7 @@ class RulesOrchestrator:
 
         all_findings = []
 
-        for category, rules in self.rules.items():
+        for _category, rules in self.rules.items():
             if not rules:
                 continue
 

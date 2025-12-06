@@ -1745,7 +1745,7 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                 consequence_node = None
                 alternative_node = None
 
-                for i, child in enumerate(actual_stmt.children):
+                for _i, child in enumerate(actual_stmt.children):
                     if child.type == "if":
                         continue
                     elif condition_node is None and child.type not in ["block", "else_clause"]:

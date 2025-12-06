@@ -157,7 +157,7 @@ class EslintLinter(BaseLinter):
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.PIPE,
             )
-            _, stderr = await asyncio.wait_for(proc.communicate(), timeout=LINTER_TIMEOUT)
+            _, _stderr = await asyncio.wait_for(proc.communicate(), timeout=LINTER_TIMEOUT)
         except TimeoutError:
             logger.error(f"[{self.name}] Batch {batch_num} timed out")
             return []

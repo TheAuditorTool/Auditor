@@ -381,10 +381,7 @@ class ManifestExtractor(BaseExtractor):
                 version_spec = spec
                 features = None
             elif isinstance(spec, dict):
-                if spec.get("workspace") is True:
-                    version_spec = "workspace"
-                else:
-                    version_spec = spec.get("version")
+                version_spec = "workspace" if spec.get("workspace") is True else spec.get("version")
                 features_list = spec.get("features", [])
                 features = json.dumps(features_list) if features_list else None
             else:
@@ -443,10 +440,7 @@ class ManifestExtractor(BaseExtractor):
         """Extract a single Go module dependency line."""
 
         is_indirect = "indirect" in line
-        if "//" in line:
-            code_part = line.split("//")[0].strip()
-        else:
-            code_part = line.strip()
+        code_part = line.split("//")[0].strip() if "//" in line else line.strip()
 
         parts = code_part.split()
         if len(parts) >= 2:

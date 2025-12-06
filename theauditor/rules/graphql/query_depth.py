@@ -66,7 +66,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         )
 
         for row in rows:
-            field_id, field_name, return_type, line, type_name, schema_path = row
+            _field_id, field_name, return_type, line, type_name, schema_path = row
 
             if not return_type:
                 continue

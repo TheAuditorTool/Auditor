@@ -202,7 +202,7 @@ def _build_untrusted_checkout_finding(
     except json.JSONDecodeError:
         ref_value = detected_pattern or "unknown"
 
-    trigger_str = ", ".join(detected_triggers)
+    ", ".join(detected_triggers)
     is_workflow_run = "workflow_run" in detected_triggers
 
     if is_workflow_run:

@@ -144,7 +144,7 @@ class ReactStateAnalyzer:
         )
 
         component_counts: dict[tuple, int] = {}
-        for file, component, hook_name in rows:
+        for file, component, _hook_name in rows:
             key = (file, component)
             component_counts[key] = component_counts.get(key, 0) + 1
 
@@ -380,7 +380,7 @@ class ReactStateAnalyzer:
             if key not in effects_by_component:
                 continue
 
-            for effect_line, deps in effects_by_component[key]:
+            for effect_line, _deps in effects_by_component[key]:
                 if effect_line > line and effect_line < line + 5:
                     self.findings.append(
                         StandardFinding(
@@ -407,7 +407,7 @@ class ReactStateAnalyzer:
             .limit(200)
         )
 
-        for file, line, hook, callback in rows:
+        for file, line, _hook, callback in rows:
             if not callback or len(callback) <= 50:
                 continue
 
@@ -439,7 +439,7 @@ class ReactStateAnalyzer:
             .limit(200)
         )
 
-        for file, line, component, callback in rows:
+        for file, line, _component, callback in rows:
             callback_str = str(callback) if callback else ""
 
             if "{" not in callback_str or len(callback_str) <= 200:

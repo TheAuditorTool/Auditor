@@ -480,7 +480,7 @@ class CORSAnalyzer:
         )
 
         for row in func_rows:
-            file, line, callee, args = row[0], row[1], row[2], row[3]
+            file, line, _callee, args = row[0], row[1], row[2], row[3]
 
             if "http://" not in args:
                 continue

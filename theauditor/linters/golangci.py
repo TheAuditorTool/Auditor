@@ -53,7 +53,7 @@ class GolangciLinter(BaseLinter):
         ]
 
         try:
-            returncode, stdout, stderr = await self._run_command(cmd)
+            _returncode, stdout, _stderr = await self._run_command(cmd)
         except TimeoutError:
             return LinterResult.failed(self.name, "Timed out", time.perf_counter() - start_time)
 

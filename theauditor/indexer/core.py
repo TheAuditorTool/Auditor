@@ -202,7 +202,7 @@ class FileWalker:
                 else:
                     exclude_file_patterns.append(pattern)
 
-        monorepo_detected, monorepo_dirs, root_entry_files = self.detect_monorepo()
+        monorepo_detected, monorepo_dirs, _root_entry_files = self.detect_monorepo()
 
         if monorepo_detected:
             logger.info(

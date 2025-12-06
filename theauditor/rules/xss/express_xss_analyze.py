@@ -19,8 +19,6 @@ from theauditor.rules.fidelity import RuleDB
 from theauditor.rules.query import Q
 from theauditor.rules.xss.constants import (
     COMMON_INPUT_SOURCES,
-    SANITIZER_CALL_PATTERNS,
-    contains_user_input,
     is_sanitized,
 )
 

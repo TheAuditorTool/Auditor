@@ -60,7 +60,7 @@ class CoreStorage(BaseStorage):
 
         if isinstance(imports, dict):
             logger.debug(f"Processing {len(imports)} ref entries for {file_path}")
-            for name, resolved_path in imports.items():
+            for _name, resolved_path in imports.items():
                 resolved = resolved_path.replace("\\", "/") if resolved_path else ""
 
                 try:

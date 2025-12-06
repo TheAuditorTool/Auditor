@@ -135,7 +135,7 @@ def _check_major_outdated(db: RuleDB, file_path_map: dict[str, str]) -> list[Sta
         .order_by("manager, package_name")
     )
 
-    for manager, pkg_name, locked, latest, delta, is_outdated, error in rows:
+    for manager, pkg_name, locked, latest, _delta, _is_outdated, _error in rows:
         if not locked or not latest:
             continue
 
@@ -202,7 +202,7 @@ def _check_minor_outdated(db: RuleDB, file_path_map: dict[str, str]) -> list[Sta
         .order_by("manager, package_name")
     )
 
-    for manager, pkg_name, locked, latest, delta, is_outdated, error in rows:
+    for manager, pkg_name, locked, latest, _delta, _is_outdated, _error in rows:
         if not locked or not latest:
             continue
 

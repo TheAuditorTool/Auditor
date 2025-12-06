@@ -85,7 +85,7 @@ def _check_s3_encryption(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
+    for construct_id, file_path, _line, construct_name, cdk_class in rows:
         if not ("Bucket" in cdk_class and ("s3" in cdk_class.lower() or "aws_s3" in cdk_class)):
             continue
 
@@ -137,7 +137,7 @@ def _check_rds_public_subnet(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
+    for construct_id, file_path, _line, construct_name, cdk_class in rows:
         if not (
             "DatabaseInstance" in cdk_class
             and ("rds" in cdk_class.lower() or "aws_rds" in cdk_class)

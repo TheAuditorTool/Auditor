@@ -200,7 +200,7 @@ def _check_hardcoded_credentials(db: RuleDB, add_finding) -> None:
     )
 
     for row in db.execute(sql, params):
-        file, line, name, value_expr, scope = row
+        file, line, name, value_expr, _scope = row
         value = value_expr or ""
 
         if value.startswith("$") or value.startswith("${"):
@@ -228,7 +228,7 @@ def _check_unsafe_temp_files(db: RuleDB, add_finding) -> None:
         .where("target LIKE ?", "/tmp/%")
     )
 
-    for file, line, target, direction in rows:
+    for file, line, target, _direction in rows:
         if "$$" not in target and "$RANDOM" not in target and "mktemp" not in target.lower():
             add_finding(
                 file=file,
@@ -246,7 +246,7 @@ def _check_missing_safety_flags(db: RuleDB, add_finding) -> None:
 
     rows = db.query(Q("bash_commands").select("file"))
 
-    files = set(file for (file,) in rows)
+    files = {file for (file,) in rows}
 
     for file in files:
         set_rows = db.query(Q("bash_set_options").select("options").where("file = ?", file))
@@ -373,7 +373,7 @@ def _check_path_manipulation(db: RuleDB, add_finding) -> None:
         .where("name = ?", "PATH")
     )
 
-    for file, line, name, value_expr, scope in rows:
+    for file, line, _name, value_expr, _scope in rows:
         value = value_expr or ""
 
         if value.startswith(".") or value.startswith("$PWD"):
@@ -409,7 +409,7 @@ def _check_ifs_manipulation(db: RuleDB, add_finding) -> None:
         .where("name = ?", "IFS")
     )
 
-    for file, line, name, value_expr, scope, containing_func in rows:
+    for file, line, _name, value_expr, _scope, containing_func in rows:
         value = value_expr or ""
 
         if value == '""' or value == "''":
@@ -453,7 +453,7 @@ def _check_relative_command_paths(db: RuleDB, add_finding) -> None:
     )
 
     for row in db.execute(sql, params):
-        file, line, command_name, containing_func = row
+        file, line, command_name, _containing_func = row
         add_finding(
             file=file,
             line=line,
@@ -474,7 +474,7 @@ def _check_security_sensitive_commands(db: RuleDB, add_finding) -> None:
         .where("wrapped_command IS NOT NULL AND wrapped_command LIKE ?", "$%")
     )
 
-    for file, line, command_name, wrapped_command in rows:
+    for file, line, command_name, _wrapped_command in rows:
         add_finding(
             file=file,
             line=line,
@@ -507,7 +507,7 @@ def _check_dangerous_environment_vars(db: RuleDB, add_finding) -> None:
     LD_PRELOAD, LD_LIBRARY_PATH, PYTHONPATH, PERL5LIB can be used to inject
     malicious libraries or modules into child processes.
     """
-    DANGEROUS_VARS = ("LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PERL5LIB", "NODE_PATH")
+    DANGEROUS_VARS = ("LD_PRELOAD", "LD_LIBRARY_PATH", "PYTHONPATH", "PERL5LIB", "NODE_PATH")  # noqa: N806 - constant
 
     placeholders = ", ".join(["?"] * len(DANGEROUS_VARS))
     sql, params = Q.raw(
@@ -580,7 +580,7 @@ def _check_ssl_bypass(db: RuleDB, add_finding) -> None:
 
     CWE-295: Improper Certificate Validation
     """
-    INSECURE_FLAGS = frozenset(["-k", "--insecure", "--no-check-certificate"])
+    INSECURE_FLAGS = frozenset(["-k", "--insecure", "--no-check-certificate"])  # noqa: N806 - constant
 
     rows = db.query(
         Q("bash_commands")

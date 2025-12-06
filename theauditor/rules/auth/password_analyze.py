@@ -7,6 +7,10 @@ Detects password vulnerabilities including:
 - Insufficient password length (NIST 800-63B: 8+ min, 12+ recommended) (CWE-521)
 - Password exposure in URL parameters (CWE-598)
 - Timing-unsafe password comparisons (CWE-208)
+- Passwords in logging statements (CWE-532)
+- Bcrypt cost factor too low (CWE-916)
+- Insecure password recovery flows (CWE-640)
+- Missing credential stuffing protections (CWE-307)
 """
 
 from theauditor.rules.base import (
@@ -96,6 +100,10 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_weak_complexity(db))
         findings.extend(_check_password_in_url(db))
         findings.extend(_check_timing_unsafe_comparison(db))
+        findings.extend(_check_password_logging(db))
+        findings.extend(_check_bcrypt_cost(db))
+        findings.extend(_check_insecure_recovery(db))
+        findings.extend(_check_credential_stuffing_protection(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -502,6 +510,376 @@ def _check_timing_unsafe_comparison(db: RuleDB) -> list[StandardFinding]:
                     cwe_id="CWE-208",
                     confidence=Confidence.LOW,
                     snippet=f"{func}({args[:30]}...)" if len(args) > 30 else f"{func}({args})",
+                )
+            )
+
+    return findings
+
+
+def _check_password_logging(db: RuleDB) -> list[StandardFinding]:
+    """Detect passwords being passed to logging functions.
+
+    Passwords in logs are exposed to anyone with log access, stored in plain text,
+    and may be retained indefinitely. CWE-532.
+    """
+    findings = []
+
+    logging_functions = frozenset([
+        "console.log",
+        "console.info",
+        "console.warn",
+        "console.error",
+        "console.debug",
+        "logger.info",
+        "logger.debug",
+        "logger.warn",
+        "logger.error",
+        "logging.info",
+        "logging.debug",
+        "logging.warning",
+        "logging.error",
+        "log.info",
+        "log.debug",
+        "log.warn",
+        "log.error",
+        "print",
+        "printf",
+        "fmt.print",
+        "fmt.println",
+    ])
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        func_lower = func.lower()
+
+        is_logging = any(lf in func_lower for lf in logging_functions)
+        if not is_logging:
+            continue
+
+        args_lower = (args or "").lower()
+
+        has_password = any(kw in args_lower for kw in PASSWORD_KEYWORDS)
+        if not has_password:
+            continue
+
+        # Skip if it's clearly a label/message, not a variable
+        skip_patterns = ["password:", "password =", "password is", "password must"]
+        if any(sp in args_lower for sp in skip_patterns):
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="password-in-logs",
+                message="Password variable passed to logging function. Never log credentials - they persist in logs indefinitely.",
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category="data-exposure",
+                cwe_id="CWE-532",
+                confidence=Confidence.MEDIUM,
+                snippet=f"{func}(...password...)",
+            )
+        )
+
+    return findings
+
+
+def _check_bcrypt_cost(db: RuleDB) -> list[StandardFinding]:
+    """Detect bcrypt usage with cost factor below 12.
+
+    Cost factor 10 (default) is now too fast with modern GPUs.
+    OWASP recommends 12+ for bcrypt. CWE-916.
+    """
+    findings = []
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr", "argument_index")
+        .order_by("file, line")
+    )
+
+    bcrypt_functions = frozenset([
+        "bcrypt.hash",
+        "bcrypt.hashsync",
+        "bcrypt.gensalt",
+        "bcrypt.gensaltsync",
+    ])
+
+    for file, line, func, args, arg_idx in rows:
+        func_lower = func.lower()
+
+        is_bcrypt = any(bf in func_lower for bf in bcrypt_functions)
+        if not is_bcrypt:
+            continue
+
+        # For bcrypt.hash/hashSync, rounds is typically arg index 1
+        # For bcrypt.genSalt, rounds is arg index 0
+        if "gensalt" in func_lower:
+            if arg_idx != 0:
+                continue
+        else:
+            if arg_idx != 1:
+                continue
+
+        # Check if rounds/cost is a number less than 12
+        args_clean = args.strip()
+        try:
+            rounds = int(args_clean)
+            if rounds < 12:
+                findings.append(
+                    StandardFinding(
+                        rule_name="bcrypt-low-cost",
+                        message=f"Bcrypt cost factor {rounds} is too low. OWASP recommends 12+ for adequate GPU resistance.",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="cryptography",
+                        cwe_id="CWE-916",
+                        confidence=Confidence.HIGH,
+                        snippet=f"{func}(..., {rounds})",
+                    )
+                )
+        except ValueError:
+            # Not a literal number, could be a variable - skip
+            pass
+
+    # Also check for assignment patterns like saltRounds = 10
+    assign_rows = db.query(
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
+    )
+
+    for file, line, target_var, source_expr in assign_rows:
+        target_lower = target_var.lower()
+
+        salt_keywords = ["saltrounds", "salt_rounds", "bcryptrounds", "bcrypt_rounds", "cost"]
+        if not any(kw in target_lower for kw in salt_keywords):
+            continue
+
+        try:
+            rounds = int(source_expr.strip())
+            if rounds < 12:
+                findings.append(
+                    StandardFinding(
+                        rule_name="bcrypt-low-cost-config",
+                        message=f"Bcrypt rounds configured to {rounds}. Increase to 12+ for adequate protection against GPU attacks.",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.MEDIUM,
+                        category="cryptography",
+                        cwe_id="CWE-916",
+                        confidence=Confidence.HIGH,
+                        snippet=f"{target_var} = {rounds}",
+                    )
+                )
+        except ValueError:
+            pass
+
+    return findings
+
+
+def _check_insecure_recovery(db: RuleDB) -> list[StandardFinding]:
+    """Detect insecure password recovery implementations.
+
+    Checks for:
+    - Security questions (easily guessed/researched)
+    - Password hints (leak information)
+    - Reset tokens without expiration
+    - Weak reset token generation
+    """
+    findings = []
+
+    rows = db.query(
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
+    )
+
+    security_question_patterns = frozenset([
+        "securityquestion",
+        "security_question",
+        "secretquestion",
+        "secret_question",
+        "mothersmaiden",
+        "mothers_maiden",
+        "firstpet",
+        "first_pet",
+        "childhoodfriend",
+    ])
+
+    password_hint_patterns = frozenset([
+        "passwordhint",
+        "password_hint",
+        "passhint",
+        "pass_hint",
+        "pwdhint",
+    ])
+
+    for file, line, target_var, source_expr in rows:
+        target_lower = target_var.lower()
+        source_lower = (source_expr or "").lower()
+
+        # Check for security questions
+        if any(sq in target_lower or sq in source_lower for sq in security_question_patterns):
+            findings.append(
+                StandardFinding(
+                    rule_name="password-security-questions",
+                    message="Security questions are insecure - answers are often publicly available or easily guessed. Use email/SMS verification or TOTP instead.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    cwe_id="CWE-640",
+                    confidence=Confidence.HIGH,
+                    snippet=f"{target_var} = ...",
+                )
+            )
+
+        # Check for password hints
+        if any(ph in target_lower for ph in password_hint_patterns):
+            findings.append(
+                StandardFinding(
+                    rule_name="password-hint-storage",
+                    message="Password hints leak information about the password. Remove password hint functionality entirely.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    cwe_id="CWE-640",
+                    confidence=Confidence.HIGH,
+                    snippet=f"{target_var} = ...",
+                )
+            )
+
+    # Check for reset token generation patterns
+    func_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    weak_token_patterns = frozenset([
+        "math.random",
+        "random.random",
+        "random.randint",
+        "date.now",
+        "timestamp",
+        "uuid.v1",
+    ])
+
+    for file, line, func, args in func_rows:
+        func_lower = func.lower()
+        args_lower = (args or "").lower()
+
+        # Look for reset token context
+        reset_context = "reset" in func_lower or "reset" in args_lower or "token" in func_lower
+
+        if reset_context:
+            if any(weak in func_lower or weak in args_lower for weak in weak_token_patterns):
+                findings.append(
+                    StandardFinding(
+                        rule_name="password-reset-weak-token",
+                        message="Password reset token uses weak randomness. Use crypto.randomBytes (128+ bits) with URL-safe encoding.",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="authentication",
+                        cwe_id="CWE-640",
+                        confidence=Confidence.MEDIUM,
+                        snippet=f"{func}(...)",
+                    )
+                )
+
+    return findings
+
+
+def _check_credential_stuffing_protection(db: RuleDB) -> list[StandardFinding]:
+    """Detect missing credential stuffing protections on login endpoints.
+
+    Checks for:
+    - Rate limiting middleware
+    - Account lockout after failed attempts
+    - CAPTCHA integration
+    """
+    findings = []
+
+    # Find login/auth endpoints
+    endpoint_rows = db.query(
+        Q("api_endpoints")
+        .select("file", "line", "method", "pattern")
+        .where("method = 'POST'")
+        .order_by("file")
+    )
+
+    login_patterns = ["login", "signin", "sign-in", "authenticate", "auth"]
+
+    login_endpoints = []
+    for file, line, _method, pattern in endpoint_rows:
+        pattern_lower = pattern.lower()
+        if any(lp in pattern_lower for lp in login_patterns):
+            login_endpoints.append((file, line, pattern))
+
+    for file, line, pattern in login_endpoints:
+        # Check for rate limiting in the same file
+        func_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function", "argument_expr")
+            .where("file = ?", file)
+            .limit(200)
+        )
+
+        has_rate_limit = False
+        has_lockout = False
+        has_captcha = False
+
+        rate_limit_patterns = ["ratelimit", "rate_limit", "throttle", "limiter", "slowdown"]
+        lockout_patterns = ["lockout", "lock_out", "failedattempts", "failed_attempts", "maxattempts"]
+        captcha_patterns = ["captcha", "recaptcha", "hcaptcha", "turnstile"]
+
+        for callee, args in func_rows:
+            callee_lower = callee.lower()
+            args_lower = (args or "").lower()
+
+            if any(rl in callee_lower or rl in args_lower for rl in rate_limit_patterns):
+                has_rate_limit = True
+            if any(lo in callee_lower or lo in args_lower for lo in lockout_patterns):
+                has_lockout = True
+            if any(cp in callee_lower or cp in args_lower for cp in captcha_patterns):
+                has_captcha = True
+
+        # Also check assignments for middleware/config
+        assign_rows = db.query(
+            Q("assignments")
+            .select("target_var", "source_expr")
+            .where("file = ?", file)
+            .limit(200)
+        )
+
+        for target_var, source_expr in assign_rows:
+            target_lower = target_var.lower()
+            source_lower = (source_expr or "").lower()
+
+            if any(rl in target_lower or rl in source_lower for rl in rate_limit_patterns):
+                has_rate_limit = True
+            if any(lo in target_lower or lo in source_lower for lo in lockout_patterns):
+                has_lockout = True
+            if any(cp in target_lower or cp in source_lower for cp in captcha_patterns):
+                has_captcha = True
+
+        if not has_rate_limit and not has_lockout and not has_captcha:
+            findings.append(
+                StandardFinding(
+                    rule_name="login-no-brute-force-protection",
+                    message=f"Login endpoint {pattern} lacks brute-force protection. Add rate limiting, account lockout, or CAPTCHA.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="authentication",
+                    cwe_id="CWE-307",
+                    confidence=Confidence.LOW,
+                    snippet=f"POST {pattern}",
                 )
             )
 

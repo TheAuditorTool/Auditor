@@ -85,7 +85,7 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
             .where("command_name = ?", "eval")
         )
 
-        for file, line, command_name in rows:
+        for file, line, _command_name in rows:
             arg_rows = db.query(
                 Q("bash_command_args")
                 .select("arg_value", "has_expansion")
@@ -232,7 +232,7 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
             .where("syntax LIKE ? AND command_text LIKE ?", "%process%", "%$%")
         )
 
-        for file, line, syntax, command_text in rows:
+        for file, line, _syntax, command_text in rows:
             add_finding(
                 file=file,
                 line=line,
@@ -287,7 +287,7 @@ def find_bash_injection_issues(context: StandardRuleContext) -> RuleResult:
                 .where("file = ? AND command_line = ? AND arg_index = 0", file, line)
             )
 
-            for arg_value, has_expansion, is_quoted in arg_rows:
+            for arg_value, has_expansion, _is_quoted in arg_rows:
                 if has_expansion or (arg_value and "$" in str(arg_value)):
                     add_finding(
                         file=file,

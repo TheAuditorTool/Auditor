@@ -103,7 +103,7 @@ def _check_wildcard_actions(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
+    for construct_id, file_path, _line, construct_name, cdk_class in rows:
         is_policy = "Policy" in cdk_class or "PolicyStatement" in cdk_class
         is_iam = "iam" in cdk_class.lower() or "aws_iam" in cdk_class
         if not (is_policy and is_iam):
@@ -153,7 +153,7 @@ def _check_wildcard_resources(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
+    for construct_id, file_path, _line, construct_name, cdk_class in rows:
         is_policy = "Policy" in cdk_class or "PolicyStatement" in cdk_class
         is_iam = "iam" in cdk_class.lower() or "aws_iam" in cdk_class
         if not (is_policy and is_iam):
@@ -207,7 +207,7 @@ def _check_dangerous_managed_policies(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
+    for construct_id, file_path, _line, construct_name, cdk_class in rows:
         if not ("Role" in cdk_class and ("iam" in cdk_class.lower() or "aws_iam" in cdk_class)):
             continue
 
@@ -336,7 +336,7 @@ def _check_not_action_usage(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
+    for construct_id, file_path, _line, construct_name, cdk_class in rows:
         is_policy = "Policy" in cdk_class or "PolicyStatement" in cdk_class
         is_iam = "iam" in cdk_class.lower() or "aws_iam" in cdk_class
         if not (is_policy and is_iam):

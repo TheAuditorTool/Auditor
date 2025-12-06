@@ -71,7 +71,7 @@ def _check_insecure_random(db: RuleDB) -> list[StandardFinding]:
         Q("go_imports").select("file_path", "line").where("path = ?", "math/rand")
     )
 
-    math_rand_files = {file_path: line for file_path, line in math_rand_rows}
+    math_rand_files = dict(math_rand_rows)
 
     if not math_rand_files:
         return findings
@@ -219,7 +219,7 @@ def _check_insecure_tls(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for file_path, line, initial_value in skip_verify_rows:
+    for file_path, line, _initial_value in skip_verify_rows:
         findings.append(
             StandardFinding(
                 rule_name="go-insecure-tls-skip-verify",
@@ -244,7 +244,7 @@ def _check_insecure_tls(db: RuleDB) -> list[StandardFinding]:
         )
     )
 
-    for file_path, line, initial_value in weak_tls_rows:
+    for file_path, line, _initial_value in weak_tls_rows:
         findings.append(
             StandardFinding(
                 rule_name="go-weak-tls-version",

@@ -100,7 +100,7 @@ def _check_ignored_errors(db: RuleDB) -> list[StandardFinding]:
         .where("initial_value != ?", "")
     )
 
-    for file_path, line, name, initial_value in blank_rows:
+    for file_path, line, _name, initial_value in blank_rows:
         initial_value = initial_value or ""
 
         if "(" not in initial_value or ")" not in initial_value:

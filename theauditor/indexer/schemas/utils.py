@@ -229,7 +229,7 @@ class TableSchema:
                     expected_pairs = list(zip(fk.local_columns, fk.foreign_columns, strict=True))
 
                     found = False
-                    for (fk_id, db_table), db_pairs in db_fks.items():
+                    for (_fk_id, db_table), db_pairs in db_fks.items():
                         if db_table == expected_table and set(db_pairs) == set(expected_pairs):
                             found = True
                             break

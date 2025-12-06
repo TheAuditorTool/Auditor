@@ -18,7 +18,6 @@ from theauditor.rules.base import (
 from theauditor.rules.fidelity import RuleDB
 from theauditor.rules.query import Q
 from theauditor.rules.xss.constants import (
-    REACT_DANGEROUS_PATTERNS,
     REACT_INPUT_SOURCES,
     SANITIZER_CALL_PATTERNS,
 )

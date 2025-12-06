@@ -103,7 +103,7 @@ def validate_ml_schema():
         _SCHEMA_VALIDATED = True
 
     except ImportError:
-        raise RuntimeError("Schema validation failed: theauditor.indexer.schema not available")
+        raise RuntimeError("Schema validation failed: theauditor.indexer.schema not available") from None
 
 
 def check_ml_available():

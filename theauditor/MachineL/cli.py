@@ -183,7 +183,7 @@ def suggest(
         scaler,
         root_cause_calibrator,
         next_edit_calibrator,
-        feature_map,
+        _feature_map,
     ) = models.load_models(model_dir)
 
     if root_cause_clf is None:

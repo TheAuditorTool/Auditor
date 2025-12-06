@@ -167,7 +167,7 @@ class UniversalPatternDetector:
 
         def process_file(file_info):
             """Process single file through orchestrator."""
-            file_path, ext, sha256_hash = file_info
+            file_path, ext, _sha256_hash = file_info
             local_findings = []
 
             try:

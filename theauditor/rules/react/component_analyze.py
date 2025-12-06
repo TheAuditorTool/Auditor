@@ -117,7 +117,7 @@ class ReactComponentAnalyzer:
             .order_by("(end_line - start_line) DESC")
         )
 
-        for file, name, comp_type, start, end in rows:
+        for file, name, _comp_type, start, end in rows:
             lines = end - start
             self.findings.append(
                 StandardFinding(

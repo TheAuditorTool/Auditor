@@ -115,7 +115,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         )
 
         for type_row in type_rows:
-            type_id, type_name, schema_path = type_row
+            type_id, type_name, _schema_path = type_row
 
             if not type_name:
                 continue

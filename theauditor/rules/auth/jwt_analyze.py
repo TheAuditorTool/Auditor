@@ -13,6 +13,9 @@ Detects JWT vulnerabilities including:
 - Cross-origin transmission concerns (CWE-346)
 - JKU header injection (CWE-918) - SSRF via unvalidated key URL
 - KID header injection (CWE-89) - SQLi/path traversal via key ID lookup
+- Missing jti claim for replay protection (CWE-294)
+- Missing audience validation (CWE-287)
+- Missing issuer validation (CWE-287)
 """
 
 from theauditor.rules.base import (
@@ -141,6 +144,9 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_check_react_state_storage(db))
         findings.extend(_check_jku_injection(db))
         findings.extend(_check_kid_injection(db))
+        findings.extend(_check_missing_jti(db))
+        findings.extend(_check_missing_audience_validation(db))
+        findings.extend(_check_missing_issuer_validation(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -802,7 +808,7 @@ def _check_kid_injection(db: RuleDB) -> list[StandardFinding]:
 
             sql_funcs = ["query", "execute", "raw", "prepare", "findone", "findall"]
             if any(sf in func_lower for sf in sql_funcs):
-                for kid_line, kid_var in kid_usages:
+                for _kid_line, kid_var in kid_usages:
                     if kid_var.lower() in args_lower:
                         findings.append(
                             StandardFinding(
@@ -819,7 +825,7 @@ def _check_kid_injection(db: RuleDB) -> list[StandardFinding]:
 
             fs_funcs = ["readfile", "readfilesync", "open", "path.join", "resolve"]
             if any(ff in func_lower for ff in fs_funcs):
-                for kid_line, kid_var in kid_usages:
+                for _kid_line, kid_var in kid_usages:
                     if kid_var.lower() in args_lower:
                         findings.append(
                             StandardFinding(
@@ -833,5 +839,133 @@ def _check_kid_injection(db: RuleDB) -> list[StandardFinding]:
                                 cwe_id="CWE-22",
                             )
                         )
+
+    return findings
+
+
+def _check_missing_jti(db: RuleDB) -> list[StandardFinding]:
+    """Detect JWT tokens created without jti (JWT ID) claim for replay protection.
+
+    Without unique token IDs, captured tokens can be replayed indefinitely until
+    expiration. Critical for financial/sensitive operations.
+    """
+    findings = []
+    jwt_sign_condition = _build_jwt_sign_condition()
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"({jwt_sign_condition}) AND argument_index = 0")
+        .order_by("file, line")
+    )
+
+    for file, line, func, payload in rows:
+        payload_lower = payload.lower() if payload else ""
+
+        has_jti = "jti" in payload_lower or "jwt_id" in payload_lower or "jwtid" in payload_lower
+
+        if not has_jti:
+            findings.append(
+                StandardFinding(
+                    rule_name="jwt-missing-jti",
+                    message="JWT created without jti claim. Add unique token ID for replay protection, especially for sensitive operations.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    snippet=f"{func}({payload[:50]}...)" if len(payload) > 50 else f"{func}({payload})",
+                    cwe_id="CWE-294",
+                )
+            )
+
+    return findings
+
+
+def _check_missing_audience_validation(db: RuleDB) -> list[StandardFinding]:
+    """Detect JWT verification without audience (aud) claim validation.
+
+    Tokens issued for one service can be used on another if audience isn't
+    validated. This enables token confusion attacks in multi-service environments.
+    """
+    findings = []
+    jwt_verify_condition = _build_jwt_verify_condition()
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"({jwt_verify_condition}) AND argument_index = 2")
+        .order_by("file, line")
+    )
+
+    for file, line, _func, options in rows:
+        if not options:
+            continue
+
+        options_lower = options.lower()
+
+        has_audience = (
+            "audience" in options_lower
+            or "aud" in options_lower
+            or "verify_aud" in options_lower
+        )
+
+        if not has_audience:
+            findings.append(
+                StandardFinding(
+                    rule_name="jwt-missing-audience-validation",
+                    message="JWT verification without audience validation. Add audience option to prevent token confusion attacks.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    snippet=options[:60] if len(options) <= 60 else options[:57] + "...",
+                    cwe_id="CWE-287",
+                )
+            )
+
+    return findings
+
+
+def _check_missing_issuer_validation(db: RuleDB) -> list[StandardFinding]:
+    """Detect JWT verification without issuer (iss) claim validation.
+
+    Tokens from untrusted issuers could be accepted. Multi-tenant systems
+    and microservices are especially vulnerable to issuer confusion.
+    """
+    findings = []
+    jwt_verify_condition = _build_jwt_verify_condition()
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"({jwt_verify_condition}) AND argument_index = 2")
+        .order_by("file, line")
+    )
+
+    for file, line, _func, options in rows:
+        if not options:
+            continue
+
+        options_lower = options.lower()
+
+        has_issuer = (
+            "issuer" in options_lower
+            or "iss" in options_lower
+            or "verify_iss" in options_lower
+        )
+
+        if not has_issuer:
+            findings.append(
+                StandardFinding(
+                    rule_name="jwt-missing-issuer-validation",
+                    message="JWT verification without issuer validation. Add issuer option to reject tokens from untrusted sources.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    snippet=options[:60] if len(options) <= 60 else options[:57] + "...",
+                    cwe_id="CWE-287",
+                )
+            )
 
     return findings

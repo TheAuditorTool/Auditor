@@ -7,7 +7,6 @@ This module provides the foundation for the strategy pattern used by linter clas
 """
 
 import asyncio
-import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from pathlib import Path

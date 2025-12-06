@@ -855,7 +855,7 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
             console.print()
 
             for snapshot_row in snapshots_to_apply:
-                snapshot_id, checkpoint_name, seq, timestamp, git_ref = snapshot_row
+                _snapshot_id, checkpoint_name, seq, _timestamp, git_ref = snapshot_row
                 console.print(f"  \\[{seq}] {checkpoint_name} ({git_ref[:8]})", highlight=False)
 
             console.print()
@@ -889,7 +889,7 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
 
             console.print(f"Checkpoints for task {task_number}:\n", highlight=False)
             for snapshot_row in task_snapshots:
-                snapshot_id, checkpoint_name, seq, timestamp, git_ref = snapshot_row
+                _snapshot_id, checkpoint_name, seq, timestamp, git_ref = snapshot_row
                 console.print(f"  \\[{seq}] {checkpoint_name}", highlight=False)
                 console.print(f"      Git ref: {git_ref[:8]}", highlight=False)
                 console.print(f"      Timestamp: {timestamp}", highlight=False)
@@ -1211,10 +1211,10 @@ def validate_plan(plan_id, session_id, format):
 
     (
         session_id_val,
-        task_desc,
+        _task_desc,
         workflow_compliant,
         compliance_score,
-        files_modified_count,
+        _files_modified_count,
         diffs_json,
     ) = session_row
 

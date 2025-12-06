@@ -400,7 +400,6 @@ class GoExtractor(BaseExtractor):
             List of assignment dicts with keys matching storage handler expectations
         """
         assignments: list[dict[str, Any]] = []
-        current_function = [None]
 
         def get_node_text(node: Any) -> str:
             """Extract text from a tree-sitter node."""

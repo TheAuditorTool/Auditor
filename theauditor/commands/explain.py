@@ -24,7 +24,7 @@ from rich.table import Table
 from theauditor.cli import RichCommand
 from theauditor.context.explain_formatter import ExplainFormatter
 from theauditor.context.query import CodeQueryEngine
-from theauditor.fce import FCEQueryEngine, VectorSignal
+from theauditor.fce import FCEQueryEngine
 from theauditor.fce.formatter import FCEFormatter
 from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.code_snippets import CodeSnippetManager

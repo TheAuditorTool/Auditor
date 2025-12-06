@@ -289,7 +289,7 @@ def _find_queries_in_loops(db: RuleDB) -> list[StandardFinding]:
             db_op_calls.append((file, line, callee, caller))
 
     for file, line, method, caller in array_method_calls:
-        for db_file, db_line, db_op, db_caller in db_op_calls:
+        for db_file, db_line, _db_op, db_caller in db_op_calls:
             if file == db_file and caller == db_caller and abs(db_line - line) <= 10:
                 findings.append(
                     StandardFinding(

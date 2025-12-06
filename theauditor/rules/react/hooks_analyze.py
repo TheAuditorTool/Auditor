@@ -253,7 +253,7 @@ class ReactHooksAnalyzer:
             .where("callback_body IS NOT NULL")
         )
 
-        for file, line, hook, component, callback, has_cleanup, cleanup_type in rows:
+        for file, line, _hook, _component, callback, has_cleanup, _cleanup_type in rows:
             needs_cleanup = False
             subscription_type = None
 
@@ -310,8 +310,8 @@ class ReactHooksAnalyzer:
             )
 
             blocks = list(cfg_rows)
-            for hook_line, hook_name, component_name in hooks:
-                for block_type, start_line, end_line, condition_expr in blocks:
+            for hook_line, hook_name, _component_name in hooks:
+                for block_type, start_line, end_line, _condition_expr in blocks:
                     if start_line <= hook_line <= end_line:
                         self.findings.append(
                             StandardFinding(
@@ -337,7 +337,7 @@ class ReactHooksAnalyzer:
             .where("dependency_array = ?", "[]")
         )
 
-        for file, line, hook_name, component, callback in rows:
+        for file, line, hook_name, component, _callback in rows:
             dep_rows = self.db.query(
                 Q("react_hook_dependencies")
                 .select("dependency_name")
@@ -373,7 +373,7 @@ class ReactHooksAnalyzer:
             .where("callback_body IS NOT NULL")
         )
 
-        for file, line, component, callback in rows:
+        for file, line, _component, callback in rows:
             if callback and callback.strip().startswith("async"):
                 self.findings.append(
                     StandardFinding(
@@ -399,7 +399,7 @@ class ReactHooksAnalyzer:
             .where("callback_body IS NOT NULL")
         )
 
-        for file, line, hook, component, callback in rows:
+        for file, line, _hook, _component, callback in rows:
             if "setState" in callback or "set" in callback.lower():
                 self.findings.append(
                     StandardFinding(
@@ -503,7 +503,7 @@ class ReactHooksAnalyzer:
         rows = self.db.query(Q("react_hooks").select("file", "hook_name", "component_name", "line"))
 
         seen: set[tuple] = set()
-        for file, hook, component, line in rows:
+        for file, hook, _component, line in rows:
             if not hook or not hook.startswith("use"):
                 continue
 

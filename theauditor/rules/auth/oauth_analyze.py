@@ -2,10 +2,13 @@
 
 Detects OAuth vulnerabilities including:
 - Missing state parameter for CSRF protection (CWE-352)
+- Weak/predictable state parameter (CWE-330)
+- State parameter fixation (CWE-384)
 - Missing PKCE for authorization code flows (CWE-287)
 - Unvalidated redirect URIs leading to open redirect (CWE-601)
 - OAuth tokens exposed in URL fragments or parameters (CWE-598)
 - Deprecated implicit flow usage (CWE-598)
+- OAuth scope escalation/validation issues (CWE-269)
 """
 
 from theauditor.rules.base import (
@@ -83,9 +86,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
     with RuleDB(context.db_path, METADATA.name) as db:
         findings.extend(_check_missing_oauth_state(db))
+        findings.extend(_check_weak_state(db))
         findings.extend(_check_missing_pkce(db))
         findings.extend(_check_redirect_validation(db))
         findings.extend(_check_token_in_url(db))
+        findings.extend(_check_scope_escalation(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
@@ -428,5 +433,171 @@ def _check_token_in_url(db: RuleDB) -> list[StandardFinding]:
                         snippet=expr[:60] if len(expr) <= 60 else expr[:60] + "...",
                     )
                 )
+
+    return findings
+
+
+def _check_weak_state(db: RuleDB) -> list[StandardFinding]:
+    """Detect weak or predictable OAuth state parameter generation.
+
+    State must be cryptographically random to prevent CSRF and state fixation.
+    Weak patterns: Math.random(), timestamps, sequential IDs, hardcoded values.
+    """
+    findings = []
+
+    rows = db.query(
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
+    )
+
+    weak_random_patterns = frozenset([
+        "math.random",
+        "random.random",
+        "random.randint",
+        "date.now",
+        "new date",
+        "timestamp",
+        "uuid.v1",  # v1 is time-based, predictable
+        "time.time",
+        "datetime.now",
+    ])
+
+    secure_random_patterns = frozenset([
+        "crypto.randombytes",
+        "crypto.randomuuid",
+        "uuid.v4",
+        "uuidv4",
+        "secrets.token",
+        "os.urandom",
+        "nanoid",
+        "csprng",
+        "securerandom",
+    ])
+
+    for file, line, target_var, source_expr in rows:
+        target_lower = target_var.lower()
+        source_lower = (source_expr or "").lower()
+
+        # Check if this is state-related assignment
+        is_state_var = any(kw in target_lower for kw in ["state", "oauth_state", "oauthstate"])
+        if not is_state_var:
+            continue
+
+        # Skip if using secure random
+        if any(secure in source_lower for secure in secure_random_patterns):
+            continue
+
+        # Check for weak random patterns
+        if any(weak in source_lower for weak in weak_random_patterns):
+            findings.append(
+                StandardFinding(
+                    rule_name="oauth-weak-state",
+                    message="OAuth state uses weak randomness. Use crypto.randomBytes (Node) or secrets.token_urlsafe (Python) for cryptographically secure state.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="authentication",
+                    cwe_id="CWE-330",
+                    confidence=Confidence.HIGH,
+                    snippet=f"{target_var} = {source_expr[:40]}..."
+                    if len(source_expr) > 40
+                    else f"{target_var} = {source_expr}",
+                )
+            )
+
+        # Check for hardcoded/static state values
+        is_literal = source_expr.strip().startswith('"') or source_expr.strip().startswith("'")
+        if is_literal:
+            findings.append(
+                StandardFinding(
+                    rule_name="oauth-static-state",
+                    message="OAuth state is hardcoded/static. State must be unique per request to prevent CSRF.",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="authentication",
+                    cwe_id="CWE-384",
+                    confidence=Confidence.HIGH,
+                    snippet=f"{target_var} = {source_expr[:30]}..."
+                    if len(source_expr) > 30
+                    else f"{target_var} = {source_expr}",
+                )
+            )
+
+    return findings
+
+
+def _check_scope_escalation(db: RuleDB) -> list[StandardFinding]:
+    """Detect OAuth scope validation issues.
+
+    Applications should validate that granted scopes match requested scopes,
+    and should not accept broader scopes than expected.
+    """
+    findings = []
+
+    # Look for token response handling without scope validation
+    rows = db.query(
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
+    )
+
+    token_response_files = {}
+
+    for file, line, target_var, source_expr in rows:
+        target_lower = target_var.lower()
+        source_lower = (source_expr or "").lower()
+
+        # Detect token/scope extraction from response
+        if "scope" in target_lower and any(
+            pattern in source_lower
+            for pattern in ["response", "token", "data", "body", "json", "result"]
+        ):
+            if file not in token_response_files:
+                token_response_files[file] = []
+            token_response_files[file].append((line, target_var, source_expr))
+
+    for file, scope_usages in token_response_files.items():
+        # Check if file has scope validation
+        func_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function", "argument_expr")
+            .where("file = ?", file)
+            .limit(200)
+        )
+
+        has_scope_validation = False
+        for callee, args in func_rows:
+            callee_lower = callee.lower()
+            args_lower = (args or "").lower()
+
+            validation_patterns = [
+                "validate",
+                "verify",
+                "check",
+                "compare",
+                "includes",
+                "contains",
+                "every",
+                "some",
+            ]
+            if "scope" in args_lower and any(vp in callee_lower for vp in validation_patterns):
+                has_scope_validation = True
+                break
+
+        if not has_scope_validation and scope_usages:
+            first_usage = scope_usages[0]
+            findings.append(
+                StandardFinding(
+                    rule_name="oauth-scope-not-validated",
+                    message="OAuth scope extracted from response without validation. Verify granted scopes match requested scopes to prevent privilege escalation.",
+                    file_path=file,
+                    line=first_usage[0],
+                    severity=Severity.MEDIUM,
+                    category="authentication",
+                    cwe_id="CWE-269",
+                    confidence=Confidence.LOW,
+                    snippet=f"{first_usage[1]} = {first_usage[2][:40]}..."
+                    if len(first_usage[2]) > 40
+                    else f"{first_usage[1]} = {first_usage[2]}",
+                )
+            )
 
     return findings

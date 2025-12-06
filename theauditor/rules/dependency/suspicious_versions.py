@@ -134,7 +134,7 @@ def _check_js_versions(db: RuleDB) -> list[StandardFinding]:
         suspicious_info = _classify_suspicious_version(version_clean)
 
         if suspicious_info:
-            issue_type, base_severity, reason = suspicious_info
+            _issue_type, base_severity, reason = suspicious_info
 
             if is_dev and base_severity != Severity.CRITICAL:
                 severity = Severity.LOW if base_severity == Severity.MEDIUM else Severity.MEDIUM
@@ -177,7 +177,7 @@ def _check_python_versions(db: RuleDB) -> list[StandardFinding]:
         suspicious_info = _classify_suspicious_version(version_clean)
 
         if suspicious_info:
-            issue_type, base_severity, reason = suspicious_info
+            _issue_type, base_severity, reason = suspicious_info
             if is_dev and base_severity != Severity.CRITICAL:
                 severity = Severity.LOW if base_severity == Severity.MEDIUM else Severity.MEDIUM
             else:
@@ -281,10 +281,7 @@ def _is_experimental_version(version: str) -> bool:
     if version.startswith("0.0."):
         return True
 
-    if version in ("0.0.0", "0.0.1", "0.0.001"):
-        return True
-
-    return False
+    return version in ("0.0.0", "0.0.1", "0.0.001")
 
 
 def _contains_prerelease_marker(version: str) -> str | None:

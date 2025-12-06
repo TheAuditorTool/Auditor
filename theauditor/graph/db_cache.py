@@ -54,7 +54,7 @@ class GraphDatabaseCache:
 
         logger.info(f"[GraphCache] Loaded {len(self.known_files)} files (imports/exports: lazy)")
 
-    @lru_cache(maxsize=IMPORTS_CACHE_SIZE)
+    @lru_cache(maxsize=IMPORTS_CACHE_SIZE)  # noqa: B019 - singleton, lives entire session
     def get_imports(self, file_path: str) -> tuple[MappingProxyType, ...]:
         """Get all imports for a file (lazy query with LRU cache).
 
@@ -91,7 +91,7 @@ class GraphDatabaseCache:
         conn.close()
         return results
 
-    @lru_cache(maxsize=RESOLVED_IMPORTS_CACHE_SIZE)
+    @lru_cache(maxsize=RESOLVED_IMPORTS_CACHE_SIZE)  # noqa: B019 - singleton, lives entire session
     def get_resolved_imports(self, file_path: str) -> frozenset[str]:
         """Get pre-resolved import paths for a file from import_styles table.
 
@@ -118,7 +118,7 @@ class GraphDatabaseCache:
         conn.close()
         return results
 
-    @lru_cache(maxsize=EXPORTS_CACHE_SIZE)
+    @lru_cache(maxsize=EXPORTS_CACHE_SIZE)  # noqa: B019 - singleton, lives entire session
     def get_exports(self, file_path: str) -> tuple[MappingProxyType, ...]:
         """Get all exports for a file (lazy query with LRU cache).
 
@@ -160,7 +160,7 @@ class GraphDatabaseCache:
         normalized = self._normalize_path(file_path)
         return normalized in self.known_files
 
-    @lru_cache(maxsize=RESOLVE_CACHE_SIZE)
+    @lru_cache(maxsize=RESOLVE_CACHE_SIZE)  # noqa: B019 - singleton, lives entire session
     def resolve_filename(self, path_guess: str) -> str | None:
         """Smart-resolve a path to an actual file in the DB, handling extensions."""
         clean = self._normalize_path(path_guess)

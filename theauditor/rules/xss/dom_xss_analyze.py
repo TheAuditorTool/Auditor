@@ -22,7 +22,6 @@ from theauditor.rules.query import Q
 from theauditor.rules.xss.constants import (
     COMMON_INPUT_SOURCES,
     UNIVERSAL_DANGEROUS_SINKS,
-    is_sanitized,
 )
 
 METADATA = RuleMetadata(

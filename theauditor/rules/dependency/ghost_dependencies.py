@@ -529,7 +529,7 @@ def _find_ghost_dependencies(
         file, line, full_package, import_style = import_locations[0]
 
         usage_count = len(import_locations)
-        files_affected = len(set(loc[0] for loc in import_locations))
+        files_affected = len({loc[0] for loc in import_locations})
 
         if usage_count > 1:
             usage_info = f" (used in {files_affected} file(s), {usage_count} import(s))"

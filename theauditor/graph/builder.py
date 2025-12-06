@@ -143,7 +143,7 @@ class XGraphBuilder:
         self.module_resolver = ModuleResolver(db_path=str(self.db_path))
         self.ast_parser = ASTParser()
 
-    @lru_cache(maxsize=1024)
+    @lru_cache(maxsize=1024)  # noqa: B019 - singleton, lives entire session
     def _find_tsconfig_context(self, folder_path: Path) -> str:
         """Recursive lookup for the nearest tsconfig.json."""
 
@@ -765,7 +765,7 @@ class XGraphBuilder:
             show_percent=True,
             item_show_func=lambda x: str(x[0].name) if x else None,
         ) as bar:
-            for file_path, lang in bar:
+            for file_path, _lang in bar:
                 rel_path = str(file_path.relative_to(root_path)).replace("\\", "/")
                 resolved_imports = set(self.db_cache.get_resolved_imports(rel_path))
                 file_imports_resolved[rel_path] = resolved_imports

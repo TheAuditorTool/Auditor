@@ -557,7 +557,7 @@ def _find_computed_side_effects(db: RuleDB, vue_files: set[str]) -> list[Standar
             file_calls[file] = []
         file_calls[file].append((line, callee))
 
-    for file, computed_line, name in computed_locations:
+    for file, computed_line, _name in computed_locations:
         calls = file_calls.get(file, [])
 
         for call_line, callee in calls:
@@ -630,7 +630,7 @@ def _find_incorrect_hook_order(db: RuleDB, vue_files: set[str]) -> list[Standard
 
         for i in range(len(hooks) - 1):
             current_line, current_hook, current_order = hooks[i]
-            next_line, next_hook, next_order = hooks[i + 1]
+            _next_line, next_hook, next_order = hooks[i + 1]
 
             if current_order > next_order:
                 findings.append(

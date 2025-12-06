@@ -7,7 +7,6 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 
 CACHE_DIRS = frozenset({".cache", "context", "ml"})
