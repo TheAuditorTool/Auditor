@@ -603,12 +603,12 @@ class CodeQueryEngine:
 
         return {"reads": reads, "writes": writes}
 
-    def trace_variable_flow(self, var_name: str, from_file: str, depth: int = 3) -> list[dict]:
+    def trace_variable_flow(self, var_name: str, from_file: str, depth: int = 10) -> list[dict]:
         """Trace variable through def-use chains using assignment_sources."""
         if not var_name:
             raise ValueError("var_name cannot be empty")
-        if depth < 1 or depth > 5:
-            raise ValueError("Depth must be between 1 and 5")
+        if depth < 1 or depth > 20:
+            raise ValueError("Depth must be between 1 and 20")
 
         from_file = self._normalize_path(from_file)
         cursor = self.repo_db.cursor()

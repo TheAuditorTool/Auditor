@@ -56,7 +56,7 @@ class IFDSTaintAnalyzer:
         self._load_sanitizer_data()
 
     def analyze_sink_to_sources(
-        self, sink: dict, sources: list[dict], max_depth: int = 10
+        self, sink: dict, sources: list[dict], max_depth: int = 20
     ) -> tuple[list[TaintPath], list[TaintPath]]:
         """Find all taint paths from sink to sources using IFDS backward analysis."""
         self.max_depth = max_depth
