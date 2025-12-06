@@ -7,7 +7,7 @@ and all commands with correct syntax.
 Phases:
   1. ENVIRONMENT - Python version, dependencies, paths
   2. SETUP - Build JS extractor if missing
-  3. INDEX - Run aud full --index --offline to populate database
+  3. FULL PIPELINE - Run aud full --offline (complete analysis)
   4. COMMANDS - Test every single command with correct invocation
 
 Usage:
@@ -15,7 +15,7 @@ Usage:
     .venv/Scripts/python.exe scripts/smoke_test.py
 
     # Options:
-    --skip-index     Skip the aud full indexing phase (use existing .pf/)
+    --skip-index     Skip the aud full pipeline (use existing .pf/)
     --skip-setup     Skip environment setup checks
     --verbose        Show all output including stdout
     --timeout N      Override default timeout (default: 300s for commands)
@@ -86,7 +86,7 @@ JS_BUNDLE = JS_EXTRACTOR / "dist" / "extractor.cjs"
 
 # Default timeouts
 SETUP_TIMEOUT = 120      # 2 min for npm install/build
-INDEX_TIMEOUT = 600      # 10 min for aud full --index
+FULL_TIMEOUT = 1200      # 20 min for aud full --offline
 COMMAND_TIMEOUT = 300    # 5 min per command (taint can be slow)
 HELP_TIMEOUT = 30        # 30s for --help commands
 
@@ -426,25 +426,25 @@ def setup_js_extractor() -> list[TestResult]:
     return results
 
 
-def run_indexing() -> list[TestResult]:
-    """Phase 3: Run aud full --index --offline to build database."""
+def run_full_pipeline() -> list[TestResult]:
+    """Phase 3: Run aud full --offline for complete analysis."""
     results = []
 
-    print_status("Running aud full --index --offline...", "...")
+    print_status("Running aud full --offline...", "...")
 
-    index_result = run_command(
-        "aud full --index --offline",
-        INDEX_TIMEOUT,
+    full_result = run_command(
+        "aud full --offline",
+        FULL_TIMEOUT,
         PROJECT_ROOT,
-        "aud full --index --offline"
+        "aud full --offline"
     )
-    results.append(index_result)
+    results.append(full_result)
 
-    status = "OK" if index_result.success else "FAIL"
-    print_status("aud full --index --offline", status, index_result.duration)
+    status = "OK" if full_result.success else "FAIL"
+    print_status("aud full --offline", status, full_result.duration)
 
-    if not index_result.success:
-        print(f"         -> {index_result.error_summary}")
+    if not full_result.success:
+        print(f"         -> {full_result.error_summary}")
 
     return results
 
@@ -618,7 +618,7 @@ def main():
 
     parser = argparse.ArgumentParser(description="TheAuditor Pre-Flight Check")
     parser.add_argument("--skip-index", action="store_true",
-                        help="Skip aud full indexing (use existing .pf/)")
+                        help="Skip aud full pipeline (use existing .pf/)")
     parser.add_argument("--skip-setup", action="store_true",
                         help="Skip environment and JS extractor setup")
     parser.add_argument("--verbose", "-v", action="store_true",
@@ -658,17 +658,17 @@ def main():
         report.results.extend(setup_results)
         report.setup_time = time.time() - setup_start
 
-    # Phase 3: Indexing
+    # Phase 3: Full Pipeline
     if not args.skip_index:
-        print_header("PHASE 3: DATABASE INDEXING")
-        index_start = time.time()
-        index_results = run_indexing()
-        report.results.extend(index_results)
-        report.index_time = time.time() - index_start
+        print_header("PHASE 3: FULL PIPELINE")
+        pipeline_start = time.time()
+        pipeline_results = run_full_pipeline()
+        report.results.extend(pipeline_results)
+        report.index_time = time.time() - pipeline_start
 
-        # Check if indexing failed - abort if so
-        if index_results and not index_results[0].success:
-            print("\n[ABORT] Indexing failed - cannot proceed with command tests")
+        # Check if pipeline failed - abort if so
+        if pipeline_results and not pipeline_results[0].success:
+            print("\n[ABORT] Pipeline failed - cannot proceed with command tests")
             report.total_time = time.time() - start_time
             generate_report(report, args.output)
             print_summary(report)
