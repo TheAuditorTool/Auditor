@@ -491,6 +491,7 @@ async def run_full_pipeline(
         for cmd_name, extra_args in command_order:
             if (
                 cmd_name in available_commands
+                or cmd_name == "index"  # index runs in-process, not as CLI command
                 or (cmd_name == "docs" and "docs" in available_commands)
                 or (cmd_name == "graph" and "graph" in available_commands)
                 or (cmd_name == "cfg" and "cfg" in available_commands)

@@ -453,6 +453,9 @@ class ComposeServicesRow(TypedDict):
     command: str | None
     entrypoint: str | None
     healthcheck: str | None
+    mem_limit: str | None
+    cpus: str | None
+    read_only: bool | None
 
 class ConfigFilesRow(TypedDict):
     """Row type for config_files table."""
@@ -494,6 +497,14 @@ class DockerfileEnvVarsRow(TypedDict):
     var_name: str
     var_value: str | None
     is_build_arg: bool | None
+
+class DockerfileInstructionsRow(TypedDict):
+    """Row type for dockerfile_instructions table."""
+    id: int
+    file_path: str
+    line: int
+    instruction: str
+    arguments: str | None
 
 class DockerfilePortsRow(TypedDict):
     """Row type for dockerfile_ports table."""
