@@ -1,13 +1,10 @@
-"""Authentication and authorization security rules."""
+"""Authentication and authorization security rules.
 
-from .jwt_analyze import find_jwt_flaws
-from .session_analyze import find_session_issues
-from .password_analyze import find_password_issues
-from .oauth_analyze import find_oauth_issues
+Rules in this package:
+- jwt_analyze: JWT token security vulnerabilities
+- oauth_analyze: OAuth flow security issues
+- password_analyze: Password handling weaknesses
+- session_analyze: Session management vulnerabilities
 
-__all__ = [
-    "find_jwt_flaws",
-    "find_session_issues",
-    "find_password_issues",
-    "find_oauth_issues"
-]
+Rules are discovered via METADATA in each module, not via __init__.py exports.
+"""

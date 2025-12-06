@@ -1,242 +1,180 @@
 """Workset resolver - computes target file set from git diff and dependencies."""
 
-
 import json
 import os
 import platform
 import re
 import sqlite3
 import subprocess
-import tempfile
 from datetime import UTC, datetime
 from fnmatch import fnmatch
 from pathlib import Path
 from typing import Any
 
-# Windows compatibility
+from theauditor.utils.logging import logger
+
 IS_WINDOWS = platform.system() == "Windows"
 
 
 def validate_diff_spec(diff_spec: str) -> list[str]:
-    """Validate and parse git diff spec to prevent command injection.
+    """Validate and parse git diff spec to prevent command injection."""
 
-    Args:
-        diff_spec: Git diff specification (e.g., 'main..feature', 'HEAD~5')
+    if not re.match(r"^[a-zA-Z0-9_\-\./~^]+(\.\.[a-zA-Z0-9_\-\./~^]+)?$", diff_spec):
+        raise ValueError(
+            f"Invalid diff spec format: {diff_spec}. "
+            "Only alphanumeric, dash, underscore, slash, tilde, caret, and '..' allowed."
+        )
 
-    Returns:
-        List of validated parts for git diff command
-
-    Raises:
-        ValueError: If diff spec contains potentially malicious characters
-    """
-    # Allow common git ref patterns:
-    # - branch names (alphanumeric, dash, underscore, slash)
-    # - commit hashes (hex)
-    # - relative refs (HEAD~n, HEAD^)
-    # - range operators (..)
-    # - origin refs (origin/branch)
-    if not re.match(r'^[a-zA-Z0-9_\-\./~^]+(\.\.[a-zA-Z0-9_\-\./~^]+)?$', diff_spec):
-        raise ValueError(f"Invalid diff spec format: {diff_spec}. "
-                        "Only alphanumeric, dash, underscore, slash, tilde, caret, and '..' allowed.")
-
-    # Split on .. if present, otherwise return as single item
-    if ".." in diff_spec:
-        parts = diff_spec.split("..", 1)  # Split only on first ..
-    else:
-        parts = [diff_spec]
+    parts = diff_spec.split("..", 1) if ".." in diff_spec else [diff_spec]
 
     return parts
 
 
 def normalize_path(path: str) -> str:
     """Normalize path to POSIX style."""
-    # Replace backslashes with forward slashes
+
     path = path.replace("\\", "/")
-    # Use Path to properly resolve .. and .
+
     path = str(Path(path).as_posix())
-    # Remove leading ./
+
     if path.startswith("./"):
         path = path[2:]
     return path
 
 
-def load_manifest(manifest_path: str) -> dict[str, str]:
-    """Load manifest and create path -> sha256 mapping."""
-    with open(manifest_path) as f:
-        manifest = json.load(f)
-    return {item["path"]: item["sha256"] for item in manifest}
+def load_files_from_db(db_path: str) -> dict[str, str]:
+    """Load file paths and hashes from database.
+
+    Args:
+        db_path: Path to repo_index.db
+
+    Returns:
+        Dict mapping path -> sha256
+    """
+    if not Path(db_path).exists():
+        raise FileNotFoundError(f"Database not found: {db_path}")
+
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    cursor.execute("SELECT path, sha256 FROM files")
+    result = {row[0]: row[1] for row in cursor.fetchall()}
+    conn.close()
+    return result
 
 
 def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
     """Get list of changed files from git diff."""
-    import tempfile
-    try:
-        # Use temp files to avoid buffer overflow
-        with tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stdout.txt', encoding='utf-8') as stdout_fp, \
-             tempfile.NamedTemporaryFile(mode='w+', delete=False, suffix='_stderr.txt', encoding='utf-8') as stderr_fp:
-            
-            stdout_path = stdout_fp.name
-            stderr_path = stderr_fp.name
-            
-            # Validate and parse diff spec to prevent command injection
-            diff_parts = validate_diff_spec(diff_spec)
+    diff_parts = validate_diff_spec(diff_spec)
 
-            result = subprocess.run(
-                ["git", "diff", "--name-only"] + diff_parts,
-                cwd=root_path,
-                stdout=stdout_fp,
-                stderr=stderr_fp,
-                text=True,
-                encoding='utf-8',
-                errors='replace',
-                check=True,
-                shell=False  # No shell needed - works on both Windows and Unix
-            )
-        
-        # Read the outputs back
-        with open(stdout_path, encoding='utf-8') as f:
-            stdout_content = f.read()
-        with open(stderr_path, encoding='utf-8') as f:
-            stderr_content = f.read()
-        
-        # Clean up temp files
-        os.unlink(stdout_path)
-        os.unlink(stderr_path)
-        
-        files = stdout_content.strip().split("\n") if stdout_content.strip() else []
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--name-only"] + diff_parts,
+            cwd=root_path,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+            shell=False,
+        )
+        files = result.stdout.strip().split("\n") if result.stdout.strip() else []
         return [normalize_path(f) for f in files]
     except subprocess.CalledProcessError as e:
-        # Read stderr for error message
-        try:
-            with open(stderr_path, encoding='utf-8') as f:
-                error_msg = f.read()
-        except:
-            error_msg = 'git not available'
-        finally:
-            # Clean up temp files
-            if 'stdout_path' in locals() and os.path.exists(stdout_path):
-                os.unlink(stdout_path)
-            if 'stderr_path' in locals() and os.path.exists(stderr_path):
-                os.unlink(stderr_path)
+        error_msg = e.stderr if e.stderr else "git command failed"
         raise RuntimeError(f"Git diff failed: {error_msg}") from e
     except FileNotFoundError:
-        # Clean up temp files if they exist
-        if 'stdout_path' in locals() and os.path.exists(stdout_path):
-            os.unlink(stdout_path)
-        if 'stderr_path' in locals() and os.path.exists(stderr_path):
-            os.unlink(stderr_path)
         raise RuntimeError("Git is not available. Use --files instead.") from None
 
 
-def get_forward_deps(
-    conn: sqlite3.Connection, file_path: str, manifest_paths: set[str]
-) -> set[str]:
-    """Get files that this file imports/uses."""
+IMPORT_EXTENSIONS = (".ts", ".js", ".tsx", ".jsx", ".py")
+
+
+def _resolve_import_to_file(
+    src_file: str, import_value: str, manifest_paths: set[str]
+) -> str | None:
+    """Resolve an import statement to an actual file path.
+
+    Args:
+        src_file: The file containing the import
+        import_value: The raw import string (e.g., './utils', '../lib/foo')
+        manifest_paths: Set of known file paths in the repo
+
+    Returns:
+        Resolved file path if found, None otherwise
+    """
+    value = import_value.strip("'\"")
+
+    if value in ["{", "}", "(", ")", "*"] or value.startswith("@"):
+        return None
+
+    candidates = []
+
+    if value.startswith("./") or value.startswith("../"):
+        src_dir = Path(src_file).parent
+        resolved = normalize_path(os.path.normpath(str(src_dir / value)))
+
+        if resolved.startswith(".."):
+            return None
+
+        candidates.append(resolved)
+        for ext in IMPORT_EXTENSIONS:
+            candidates.append(resolved + ext)
+            candidates.append(resolved + "/index" + ext)
+
+    elif "/" in value and not value.startswith("/"):
+        normalized = normalize_path(value)
+        candidates.append(normalized)
+        for ext in IMPORT_EXTENSIONS:
+            candidates.append(normalized + ext)
+
+    for candidate in candidates:
+        if candidate in manifest_paths:
+            return candidate
+
+    return None
+
+
+def _build_dependency_maps(
+    conn: sqlite3.Connection, manifest_paths: set[str]
+) -> tuple[dict[str, set[str]], dict[str, set[str]]]:
+    """Build forward and reverse dependency maps from refs table.
+
+    PERFORMANCE: Loads entire refs table ONCE instead of N queries per file.
+    This is O(1) DB queries instead of O(N * depth) where N = number of files.
+
+    Args:
+        conn: Database connection
+        manifest_paths: Set of known file paths
+
+    Returns:
+        Tuple of (forward_deps, reverse_deps) where:
+        - forward_deps[file] = set of files that `file` imports
+        - reverse_deps[file] = set of files that import `file`
+    """
     cursor = conn.cursor()
-    cursor.execute("SELECT value FROM refs WHERE src = ? AND kind = 'from'", (file_path,))
-
-    deps = set()
-    for (value,) in cursor.fetchall():
-        # Skip certain values that are not paths
-        if value in ["{", "}", "(", ")", "*"] or value.startswith("'") and value.endswith("'"):
-            continue
-
-        # Skip external packages (starting with @ or no slashes)
-        if value.startswith("@"):
-            continue
-
-        # Clean up the value - remove quotes if present
-        value = value.strip("'\"")
-
-        # Try to resolve the import path
-        candidates = []
-
-        # If it's a relative path
-        if value.startswith("./") or value.startswith("../"):
-            # Resolve relative to file's directory
-            file_dir = Path(file_path).parent
-            # Use normpath instead of resolve to stay relative
-            resolved = os.path.normpath(str(file_dir / value))
-            resolved = normalize_path(resolved)
-
-            # Remove any leading path that's outside the repo
-            if resolved.startswith(".."):
-                continue
-
-            candidates.append(resolved)
-
-            # Try with common extensions
-            for ext in [".ts", ".js", ".tsx", ".jsx", ".py"]:
-                candidates.append(resolved + ext)
-                candidates.append(resolved + "/index" + ext)
-        elif "/" in value and not value.startswith("/"):
-            # Could be a project path
-            candidates.append(normalize_path(value))
-            for ext in [".ts", ".js", ".tsx", ".jsx", ".py"]:
-                candidates.append(normalize_path(value) + ext)
-
-        # Check if any candidate exists in manifest
-        for candidate in candidates:
-            if candidate in manifest_paths:
-                deps.add(candidate)
-                break
-
-    return deps
-
-
-def get_reverse_deps(
-    conn: sqlite3.Connection, file_path: str, manifest_paths: set[str]
-) -> set[str]:
-    """Get files that import/use this file."""
-    cursor = conn.cursor()
-
-    # Find all refs that might point to this file
-    deps = set()
-    logged_paths = set()  # Track which paths we've already logged errors for
-
-    # Get all 'from' refs
     cursor.execute("SELECT src, value FROM refs WHERE kind = 'from'")
+    all_refs = cursor.fetchall()
 
-    # Remove extension from target file for matching
-    file_path_no_ext = str(Path(file_path).with_suffix(""))
+    forward_deps: dict[str, set[str]] = {}
+    reverse_deps: dict[str, set[str]] = {}
 
-    for src, value in cursor.fetchall():
-        if src == file_path:
+    for src, import_value in all_refs:
+        if src not in manifest_paths:
             continue
 
-        # Clean up the value
-        value = value.strip("'\"")
-
-        # Skip non-path values
-        if value in ["{", "}", "(", ")", "*"] or value.startswith("@"):
+        resolved = _resolve_import_to_file(src, import_value, manifest_paths)
+        if resolved is None:
             continue
 
-        # Try to resolve this import from the source file
-        if value.startswith("./") or value.startswith("../"):
-            # Resolve relative to source file's directory
-            src_dir = Path(src).parent
-            try:
-                resolved = os.path.normpath(str(src_dir / value))
-                resolved = normalize_path(resolved)
+        if src not in forward_deps:
+            forward_deps[src] = set()
+        forward_deps[src].add(resolved)
 
-                # Check if this resolves to our target file
-                if resolved in (file_path_no_ext, file_path):
-                    deps.add(src)
-                    continue
+        if resolved not in reverse_deps:
+            reverse_deps[resolved] = set()
+        reverse_deps[resolved].add(src)
 
-                # Also check with common extensions
-                for ext in [".ts", ".js", ".tsx", ".jsx", ".py"]:
-                    if resolved + ext == file_path:
-                        deps.add(src)
-                        break
-            except (FileNotFoundError, OSError, ValueError) as e:
-                # Log path resolution issue once per file
-                if src not in logged_paths:
-                    logged_paths.add(src)
-                    print(f"Debug: Could not resolve import from {src}: {type(e).__name__}")
-                continue
-
-    return deps
+    return forward_deps, reverse_deps
 
 
 def expand_dependencies(
@@ -245,9 +183,15 @@ def expand_dependencies(
     manifest_paths: set[str],
     max_depth: int,
 ) -> set[str]:
-    """Expand file set by following dependencies up to max_depth."""
+    """Expand file set by following dependencies up to max_depth.
+
+    PERFORMANCE: Uses cached dependency maps (single DB query) instead of
+    per-file queries. Reduces O(N * depth) queries to O(1).
+    """
     if max_depth == 0:
         return seed_files
+
+    forward_deps, reverse_deps = _build_dependency_maps(conn, manifest_paths)
 
     expanded = seed_files.copy()
     current_level = seed_files
@@ -256,14 +200,10 @@ def expand_dependencies(
         next_level = set()
 
         for file_path in current_level:
-            # Forward dependencies
-            forward = get_forward_deps(conn, file_path, manifest_paths)
+            forward = forward_deps.get(file_path, set())
             next_level.update(forward - expanded)
 
-            # Reverse dependencies
-            reverse = get_reverse_deps(conn, file_path, manifest_paths)
-            # Filter to only files in manifest
-            reverse = {f for f in reverse if f in manifest_paths}
+            reverse = reverse_deps.get(file_path, set())
             next_level.update(reverse - expanded)
 
         if not next_level:
@@ -286,10 +226,8 @@ def apply_glob_filters(
 
     filtered = set()
     for file_path in files:
-        # Check if file matches any include pattern
         included = any(fnmatch(file_path, pattern) for pattern in include_patterns)
 
-        # Check if file matches any exclude pattern
         excluded = any(fnmatch(file_path, pattern) for pattern in exclude_patterns)
 
         if included and not excluded:
@@ -301,7 +239,6 @@ def apply_glob_filters(
 def compute_workset(
     root_path: str = ".",
     db_path: str = "repo_index.db",
-    manifest_path: str = "manifest.json",
     all_files: bool = False,
     diff_spec: str = None,
     file_list: list[str] = None,
@@ -312,32 +249,25 @@ def compute_workset(
     print_stats: bool = False,
 ) -> dict[str, Any]:
     """Compute workset from git diff, file list, or all files."""
-    # Validate inputs
+
     if sum([bool(all_files), bool(diff_spec), bool(file_list)]) > 1:
         raise ValueError("Cannot specify multiple input modes (--all, --diff, --files)")
     if not all_files and not diff_spec and not file_list:
         raise ValueError("Must specify either --all, --diff, or --files")
 
-    # Load manifest
     try:
-        manifest_mapping = load_manifest(manifest_path)
-        manifest_paths = set(manifest_mapping.keys())
+        file_mapping = load_files_from_db(db_path)
+        indexed_paths = set(file_mapping.keys())
     except FileNotFoundError:
-        # Check if user is in wrong directory
         cwd = Path.cwd()
-        helpful_msg = f"Manifest not found at {manifest_path}. Run 'aud full' first."
+        helpful_msg = f"Database not found at {db_path}. Run 'aud full' first."
         if cwd.name in ["Desktop", "Documents", "Downloads"]:
             helpful_msg += f"\n\nAre you in the right directory? You're in: {cwd}"
             helpful_msg += "\nTry: cd <your-project-folder> then run this command again"
         raise RuntimeError(helpful_msg) from None
 
-    # Connect to database
-    if not Path(db_path).exists():
-        raise RuntimeError(f"Database not found at {db_path}. Run 'aud full' first.")
-
     conn = sqlite3.connect(db_path)
 
-    # Get seed files
     seed_files = set()
     seed_mode = None
     seed_value = None
@@ -345,36 +275,32 @@ def compute_workset(
     if all_files:
         seed_mode = "all"
         seed_value = "all_indexed_files"
-        # Use all files from manifest
-        seed_files = manifest_paths.copy()
-        # No dependency expansion needed for all files
+
+        seed_files = indexed_paths.copy()
+
         max_depth = 0
     elif diff_spec:
         seed_mode = "diff"
         seed_value = diff_spec
         diff_files = get_git_diff_files(diff_spec, root_path)
-        # Filter to files in manifest
-        seed_files = {f for f in diff_files if f in manifest_paths}
+
+        seed_files = {f for f in diff_files if f in indexed_paths}
     else:
         seed_mode = "files"
         seed_value = ",".join(file_list)
-        # Normalize and filter to manifest
-        seed_files = {normalize_path(f) for f in file_list if normalize_path(f) in manifest_paths}
 
-    # Expand dependencies
-    expanded_files = expand_dependencies(conn, seed_files, manifest_paths, max_depth)
+        seed_files = {normalize_path(f) for f in file_list if normalize_path(f) in indexed_paths}
 
-    # Apply filters
+    expanded_files = expand_dependencies(conn, seed_files, indexed_paths, max_depth)
+
     filtered_files = apply_glob_filters(
         expanded_files,
         include_patterns or [],
         exclude_patterns or [],
     )
 
-    # Sort for deterministic output
     sorted_files = sorted(filtered_files)
 
-    # Build output
     workset_data = {
         "generated_at": datetime.now(UTC).isoformat(),
         "root": root_path,
@@ -384,21 +310,19 @@ def compute_workset(
             "seed_files": len(seed_files),
             "expanded_files": len(sorted_files),
         },
-        "paths": [{"path": path, "sha256": manifest_mapping[path]} for path in sorted_files],
+        "paths": [{"path": path, "sha256": file_mapping[path]} for path in sorted_files],
     }
 
-    # Create output directory if needed
     output_dir = Path(output_path).parent
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    # Write output
     with open(output_path, "w") as f:
         json.dump(workset_data, f, indent=2)
 
     if print_stats:
         include_count = len(include_patterns) if include_patterns else 0
         exclude_count = len(exclude_patterns) if exclude_patterns else 0
-        print(
+        logger.info(
             f"seed={len(seed_files)} expanded={len(sorted_files)} depth={max_depth} include={include_count} exclude={exclude_count}"
         )
 

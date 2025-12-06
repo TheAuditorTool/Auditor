@@ -1,245 +1,251 @@
-"""React State Analyzer - Database-Driven Implementation.
+"""React State Analyzer - Detects state management issues and anti-patterns.
 
-Detects React state management issues and anti-patterns using data from
-react_hooks, variable_usage, and assignments tables.
-
-Focuses on state complexity, prop drilling, and state management best practices.
+Checks for:
+- Excessive useState hooks per component
+- Missing useReducer for complex state
+- Poor state variable naming
+- Multiple state updates in single function
+- Prop drilling patterns
+- Global state candidates
+- Unnecessary derived state
+- Expensive state initialization
+- Complex state objects
+- Unbatched state updates
 """
 
-
-import sqlite3
-import json
-from typing import List, Dict, Any
 from dataclasses import dataclass
 
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-
-
-# ============================================================================
-# RULE METADATA (Orchestrator Smart Filtering)
-# ============================================================================
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="react_state_issues",
     category="react",
-
-    # Target React files only
-    target_extensions=['.jsx', '.tsx', '.js', '.ts'],
-
-    # Focus on frontend directories
-    target_file_patterns=['frontend/', 'client/', 'src/'],
-
-    # Skip non-source files
-    exclude_patterns=['node_modules/', '__tests__/', '*.test.jsx', '*.test.tsx', 'migrations/'],
-
-    # Uses standard tables for state management analysis
-    requires_jsx_pass=False
+    target_extensions=[".jsx", ".tsx", ".js", ".ts"],
+    target_file_patterns=["frontend/", "client/", "src/"],
+    exclude_patterns=[
+        "node_modules/",
+        "__tests__/",
+        "*.test.jsx",
+        "*.test.tsx",
+        "*.spec.jsx",
+        "*.spec.tsx",
+        "migrations/",
+    ],
+    execution_scope="database",
+    primary_table="react_hooks",
 )
 
-
-# ============================================================================
-# PATTERN DEFINITIONS (Golden Standard: Frozen Dataclass)
-# ============================================================================
 
 @dataclass(frozen=True)
 class ReactStatePatterns:
     """Immutable pattern definitions for React state management."""
 
-    # State complexity thresholds
-    MAX_USESTATE_PER_COMPONENT = 7
-    MAX_STATE_UPDATES_PER_FUNCTION = 3
-    REDUCER_THRESHOLD = 5  # When to suggest useReducer
+    MAX_USESTATE_PER_COMPONENT: int = 7
+    MAX_STATE_UPDATES_PER_FUNCTION: int = 3
+    REDUCER_THRESHOLD: int = 5
 
-    # State naming patterns
-    STATE_PREFIXES = frozenset([
-        'is', 'has', 'should', 'can', 'will', 'did'
-    ])
+    STATE_PREFIXES: frozenset = frozenset(["is", "has", "should", "can", "will", "did"])
 
-    # Common state variables
-    COMMON_STATE = frozenset([
-        'loading', 'error', 'data', 'isLoading', 'isError',
-        'isOpen', 'isVisible', 'isActive', 'isDisabled'
-    ])
+    COMMON_STATE: frozenset = frozenset(
+        [
+            "loading",
+            "error",
+            "data",
+            "isLoading",
+            "isError",
+            "isOpen",
+            "isVisible",
+            "isActive",
+            "isDisabled",
+        ]
+    )
 
-    # Context/global state indicators
-    CONTEXT_PATTERNS = frozenset([
-        'context', 'store', 'provider', 'global', 'app',
-        'theme', 'auth', 'user', 'session', 'config'
-    ])
+    CONTEXT_PATTERNS: frozenset = frozenset(
+        [
+            "context",
+            "store",
+            "provider",
+            "global",
+            "app",
+            "theme",
+            "auth",
+            "user",
+            "session",
+            "config",
+        ]
+    )
 
-    # Prop drilling indicators
-    DRILL_PROPS = frozenset([
-        'user', 'auth', 'theme', 'config', 'settings',
-        'data', 'state', 'dispatch', 'actions'
-    ])
+    DRILL_PROPS: frozenset = frozenset(
+        [
+            "user",
+            "auth",
+            "theme",
+            "config",
+            "settings",
+            "data",
+            "state",
+            "dispatch",
+            "actions",
+        ]
+    )
 
-    # State setter patterns
-    STATE_SETTERS = frozenset([
-        'set', 'update', 'change', 'toggle', 'reset', 'clear'
-    ])
+    EXPENSIVE_INIT_PATTERNS: frozenset = frozenset(
+        [
+            "fetch",
+            "localStorage",
+            "sessionStorage",
+            "JSON.parse",
+            "indexedDB",
+            "WebSocket",
+            "new XMLHttpRequest",
+        ]
+    )
 
-
-# ============================================================================
-# ANALYZER CLASS (Golden Standard)
-# ============================================================================
 
 class ReactStateAnalyzer:
     """Analyzer for React state management patterns and issues."""
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
-        self.context = context
+    def __init__(self, db: RuleDB):
+        """Initialize analyzer with database context."""
+        self.db = db
         self.patterns = ReactStatePatterns()
-        self.findings = []
+        self.findings: list[StandardFinding] = []
 
     def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of React state management issues found
-        """
-        if not self.context.db_path:
-            return []
-
-        conn = sqlite3.connect(self.context.db_path)
-        self.cursor = conn.cursor()
-
-        try:
-            # Run all state management checks (schema contract guarantees tables exist)
-            self._check_excessive_usestate()
-            self._check_missing_usereducer()
-            self._check_state_naming()
-            self._check_multiple_state_updates()
-            self._check_prop_drilling()
-            self._check_global_state_candidates()
-            self._check_unnecessary_state()
-            self._check_state_initialization()
-            self._check_complex_state_objects()
-            self._check_state_batching()
-
-        finally:
-            conn.close()
+        """Main analysis entry point."""
+        self._check_excessive_usestate()
+        self._check_missing_usereducer()
+        self._check_state_naming()
+        self._check_multiple_state_updates()
+        self._check_prop_drilling()
+        self._check_global_state_candidates()
+        self._check_unnecessary_state()
+        self._check_state_initialization()
+        self._check_complex_state_objects()
+        self._check_state_batching()
 
         return self.findings
 
-    def _check_excessive_usestate(self):
+    def _check_excessive_usestate(self) -> None:
         """Check for components with too many useState hooks."""
-        self.cursor.execute("""
-            SELECT file, component_name,
-                   COUNT(*) as state_count,
-                   GROUP_CONCAT(hook_name) as hooks
-            FROM react_hooks
-            WHERE hook_name = 'useState'
-            GROUP BY file, component_name
-            HAVING state_count > ?
-            ORDER BY state_count DESC
-        """, (self.patterns.MAX_USESTATE_PER_COMPONENT,))
+        rows = self.db.query(
+            Q("react_hooks")
+            .select("file", "component_name", "hook_name")
+            .where("hook_name = ?", "useState")
+        )
 
-        for row in self.cursor.fetchall():
-            file, component, count, hooks = row
+        component_counts: dict[tuple, int] = {}
+        for file, component, _hook_name in rows:
+            key = (file, component)
+            component_counts[key] = component_counts.get(key, 0) + 1
 
-            self.findings.append(StandardFinding(
-                rule_name='react-excessive-state',
-                message=f'Component {component} has {count} useState hooks',
-                file_path=file,
-                line=1,
-                severity=Severity.MEDIUM,
-                category='react-state',
-                snippet=f'{count} useState calls',
-                confidence=Confidence.HIGH,
-                cwe_id='CWE-1066'
-            ))
+        for (file, component), count in component_counts.items():
+            if count > self.patterns.MAX_USESTATE_PER_COMPONENT:
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-excessive-state",
+                        message=f"Component {component} has {count} useState hooks (max: {self.patterns.MAX_USESTATE_PER_COMPONENT})",
+                        file_path=file,
+                        line=1,
+                        severity=Severity.MEDIUM,
+                        category="react-state",
+                        snippet=f"{count} useState calls - consider useReducer or splitting component",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-1066",
+                    )
+                )
 
-    def _check_missing_usereducer(self):
-        """Check for components that should use useReducer."""
-        self.cursor.execute("""
-            SELECT h.file, h.component_name,
-                   COUNT(*) as state_count
-            FROM react_hooks h
-            WHERE h.hook_name = 'useState'
-              AND NOT EXISTS (
-                  SELECT 1 FROM react_hooks h2
-                  WHERE h2.file = h.file
-                    AND h2.component_name = h.component_name
-                    AND h2.hook_name = 'useReducer'
-              )
-            GROUP BY h.file, h.component_name
-            HAVING state_count >= ?
-        """, (self.patterns.REDUCER_THRESHOLD,))
+    def _check_missing_usereducer(self) -> None:
+        """Check for components that should use useReducer instead of multiple useState."""
+        rows = self.db.query(Q("react_hooks").select("file", "component_name", "hook_name"))
 
-        for row in self.cursor.fetchall():
-            file, component, count = row
+        component_hooks: dict[tuple, dict] = {}
+        for file, component, hook_name in rows:
+            key = (file, component)
+            if key not in component_hooks:
+                component_hooks[key] = {"useState": 0, "useReducer": 0}
+            if hook_name == "useState":
+                component_hooks[key]["useState"] += 1
+            elif hook_name == "useReducer":
+                component_hooks[key]["useReducer"] += 1
 
-            self.findings.append(StandardFinding(
-                rule_name='react-missing-reducer',
-                message=f'Component with {count} states should consider useReducer',
-                file_path=file,
-                line=1,
-                severity=Severity.LOW,
-                category='react-state',
-                snippet=f'{component}: {count} useState hooks',
-                confidence=Confidence.MEDIUM,
-                cwe_id='CWE-1066'
-            ))
+        for (file, component), counts in component_hooks.items():
+            if counts["useState"] >= self.patterns.REDUCER_THRESHOLD and counts["useReducer"] == 0:
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-missing-reducer",
+                        message=f"Component with {counts['useState']} useState hooks should consider useReducer",
+                        file_path=file,
+                        line=1,
+                        severity=Severity.LOW,
+                        category="react-state",
+                        snippet=f"{component}: {counts['useState']} useState hooks",
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-1066",
+                    )
+                )
 
-    def _check_state_naming(self):
-        """Check for poor state variable naming."""
-        # Fetch all assignments, filter in Python
-        self.cursor.execute("""
-            SELECT a.file, a.line, a.target_var, a.source_expr
-            FROM assignments a
-            WHERE a.source_expr IS NOT NULL
-              AND a.target_var IS NOT NULL
-            LIMIT 500
-        """)
+    def _check_state_naming(self) -> None:
+        """Check for poor state variable naming conventions."""
+        rows = self.db.query(
+            Q("assignments")
+            .select("file", "line", "target_var", "source_expr")
+            .where("source_expr IS NOT NULL")
+            .where("target_var IS NOT NULL")
+            .limit(500)
+        )
 
-        for row in self.cursor.fetchall():
-            file, line, var_name, source = row
-
-            if not var_name:
+        for file, line, var_name, source in rows:
+            if not var_name or not source:
                 continue
 
-            # Check if source contains useState
-            source_str = str(source) if source else ''
-            if 'useState' not in source_str:
+            source_str = str(source)
+            if "useState" not in source_str:
                 continue
 
-            # Check for boolean state without proper prefix
-            if 'true' in source_str.lower() or 'false' in source_str.lower():
-                if not any(var_name.startswith(prefix) for prefix in self.patterns.STATE_PREFIXES):
-                    self.findings.append(StandardFinding(
-                        rule_name='react-state-naming',
-                        message=f'Boolean state {var_name} should use is/has/should prefix',
+            source_lower = source_str.lower()
+            is_boolean_state = "true" in source_lower or "false" in source_lower
+
+            if is_boolean_state and not any(
+                var_name.startswith(prefix) for prefix in self.patterns.STATE_PREFIXES
+            ):
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-state-naming",
+                        message=f"Boolean state '{var_name}' should use is/has/should/can/will/did prefix",
                         file_path=file,
                         line=line,
                         severity=Severity.LOW,
-                        category='react-state',
-                        snippet=f'const [{var_name}, ...] = useState',
+                        category="react-state",
+                        snippet=f"const [{var_name}, ...] = useState",
                         confidence=Confidence.LOW,
-                        cwe_id='CWE-1078'
-                    ))
+                        cwe_id="CWE-1078",
+                    )
+                )
 
-    def _check_multiple_state_updates(self):
+    def _check_multiple_state_updates(self) -> None:
         """Check for multiple state updates in single function."""
-        # Fetch all function_call_args, group in Python
-        self.cursor.execute("""
-            SELECT file, caller_function, callee_function
-            FROM function_call_args
-            WHERE callee_function IS NOT NULL
-              AND caller_function IS NOT NULL
-              AND caller_function != 'global'
-            LIMIT 1000
-        """)
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "caller_function", "callee_function")
+            .where("callee_function IS NOT NULL")
+            .where("caller_function IS NOT NULL")
+            .where("caller_function != ?", "global")
+            .limit(1000)
+        )
 
-        # Group by file and caller_function
-        updates_by_function = {}
-        for file, caller, callee in self.cursor.fetchall():
-            # Check if callee starts with 'set'
-            if not (callee and callee.startswith('set')):
+        updates_by_function: dict[tuple, list[str]] = {}
+        for file, caller, callee in rows:
+            if not callee or not callee.startswith("set"):
                 continue
 
             key = (file, caller)
@@ -247,270 +253,275 @@ class ReactStateAnalyzer:
                 updates_by_function[key] = []
             updates_by_function[key].append(callee)
 
-        # Check for excessive updates
         for (file, function), setters in updates_by_function.items():
             count = len(setters)
             if count > self.patterns.MAX_STATE_UPDATES_PER_FUNCTION:
-                if all('set' in s.lower() for s in setters):
-                    self.findings.append(StandardFinding(
-                        rule_name='react-multiple-updates',
-                        message=f'Function {function} updates state {count} times',
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-multiple-updates",
+                        message=f"Function '{function}' updates state {count} times - consider batching or useReducer",
                         file_path=file,
                         line=1,
                         severity=Severity.LOW,
-                        category='react-state',
-                        snippet=f'{count} setState calls',
+                        category="react-state",
+                        snippet=f"{count} setState calls: {', '.join(setters[:3])}...",
                         confidence=Confidence.LOW,
-                        cwe_id='CWE-1050'
-                    ))
+                        cwe_id="CWE-1050",
+                    )
+                )
 
-    def _check_prop_drilling(self):
+    def _check_prop_drilling(self) -> None:
         """Check for potential prop drilling patterns."""
-        # Fetch all react_components, filter in Python
-        self.cursor.execute("""
-            SELECT file, name, props_type
-            FROM react_components
-            WHERE props_type IS NOT NULL
-        """)
+        rows = self.db.query(
+            Q("react_components")
+            .select("file", "name", "props_type")
+            .where("props_type IS NOT NULL")
+        )
 
-        # Group by file and prop
-        prop_usage = {}
-        for file, component, props_type in self.cursor.fetchall():
-            props_str = str(props_type) if props_type else ''
+        prop_usage: dict[tuple, set] = {}
+        for file, component, props_type in rows:
+            props_str = str(props_type) if props_type else ""
             for prop in self.patterns.DRILL_PROPS:
-                if prop in props_str:
+                if prop in props_str.lower():
                     key = (file, prop)
                     if key not in prop_usage:
                         prop_usage[key] = set()
                     prop_usage[key].add(component)
 
-        # Check for drilling (prop used in >2 components in same file)
         for (file, prop), components in prop_usage.items():
             count = len(components)
             if count > 2:
-                self.findings.append(StandardFinding(
-                    rule_name='react-prop-drilling',
-                    message=f'{count} components receive "{prop}" prop - possible prop drilling',
-                    file_path=file,
-                    line=1,
-                    severity=Severity.LOW,
-                    category='react-state',
-                    snippet=f'{prop} passed through {count} components',
-                    confidence=Confidence.LOW,
-                    cwe_id='CWE-1066'
-                ))
+                comp_list = list(components)[:3]
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-prop-drilling",
+                        message=f"Prop '{prop}' passed through {count} components - consider Context or state management",
+                        file_path=file,
+                        line=1,
+                        severity=Severity.LOW,
+                        category="react-state",
+                        snippet=f"Components: {', '.join(comp_list)}{'...' if count > 3 else ''}",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-1066",
+                    )
+                )
 
-    def _check_global_state_candidates(self):
-        """Check for state that should be global."""
-        # Fetch all variable_usage, filter in Python
-        self.cursor.execute("""
-            SELECT variable_name, in_component
-            FROM variable_usage
-            WHERE variable_name IS NOT NULL
-              AND in_component != ''
-            LIMIT 1000
-        """)
+    def _check_global_state_candidates(self) -> None:
+        """Check for state that should be global/context."""
+        rows = self.db.query(
+            Q("variable_usage")
+            .select("variable_name", "in_component")
+            .where("variable_name IS NOT NULL")
+            .where("in_component != ?", "")
+            .limit(1000)
+        )
 
-        # Group by variable_name and pattern
-        var_usage = {}
-        for var_name, component in self.cursor.fetchall():
-            # Check if var_name contains any context pattern
+        var_usage: dict[str, set] = {}
+        for var_name, component in rows:
+            if not var_name:
+                continue
+
             for pattern in self.patterns.CONTEXT_PATTERNS:
-                if pattern in var_name:
+                if pattern in var_name.lower():
                     if var_name not in var_usage:
                         var_usage[var_name] = set()
                     var_usage[var_name].add(component)
                     break
 
-        # Check for variables used in >3 components
         for var, components in var_usage.items():
             count = len(components)
             if count > 3:
                 comp_list = list(components)[:3]
-                self.findings.append(StandardFinding(
-                    rule_name='react-global-state',
-                    message=f'Variable {var} used in {count} components - candidate for global state',
-                    file_path='',
-                    line=1,
-                    severity=Severity.LOW,
-                    category='react-state',
-                    snippet=f'Used in: {", ".join(comp_list)}...',
-                    confidence=Confidence.LOW,
-                    cwe_id='CWE-1066'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-global-state",
+                        message=f"Variable '{var}' used in {count} components - candidate for Context or global state",
+                        file_path="",
+                        line=1,
+                        severity=Severity.LOW,
+                        category="react-state",
+                        snippet=f"Used in: {', '.join(comp_list)}...",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-1066",
+                    )
+                )
 
-    def _check_unnecessary_state(self):
-        """Check for state that could be derived."""
-        self.cursor.execute("""
-            SELECT h1.file, h1.line, h1.component_name
-            FROM react_hooks h1
-            WHERE h1.hook_name = 'useState'
-              AND EXISTS (
-                  SELECT 1 FROM react_hooks h2
-                  WHERE h2.file = h1.file
-                    AND h2.component_name = h1.component_name
-                    AND h2.hook_name = 'useEffect'
-                    AND h2.line > h1.line
-                    AND h2.line < h1.line + 5
-                    AND h2.dependency_array IS NOT NULL
-                    AND h2.dependency_array != '[]'
-              )
-            LIMIT 50
-        """)
+    def _check_unnecessary_state(self) -> None:
+        """Check for state that could be derived or computed."""
+        use_state_rows = list(
+            self.db.query(
+                Q("react_hooks")
+                .select("file", "line", "component_name")
+                .where("hook_name = ?", "useState")
+                .limit(200)
+            )
+        )
 
-        for row in self.cursor.fetchall():
-            file, line, component = row
+        use_effect_rows = list(
+            self.db.query(
+                Q("react_hooks")
+                .select("file", "line", "component_name", "dependency_array")
+                .where("hook_name = ?", "useEffect")
+                .where("dependency_array IS NOT NULL")
+                .where("dependency_array != ?", "[]")
+                .limit(200)
+            )
+        )
 
-            self.findings.append(StandardFinding(
-                rule_name='react-unnecessary-state',
-                message='State immediately updated in effect - may be unnecessary',
-                file_path=file,
-                line=line,
-                severity=Severity.LOW,
-                category='react-state',
-                snippet='useState followed by immediate useEffect',
-                confidence=Confidence.LOW,
-                cwe_id='CWE-1066'
-            ))
+        effects_by_component: dict[tuple, list[tuple]] = {}
+        for file, line, component, deps in use_effect_rows:
+            key = (file, component)
+            if key not in effects_by_component:
+                effects_by_component[key] = []
+            effects_by_component[key].append((line, deps))
 
-    def _check_state_initialization(self):
+        for file, line, component in use_state_rows:
+            key = (file, component)
+            if key not in effects_by_component:
+                continue
+
+            for effect_line, _deps in effects_by_component[key]:
+                if effect_line > line and effect_line < line + 5:
+                    self.findings.append(
+                        StandardFinding(
+                            rule_name="react-unnecessary-state",
+                            message="State immediately updated in useEffect - may be unnecessary derived state",
+                            file_path=file,
+                            line=line,
+                            severity=Severity.LOW,
+                            category="react-state",
+                            snippet="useState followed by immediate useEffect update",
+                            confidence=Confidence.LOW,
+                            cwe_id="CWE-1066",
+                        )
+                    )
+                    break
+
+    def _check_state_initialization(self) -> None:
         """Check for expensive state initialization."""
-        # Fetch all useState hooks, filter in Python
-        self.cursor.execute("""
-            SELECT file, line, hook_name, callback_body
-            FROM react_hooks
-            WHERE hook_name = 'useState'
-              AND callback_body IS NOT NULL
-            LIMIT 200
-        """)
+        rows = self.db.query(
+            Q("react_hooks")
+            .select("file", "line", "hook_name", "callback_body")
+            .where("hook_name = ?", "useState")
+            .where("callback_body IS NOT NULL")
+            .limit(200)
+        )
 
-        expensive_patterns = ['fetch', 'localStorage', 'sessionStorage', 'JSON.parse']
-
-        for row in self.cursor.fetchall():
-            file, line, hook, callback = row
-
+        for file, line, _hook, callback in rows:
             if not callback or len(callback) <= 50:
                 continue
 
-            # Check for expensive operations
             callback_str = str(callback)
-            has_expensive = any(pattern in callback_str for pattern in expensive_patterns)
+            for pattern in self.patterns.EXPENSIVE_INIT_PATTERNS:
+                if pattern in callback_str:
+                    self.findings.append(
+                        StandardFinding(
+                            rule_name="react-expensive-init",
+                            message=f"Expensive operation ({pattern}) in useState initialization - use lazy initializer",
+                            file_path=file,
+                            line=line,
+                            severity=Severity.MEDIUM,
+                            category="react-state",
+                            snippet=f"useState with {pattern}",
+                            confidence=Confidence.MEDIUM,
+                            cwe_id="CWE-1050",
+                        )
+                    )
+                    break
 
-            if has_expensive:
-                self.findings.append(StandardFinding(
-                    rule_name='react-expensive-init',
-                    message='Expensive operation in useState initialization',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.MEDIUM,
-                    category='react-state',
-                    snippet='useState with expensive initialization',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-1050'
-                ))
-
-    def _check_complex_state_objects(self):
+    def _check_complex_state_objects(self) -> None:
         """Check for overly complex state objects."""
-        # Fetch all useState hooks, filter in Python
-        self.cursor.execute("""
-            SELECT file, line, component_name, callback_body
-            FROM react_hooks
-            WHERE hook_name = 'useState'
-              AND callback_body IS NOT NULL
-            LIMIT 200
-        """)
+        rows = self.db.query(
+            Q("react_hooks")
+            .select("file", "line", "component_name", "callback_body")
+            .where("hook_name = ?", "useState")
+            .where("callback_body IS NOT NULL")
+            .limit(200)
+        )
 
-        for row in self.cursor.fetchall():
-            file, line, component, callback = row
+        for file, line, _component, callback in rows:
+            callback_str = str(callback) if callback else ""
 
-            callback_str = str(callback) if callback else ''
-
-            # Check if callback contains object literal and is long
-            if '{' not in callback_str or len(callback_str) <= 200:
+            if "{" not in callback_str or len(callback_str) <= 200:
                 continue
 
-            # Count approximate number of properties
-            prop_count = callback_str.count(':')
-
+            prop_count = callback_str.count(":")
             if prop_count > 5:
-                self.findings.append(StandardFinding(
-                    rule_name='react-complex-state',
-                    message=f'Complex state object with ~{prop_count} properties',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.LOW,
-                    category='react-state',
-                    snippet=f'useState with {prop_count}+ properties',
-                    confidence=Confidence.LOW,
-                    cwe_id='CWE-1066'
-                ))
+                self.findings.append(
+                    StandardFinding(
+                        rule_name="react-complex-state",
+                        message=f"Complex state object with ~{prop_count} properties - consider splitting or using useReducer",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.LOW,
+                        category="react-state",
+                        snippet=f"useState with {prop_count}+ nested properties",
+                        confidence=Confidence.LOW,
+                        cwe_id="CWE-1066",
+                    )
+                )
 
-    def _check_state_batching(self):
-        """Check for state updates that should be batched."""
-        # Fetch all function_call_args, filter in Python
-        self.cursor.execute("""
-            SELECT file, line, callee_function, caller_function
-            FROM function_call_args
-            WHERE callee_function IS NOT NULL
-              AND caller_function IS NOT NULL
-            LIMIT 1000
-        """)
+    def _check_state_batching(self) -> None:
+        """Check for consecutive state updates that should be batched."""
+        rows = self.db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function", "caller_function")
+            .where("callee_function IS NOT NULL")
+            .where("caller_function IS NOT NULL")
+            .limit(1000)
+        )
 
-        # Build map of file -> line -> calls
-        calls_by_location = {}
-        for file, line, callee, caller in self.cursor.fetchall():
-            # Check if callee starts with 'set'
-            if not (callee and callee.startswith('set')):
+        calls_by_location: dict[str, dict[tuple, list[str]]] = {}
+        for file, line, callee, caller in rows:
+            if not callee or not callee.startswith("set"):
                 continue
 
-            key = file
-            if key not in calls_by_location:
-                calls_by_location[key] = {}
+            if file not in calls_by_location:
+                calls_by_location[file] = {}
 
             line_key = (line, caller)
-            if line_key not in calls_by_location[key]:
-                calls_by_location[key][line_key] = []
-            calls_by_location[key][line_key].append(callee)
+            if line_key not in calls_by_location[file]:
+                calls_by_location[file][line_key] = []
+            calls_by_location[file][line_key].append(callee)
 
-        # Check for consecutive lines with setters in same function
         for file, line_data in calls_by_location.items():
             sorted_lines = sorted(line_data.keys())
             for i in range(len(sorted_lines) - 1):
-                (line1, caller1), (line2, caller2) = sorted_lines[i], sorted_lines[i + 1]
+                (line1, caller1) = sorted_lines[i]
+                (line2, caller2) = sorted_lines[i + 1]
 
-                # Check if consecutive lines in same function
                 if line2 == line1 + 1 and caller1 == caller2:
                     setter1 = line_data[(line1, caller1)][0]
                     setter2 = line_data[(line2, caller2)][0]
 
-                    self.findings.append(StandardFinding(
-                        rule_name='react-unbatched-updates',
-                        message=f'Consecutive state updates: {setter1}, {setter2}',
-                        file_path=file,
-                        line=line1,
-                        severity=Severity.LOW,
-                        category='react-state',
-                        snippet=f'{setter1}(); {setter2}()',
-                        confidence=Confidence.MEDIUM,
-                        cwe_id='CWE-1050'
-                    ))
+                    self.findings.append(
+                        StandardFinding(
+                            rule_name="react-unbatched-updates",
+                            message=f"Consecutive state updates ({setter1}, {setter2}) - React 18+ batches automatically, consider useReducer for related state",
+                            file_path=file,
+                            line=line1,
+                            severity=Severity.INFO,
+                            category="react-state",
+                            snippet=f"{setter1}(); {setter2}()",
+                            confidence=Confidence.LOW,
+                            cwe_id="CWE-1050",
+                        )
+                    )
 
 
-# ============================================================================
-# MAIN RULE FUNCTION (Orchestrator Entry Point)
-# ============================================================================
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect React state management issues and anti-patterns.
 
-    Uses data from react_hooks and related tables to identify state
-    complexity, prop drilling, and management issues.
-
     Args:
-        context: Standardized rule context with database path
+        context: Provides db_path, file_path, content, language, project_path
 
     Returns:
-        List of React state management issues found
+        RuleResult with findings list and fidelity manifest
     """
-    analyzer = ReactStateAnalyzer(context)
-    return analyzer.analyze()
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        analyzer = ReactStateAnalyzer(db)
+        findings = analyzer.analyze()
+        return RuleResult(findings=findings, manifest=db.get_manifest())

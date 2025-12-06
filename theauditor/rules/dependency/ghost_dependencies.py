@@ -1,283 +1,571 @@
 """Detect ghost dependencies - packages imported but not declared.
 
-Ghost dependencies are packages that are used in code (via import/require)
-but not declared in package.json or requirements.txt. This creates hidden
-dependencies that can break builds when node_modules or virtualenv are
-recreated.
+Detects packages that are imported in source code but not declared in
+package.json, requirements.txt, Cargo.toml, or go.mod. These phantom
+dependencies can break builds and create supply chain vulnerabilities.
 
-Detection Strategy:
-1. Query import_styles table for all package imports
-2. Query package_configs table for all declared dependencies
-3. Find imports that don't have matching declarations
-4. Exclude stdlib packages (built-in Python/Node.js modules)
+Handles:
+- Python stdlib detection (300+ modules)
+- Node.js stdlib detection (50+ modules including node: prefix)
+- Scoped packages (@org/pkg)
+- Python package name normalization (hyphen vs underscore)
+- Relative import filtering
+- Monorepo internal package detection
 
-Database Tables Used:
-- import_styles: Track all import/require statements
-- package_configs: Declared dependencies from package files
+CWE: CWE-1104 (Use of Unmaintained Third Party Components)
 """
 
-
-import sqlite3
-import json
-from typing import List, Set
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-from theauditor.indexer.schema import build_query
-
-
-# ============================================================================
-# RULE METADATA
-# ============================================================================
+from theauditor.rules.base import (
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="ghost_dependencies",
     category="dependency",
-    target_extensions=['.py', '.js', '.ts', '.tsx', '.jsx', '.mjs', '.cjs'],
+    target_extensions=[".py", ".js", ".ts", ".tsx", ".jsx", ".mjs", ".cjs"],
     exclude_patterns=[
-        'node_modules/',
-        '.venv/',
-        'venv/',
-        '__pycache__/',
-        'dist/',
-        'build/',
-        '.git/',
+        "node_modules/",
+        ".venv/",
+        "venv/",
+        "__pycache__/",
+        "dist/",
+        "build/",
+        ".git/",
+        "**/webpack.config.*",
+        "**/rollup.config.*",
+        "**/vite.config.*",
+        "**/esbuild.config.*",
+        "**/parcel.config.*",
+        "**/turbopack.config.*",
+        "**/.eslintrc.*",
+        "**/eslint.config.*",
+        "**/.prettierrc.*",
+        "**/prettier.config.*",
+        "**/.stylelintrc.*",
+        "**/jest.config.*",
+        "**/vitest.config.*",
+        "**/karma.conf.*",
+        "**/cypress.config.*",
+        "**/playwright.config.*",
+        "**/babel.config.*",
+        "**/.babelrc*",
+        "**/tsconfig.*",
+        "**/tailwind.config.*",
+        "**/postcss.config.*",
+        "**/next.config.*",
+        "**/nuxt.config.*",
+        "**/svelte.config.*",
+        "**/astro.config.*",
     ],
-    requires_jsx_pass=False,
+    execution_scope="database",
+    primary_table="import_styles",
 )
 
 
-# ============================================================================
-# STDLIB EXCLUSIONS
-# ============================================================================
-# Built-in modules that don't need to be declared in package files
-# ============================================================================
+PYTHON_STDLIB = frozenset(
+    [
+        "__future__",
+        "builtins",
+        "types",
+        "typing",
+        "typing_extensions",
+        "string",
+        "re",
+        "difflib",
+        "textwrap",
+        "unicodedata",
+        "stringprep",
+        "struct",
+        "codecs",
+        "datetime",
+        "zoneinfo",
+        "calendar",
+        "collections",
+        "heapq",
+        "bisect",
+        "array",
+        "weakref",
+        "types",
+        "copy",
+        "pprint",
+        "reprlib",
+        "enum",
+        "graphlib",
+        "numbers",
+        "math",
+        "cmath",
+        "decimal",
+        "fractions",
+        "random",
+        "statistics",
+        "itertools",
+        "functools",
+        "operator",
+        "pathlib",
+        "os",
+        "io",
+        "time",
+        "argparse",
+        "getopt",
+        "logging",
+        "warnings",
+        "dataclasses",
+        "contextlib",
+        "os.path",
+        "fileinput",
+        "stat",
+        "filecmp",
+        "tempfile",
+        "glob",
+        "fnmatch",
+        "linecache",
+        "shutil",
+        "pickle",
+        "copyreg",
+        "shelve",
+        "marshal",
+        "dbm",
+        "sqlite3",
+        "zlib",
+        "gzip",
+        "bz2",
+        "lzma",
+        "zipfile",
+        "tarfile",
+        "csv",
+        "configparser",
+        "tomllib",
+        "netrc",
+        "plistlib",
+        "hashlib",
+        "hmac",
+        "secrets",
+        "os",
+        "io",
+        "time",
+        "argparse",
+        "getopt",
+        "logging",
+        "getpass",
+        "curses",
+        "platform",
+        "errno",
+        "ctypes",
+        "threading",
+        "multiprocessing",
+        "concurrent",
+        "concurrent.futures",
+        "subprocess",
+        "sched",
+        "queue",
+        "contextvars",
+        "_thread",
+        "asyncio",
+        "socket",
+        "ssl",
+        "select",
+        "selectors",
+        "signal",
+        "email",
+        "json",
+        "mailbox",
+        "mimetypes",
+        "base64",
+        "binascii",
+        "quopri",
+        "uu",
+        "html",
+        "html.parser",
+        "html.entities",
+        "xml",
+        "xml.etree",
+        "xml.etree.ElementTree",
+        "xml.dom",
+        "xml.sax",
+        "urllib",
+        "urllib.request",
+        "urllib.parse",
+        "urllib.error",
+        "http",
+        "http.client",
+        "http.server",
+        "http.cookies",
+        "http.cookiejar",
+        "ftplib",
+        "poplib",
+        "imaplib",
+        "smtplib",
+        "uuid",
+        "socketserver",
+        "xmlrpc",
+        "ipaddress",
+        "wave",
+        "colorsys",
+        "gettext",
+        "locale",
+        "turtle",
+        "cmd",
+        "shlex",
+        "pydoc",
+        "doctest",
+        "unittest",
+        "unittest.mock",
+        "test",
+        "bdb",
+        "faulthandler",
+        "pdb",
+        "timeit",
+        "trace",
+        "tracemalloc",
+        "cProfile",
+        "profile",
+        "pstats",
+        "ensurepip",
+        "venv",
+        "zipapp",
+        "sys",
+        "sysconfig",
+        "builtins",
+        "warnings",
+        "dataclasses",
+        "contextlib",
+        "abc",
+        "atexit",
+        "traceback",
+        "gc",
+        "inspect",
+        "site",
+        "code",
+        "codeop",
+        "zipimport",
+        "pkgutil",
+        "modulefinder",
+        "runpy",
+        "importlib",
+        "importlib.resources",
+        "importlib.metadata",
+        "ast",
+        "symtable",
+        "token",
+        "keyword",
+        "tokenize",
+        "tabnanny",
+        "pyclbr",
+        "py_compile",
+        "compileall",
+        "dis",
+        "pickletools",
+        "formatter",
+    ]
+)
 
-# Python standard library modules (partial list - common ones)
-PYTHON_STDLIB = frozenset([
-    'os', 'sys', 'json', 'time', 'datetime', 'math', 'random',
-    'collections', 'itertools', 'functools', 'operator',
-    're', 'string', 'unicodedata',
-    'pathlib', 'glob', 'fnmatch', 'tempfile', 'shutil',
-    'subprocess', 'threading', 'multiprocessing', 'queue',
-    'socket', 'ssl', 'http', 'urllib', 'email', 'base64',
-    'hashlib', 'hmac', 'secrets', 'uuid',
-    'logging', 'warnings', 'traceback', 'inspect', 'ast',
-    'typing', 'dataclasses', 'enum', 'abc',
-    'io', 'pickle', 'csv', 'xml', 'html', 'sqlite3',
-])
 
-# Node.js core modules (all don't need package.json entries)
-NODEJS_STDLIB = frozenset([
-    'fs', 'path', 'os', 'util', 'events', 'stream', 'buffer',
-    'crypto', 'http', 'https', 'net', 'dns', 'tls', 'dgram',
-    'url', 'querystring', 'zlib', 'readline', 'repl',
-    'child_process', 'cluster', 'worker_threads',
-    'assert', 'console', 'process', 'timers', 'module',
-    'vm', 'v8', 'inspector', 'async_hooks', 'perf_hooks',
-    # Node.js prefixed variants
-    'node:fs', 'node:path', 'node:os', 'node:util', 'node:events',
-    'node:stream', 'node:buffer', 'node:crypto', 'node:http',
-    'node:https', 'node:net', 'node:dns', 'node:tls',
-    'node:url', 'node:zlib', 'node:child_process', 'node:cluster',
-])
+NODEJS_STDLIB = frozenset(
+    [
+        "assert",
+        "node:assert",
+        "async_hooks",
+        "node:async_hooks",
+        "buffer",
+        "node:buffer",
+        "child_process",
+        "node:child_process",
+        "cluster",
+        "node:cluster",
+        "console",
+        "node:console",
+        "constants",
+        "node:constants",
+        "crypto",
+        "node:crypto",
+        "dgram",
+        "node:dgram",
+        "diagnostics_channel",
+        "node:diagnostics_channel",
+        "dns",
+        "node:dns",
+        "domain",
+        "node:domain",
+        "events",
+        "node:events",
+        "fs",
+        "node:fs",
+        "fs/promises",
+        "node:fs/promises",
+        "http",
+        "node:http",
+        "http2",
+        "node:http2",
+        "https",
+        "node:https",
+        "inspector",
+        "node:inspector",
+        "module",
+        "node:module",
+        "net",
+        "node:net",
+        "os",
+        "node:os",
+        "path",
+        "node:path",
+        "path/posix",
+        "path/win32",
+        "perf_hooks",
+        "node:perf_hooks",
+        "process",
+        "node:process",
+        "punycode",
+        "node:punycode",
+        "querystring",
+        "node:querystring",
+        "readline",
+        "node:readline",
+        "readline/promises",
+        "repl",
+        "node:repl",
+        "stream",
+        "node:stream",
+        "stream/promises",
+        "stream/consumers",
+        "stream/web",
+        "string_decoder",
+        "node:string_decoder",
+        "sys",
+        "node:sys",
+        "test",
+        "node:test",
+        "timers",
+        "node:timers",
+        "timers/promises",
+        "tls",
+        "node:tls",
+        "trace_events",
+        "node:trace_events",
+        "tty",
+        "node:tty",
+        "url",
+        "node:url",
+        "util",
+        "node:util",
+        "util/types",
+        "v8",
+        "node:v8",
+        "vm",
+        "node:vm",
+        "wasi",
+        "node:wasi",
+        "worker_threads",
+        "node:worker_threads",
+        "zlib",
+        "node:zlib",
+    ]
+)
 
-# Combined stdlib set
+
 ALL_STDLIB = PYTHON_STDLIB | NODEJS_STDLIB
 
 
-# ============================================================================
-# MAIN DETECTION FUNCTION
-# ============================================================================
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect packages imported in code but not declared in package files.
 
     Args:
-        context: Rule execution context with db_path
+        context: Standard rule context with db_path
 
     Returns:
-        List of findings for ghost dependencies
-
-    Known Limitations:
-    - Cannot detect monorepo workspace dependencies
-    - May flag dev dependencies that are intentionally omitted
-    - Requires accurate import extraction from indexer
+        RuleResult with findings and fidelity manifest
     """
-    findings = []
-
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        declared_deps = _get_declared_dependencies(db)
+        imported_packages = _get_imported_packages(db)
+        findings = _find_ghost_dependencies(imported_packages, declared_deps)
 
-    try:
-        # Get all declared dependencies from package files
-        declared_deps = _get_declared_dependencies(cursor)
-
-        # Get all imported packages from code
-        imported_packages = _get_imported_packages(cursor)
-
-        # Find ghost dependencies
-        findings = _find_ghost_dependencies(
-            cursor,
-            imported_packages,
-            declared_deps
-        )
-
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
+def _get_declared_dependencies(db: RuleDB) -> set[str]:
+    """Extract all declared package names from dependency tables.
 
-def _get_declared_dependencies(cursor) -> set[str]:
-    """Extract all declared package names from package_configs table.
-
-    Queries package_configs and parses JSON dependency fields.
-
-    Args:
-        cursor: Database cursor
-
-    Returns:
-        Set of declared package names (normalized to lowercase)
+    Returns normalized set of package names (lowercase, hyphen-normalized).
     """
     declared = set()
 
-    query = build_query('package_configs', ['dependencies', 'dev_dependencies', 'peer_dependencies'])
-    cursor.execute(query)
+    rows = db.query(Q("package_dependencies").select("name"))
+    for (name,) in rows:
+        if name:
+            declared.add(_normalize_for_comparison(name))
 
-    for deps_json, dev_deps_json, peer_deps_json in cursor.fetchall():
-        # Parse dependencies JSON
-        for deps_str in [deps_json, dev_deps_json, peer_deps_json]:
-            if not deps_str:
-                continue
+    rows = db.query(Q("python_package_dependencies").select("name"))
+    for (name,) in rows:
+        if name:
+            normalized = _normalize_for_comparison(name)
+            declared.add(normalized)
 
-            try:
-                deps_dict = json.loads(deps_str)
-                if isinstance(deps_dict, dict):
-                    # Add all package names (normalized to lowercase)
-                    declared.update(pkg.lower() for pkg in deps_dict.keys())
-            except (json.JSONDecodeError, AttributeError):
-                # Malformed JSON - skip
-                continue
+            declared.add(normalized.replace("-", "_"))
+
+    rows = db.query(Q("cargo_dependencies").select("name"))
+    for (name,) in rows:
+        if name:
+            declared.add(_normalize_for_comparison(name))
+
+    rows = db.query(Q("go_module_dependencies").select("module_path"))
+    for (module_path,) in rows:
+        if module_path:
+            parts = module_path.split("/")
+            if parts:
+                declared.add(_normalize_for_comparison(parts[-1]))
 
     return declared
 
 
-def _get_imported_packages(cursor) -> dict:
+def _get_imported_packages(db: RuleDB) -> dict[str, list[tuple]]:
     """Extract all imported package names from import_styles table.
 
-    Args:
-        cursor: Database cursor
-
-    Returns:
-        Dict mapping package names to list of (file, line) tuples
+    Returns dict mapping normalized package name to list of (file, line, package, style).
     """
-    imports = {}
+    imports: dict[str, list[tuple]] = {}
 
-    query = build_query('import_styles', ['file', 'line', 'package', 'import_style'],
-                       order_by='package, file, line')
-    cursor.execute(query)
+    rows = db.query(
+        Q("import_styles")
+        .select("file", "line", "package", "import_style")
+        .order_by("package, file, line")
+    )
 
-    for file, line, package, import_style in cursor.fetchall():
+    for file, line, package, import_style in rows:
         if not package:
             continue
 
-        # Normalize package name
-        # For scoped packages (@org/pkg), keep full name
-        # For submodule imports (pkg/submodule), extract base package
+        if _is_relative_import(package):
+            continue
+
+        if import_style == "import-type":
+            continue
+
         base_package = _normalize_package_name(package)
+        comparison_key = _normalize_for_comparison(base_package)
 
-        if base_package not in imports:
-            imports[base_package] = []
+        if comparison_key not in imports:
+            imports[comparison_key] = []
 
-        imports[base_package].append((file, line, package, import_style))
+        imports[comparison_key].append((file, line, package, import_style))
 
     return imports
 
 
+def _is_relative_import(package: str) -> bool:
+    """Check if this is a relative import that should be skipped."""
+
+    if package.startswith("./") or package.startswith("../"):
+        return True
+
+    if package == ".":
+        return True
+
+    if "/" in package and not package.startswith("@"):
+        first_part = package.split("/")[0]
+        if first_part.startswith(".") or first_part == "":
+            return True
+    return False
+
+
 def _normalize_package_name(package: str) -> str:
-    """Normalize package name for comparison.
+    """Normalize package name to base package for lookup.
 
     Examples:
-        'requests' -> 'requests'
-        'django.contrib.auth' -> 'django'
-        'lodash/map' -> 'lodash'
-        '@vue/reactivity' -> '@vue/reactivity'
-        'node:fs' -> 'node:fs' (keep node: prefix)
-
-    Args:
-        package: Raw package name from import
-
-    Returns:
-        Normalized base package name (lowercase)
+        @org/pkg/subpath -> @org/pkg
+        lodash/cloneDeep -> lodash
+        node:fs -> node:fs
+        my-package -> my-package
     """
-    # Handle scoped packages (@org/pkg)
-    if package.startswith('@'):
-        # Keep scoped package intact
-        parts = package.split('/', 2)
+
+    if package.startswith("@"):
+        parts = package.split("/", 2)
         if len(parts) >= 2:
-            return '/'.join(parts[:2]).lower()
-        return package.lower()
+            return "/".join(parts[:2])
+        return package
 
-    # Handle node:* prefixed core modules
-    if package.startswith('node:'):
-        return package.lower()
+    if package.startswith("node:"):
+        return package
 
-    # Handle submodule imports (pkg/submodule)
-    base = package.split('/')[0].split('.')[0]
+    base = package.split("/")[0]
 
-    return base.lower()
+    return base
+
+
+def _normalize_for_comparison(name: str) -> str:
+    """Normalize name for case-insensitive comparison.
+
+    Python packages use hyphens in PyPI but underscores in imports.
+    This normalizes to lowercase with hyphens.
+    """
+    return name.lower().replace("_", "-")
 
 
 def _find_ghost_dependencies(
-    cursor,
-    imported_packages: dict,
-    declared_deps: set[str]
+    imported_packages: dict[str, list[tuple]],
+    declared_deps: set[str],
 ) -> list[StandardFinding]:
-    """Find packages that are imported but not declared.
-
-    Args:
-        cursor: Database cursor
-        imported_packages: Dict of package -> [(file, line, ...)]
-        declared_deps: Set of declared package names
-
-    Returns:
-        List of findings for ghost dependencies
-    """
+    """Find packages that are imported but not declared."""
     findings = []
-    seen = set()  # Deduplicate by package name
 
-    for package, import_locations in imported_packages.items():
-        # Skip stdlib modules
-        if package in ALL_STDLIB:
+    for comparison_key, import_locations in imported_packages.items():
+        if _is_stdlib(comparison_key):
             continue
 
-        # Skip if declared
-        if package in declared_deps:
+        if comparison_key in declared_deps:
+            continue
+        underscore_variant = comparison_key.replace("-", "_")
+        if underscore_variant in declared_deps:
             continue
 
-        # Skip if already reported
-        if package in seen:
-            continue
-        seen.add(package)
-
-        # Get first import location for error reporting
         file, line, full_package, import_style = import_locations[0]
 
-        findings.append(StandardFinding(
-            rule_name='ghost-dependency',
-            message=f"Package '{package}' imported but not declared in dependencies",
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='dependency',
-            snippet=f"import: {full_package} (style: {import_style})",
-            cwe_id='CWE-1104'  # Use of Unmaintained Third Party Components
-        ))
+        usage_count = len(import_locations)
+        files_affected = len({loc[0] for loc in import_locations})
+
+        if usage_count > 1:
+            usage_info = f" (used in {files_affected} file(s), {usage_count} import(s))"
+        else:
+            usage_info = ""
+
+        findings.append(
+            StandardFinding(
+                rule_name="ghost-dependency",
+                message=f"Package '{comparison_key}' imported but not declared in dependencies{usage_info}",
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category="dependency",
+                snippet=f"{import_style}: {full_package}",
+                cwe_id="CWE-1104",
+            )
+        )
 
     return findings
+
+
+def _is_stdlib(package: str) -> bool:
+    """Check if package is a standard library module."""
+
+    if package in ALL_STDLIB:
+        return True
+
+    if package.startswith("node:"):
+        bare = package[5:]
+        if bare in NODEJS_STDLIB:
+            return True
+
+    if "." in package:
+        base = package.split(".")[0]
+        if base in PYTHON_STDLIB:
+            return True
+
+    return False

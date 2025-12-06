@@ -1,7 +1,6 @@
 """Async task service demonstrating async/await patterns."""
-import asyncio
-from typing import List
 
+import asyncio
 from collections.abc import AsyncIterator
 
 
@@ -10,18 +9,15 @@ async def fetch_user_data(user_id: int) -> dict:
 
     This should be extracted as an async function with await expressions.
     """
-    # Simulate API call
+
     await asyncio.sleep(0.1)
 
-    # Multiple await expressions
     response = await get_api_response(user_id)
     data = await parse_response(response)
 
-    # Async context manager
     async with get_database_connection() as conn:
-        # Async for loop (async generator consumption)
         async for record in fetch_related_records(conn, user_id):
-            data['records'].append(record)
+            data["records"].append(record)
 
     return data
 
@@ -40,7 +36,7 @@ async def parse_response(response: str) -> dict:
 
 async def get_database_connection():
     """Async context manager for database connection."""
-    # This is an async context manager usage
+
     class AsyncDBConnection:
         async def __aenter__(self):
             await asyncio.sleep(0.01)
@@ -69,7 +65,6 @@ async def process_batch_users(user_ids: list[int]) -> list[dict]:
     """
     results = []
 
-    # Async for loop over async generator
     async for user_data in batch_fetch_users(user_ids):
         results.append(user_data)
 
@@ -88,10 +83,9 @@ async def parallel_fetch(user_ids: list[int]) -> list[dict]:
 
     Multiple await expressions in complex patterns.
     """
-    # Create tasks
+
     tasks = [fetch_user_data(uid) for uid in user_ids]
 
-    # Await gather
     results = await asyncio.gather(*tasks)
 
     return results

@@ -1,96 +1,121 @@
-"""Boundary Distance Calculator.
-
-Calculates call-chain distance between entry points and control points
-using the call_graph table. This is the core metric for boundary analysis.
-
-Distance Semantics:
-    0 = Control at entry point (PERFECT - validation in function signature)
-    1 = Control in first call (GOOD - validation as first line)
-    2 = Control two calls deep (ACCEPTABLE - validation in service layer)
-    3+ = Control too far (BAD - validation after data has spread)
-    None = No control found (CRITICAL - missing validation entirely)
-
-Example:
-    @app.post('/user')
-    def create_user(request):           # ← Entry point
-        data = validate(request.json)    # ← Distance 0 (same function)
-        user_service.create(data)
-            def create(data):
-                db.insert('users', data)
-
-Truth Courier Design: Reports factual distance measurements, not recommendations.
-"""
-
+"""Boundary Distance Calculator."""
 
 import sqlite3
-from typing import Optional, List, Tuple, Dict
 from collections import deque
+from pathlib import Path
+
+from theauditor.graph.analyzer import XGraphAnalyzer
+from theauditor.graph.store import XGraphStore
+
+
+def _normalize_path(path: str) -> str:
+    """Normalize path to forward slashes for consistent comparison."""
+    return path.replace("\\", "/") if path else ""
+
+
+def _build_graph_index(graph: dict) -> None:
+    """Build O(1) lookup indexes for graph nodes. Caches in graph dict."""
+    if "_node_by_id" in graph:
+        return
+
+    node_by_id: dict[str, dict] = {}
+    nodes_by_file: dict[str, list[dict]] = {}
+
+    for node in graph.get("nodes", []):
+        node_id = node.get("id", "")
+        node_file = _normalize_path(node.get("file", ""))
+
+        node_by_id[node_id] = node
+
+        if node_file:
+            if node_file not in nodes_by_file:
+                nodes_by_file[node_file] = []
+            nodes_by_file[node_file].append(node)
+
+    graph["_node_by_id"] = node_by_id
+    graph["_nodes_by_file"] = nodes_by_file
 
 
 def calculate_distance(
-    db_path: str,
-    entry_file: str,
-    entry_line: int,
-    control_file: str,
-    control_line: int
+    db_path: str, entry_file: str, entry_line: int, control_file: str, control_line: int
 ) -> int | None:
-    """
-    Calculate call-chain distance between entry point and control point.
+    """Calculate call-chain distance between entry point and control point."""
 
-    Uses BFS (Breadth-First Search) on call_graph to find shortest path.
+    graph_db_path = str(Path(db_path).parent / "graphs.db")
 
-    Args:
-        db_path: Path to repo_index.db
-        entry_file: File containing entry point (e.g., 'src/routes/users.js')
-        entry_line: Line number of entry point
-        control_file: File containing control point (e.g., 'src/validators/user.js')
-        control_line: Line number of control point
+    store = XGraphStore(graph_db_path)
+    call_graph = store.load_call_graph()
 
-    Returns:
-        Distance as integer, or None if no path exists
+    if not call_graph.get("nodes") or not call_graph.get("edges"):
+        raise RuntimeError(
+            f"Graph DB empty or missing at {graph_db_path}. "
+            "Run 'aud graph build' to generate the call graph."
+        )
 
-    Example:
-        >>> calculate_distance(
-        ...     db_path='/project/.pf/repo_index.db',
-        ...     entry_file='src/routes/users.js',
-        ...     entry_line=34,
-        ...     control_file='src/routes/users.js',
-        ...     control_line=35
-        ... )
-        0  # Control point is in same function (distance 0)
-    """
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
 
     try:
-        # Find function containing entry point
-        entry_function = _find_containing_function(cursor, entry_file, entry_line)
-        if not entry_function:
+        entry_func = _find_containing_function(cursor, entry_file, entry_line)
+        control_func = _find_containing_function(cursor, control_file, control_line)
+
+        if not entry_func or not control_func:
             return None
 
-        # Find function containing control point
-        control_function = _find_containing_function(cursor, control_file, control_line)
-        if not control_function:
-            return None
-
-        # Same function? Distance is 0
-        if entry_function == control_function:
+        if entry_func == control_func:
             return 0
 
-        # BFS through call graph
-        return _bfs_distance(cursor, entry_function, control_function)
+        entry_node = _find_graph_node(call_graph, entry_file, entry_func.split(":")[-1])
+        control_node = _find_graph_node(call_graph, control_file, control_func.split(":")[-1])
+
+        if not entry_node or not control_node:
+            return None
+
+        analyzer = XGraphAnalyzer(call_graph)
+        path = analyzer.find_shortest_path(entry_node, control_node, call_graph)
+
+        if path:
+            return len(path) - 1
+
+        return None
 
     finally:
         conn.close()
 
 
-def _find_containing_function(cursor, file_path: str, line: int) -> str | None:
-    """
-    Find function containing the given file:line location.
+def _find_graph_node(graph: dict, file_path: str, func_name: str) -> str | None:
+    """Find a node ID in the graph matching file and function name.
 
-    Uses symbols table to find function definitions that span the line.
+    Uses indexed lookup (O(1) file lookup + O(k) where k = nodes in that file).
     """
-    cursor.execute("""
+    _build_graph_index(graph)
+
+    file_path_normalized = _normalize_path(file_path)
+    nodes_by_file = graph.get("_nodes_by_file", {})
+
+    file_nodes = nodes_by_file.get(file_path_normalized, [])
+
+    for node in file_nodes:
+        node_id = node.get("id", "")
+
+        if func_name in node_id:
+            return node_id
+
+        if node_id.endswith(func_name):
+            return node_id
+
+    node_by_id = graph.get("_node_by_id", {})
+    target_id = f"{file_path_normalized}:{func_name}"
+    if target_id in node_by_id:
+        return target_id
+
+    return None
+
+
+def _find_containing_function(cursor, file_path: str, line: int) -> str | None:
+    """Find function containing the given file:line location."""
+    cursor.execute(
+        """
         SELECT name, type, line, end_line
         FROM symbols
         WHERE path = ?
@@ -99,71 +124,15 @@ def _find_containing_function(cursor, file_path: str, line: int) -> str | None:
           AND (end_line >= ? OR end_line IS NULL)
         ORDER BY line DESC
         LIMIT 1
-    """, (file_path, line, line))
+    """,
+        (file_path, line, line),
+    )
 
     result = cursor.fetchone()
     if result:
-        func_name, func_type, start, end = result
-        # Return qualified name (path:function for uniqueness)
+        func_name = result[0]
         return f"{file_path}:{func_name}"
 
-    return None
-
-
-def _bfs_distance(cursor, start_func: str, target_func: str, max_depth: int = 10) -> int | None:
-    """
-    BFS through call graph to find distance from start to target.
-
-    Args:
-        cursor: Database cursor
-        start_func: Starting function (qualified name)
-        target_func: Target function (qualified name)
-        max_depth: Maximum search depth (prevents infinite loops)
-
-    Returns:
-        Distance as integer, or None if unreachable within max_depth
-    """
-    # Extract file:function components
-    start_file, start_name = start_func.split(':', 1)
-    target_file, target_name = target_func.split(':', 1)
-
-    # BFS queue: (current_function, distance)
-    queue = deque([(start_func, 0)])
-    visited = {start_func}
-
-    while queue:
-        current_func, distance = queue.popleft()
-
-        # Max depth check
-        if distance >= max_depth:
-            continue
-
-        # Extract current components
-        current_file, current_name = current_func.split(':', 1)
-
-        # Query function_call_args for functions called FROM current function
-        cursor.execute("""
-            SELECT callee_function, callee_file_path
-            FROM function_call_args
-            WHERE caller_function = ?
-              AND file = ?
-              AND callee_function IS NOT NULL
-              AND callee_file_path IS NOT NULL
-        """, (current_name, current_file))
-
-        for callee, callee_file in cursor.fetchall():
-            callee_qualified = f"{callee_file}:{callee}"
-
-            # Found target?
-            if callee_qualified == target_func:
-                return distance + 1
-
-            # Add to queue if not visited
-            if callee_qualified not in visited:
-                visited.add(callee_qualified)
-                queue.append((callee_qualified, distance + 1))
-
-    # No path found
     return None
 
 
@@ -172,114 +141,106 @@ def find_all_paths_to_controls(
     entry_file: str,
     entry_line: int,
     control_patterns: list[str],
-    max_depth: int = 5
+    max_depth: int = 5,
+    call_graph: dict | None = None,
 ) -> list[dict]:
-    """
-    Find all control points reachable from entry point and their distances.
-
-    This is used to detect:
-    - Missing controls (no paths found)
-    - Multiple controls (scattered validation)
-    - Late controls (distance too high)
+    """Find all control points reachable from entry point and their distances.
 
     Args:
         db_path: Path to repo_index.db
-        entry_file: Entry point file
-        entry_line: Entry point line
-        control_patterns: List of control function patterns to find
-                         (e.g., ['validate', 'sanitize', 'check'])
-        max_depth: Maximum call chain depth to search
+        entry_file: Entry point file path
+        entry_line: Entry point line number
+        control_patterns: Patterns to match control functions
+        max_depth: Maximum traversal depth
+        call_graph: Pre-loaded call graph (pass to avoid repeated disk I/O)
 
-    Returns:
-        List of dicts with:
-            - control_function: Function name
-            - control_file: File path
-            - control_line: Line number
-            - distance: Call chain distance from entry
-            - path: List of functions in call chain
-
-    Example:
-        >>> find_all_paths_to_controls(
-        ...     db_path='/project/.pf/repo_index.db',
-        ...     entry_file='src/routes/users.js',
-        ...     entry_line=34,
-        ...     control_patterns=['validate', 'sanitize'],
-        ...     max_depth=3
-        ... )
-        [
-            {
-                'control_function': 'validateUser',
-                'control_file': 'src/validators/user.js',
-                'control_line': 12,
-                'distance': 2,
-                'path': ['create_user', 'processUser', 'validateUser']
-            }
-        ]
+    Raises RuntimeError if graph is missing - run 'aud graph build' first.
     """
+    if call_graph is None:
+        graph_db_path = str(Path(db_path).parent / "graphs.db")
+        store = XGraphStore(graph_db_path)
+        call_graph = store.load_call_graph()
+
+        if not call_graph.get("nodes") or not call_graph.get("edges"):
+            raise RuntimeError(
+                f"Graph DB empty or missing at {graph_db_path}. "
+                "Run 'aud graph build' to generate the call graph."
+            )
+
+    return _find_controls_via_graph(
+        db_path, call_graph, entry_file, entry_line, control_patterns, max_depth
+    )
+
+
+def _find_controls_via_graph(
+    db_path: str,
+    call_graph: dict,
+    entry_file: str,
+    entry_line: int,
+    control_patterns: list[str],
+    max_depth: int,
+) -> list[dict]:
+    """Find control points using graph traversal (includes interceptor edges)."""
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     results = []
 
     try:
-        entry_function = _find_containing_function(cursor, entry_file, entry_line)
-        if not entry_function:
+        entry_func = _find_containing_function(cursor, entry_file, entry_line)
+        if not entry_func:
             return results
 
-        entry_file_part, entry_name = entry_function.split(':', 1)
+        entry_name = entry_func.split(":")[-1]
+        entry_node = _find_graph_node(call_graph, entry_file, entry_name)
 
-        # BFS with path tracking
-        queue = deque([(entry_function, 0, [entry_name])])
-        visited = {entry_function}
+        if not entry_node:
+            return results
+
+        adj = {}
+        for edge in call_graph.get("edges", []):
+            source = edge["source"]
+            target = edge["target"]
+            if source not in adj:
+                adj[source] = []
+            adj[source].append(target)
+
+        queue = deque([(entry_node, 0, [entry_name])])
+        visited = {entry_node}
 
         while queue:
-            current_func, distance, path = queue.popleft()
+            current_node, distance, path = queue.popleft()
 
             if distance >= max_depth:
                 continue
 
-            current_file, current_name = current_func.split(':', 1)
+            for neighbor in adj.get(current_node, []):
+                if neighbor in visited:
+                    continue
 
-            # Query callees
-            cursor.execute("""
-                SELECT callee_function, callee_file_path, line
-                FROM function_call_args
-                WHERE caller_function = ?
-                  AND file = ?
-                  AND callee_function IS NOT NULL
-            """, (current_name, current_file))
+                visited.add(neighbor)
 
-            for callee, callee_file, call_line in cursor.fetchall():
-                # Check if callee matches control pattern
-                is_control = any(pattern.lower() in callee.lower()
-                               for pattern in control_patterns)
+                neighbor_name = _extract_func_name(neighbor)
+                neighbor_file = _extract_file_from_node(call_graph, neighbor)
+                new_path = path + [neighbor_name]
+
+                is_control = any(
+                    pattern.lower() in neighbor_name.lower() for pattern in control_patterns
+                )
 
                 if is_control:
-                    # Find definition line
-                    cursor.execute("""
-                        SELECT line
-                        FROM symbols
-                        WHERE path = ?
-                          AND name = ?
-                          AND type IN ('function', 'method', 'arrow_function')
-                        LIMIT 1
-                    """, (callee_file, callee))
+                    control_line = _get_function_line(cursor, neighbor_file, neighbor_name)
 
-                    def_result = cursor.fetchone()
-                    callee_line = def_result[0] if def_result else call_line
+                    results.append(
+                        {
+                            "control_function": neighbor_name,
+                            "control_file": neighbor_file or "unknown",
+                            "control_line": control_line or 0,
+                            "distance": distance + 1,
+                            "path": new_path,
+                        }
+                    )
 
-                    results.append({
-                        'control_function': callee,
-                        'control_file': callee_file,
-                        'control_line': callee_line,
-                        'distance': distance + 1,
-                        'path': path + [callee]
-                    })
-
-                # Continue BFS
-                callee_qualified = f"{callee_file}:{callee}"
-                if callee_qualified not in visited:
-                    visited.add(callee_qualified)
-                    queue.append((callee_qualified, distance + 1, path + [callee]))
+                queue.append((neighbor, distance + 1, new_path))
 
     finally:
         conn.close()
@@ -287,84 +248,106 @@ def find_all_paths_to_controls(
     return results
 
 
+def _extract_func_name(node_id: str) -> str:
+    """Extract function name from node ID."""
+    # Node IDs can be: "file:func", "file::type::name::param", etc.
+    if "::" in node_id:
+        parts = node_id.split("::")
+
+        for part in reversed(parts):
+            if part and not part.startswith("/") and not part.endswith((".js", ".ts", ".py")):
+                return part
+    if ":" in node_id:
+        return node_id.split(":")[-1]
+    return node_id
+
+
+def _extract_file_from_node(graph: dict, node_id: str) -> str | None:
+    """Get file path from node metadata. O(1) indexed lookup."""
+    _build_graph_index(graph)
+    node = graph.get("_node_by_id", {}).get(node_id)
+    return node.get("file") if node else None
+
+
+def _get_function_line(cursor, file_path: str | None, func_name: str) -> int | None:
+    """Get function definition line from symbols table."""
+    if not file_path:
+        return None
+
+    cursor.execute(
+        """
+        SELECT line FROM symbols
+        WHERE path = ? AND name = ?
+          AND type IN ('function', 'method', 'arrow_function')
+        LIMIT 1
+    """,
+        (file_path, func_name),
+    )
+
+    result = cursor.fetchone()
+    return result[0] if result else None
+
+
 def measure_boundary_quality(controls: list[dict]) -> dict:
-    """
-    Assess boundary quality based on control distances.
-
-    Args:
-        controls: List of control points with distances (from find_all_paths_to_controls)
-
-    Returns:
-        Dict with quality metrics:
-            - quality: 'clear', 'acceptable', 'fuzzy', 'missing'
-            - reason: Factual description of boundary state
-            - facts: List of factual observations (NOT recommendations)
-
-    Quality Levels:
-        - clear: Single control at distance 0
-        - acceptable: Single control at distance 1-2
-        - fuzzy: Multiple controls OR distance 3+
-        - missing: No controls found
-    """
+    """Assess boundary quality based on control distances."""
     if not controls:
         return {
-            'quality': 'missing',
-            'reason': 'No validation, sanitization, or checks found in call chain',
-            'facts': [
-                'Entry point accepts external data',
-                'No validation control detected within search depth',
-                'Data flows to downstream functions without validation gate'
-            ]
+            "quality": "missing",
+            "reason": "No validation, sanitization, or checks found in call chain",
+            "facts": [
+                "Entry point accepts external data",
+                "No validation control detected within search depth",
+                "Data flows to downstream functions without validation gate",
+            ],
         }
 
     if len(controls) == 1:
-        distance = controls[0]['distance']
-        control_func = controls[0]['control_function']
+        distance = controls[0]["distance"]
+        control_func = controls[0]["control_function"]
 
         if distance == 0:
             return {
-                'quality': 'clear',
-                'reason': f"Single control point '{control_func}' at distance 0 (same function as entry)",
-                'facts': [
-                    'Validation occurs in entry function',
-                    'External data validated before use',
-                    'No intermediate functions between entry and validation'
-                ]
+                "quality": "clear",
+                "reason": f"Single control point '{control_func}' at distance 0 (same function as entry)",
+                "facts": [
+                    "Validation occurs in entry function",
+                    "External data validated before use",
+                    "No intermediate functions between entry and validation",
+                ],
             }
         elif distance <= 2:
             return {
-                'quality': 'acceptable',
-                'reason': f"Single control point '{control_func}' at distance {distance}",
-                'facts': [
+                "quality": "acceptable",
+                "reason": f"Single control point '{control_func}' at distance {distance}",
+                "facts": [
                     f"Validation occurs {distance} function call(s) after entry",
                     f"Data flows through {distance} intermediate function(s) before validation",
-                    'Single validation control point detected'
-                ]
+                    "Single validation control point detected",
+                ],
             }
         else:
             return {
-                'quality': 'fuzzy',
-                'reason': f"Single control point '{control_func}' at distance {distance}",
-                'facts': [
+                "quality": "fuzzy",
+                "reason": f"Single control point '{control_func}' at distance {distance}",
+                "facts": [
                     f"Validation occurs {distance} function calls after entry",
                     f"Data flows through {distance} intermediate functions before validation control",
-                    f"Distance {distance} creates {distance} potential code paths without validation"
-                ]
+                    f"Distance {distance} creates {distance} potential code paths without validation",
+                ],
             }
     else:
-        # Multiple controls
-        distances = [c['distance'] for c in controls]
+        distances = [c["distance"] for c in controls]
         min_dist = min(distances)
         max_dist = max(distances)
-        control_names = [c['control_function'] for c in controls]
+        control_names = [c["control_function"] for c in controls]
 
         return {
-            'quality': 'fuzzy',
-            'reason': f"Multiple control points detected: {', '.join(control_names)}",
-            'facts': [
+            "quality": "fuzzy",
+            "reason": f"Multiple control points detected: {', '.join(control_names)}",
+            "facts": [
                 f"{len(controls)} different validation controls found",
                 f"Control distances range from {min_dist} to {max_dist}",
-                'Multiple validation points indicate distributed boundary enforcement',
-                'Different code paths may encounter different validation controls'
-            ]
+                "Multiple validation points indicate distributed boundary enforcement",
+                "Different code paths may encounter different validation controls",
+            ],
         }

@@ -1,10 +1,7 @@
 """In-memory repository used to emulate database interactions."""
 
-
-from dataclasses import asdict, dataclass
-from typing import Dict, List, Optional
-
 from collections.abc import Iterable
+from dataclasses import asdict, dataclass
 
 from ..models.accounts import Organization, Profile, User
 from ..models.audit import AuditLog
@@ -30,7 +27,9 @@ class AccountRepository:
 
     def create_account(self, email: str, organization_id: int) -> User:
         organization = Organization(id=organization_id, name="Fixture Org", slug="fixture-org")
-        user = User(id=self._id_seq, organization_id=organization_id, email=email, organization=organization)
+        user = User(
+            id=self._id_seq, organization_id=organization_id, email=email, organization=organization
+        )
         self._accounts[user.id] = _StoredAccount(user=user, organization=organization, profile=None)
         self._id_seq += 1
         return user

@@ -1,603 +1,911 @@
-"""Sequelize ORM Analyzer - Database-First Approach.
+"""Sequelize ORM Security and Performance Analyzer.
 
-Detects Sequelize ORM anti-patterns and performance issues using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
+Detects security vulnerabilities and performance anti-patterns in Sequelize ORM usage:
+- Death queries with all:true nested:true (recursive load entire database)
+- N+1 query patterns (findAll without include when associations exist)
+- Unbounded queries missing pagination (limit/offset)
+- Race conditions in findOrCreate without transactions
+- Missing transaction wrappers around multiple writes
+- SQL injection via Sequelize.literal() with string concatenation
+- Excessive eager loading (too many includes)
+- Hard deletes bypassing soft delete (paranoid:false, force:true)
+- Raw SQL queries bypassing ORM protections
+- Mass assignment via req.body passed to create/update (CWE-915)
+- raw:true bypassing model hooks (CWE-213)
+- Insecure logging configuration exposing sensitive data (CWE-532)
 
-This analyzer uses function_call_args table since orm_queries is not
-populated by the standard indexer.
+Tables Used:
+- function_call_args: Sequelize method calls and arguments
+- assignments: Variable assignments for transaction detection
+- sql_queries: Raw SQL detection
 
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
+CWE References:
+- CWE-89: SQL Injection
+- CWE-213: Exposure of Sensitive Information Through Debug Information
+- CWE-362: Race Condition
+- CWE-400: Uncontrolled Resource Consumption
+- CWE-471: Modification of Assumed-Immutable Data
+- CWE-532: Insertion of Sensitive Information into Log File
+- CWE-662: Improper Synchronization
+- CWE-915: Improperly Controlled Modification of Dynamically-Determined Object Attributes
+
+Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
 """
 
-
-import sqlite3
-import json
-from typing import List, Set
-from dataclasses import dataclass
-
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-from theauditor.indexer.schema import build_query
-
-
-# ============================================================================
-# RULE METADATA - SMART FILTERING
-# ============================================================================
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="sequelize_orm_issues",
     category="orm",
-
-    # Target JavaScript/TypeScript files (Sequelize supports both)
-    target_extensions=['.js', '.ts', '.mjs', '.cjs'],
-
-    # Exclude patterns - skip tests, migrations, build, TheAuditor folders
+    target_extensions=[".js", ".ts", ".mjs", ".cjs"],
     exclude_patterns=[
-        '__tests__/',
-        'test/',
-        'tests/',
-        'node_modules/',
-        'dist/',
-        'build/',
-        '.next/',
-        'migrations/',
-        'seeders/',            # Sequelize-specific seeders
-        '.pf/',                # TheAuditor output directory
-        '.auditor_venv/'       # TheAuditor sandboxed tools
+        "__tests__/",
+        "test/",
+        "tests/",
+        "node_modules/",
+        "dist/",
+        "build/",
+        ".next/",
+        "migrations/",
+        "seeders/",
+        ".pf/",
+        ".auditor_venv/",
     ],
-
-    # This is a DATABASE-ONLY rule (no JSX required)
-    requires_jsx_pass=False
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
 
-# ============================================================================
-# PATTERN DEFINITIONS (Golden Standard: Frozen Dataclass)
-# ============================================================================
-
-@dataclass(frozen=True)
-class SequelizePatterns:
-    """Immutable pattern definitions for Sequelize ORM detection."""
-
-    # Query methods that need pagination
-    UNBOUNDED_METHODS = frozenset([
-        'findAll', 'findAndCountAll', 'scope', 'findAllWithScopes'
-    ])
-
-    # Write operations that may need transactions
-    WRITE_METHODS = frozenset([
-        'create', 'bulkCreate', 'update', 'bulkUpdate',
-        'destroy', 'bulkDestroy', 'upsert', 'save',
-        'increment', 'decrement', 'restore', 'bulkRestore',
-        'set', 'add', 'remove', 'setAttributes'
-    ])
-
-    # Methods prone to race conditions
-    RACE_CONDITION_METHODS = frozenset([
-        'findOrCreate', 'findOrBuild', 'findCreateFind'
-    ])
-
-    # Raw query methods vulnerable to SQL injection
-    RAW_QUERY_METHODS = frozenset([
-        'sequelize.query', 'query', 'Sequelize.literal',
-        'literal', 'sequelize.fn', 'Sequelize.fn',
-        'sequelize.col', 'Sequelize.col', 'sequelize.where',
-        'Sequelize.where', 'sequelize.cast', 'Sequelize.cast'
-    ])
-
-    # Transaction-related methods
-    TRANSACTION_METHODS = frozenset([
-        'transaction', 'commit', 'rollback', 't.commit', 't.rollback',
-        'sequelize.transaction', 'startTransaction', 'commitTransaction'
-    ])
-
-    # Include patterns that indicate death queries
-    DEATH_QUERY_PATTERNS = frozenset([
-        'all: true', 'all:true', 'nested: true', 'nested:true',
-        'include: { all: true', 'include:[{all:true'
-    ])
-
-    # Patterns indicating SQL injection risk
-    SQL_INJECTION_PATTERNS = frozenset([
-        '${', '"+', '" +', '` +', 'concat(', '+ req.',
-        '+ params.', '+ body.', '${req.', '${params.',
-        '.replace(', '.replaceAll(', 'eval('
-    ])
-
-    # Common Sequelize models (for detection)
-    COMMON_MODELS = frozenset([
-        'User', 'Account', 'Product', 'Order', 'Customer',
-        'Post', 'Comment', 'Category', 'Tag', 'Role',
-        'Permission', 'Session', 'Token', 'File', 'Image',
-        'Plant', 'Worker', 'Facility', 'Zone', 'Batch'
-    ])
+UNBOUNDED_METHODS = frozenset(
+    [
+        "findAll",
+        "findAndCountAll",
+        "scope",
+        "findAllWithScopes",
+    ]
+)
 
 
-# ============================================================================
-# ANALYZER CLASS (Golden Standard)
-# ============================================================================
+WRITE_METHODS = frozenset(
+    [
+        "create",
+        "bulkCreate",
+        "update",
+        "bulkUpdate",
+        "destroy",
+        "bulkDestroy",
+        "upsert",
+        "save",
+        "increment",
+        "decrement",
+        "restore",
+        "bulkRestore",
+        "set",
+        "add",
+        "remove",
+        "setAttributes",
+    ]
+)
 
-class SequelizeAnalyzer:
-    """Analyzer for Sequelize ORM anti-patterns and security issues."""
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
+RACE_CONDITION_METHODS = frozenset(
+    [
+        "findOrCreate",
+        "findOrBuild",
+        "findCreateFind",
+    ]
+)
 
-        Args:
-            context: Rule context containing database path
-        """
-        self.context = context
-        self.patterns = SequelizePatterns()
-        self.findings = []
 
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
+RAW_QUERY_METHODS = frozenset(
+    [
+        "sequelize.query",
+        "query",
+        "Sequelize.literal",
+        "literal",
+        "sequelize.fn",
+        "Sequelize.fn",
+        "sequelize.col",
+        "Sequelize.col",
+        "sequelize.where",
+        "Sequelize.where",
+        "sequelize.cast",
+        "Sequelize.cast",
+    ]
+)
 
-        Returns:
-            List of Sequelize ORM issues found
-        """
-        if not self.context.db_path:
-            return []
 
-        conn = sqlite3.connect(self.context.db_path)
-        self.cursor = conn.cursor()
+SQL_INJECTION_PATTERNS = frozenset(
+    [
+        "${",
+        '"+',
+        '" +',
+        "` +",
+        "concat(",
+        "+ req.",
+        "+ params.",
+        "+ body.",
+        "${req.",
+        "${params.",
+        ".replace(",
+        ".replaceAll(",
+        "eval(",
+    ]
+)
 
-        try:
-            # Run all checks
-            self._check_death_queries()
-            self._check_n_plus_one_patterns()
-            self._check_unbounded_queries()
-            self._check_race_conditions()
-            self._check_missing_transactions()
-            self._check_sql_injection()
-            self._check_excessive_eager_loading()
-            self._check_hard_deletes()
-            self._check_raw_sql_bypass()
 
-        finally:
-            conn.close()
+COMMON_MODELS = frozenset(
+    [
+        "User",
+        "Account",
+        "Product",
+        "Order",
+        "Customer",
+        "Post",
+        "Comment",
+        "Category",
+        "Tag",
+        "Role",
+        "Permission",
+        "Session",
+        "Token",
+        "File",
+        "Image",
+    ]
+)
 
-        return self.findings
 
-    def _check_death_queries(self):
-        """Detect death queries with all:true and nested:true."""
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           where="argument_expr IS NOT NULL",
-                           order_by="file, line")
-        self.cursor.execute(query)
+SEQUELIZE_SOURCES = frozenset(
+    [
+        "findAll",
+        "findOne",
+        "findByPk",
+        "findOrCreate",
+        "where",
+        "attributes",
+        "order",
+        "group",
+        "having",
+    ]
+)
 
-        for file, line, method, args in self.cursor.fetchall():
-            # Check for death query methods in Python
-            if not any(method.endswith(f'.{m}') for m in ['findAll', 'findOne', 'findAndCountAll']):
-                continue
-            if not args:
-                continue
 
-            args_str = str(args).lower()
+UNSAFE_INPUT_SOURCES = frozenset(
+    [
+        "req.body",
+        "request.body",
+        "body",
+        "params",
+        "req.params",
+        "request.params",
+        "req.query",
+        "request.query",
+        "input",
+        "data",
+    ]
+)
 
-            # Check for death query pattern
-            has_all = any(pattern in args_str for pattern in ['all: true', 'all:true'])
-            has_nested = any(pattern in args_str for pattern in ['nested: true', 'nested:true'])
 
-            if has_all and has_nested:
-                self.findings.append(StandardFinding(
-                    rule_name='sequelize-death-query',
-                    message=f'Death query detected: {method} with all:true and nested:true',
+MASS_ASSIGNMENT_METHODS = frozenset(
+    [
+        "create",
+        "bulkCreate",
+        "update",
+        "bulkUpdate",
+        "upsert",
+    ]
+)
+
+
+RAW_BYPASS_METHODS = frozenset(
+    [
+        "findAll",
+        "findOne",
+        "findByPk",
+        "findAndCountAll",
+        "findOrCreate",
+    ]
+)
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Sequelize ORM security vulnerabilities and performance anti-patterns.
+
+    Args:
+        context: Standard rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
+
+        _check_death_queries(db, findings)
+        _check_n_plus_one_patterns(db, findings)
+        _check_unbounded_queries(db, findings)
+        _check_race_conditions(db, findings)
+        _check_missing_transactions(db, findings)
+        _check_sql_injection(db, findings)
+        _check_excessive_eager_loading(db, findings)
+        _check_hard_deletes(db, findings)
+        _check_raw_sql_bypass(db, findings)
+        _check_mass_assignment(db, findings)
+        _check_raw_true_bypass(db, findings)
+        _check_insecure_logging(db, findings)
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
+
+
+def _check_death_queries(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect death queries with all:true and nested:true that load entire database."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
+
+    for file, line, method, args in rows:
+        if not method:
+            continue
+
+        is_find_method = any(
+            method.endswith(f".{m}") for m in ["findAll", "findOne", "findAndCountAll"]
+        )
+        if not is_find_method:
+            continue
+
+        args_str = str(args).lower()
+        has_all = "all: true" in args_str or "all:true" in args_str
+        has_nested = "nested: true" in args_str or "nested:true" in args_str
+
+        if has_all and has_nested:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-death-query",
+                    message=f"Death query: {method} with all:true and nested:true will recursively load entire database",
                     file_path=file,
                     line=line,
                     severity=Severity.CRITICAL,
-                    category='orm-performance',
-                    snippet=f'{method}({{ include: {{ all: true, nested: true }} }})',
+                    category="orm",
+                    snippet=f"{method}({{ include: {{ all: true, nested: true }} }})",
                     confidence=Confidence.HIGH,
-                    cwe_id='CWE-400'
-                ))
+                    cwe_id="CWE-400",
+                )
+            )
 
-    def _check_n_plus_one_patterns(self):
-        """Detect potential N+1 query patterns."""
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
-        # Store results before loop (avoid cursor state bug)
-        findall_queries = self.cursor.fetchall()
 
-        for file, line, method, args in findall_queries:
-            # Check for findAll/findAndCountAll in Python
-            if not (method.endswith('.findAll') or method.endswith('.findAndCountAll')):
-                continue
-            # Extract model name
-            model = method.split('.')[0] if '.' in method else 'Model'
+def _check_n_plus_one_patterns(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect potential N+1 query patterns - findAll without include."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-            # Skip if not a known model
-            if model not in self.patterns.COMMON_MODELS and not model[0].isupper():
-                continue
+    for file, line, method, args in rows:
+        if not method:
+            continue
 
-            # Check if includes are present
-            has_include = args and 'include' in str(args)
+        is_find_all = method.endswith(".findAll") or method.endswith(".findAndCountAll")
+        if not is_find_all:
+            continue
 
-            if not has_include:
-                # Check if there are associations defined nearby
-                confidence = self._check_associations_nearby(file, line, model)
+        model = method.split(".")[0] if "." in method else "Model"
 
-                if confidence > 0:
-                    self.findings.append(StandardFinding(
-                        rule_name='sequelize-n-plus-one',
-                        message=f'Potential N+1 query: {method} without include option',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category='orm-performance',
-                        snippet=f'{method}() without eager loading',
-                        confidence=Confidence.MEDIUM if confidence == 1 else Confidence.HIGH,
-                        cwe_id='CWE-400'
-                    ))
+        if model not in COMMON_MODELS and not (model and model[0].isupper()):
+            continue
 
-    def _check_associations_nearby(self, file: str, line: int, model: str) -> int:
-        """Check if model has associations defined nearby.
+        has_include = args and "include" in str(args)
+        if has_include:
+            continue
 
-        Returns:
-            0 if no associations, 1 if maybe, 2 if definitely
-        """
-        # Fetch all function_call_args in file, filter in Python
-        query = build_query('function_call_args', ['callee_function'],
-                           where="file = ?")
-        self.cursor.execute(query, (file,))
+        has_associations = _check_associations_nearby(db, file, model)
 
-        # Check for association methods in Python
-        association_methods = ['.belongsTo', '.hasOne', '.hasMany', '.belongsToMany']
-        count = 0
-        for (callee,) in self.cursor.fetchall():
-            if callee.startswith(f'{model}.') and any(callee.endswith(m) for m in association_methods):
-                count += 1
+        if has_associations:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-n-plus-one",
+                    message=f"Potential N+1: {method} without include - model has associations defined",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="orm",
+                    snippet=f"{method}() without eager loading",
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-400",
+                )
+            )
 
-        return 2 if count > 0 else 1
 
-    def _check_unbounded_queries(self):
-        """Check for queries without limits that could cause memory issues."""
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
+def _check_associations_nearby(db: RuleDB, file: str, model: str) -> bool:
+    """Check if model has associations defined in the file."""
+    rows = db.query(Q("function_call_args").select("callee_function").where("file = ?", file))
 
-        for file, line, func, args in self.cursor.fetchall():
-            # Check if any unbounded method is in callee_function
-            if not any(f'.{method}' in func for method in self.patterns.UNBOUNDED_METHODS):
-                continue
-            # Check if limit/offset/pagination is present
-            has_limit = False
-            if args:
-                args_str = str(args).lower()
-                has_limit = any(p in args_str for p in ['limit:', 'limit :', 'take:', 'offset:', 'page:'])
+    association_methods = [".belongsTo", ".hasOne", ".hasMany", ".belongsToMany"]
+    for (callee,) in rows:
+        if not callee:
+            continue
+        if callee.startswith(f"{model}.") and any(callee.endswith(m) for m in association_methods):
+            return True
 
-                if not has_limit:
-                    self.findings.append(StandardFinding(
-                        rule_name='sequelize-unbounded-query',
-                        message=f'Unbounded query: {func} without limit',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.MEDIUM,
-                        category='orm-performance',
-                        snippet=f'{func}() without pagination',
-                        confidence=Confidence.HIGH,
-                        cwe_id='CWE-400'
-                    ))
+    return False
 
-    def _check_race_conditions(self):
-        """Check for race condition vulnerabilities."""
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
-        # Store results before nested loop (avoid cursor state bug)
-        all_calls = self.cursor.fetchall()
 
-        for file, line, func, args in all_calls:
-            # Check if any race condition method is in callee_function
-            if not any(f'.{method}' in func for method in self.patterns.RACE_CONDITION_METHODS):
-                continue
-            # Check for transaction nearby
-            has_transaction = self._check_transaction_nearby(file, line)
+def _check_unbounded_queries(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Check for queries without limits that could cause memory exhaustion."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-            if not has_transaction:
-                    self.findings.append(StandardFinding(
-                        rule_name='sequelize-race-condition',
-                        message=f'Race condition risk: {func} without transaction',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category='orm-concurrency',
-                        snippet=f'{func}() outside transaction',
-                        confidence=Confidence.MEDIUM,
-                        cwe_id='CWE-362'
-                    ))
+    for file, line, func, args in rows:
+        if not func:
+            continue
 
-    def _check_transaction_nearby(self, file: str, line: int) -> bool:
-        """Check if there's a transaction nearby."""
-        # Check in function_call_args - fetch and filter in Python
-        query = build_query('function_call_args', ['callee_function'],
-                           where="file = ? AND ABS(line - ?) <= 30")
-        self.cursor.execute(query, (file, line))
+        is_unbounded_method = any(f".{method}" in func for method in UNBOUNDED_METHODS)
+        if not is_unbounded_method:
+            continue
 
-        for (callee,) in self.cursor.fetchall():
-            if 'transaction' in callee.lower() or callee in ['t.commit', 't.rollback']:
-                return True
+        has_limit = False
+        if args:
+            args_str = str(args).lower()
+            has_limit = any(
+                p in args_str for p in ["limit:", "limit :", "take:", "offset:", "page:"]
+            )
 
-        # Check in assignments - fetch and filter in Python
-        query = build_query('assignments', ['target_var', 'source_expr'],
-                           where="file = ? AND ABS(line - ?) <= 30")
-        self.cursor.execute(query, (file, line))
+        if not has_limit:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-unbounded-query",
+                    message=f"Unbounded query: {func} without limit - add pagination",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="orm",
+                    snippet=f"{func}() without pagination",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-400",
+                )
+            )
 
-        for target, source in self.cursor.fetchall():
-            if 'transaction' in target.lower() or (source and 'transaction' in source.lower()):
-                return True
 
-        return False
+def _check_race_conditions(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Check for race condition vulnerabilities in findOrCreate patterns."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-    def _check_missing_transactions(self):
-        """Check for multiple write operations without transactions."""
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           order_by="file, line")
-        self.cursor.execute(query)
+    for file, line, func, _args in rows:
+        if not func:
+            continue
 
-        # Filter for write methods in Python
-        write_ops = []
-        for file, line, func in self.cursor.fetchall():
-            if any(f'.{method}' in func for method in self.patterns.WRITE_METHODS):
-                write_ops.append((file, line, func))
+        is_race_method = any(f".{method}" in func for method in RACE_CONDITION_METHODS)
+        if not is_race_method:
+            continue
 
-        # Group by file
-        file_ops = {}
-        for file, line, func in write_ops:
-            if file not in file_ops:
-                file_ops[file] = []
-            file_ops[file].append({'line': line, 'func': func})
+        has_transaction = _check_transaction_nearby(db, file, line)
 
-        # Check for operations close together without transaction
-        for file, ops in file_ops.items():
-            if len(ops) < 2:
-                continue
+        if not has_transaction:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-race-condition",
+                    message=f"Race condition risk: {func} without transaction wrapper",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="orm",
+                    snippet=f"{func}() outside transaction",
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-362",
+                )
+            )
 
-            ops.sort(key=lambda x: x['line'])
 
-            for i in range(len(ops) - 1):
-                op1 = ops[i]
-                op2 = ops[i + 1]
+def _check_transaction_nearby(db: RuleDB, file: str, line: int) -> bool:
+    """Check if there's a transaction wrapper nearby."""
+    call_rows = db.query(
+        Q("function_call_args").select("callee_function", "line").where("file = ?", file)
+    )
 
-                # Operations within 20 lines
-                if op2['line'] - op1['line'] <= 20:
-                    # Check for transaction
-                    has_transaction = self._check_transaction_between(
-                        file, op1['line'], op2['line']
-                    )
+    for callee, func_line in call_rows:
+        if not callee:
+            continue
+        if abs(func_line - line) > 30:
+            continue
+        if "transaction" in callee.lower() or callee in ["t.commit", "t.rollback"]:
+            return True
 
-                    if not has_transaction:
-                        self.findings.append(StandardFinding(
-                            rule_name='sequelize-missing-transaction',
-                            message=f"Multiple writes without transaction: {op1['func']} and {op2['func']}",
+    assign_rows = db.query(
+        Q("assignments").select("target_var", "source_expr", "line").where("file = ?", file)
+    )
+
+    for target, source, assign_line in assign_rows:
+        if abs(assign_line - line) > 30:
+            continue
+        target_str = target or ""
+        source_str = source or ""
+        if "transaction" in target_str.lower() or "transaction" in source_str.lower():
+            return True
+
+    return False
+
+
+def _check_missing_transactions(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Check for multiple write operations without transaction wrapper."""
+    rows = db.query(
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
+    )
+
+    write_ops: list[tuple[str, int, str]] = []
+    for file, line, func in rows:
+        if not func:
+            continue
+        if any(f".{method}" in func for method in WRITE_METHODS):
+            write_ops.append((file, line, func))
+
+    file_ops: dict[str, list[dict]] = {}
+    for file, line, func in write_ops:
+        if file not in file_ops:
+            file_ops[file] = []
+        file_ops[file].append({"line": line, "func": func})
+
+    for file, ops in file_ops.items():
+        if len(ops) < 2:
+            continue
+
+        ops.sort(key=lambda x: x["line"])
+
+        for i in range(len(ops) - 1):
+            op1 = ops[i]
+            op2 = ops[i + 1]
+
+            if op2["line"] - op1["line"] <= 20:
+                has_transaction = _check_transaction_between(db, file, op1["line"], op2["line"])
+
+                if not has_transaction:
+                    findings.append(
+                        StandardFinding(
+                            rule_name="sequelize-missing-transaction",
+                            message=f"Multiple writes without transaction: {op1['func']} (line {op1['line']}) and {op2['func']} (line {op2['line']})",
                             file_path=file,
-                            line=op1['line'],
+                            line=op1["line"],
                             severity=Severity.HIGH,
-                            category='orm-data-integrity',
+                            category="orm",
                             snippet=f"Multiple operations at lines {op1['line']} and {op2['line']}",
                             confidence=Confidence.HIGH,
-                            cwe_id='CWE-662'
-                        ))
-                        break  # One finding per cluster
+                            cwe_id="CWE-662",
+                        )
+                    )
+                    break
 
-    def _check_transaction_between(self, file: str, start_line: int, end_line: int) -> bool:
-        """Check if there's a transaction between two lines."""
-        # Fetch and filter in Python
-        query = build_query('function_call_args', ['callee_function'],
-                           where="file = ? AND line BETWEEN ? AND ?")
-        self.cursor.execute(query, (file, start_line - 5, end_line + 5))
 
-        for (callee,) in self.cursor.fetchall():
-            if 'transaction' in callee.lower() or callee in ['t.commit', 't.rollback']:
-                return True
+def _check_transaction_between(db: RuleDB, file: str, start_line: int, end_line: int) -> bool:
+    """Check if there's a transaction between two lines."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("callee_function")
+        .where("file = ?", file)
+        .where("line BETWEEN ? AND ?", start_line - 5, end_line + 5)
+    )
 
-        return False
+    for (callee,) in rows:
+        if not callee:
+            continue
+        if "transaction" in callee.lower() or callee in ["t.commit", "t.rollback"]:
+            return True
 
-    def _check_sql_injection(self):
-        """Check for potential SQL injection vulnerabilities."""
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
+    return False
 
-        for file, line, func, args in self.cursor.fetchall():
-            # Check if any raw query method is in callee_function
-            func_lower = func.lower()
-            if not any(method.lower() in func_lower for method in self.patterns.RAW_QUERY_METHODS):
-                continue
-            if not args:
-                continue
 
-            args_str = str(args)
+def _check_sql_injection(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Check for SQL injection via Sequelize.literal() with string concatenation."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-            # Check for dangerous patterns
-            has_injection = any(pattern in args_str for pattern in self.patterns.SQL_INJECTION_PATTERNS)
+    for file, line, func, args in rows:
+        if not func or not args:
+            continue
 
-            # Higher severity for literal() as it's commonly misused
-            is_literal = 'literal' in func.lower()
+        func_lower = func.lower()
+        is_raw_method = any(method.lower() in func_lower for method in RAW_QUERY_METHODS)
+        if not is_raw_method:
+            continue
 
-            if has_injection:
-                self.findings.append(StandardFinding(
-                    rule_name='sequelize-sql-injection',
-                    message=f'Potential SQL injection in {func}',
+        args_str = str(args)
+        has_injection = any(pattern in args_str for pattern in SQL_INJECTION_PATTERNS)
+
+        if has_injection:
+            is_literal = "literal" in func_lower
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-sql-injection",
+                    message=f"SQL injection risk in {func}: string concatenation detected",
                     file_path=file,
                     line=line,
                     severity=Severity.CRITICAL if is_literal else Severity.HIGH,
-                    category='orm-security',
-                    snippet=f'{func} with string concatenation',
+                    category="orm",
+                    snippet=f"{func} with string concatenation",
                     confidence=Confidence.HIGH if is_literal else Confidence.MEDIUM,
-                    cwe_id='CWE-89'
-                ))
+                    cwe_id="CWE-89",
+                )
+            )
 
-    def _check_excessive_eager_loading(self):
-        """Check for excessive eager loading that could cause performance issues."""
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
 
-        for file, line, method, args in self.cursor.fetchall():
-            # Check for query methods and include keyword
-            if not any(method.endswith(f'.{m}') for m in ['findAll', 'findOne', 'findAndCountAll']):
-                continue
-            if not args or 'include' not in str(args):
-                continue
+def _check_excessive_eager_loading(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Check for excessive eager loading that could cause performance issues."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-            args_str = str(args)
+    for file, line, method, args in rows:
+        if not method or not args:
+            continue
 
-            # Count include depth and breadth
-            include_count = args_str.count('include:')
-            bracket_depth = args_str.count('[{')
+        is_find_method = any(
+            method.endswith(f".{m}") for m in ["findAll", "findOne", "findAndCountAll"]
+        )
+        if not is_find_method:
+            continue
 
-            # Check for excessive includes
-            if include_count > 3:
-                self.findings.append(StandardFinding(
-                    rule_name='sequelize-excessive-eager-loading',
-                    message=f'Excessive eager loading: {include_count} includes in {method}',
+        args_str = str(args)
+        if "include" not in args_str:
+            continue
+
+        include_count = args_str.count("include:")
+        bracket_depth = args_str.count("[{")
+
+        if include_count > 3:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-excessive-eager-loading",
+                    message=f"Excessive eager loading: {include_count} includes in {method} - consider lazy loading",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
-                    category='orm-performance',
-                    snippet=f'{method} with {include_count} associations',
+                    category="orm",
+                    snippet=f"{method} with {include_count} associations",
                     confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-400'
-                ))
+                    cwe_id="CWE-400",
+                )
+            )
 
-            # Check for deeply nested includes
-            if bracket_depth > 3:
-                self.findings.append(StandardFinding(
-                    rule_name='sequelize-deep-nesting',
-                    message=f'Deeply nested includes in {method}',
+        if bracket_depth > 3:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-deep-nesting",
+                    message=f"Deeply nested includes ({bracket_depth} levels) in {method} - may cause slow queries",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
-                    category='orm-performance',
-                    snippet=f'{method} with {bracket_depth} levels of nesting',
+                    category="orm",
+                    snippet=f"{method} with {bracket_depth} levels of nesting",
                     confidence=Confidence.LOW,
-                    cwe_id='CWE-400'
-                ))
+                    cwe_id="CWE-400",
+                )
+            )
 
-    def _check_hard_deletes(self):
-        """Check for hard deletes that bypass soft delete."""
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
 
-        for file, line, method, args in self.cursor.fetchall():
-            # Check for destroy methods in Python
-            if not (method.endswith('.destroy') or method.endswith('.bulkDestroy')):
-                continue
-            if args and 'paranoid: false' in str(args):
-                self.findings.append(StandardFinding(
-                    rule_name='sequelize-hard-delete',
-                    message=f'Hard delete with paranoid:false in {method}',
+def _check_hard_deletes(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Check for hard deletes that bypass soft delete (paranoid mode)."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, method, args in rows:
+        if not method:
+            continue
+
+        is_destroy = method.endswith(".destroy") or method.endswith(".bulkDestroy")
+        if not is_destroy:
+            continue
+
+        args_str = str(args) if args else ""
+
+        if "paranoid: false" in args_str or "paranoid:false" in args_str:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-hard-delete",
+                    message=f"Hard delete with paranoid:false in {method} - bypasses soft delete",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
-                    category='orm-data-integrity',
-                    snippet=f'{method}({{ paranoid: false }})',
+                    category="orm",
+                    snippet=f"{method}({{ paranoid: false }})",
                     confidence=Confidence.HIGH,
-                    cwe_id='CWE-471'
-                ))
-            elif args and 'force: true' in str(args):
-                self.findings.append(StandardFinding(
-                    rule_name='sequelize-force-delete',
-                    message=f'Force delete with force:true in {method}',
+                    cwe_id="CWE-471",
+                )
+            )
+
+        if "force: true" in args_str or "force:true" in args_str:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-force-delete",
+                    message=f"Force delete with force:true in {method} - permanently removes data",
                     file_path=file,
                     line=line,
                     severity=Severity.MEDIUM,
-                    category='orm-data-integrity',
-                    snippet=f'{method}({{ force: true }})',
+                    category="orm",
+                    snippet=f"{method}({{ force: true }})",
                     confidence=Confidence.HIGH,
-                    cwe_id='CWE-471'
-                ))
+                    cwe_id="CWE-471",
+                )
+            )
 
-    def _check_raw_sql_bypass(self):
-        """Check for raw SQL that bypasses ORM protections."""
-        # Fetch all sql_queries with specified commands, filter file paths in Python
-        query = build_query('sql_queries', ['file_path', 'line_number', 'query_text', 'command'],
-                           where="command IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE')",
-                           order_by="file_path, line_number")
-        self.cursor.execute(query)
 
-        for file, line, query, command in self.cursor.fetchall():
-            # Filter file paths in Python (skip migrations, seeds, non-JS files)
-            if 'migration' in file.lower() or 'seed' in file.lower():
-                continue
-            if not file.endswith(('.js', '.mjs', '.cjs', '.ts')):
-                continue
-            # Check if it's likely a Sequelize raw query
-            query_lower = query.lower()
+def _check_raw_sql_bypass(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Check for raw SQL queries that bypass ORM protections."""
+    rows = db.query(
+        Q("sql_queries")
+        .select("file_path", "line_number", "query_text", "command")
+        .where("command IN ('SELECT', 'INSERT', 'UPDATE', 'DELETE')")
+        .order_by("file_path, line_number")
+    )
 
-            # Skip if it looks like Sequelize query
-            if 'sequelize' in query_lower or 'replacements' in query_lower:
-                continue
+    for file, line, query_text, command in rows:
+        if not file:
+            continue
 
-            self.findings.append(StandardFinding(
-                rule_name='sequelize-bypass',
-                message=f'Raw {command} query bypassing ORM',
+        file_lower = file.lower()
+        if "migration" in file_lower or "seed" in file_lower:
+            continue
+
+        if not file.endswith((".js", ".mjs", ".cjs", ".ts")):
+            continue
+
+        query_lower = (query_text or "").lower()
+        if "sequelize" in query_lower or "replacements" in query_lower:
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="sequelize-bypass",
+                message=f"Raw {command} query bypassing ORM - use Sequelize methods for consistency",
                 file_path=file,
                 line=line,
                 severity=Severity.LOW,
-                category='orm-consistency',
-                snippet=f'{command} query outside ORM',
+                category="orm",
+                snippet=f"{command} query outside ORM",
                 confidence=Confidence.LOW,
-                cwe_id='CWE-213'
-            ))
+                cwe_id="CWE-213",
+            )
+        )
 
 
-# ============================================================================
-# MAIN RULE FUNCTION (Orchestrator Entry Point)
-# ============================================================================
+def _check_mass_assignment(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect mass assignment vulnerabilities - passing req.body directly to create/update.
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Sequelize ORM anti-patterns and performance issues.
-
-    Args:
-        context: Standardized rule context with database path
-
-    Returns:
-        List of Sequelize ORM issues found
+    Attackers can overwrite internal fields (e.g., isAdmin, balance) if raw input
+    is passed directly to ORM write methods without whitelisting.
     """
-    analyzer = SequelizeAnalyzer(context)
-    return analyzer.analyze()
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        if not func or not args:
+            continue
+
+        is_write_method = any(f".{method}" in func for method in MASS_ASSIGNMENT_METHODS)
+        if not is_write_method:
+            continue
+
+        args_str = str(args)
+        args_lower = args_str.lower()
+
+        has_unsafe_input = any(source.lower() in args_lower for source in UNSAFE_INPUT_SOURCES)
+
+        if not has_unsafe_input:
+            continue
+
+        has_spread = "..." in args_str
+        has_direct_pass = any(
+            f"({source}" in args_str or f", {source}" in args_str or f"[{source}" in args_str
+            for source in UNSAFE_INPUT_SOURCES
+        )
+
+        if has_direct_pass or has_spread:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-mass-assignment",
+                    message=f"Mass assignment vulnerability: {func} receives raw user input directly",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="orm",
+                    snippet=f"{func}({args_str[:50]}...)"
+                    if len(args_str) > 50
+                    else f"{func}({args_str})",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-915",
+                    additional_info={
+                        "remediation": "Whitelist allowed fields explicitly: Model.create({ field1: req.body.field1, field2: req.body.field2 })",
+                    },
+                )
+            )
 
 
-# ============================================================================
-# TAINT REGISTRATION (For Orchestrator)
-# ============================================================================
+def _check_raw_true_bypass(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect raw:true which bypasses model hooks (encryption, hashing, soft deletes).
 
-def register_taint_patterns(taint_registry):
-    """Register Sequelize-specific taint patterns.
-
-    Args:
-        taint_registry: TaintRegistry instance
+    Using { raw: true } improves performance but skips afterFind hooks and
+    returns plain objects instead of model instances, bypassing security logic.
     """
-    patterns = SequelizePatterns()
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-    # Register raw query methods as SQL sinks
-    for pattern in patterns.RAW_QUERY_METHODS:
-        taint_registry.register_sink(pattern, 'sql', 'javascript')
+    for file, line, func, args in rows:
+        if not func or not args:
+            continue
 
-    # Register Sequelize input sources
-    SEQUELIZE_SOURCES = frozenset([
-        'findAll', 'findOne', 'findByPk', 'findOrCreate',
-        'where', 'attributes', 'order', 'group', 'having'
-    ])
+        is_find_method = any(f".{method}" in func for method in RAW_BYPASS_METHODS)
+        if not is_find_method:
+            continue
+
+        args_str = str(args)
+        args_lower = args_str.lower().replace(" ", "")
+
+        if "raw:true" in args_lower or "raw :true" in args_str.lower():
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-raw-bypass",
+                    message=f"Hook bypass: {func} with raw:true skips model hooks (encryption, soft delete logic)",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="orm",
+                    snippet=f"{func}({{ raw: true, ... }})",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-213",
+                    additional_info={
+                        "remediation": "Remove raw:true unless you explicitly need plain objects and understand hooks are bypassed.",
+                    },
+                )
+            )
+
+
+def _check_insecure_logging(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect insecure Sequelize logging configuration exposing SQL/credentials.
+
+    Sequelize's logging: console.log or logging: true dumps SQL queries
+    to stdout, potentially exposing PII, passwords, and session tokens in logs.
+    """
+    rows = db.query(
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
+    )
+
+    for file, line, var, expr in rows:
+        if not expr:
+            continue
+
+        expr_lower = expr.lower().replace(" ", "")
+        var_lower = (var or "").lower()
+
+        is_sequelize_config = (
+            "sequelize" in var_lower
+            or "db" in var_lower
+            or "database" in var_lower
+            or "connection" in var_lower
+            or "sequelize" in expr_lower
+        )
+
+        if not is_sequelize_config:
+            continue
+
+        if "logging" not in expr_lower:
+            continue
+
+        has_console_log = "console.log" in expr or "console.warn" in expr or "console.info" in expr
+        has_logging_true = "logging:true" in expr_lower or "logging: true" in expr.lower()
+
+        has_env_check = any(
+            pattern in expr_lower
+            for pattern in ["process.env", "node_env", "production", "development"]
+        )
+
+        if (has_console_log or has_logging_true) and not has_env_check:
+            severity = Severity.HIGH if has_console_log else Severity.MEDIUM
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-insecure-logging",
+                    message="Insecure logging: Sequelize config logs SQL to console without environment check",
+                    file_path=file,
+                    line=line,
+                    severity=severity,
+                    category="orm",
+                    snippet=f"logging: {'console.log' if has_console_log else 'true'}",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-532",
+                    additional_info={
+                        "remediation": "Use logging: process.env.NODE_ENV !== 'production' ? console.log : false",
+                    },
+                )
+            )
+
+    func_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function LIKE ?", "%Sequelize%")
+        .order_by("file, line")
+    )
+
+    for file, line, _func, args in func_rows:
+        if not args:
+            continue
+
+        args_lower = str(args).lower().replace(" ", "")
+
+        if "logging" not in args_lower:
+            continue
+
+        has_console_log = "console.log" in str(args) or "console.warn" in str(args)
+        has_logging_true = "logging:true" in args_lower
+
+        has_env_check = any(
+            pattern in args_lower for pattern in ["process.env", "node_env", "production"]
+        )
+
+        if (has_console_log or has_logging_true) and not has_env_check:
+            findings.append(
+                StandardFinding(
+                    rule_name="sequelize-insecure-logging",
+                    message="Insecure logging in Sequelize constructor: SQL queries logged without environment check",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="orm",
+                    snippet="new Sequelize({ logging: ... })",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-532",
+                    additional_info={
+                        "remediation": "Use logging: process.env.NODE_ENV !== 'production' ? console.log : false",
+                    },
+                )
+            )
+
+
+def register_taint_patterns(taint_registry) -> None:
+    """Register Sequelize-specific taint patterns for dataflow analysis."""
+    for pattern in RAW_QUERY_METHODS:
+        taint_registry.register_sink(pattern, "sql", "javascript")
 
     for pattern in SEQUELIZE_SOURCES:
-        taint_registry.register_source(pattern, 'user_input', 'javascript')
+        taint_registry.register_source(pattern, "user_input", "javascript")
 
-    # Register transaction methods as special sinks
-    for pattern in patterns.TRANSACTION_METHODS:
-        taint_registry.register_sink(pattern, 'transaction', 'javascript')
+    transaction_methods = [
+        "transaction",
+        "commit",
+        "rollback",
+        "t.commit",
+        "t.rollback",
+        "sequelize.transaction",
+    ]
+    for pattern in transaction_methods:
+        taint_registry.register_sink(pattern, "transaction", "javascript")

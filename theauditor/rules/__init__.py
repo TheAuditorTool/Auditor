@@ -1,29 +1,30 @@
 """TheAuditor AST-based rule definitions.
 
-This package contains high-fidelity AST-based rules for detecting
-security vulnerabilities, code quality issues, and anti-patterns.
+Rules are discovered by the orchestrator via METADATA in individual files.
+This __init__.py provides the package structure only.
+
+Rule categories:
+- auth/: Authentication rules (JWT, OAuth, password, session)
+- bash/: Shell script security (injection, quoting, dangerous patterns)
+- dependency/: Dependency analysis (ghost deps, typosquatting, etc.)
+- deployment/: Infrastructure (AWS CDK, Docker, nginx, compose)
+- frameworks/: Framework-specific (Express, FastAPI, Flask, Next.js, React, Vue)
+- github_actions/: CI/CD security (script injection, permissions, etc.)
+- go/: Go-specific (concurrency, crypto, error handling, injection)
+- graphql/: GraphQL security (injection, auth, query depth)
+- logic/: General logic analysis
+- node/: Node.js runtime issues
+- orm/: ORM security (Prisma, Sequelize, TypeORM)
+- performance/: Performance analysis
+- python/: Python-specific (crypto, deserialization, injection)
+- quality/: Code quality (dead code)
+- react/: React-specific (hooks, state, render)
+- rust/: Rust safety (panic paths, unsafe, memory, FFI)
+- secrets/: Hardcoded secrets detection
+- security/: General security (CORS, crypto, input validation, etc.)
+- sql/: SQL security (injection, multi-tenant, safety)
+- terraform/: IaC security
+- typescript/: TypeScript type safety
+- vue/: Vue-specific (reactivity, lifecycle, state)
+- xss/: XSS detection (DOM, template, framework-specific)
 """
-
-from .secrets import find_hardcoded_secrets
-from .xss import find_all_xss_issues
-from .node import find_runtime_issues as find_node_runtime_issues
-from .typescript import find_type_safety_issues
-from .sql import (
-    find_sql_injection,
-    find_sql_safety_issues,
-    find_multi_tenant_issues
-)
-from .security.api_auth_analyze import find_apiauth_issues
-from .performance import find_performance_issues
-
-__all__ = [
-    'find_hardcoded_secrets',
-    'find_sql_injection',
-    'find_sql_safety_issues',
-    'find_multi_tenant_issues',
-    'find_all_xss_issues',
-    'find_node_runtime_issues',
-    'find_type_safety_issues',
-    'find_performance_issues',
-    'find_apiauth_issues',
-]

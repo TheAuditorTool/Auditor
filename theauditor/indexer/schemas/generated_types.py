@@ -1,15 +1,21 @@
 # Auto-generated TypedDict definitions from schema
-from typing import TypedDict, Optional, Any
+from typing import Any, TypedDict
+
+
+class AngularComponentStylesRow(TypedDict):
+    """Row type for angular_component_styles table."""
+    file: str
+    component_name: str
+    style_path: str
 
 class AngularComponentsRow(TypedDict):
     """Row type for angular_components table."""
     file: str
     line: int
     component_name: str
-    selector: Optional[str]
-    template_path: Optional[str]
-    style_paths: Optional[str]
-    has_lifecycle_hooks: Optional[bool]
+    selector: str | None
+    template_path: str | None
+    has_lifecycle_hooks: bool | None
 
 class AngularGuardsRow(TypedDict):
     """Row type for angular_guards table."""
@@ -17,25 +23,47 @@ class AngularGuardsRow(TypedDict):
     line: int
     guard_name: str
     guard_type: str
-    implements_interface: Optional[str]
+    implements_interface: str | None
+
+class AngularModuleDeclarationsRow(TypedDict):
+    """Row type for angular_module_declarations table."""
+    file: str
+    module_name: str
+    declaration_name: str
+    declaration_type: str | None
+
+class AngularModuleExportsRow(TypedDict):
+    """Row type for angular_module_exports table."""
+    file: str
+    module_name: str
+    exported_name: str
+
+class AngularModuleImportsRow(TypedDict):
+    """Row type for angular_module_imports table."""
+    file: str
+    module_name: str
+    imported_module: str
+
+class AngularModuleProvidersRow(TypedDict):
+    """Row type for angular_module_providers table."""
+    file: str
+    module_name: str
+    provider_name: str
+    provider_type: str | None
 
 class AngularModulesRow(TypedDict):
     """Row type for angular_modules table."""
     file: str
     line: int
     module_name: str
-    declarations: Optional[str]
-    imports: Optional[str]
-    providers: Optional[str]
-    exports: Optional[str]
 
 class AngularServicesRow(TypedDict):
     """Row type for angular_services table."""
     file: str
     line: int
     service_name: str
-    is_injectable: Optional[bool]
-    provided_in: Optional[str]
+    is_injectable: bool | None
+    provided_in: str | None
 
 class ApiEndpointControlsRow(TypedDict):
     """Row type for api_endpoint_controls table."""
@@ -47,19 +75,28 @@ class ApiEndpointControlsRow(TypedDict):
 class ApiEndpointsRow(TypedDict):
     """Row type for api_endpoints table."""
     file: str
-    line: Optional[int]
+    line: int
     method: str
     pattern: str
-    path: Optional[str]
-    full_path: Optional[str]
-    has_auth: Optional[bool]
-    handler_function: Optional[str]
+    path: str | None
+    full_path: str | None
+    has_auth: bool | None
+    handler_function: str | None
+
+class AssignmentSourceVarsRow(TypedDict):
+    """Row type for assignment_source_vars table."""
+    file: str
+    line: int
+    target_var: str
+    source_var: str
+    var_index: int
 
 class AssignmentSourcesRow(TypedDict):
     """Row type for assignment_sources table."""
     id: int
     assignment_file: str
     assignment_line: int
+    assignment_col: int
     assignment_target: str
     source_var_name: str
 
@@ -76,10 +113,11 @@ class AssignmentsRow(TypedDict):
     """Row type for assignments table."""
     file: str
     line: int
+    col: int
     target_var: str
     source_expr: str
     in_function: str
-    property_path: Optional[str]
+    property_path: str | None
 
 class AssignmentsJsxRow(TypedDict):
     """Row type for assignments_jsx table."""
@@ -88,24 +126,140 @@ class AssignmentsJsxRow(TypedDict):
     target_var: str
     source_expr: str
     in_function: str
-    property_path: Optional[str]
+    property_path: str | None
     jsx_mode: str
-    extraction_pass: Optional[int]
+    extraction_pass: int | None
+
+class BashCommandArgsRow(TypedDict):
+    """Row type for bash_command_args table."""
+    file: str
+    command_line: int
+    command_pipeline_position: int | None
+    arg_index: int
+    arg_value: str
+    is_quoted: int
+    quote_type: str
+    has_expansion: int
+    expansion_vars: str | None
+    normalized_flags: str | None
+
+class BashCommandsRow(TypedDict):
+    """Row type for bash_commands table."""
+    file: str
+    line: int
+    command_name: str
+    pipeline_position: int | None
+    containing_function: str | None
+    wrapped_command: str | None
+
+class BashControlFlowsRow(TypedDict):
+    """Row type for bash_control_flows table."""
+    file: str
+    line: int
+    end_line: int
+    type: str
+    condition: str | None
+    has_else: int | None
+    case_value: str | None
+    num_patterns: int | None
+    loop_variable: str | None
+    iterable: str | None
+    loop_expression: str | None
+    containing_function: str | None
+
+class BashFunctionsRow(TypedDict):
+    """Row type for bash_functions table."""
+    file: str
+    line: int
+    end_line: int
+    name: str
+    style: str
+    body_start_line: int | None
+    body_end_line: int | None
+
+class BashPipesRow(TypedDict):
+    """Row type for bash_pipes table."""
+    file: str
+    line: int
+    pipeline_id: int
+    position: int
+    command_text: str
+    containing_function: str | None
+
+class BashRedirectionsRow(TypedDict):
+    """Row type for bash_redirections table."""
+    file: str
+    line: int
+    direction: str
+    target: str
+    fd_number: int | None
+    containing_function: str | None
+
+class BashSetOptionsRow(TypedDict):
+    """Row type for bash_set_options table."""
+    file: str
+    line: int
+    options: str
+    containing_function: str | None
+
+class BashSourcesRow(TypedDict):
+    """Row type for bash_sources table."""
+    file: str
+    line: int
+    sourced_path: str
+    syntax: str
+    has_variable_expansion: int
+    containing_function: str | None
+
+class BashSubshellsRow(TypedDict):
+    """Row type for bash_subshells table."""
+    file: str
+    line: int
+    col: int
+    syntax: str
+    command_text: str
+    capture_target: str | None
+    containing_function: str | None
+
+class BashVariablesRow(TypedDict):
+    """Row type for bash_variables table."""
+    file: str
+    line: int
+    name: str
+    scope: str
+    readonly: int
+    value_expr: str | None
+    containing_function: str | None
 
 class BullmqQueuesRow(TypedDict):
     """Row type for bullmq_queues table."""
     file: str
     line: int
     queue_name: str
-    redis_config: Optional[str]
+    redis_config: str | None
 
 class BullmqWorkersRow(TypedDict):
     """Row type for bullmq_workers table."""
     file: str
     line: int
     queue_name: str
-    worker_function: Optional[str]
-    processor_path: Optional[str]
+    worker_function: str | None
+    processor_path: str | None
+
+class CargoDependenciesRow(TypedDict):
+    """Row type for cargo_dependencies table."""
+    file_path: str
+    name: str
+    version_spec: str | None
+    is_dev: bool | None
+    features: str | None
+
+class CargoPackageConfigsRow(TypedDict):
+    """Row type for cargo_package_configs table."""
+    file_path: str
+    package_name: str | None
+    package_version: str | None
+    edition: str | None
 
 class CdkConstructPropertiesRow(TypedDict):
     """Row type for cdk_construct_properties table."""
@@ -121,35 +275,35 @@ class CdkConstructsRow(TypedDict):
     file_path: str
     line: int
     cdk_class: str
-    construct_name: Optional[str]
+    construct_name: str | None
 
 class CdkFindingsRow(TypedDict):
     """Row type for cdk_findings table."""
     finding_id: str
     file_path: str
-    construct_id: Optional[str]
+    construct_id: str | None
     category: str
     severity: str
     title: str
     description: str
-    remediation: Optional[str]
-    line: Optional[int]
+    remediation: str | None
+    line: int | None
 
 class CfgBlockStatementsRow(TypedDict):
     """Row type for cfg_block_statements table."""
     block_id: int
     statement_type: str
     line: int
-    statement_text: Optional[str]
+    statement_text: str | None
 
 class CfgBlockStatementsJsxRow(TypedDict):
     """Row type for cfg_block_statements_jsx table."""
     block_id: int
     statement_type: str
     line: int
-    statement_text: Optional[str]
-    jsx_mode: Optional[str]
-    extraction_pass: Optional[int]
+    statement_text: str | None
+    jsx_mode: str | None
+    extraction_pass: int | None
 
 class CfgBlocksRow(TypedDict):
     """Row type for cfg_blocks table."""
@@ -157,9 +311,9 @@ class CfgBlocksRow(TypedDict):
     file: str
     function_name: str
     block_type: str
-    start_line: int
-    end_line: int
-    condition_expr: Optional[str]
+    start_line: int | None
+    end_line: int | None
+    condition_expr: str | None
 
 class CfgBlocksJsxRow(TypedDict):
     """Row type for cfg_blocks_jsx table."""
@@ -167,11 +321,11 @@ class CfgBlocksJsxRow(TypedDict):
     file: str
     function_name: str
     block_type: str
-    start_line: int
-    end_line: int
-    condition_expr: Optional[str]
-    jsx_mode: Optional[str]
-    extraction_pass: Optional[int]
+    start_line: int | None
+    end_line: int | None
+    condition_expr: str | None
+    jsx_mode: str | None
+    extraction_pass: int | None
 
 class CfgEdgesRow(TypedDict):
     """Row type for cfg_edges table."""
@@ -190,8 +344,26 @@ class CfgEdgesJsxRow(TypedDict):
     source_block_id: int
     target_block_id: int
     edge_type: str
-    jsx_mode: Optional[str]
-    extraction_pass: Optional[int]
+    jsx_mode: str | None
+    extraction_pass: int | None
+
+class ClassDecoratorArgsRow(TypedDict):
+    """Row type for class_decorator_args table."""
+    file: str
+    class_line: int
+    class_name: str
+    decorator_index: int
+    arg_index: int
+    arg_value: str
+
+class ClassDecoratorsRow(TypedDict):
+    """Row type for class_decorators table."""
+    file: str
+    class_line: int
+    class_name: str
+    decorator_index: int
+    decorator_name: str
+    decorator_line: int
 
 class ClassPropertiesRow(TypedDict):
     """Row type for class_properties table."""
@@ -199,70 +371,110 @@ class ClassPropertiesRow(TypedDict):
     line: int
     class_name: str
     property_name: str
-    property_type: Optional[str]
-    is_optional: Optional[bool]
-    is_readonly: Optional[bool]
-    access_modifier: Optional[str]
-    has_declare: Optional[bool]
-    initializer: Optional[str]
+    property_type: str | None
+    is_optional: bool | None
+    is_readonly: bool | None
+    access_modifier: str | None
+    has_declare: bool | None
+    initializer: str | None
 
 class CodeDiffsRow(TypedDict):
     """Row type for code_diffs table."""
     id: int
     snapshot_id: int
     file_path: str
-    diff_text: Optional[str]
-    added_lines: Optional[int]
-    removed_lines: Optional[int]
+    diff_text: str | None
+    added_lines: int | None
+    removed_lines: int | None
 
 class CodeSnapshotsRow(TypedDict):
     """Row type for code_snapshots table."""
     id: int
     plan_id: int
-    task_id: Optional[int]
-    sequence: Optional[int]
+    task_id: int | None
+    sequence: int | None
     checkpoint_name: str
     timestamp: str
-    git_ref: Optional[str]
-    files_json: Optional[str]
+    git_ref: str | None
+    shadow_sha: str | None
+    files_json: str | None
+
+class ComposeServiceCapabilitiesRow(TypedDict):
+    """Row type for compose_service_capabilities table."""
+    id: int
+    file_path: str
+    service_name: str
+    capability: str
+    is_add: bool
+
+class ComposeServiceDepsRow(TypedDict):
+    """Row type for compose_service_deps table."""
+    id: int
+    file_path: str
+    service_name: str
+    depends_on_service: str
+    condition: str | None
+
+class ComposeServiceEnvRow(TypedDict):
+    """Row type for compose_service_env table."""
+    id: int
+    file_path: str
+    service_name: str
+    var_name: str
+    var_value: str | None
+
+class ComposeServicePortsRow(TypedDict):
+    """Row type for compose_service_ports table."""
+    id: int
+    file_path: str
+    service_name: str
+    host_port: int | None
+    container_port: int
+    protocol: str | None
+
+class ComposeServiceVolumesRow(TypedDict):
+    """Row type for compose_service_volumes table."""
+    id: int
+    file_path: str
+    service_name: str
+    host_path: str | None
+    container_path: str
+    mode: str | None
 
 class ComposeServicesRow(TypedDict):
     """Row type for compose_services table."""
     file_path: str
     service_name: str
-    image: Optional[str]
-    ports: Optional[str]
-    volumes: Optional[str]
-    environment: Optional[str]
-    is_privileged: Optional[bool]
-    network_mode: Optional[str]
-    user: Optional[str]
-    cap_add: Optional[str]
-    cap_drop: Optional[str]
-    security_opt: Optional[str]
-    restart: Optional[str]
-    command: Optional[str]
-    entrypoint: Optional[str]
-    depends_on: Optional[str]
-    healthcheck: Optional[str]
+    image: str | None
+    is_privileged: bool | None
+    network_mode: str | None
+    user: str | None
+    security_opt: str | None
+    restart: str | None
+    command: str | None
+    entrypoint: str | None
+    healthcheck: str | None
+    mem_limit: str | None
+    cpus: str | None
+    read_only: bool | None
 
 class ConfigFilesRow(TypedDict):
     """Row type for config_files table."""
     path: str
     content: str
     type: str
-    context_dir: Optional[str]
+    context_dir: str | None
 
 class DependencyVersionsRow(TypedDict):
     """Row type for dependency_versions table."""
     manager: str
     package_name: str
     locked_version: str
-    latest_version: Optional[str]
-    delta: Optional[str]
+    latest_version: str | None
+    delta: str | None
     is_outdated: bool
     last_checked: str
-    error: Optional[str]
+    error: str | None
 
 class DiInjectionsRow(TypedDict):
     """Row type for di_injections table."""
@@ -275,12 +487,32 @@ class DiInjectionsRow(TypedDict):
 class DockerImagesRow(TypedDict):
     """Row type for docker_images table."""
     file_path: str
-    base_image: Optional[str]
-    exposed_ports: Optional[str]
-    env_vars: Optional[str]
-    build_args: Optional[str]
-    user: Optional[str]
-    has_healthcheck: Optional[bool]
+    base_image: str | None
+    user: str | None
+    has_healthcheck: bool | None
+
+class DockerfileEnvVarsRow(TypedDict):
+    """Row type for dockerfile_env_vars table."""
+    id: int
+    file_path: str
+    var_name: str
+    var_value: str | None
+    is_build_arg: bool | None
+
+class DockerfileInstructionsRow(TypedDict):
+    """Row type for dockerfile_instructions table."""
+    id: int
+    file_path: str
+    line: int
+    instruction: str
+    arguments: str | None
+
+class DockerfilePortsRow(TypedDict):
+    """Row type for dockerfile_ports table."""
+    id: int
+    file_path: str
+    port: int
+    protocol: str | None
 
 class EnvVarUsageRow(TypedDict):
     """Row type for env_var_usage table."""
@@ -288,8 +520,8 @@ class EnvVarUsageRow(TypedDict):
     line: int
     var_name: str
     access_type: str
-    in_function: Optional[str]
-    property_access: Optional[str]
+    in_function: str | None
+    property_access: str | None
 
 class ExpressMiddlewareChainsRow(TypedDict):
     """Row type for express_middleware_chains table."""
@@ -301,9 +533,9 @@ class ExpressMiddlewareChainsRow(TypedDict):
     execution_order: int
     handler_expr: str
     handler_type: str
-    handler_file: Optional[str]
-    handler_function: Optional[str]
-    handler_line: Optional[int]
+    handler_file: str | None
+    handler_function: str | None
+    handler_line: int | None
 
 class FilesRow(TypedDict):
     """Row type for files table."""
@@ -319,36 +551,67 @@ class FindingsConsolidatedRow(TypedDict):
     id: int
     file: str
     line: int
-    column: Optional[int]
+    column: int | None
     rule: str
     tool: str
-    message: Optional[str]
+    message: str | None
     severity: str
-    category: Optional[str]
-    confidence: Optional[float]
-    code_snippet: Optional[str]
-    cwe: Optional[str]
+    category: str | None
+    confidence: float | None
+    code_snippet: str | None
+    cwe: str | None
     timestamp: str
-    details_json: Optional[str]
+    cfg_function: str | None
+    cfg_complexity: int | None
+    cfg_block_count: int | None
+    cfg_edge_count: int | None
+    cfg_has_loops: int | None
+    cfg_has_recursion: int | None
+    cfg_start_line: int | None
+    cfg_end_line: int | None
+    cfg_threshold: int | None
+    graph_id: str | None
+    graph_in_degree: int | None
+    graph_out_degree: int | None
+    graph_total_connections: int | None
+    graph_centrality: float | None
+    graph_score: float | None
+    graph_cycle_nodes: str | None
+    mypy_error_code: str | None
+    mypy_severity_int: int | None
+    mypy_column: int | None
+    tf_finding_id: str | None
+    tf_resource_id: str | None
+    tf_remediation: str | None
+    tf_graph_context: str | None
+    details_json: str | None
 
 class FrameworkSafeSinksRow(TypedDict):
     """Row type for framework_safe_sinks table."""
-    framework_id: Optional[int]
+    framework_id: int | None
     sink_pattern: str
     sink_type: str
-    is_safe: Optional[bool]
-    reason: Optional[str]
+    is_safe: bool | None
+    reason: str | None
+
+class FrameworkTaintPatternsRow(TypedDict):
+    """Row type for framework_taint_patterns table."""
+    id: int
+    framework_id: int
+    pattern: str
+    pattern_type: str
+    category: str | None
 
 class FrameworksRow(TypedDict):
     """Row type for frameworks table."""
     id: int
     name: str
-    version: Optional[str]
+    version: str | None
     language: str
-    path: Optional[str]
-    source: Optional[str]
-    package_manager: Optional[str]
-    is_primary: Optional[bool]
+    path: str | None
+    source: str | None
+    package_manager: str | None
+    is_primary: bool | None
 
 class FrontendApiCallsRow(TypedDict):
     """Row type for frontend_api_calls table."""
@@ -356,8 +619,44 @@ class FrontendApiCallsRow(TypedDict):
     line: int
     method: str
     url_literal: str
-    body_variable: Optional[str]
-    function_name: Optional[str]
+    body_variable: str | None
+    function_name: str | None
+
+class FuncDecoratorArgsRow(TypedDict):
+    """Row type for func_decorator_args table."""
+    file: str
+    function_line: int
+    function_name: str
+    decorator_index: int
+    arg_index: int
+    arg_value: str
+
+class FuncDecoratorsRow(TypedDict):
+    """Row type for func_decorators table."""
+    file: str
+    function_line: int
+    function_name: str
+    decorator_index: int
+    decorator_name: str
+    decorator_line: int
+
+class FuncParamDecoratorsRow(TypedDict):
+    """Row type for func_param_decorators table."""
+    file: str
+    function_line: int
+    function_name: str
+    param_index: int
+    decorator_name: str
+    decorator_args: str | None
+
+class FuncParamsRow(TypedDict):
+    """Row type for func_params table."""
+    file: str
+    function_line: int
+    function_name: str
+    param_index: int
+    param_name: str
+    param_type: str | None
 
 class FunctionCallArgsRow(TypedDict):
     """Row type for function_call_args table."""
@@ -365,10 +664,10 @@ class FunctionCallArgsRow(TypedDict):
     line: int
     caller_function: str
     callee_function: str
-    argument_index: Optional[int]
-    argument_expr: Optional[str]
-    param_name: Optional[str]
-    callee_file_path: Optional[str]
+    argument_index: int | None
+    argument_expr: str | None
+    param_name: str | None
+    callee_file_path: str | None
 
 class FunctionCallArgsJsxRow(TypedDict):
     """Row type for function_call_args_jsx table."""
@@ -376,17 +675,18 @@ class FunctionCallArgsJsxRow(TypedDict):
     line: int
     caller_function: str
     callee_function: str
-    argument_index: Optional[int]
-    argument_expr: Optional[str]
-    param_name: Optional[str]
+    argument_index: int | None
+    argument_expr: str | None
+    param_name: str | None
     jsx_mode: str
-    extraction_pass: Optional[int]
+    extraction_pass: int | None
 
 class FunctionReturnSourcesRow(TypedDict):
     """Row type for function_return_sources table."""
     id: int
     return_file: str
     return_line: int
+    return_col: int
     return_function: str
     return_var_name: str
 
@@ -395,31 +695,33 @@ class FunctionReturnSourcesJsxRow(TypedDict):
     id: int
     return_file: str
     return_line: int
-    return_function: Optional[str]
+    return_function: str | None
     jsx_mode: str
     return_var_name: str
+    extraction_pass: int | None
 
 class FunctionReturnsRow(TypedDict):
     """Row type for function_returns table."""
     file: str
     line: int
+    col: int
     function_name: str
     return_expr: str
-    has_jsx: Optional[bool]
-    returns_component: Optional[bool]
-    cleanup_operations: Optional[str]
+    has_jsx: bool | None
+    returns_component: bool | None
+    cleanup_operations: str | None
 
 class FunctionReturnsJsxRow(TypedDict):
     """Row type for function_returns_jsx table."""
     file: str
     line: int
-    function_name: Optional[str]
-    return_expr: Optional[str]
-    has_jsx: Optional[bool]
-    returns_component: Optional[bool]
-    cleanup_operations: Optional[str]
+    function_name: str | None
+    return_expr: str | None
+    has_jsx: bool | None
+    returns_component: bool | None
+    cleanup_operations: str | None
     jsx_mode: str
-    extraction_pass: Optional[int]
+    extraction_pass: int | None
 
 class GithubJobDependenciesRow(TypedDict):
     """Row type for github_job_dependencies table."""
@@ -431,15 +733,15 @@ class GithubJobsRow(TypedDict):
     job_id: str
     workflow_path: str
     job_key: str
-    job_name: Optional[str]
-    runs_on: Optional[str]
-    strategy: Optional[str]
-    permissions: Optional[str]
-    env: Optional[str]
-    if_condition: Optional[str]
-    timeout_minutes: Optional[int]
-    uses_reusable_workflow: Optional[bool]
-    reusable_workflow_path: Optional[str]
+    job_name: str | None
+    runs_on: str | None
+    strategy: str | None
+    permissions: str | None
+    env: str | None
+    if_condition: str | None
+    timeout_minutes: int | None
+    uses_reusable_workflow: bool | None
+    reusable_workflow_path: str | None
 
 class GithubStepOutputsRow(TypedDict):
     """Row type for github_step_outputs table."""
@@ -461,25 +763,239 @@ class GithubStepsRow(TypedDict):
     step_id: str
     job_id: str
     sequence_order: int
-    step_name: Optional[str]
-    uses_action: Optional[str]
-    uses_version: Optional[str]
-    run_script: Optional[str]
-    shell: Optional[str]
-    env: Optional[str]
-    with_args: Optional[str]
-    if_condition: Optional[str]
-    timeout_minutes: Optional[int]
-    continue_on_error: Optional[bool]
+    step_name: str | None
+    uses_action: str | None
+    uses_version: str | None
+    run_script: str | None
+    shell: str | None
+    env: str | None
+    with_args: str | None
+    if_condition: str | None
+    timeout_minutes: int | None
+    continue_on_error: bool | None
 
 class GithubWorkflowsRow(TypedDict):
     """Row type for github_workflows table."""
     workflow_path: str
-    workflow_name: Optional[str]
+    workflow_name: str | None
     on_triggers: str
-    permissions: Optional[str]
-    concurrency: Optional[str]
-    env: Optional[str]
+    permissions: str | None
+    concurrency: str | None
+    env: str | None
+
+class GoCapturedVarsRow(TypedDict):
+    """Row type for go_captured_vars table."""
+    file: str
+    line: int
+    goroutine_id: int
+    var_name: str
+    var_type: str | None
+    is_loop_var: bool | None
+
+class GoChannelOpsRow(TypedDict):
+    """Row type for go_channel_ops table."""
+    file: str
+    line: int
+    channel_name: str | None
+    operation: str
+    containing_func: str | None
+
+class GoChannelsRow(TypedDict):
+    """Row type for go_channels table."""
+    file: str
+    line: int
+    name: str
+    element_type: str | None
+    direction: str | None
+    buffer_size: int | None
+
+class GoConstantsRow(TypedDict):
+    """Row type for go_constants table."""
+    file: str
+    line: int
+    name: str
+    value: str | None
+    type: str | None
+    is_exported: bool | None
+
+class GoDeferStatementsRow(TypedDict):
+    """Row type for go_defer_statements table."""
+    file: str
+    line: int
+    containing_func: str | None
+    deferred_expr: str
+
+class GoErrorReturnsRow(TypedDict):
+    """Row type for go_error_returns table."""
+    file: str
+    line: int
+    func_name: str
+    returns_error: bool | None
+
+class GoFuncParamsRow(TypedDict):
+    """Row type for go_func_params table."""
+    file: str
+    func_name: str
+    func_line: int
+    param_index: int
+    param_name: str | None
+    param_type: str
+    is_variadic: bool | None
+
+class GoFuncReturnsRow(TypedDict):
+    """Row type for go_func_returns table."""
+    file: str
+    func_name: str
+    func_line: int
+    return_index: int
+    return_name: str | None
+    return_type: str
+
+class GoFunctionsRow(TypedDict):
+    """Row type for go_functions table."""
+    file: str
+    line: int
+    name: str
+    signature: str | None
+    is_exported: bool | None
+    is_async: bool | None
+    doc_comment: str | None
+
+class GoGoroutinesRow(TypedDict):
+    """Row type for go_goroutines table."""
+    file: str
+    line: int
+    containing_func: str | None
+    spawned_expr: str
+    is_anonymous: bool | None
+
+class GoImportsRow(TypedDict):
+    """Row type for go_imports table."""
+    file: str
+    line: int
+    path: str
+    alias: str | None
+    is_dot_import: bool | None
+
+class GoInterfaceMethodsRow(TypedDict):
+    """Row type for go_interface_methods table."""
+    file: str
+    interface_name: str
+    method_name: str
+    signature: str
+
+class GoInterfacesRow(TypedDict):
+    """Row type for go_interfaces table."""
+    file: str
+    line: int
+    name: str
+    is_exported: bool | None
+    doc_comment: str | None
+
+class GoMethodsRow(TypedDict):
+    """Row type for go_methods table."""
+    file: str
+    line: int
+    receiver_type: str
+    receiver_name: str | None
+    is_pointer_receiver: bool | None
+    name: str
+    signature: str | None
+    is_exported: bool | None
+
+class GoMiddlewareRow(TypedDict):
+    """Row type for go_middleware table."""
+    file: str
+    line: int
+    framework: str
+    router_var: str | None
+    middleware_func: str
+    is_global: bool | None
+
+class GoModuleConfigsRow(TypedDict):
+    """Row type for go_module_configs table."""
+    file_path: str
+    module_path: str
+    go_version: str | None
+
+class GoModuleDependenciesRow(TypedDict):
+    """Row type for go_module_dependencies table."""
+    file_path: str
+    module_path: str
+    version: str
+    is_indirect: bool | None
+
+class GoPackagesRow(TypedDict):
+    """Row type for go_packages table."""
+    file: str
+    line: int
+    name: str
+    import_path: str | None
+
+class GoRoutesRow(TypedDict):
+    """Row type for go_routes table."""
+    file: str
+    line: int
+    framework: str
+    method: str | None
+    path: str | None
+    handler_func: str | None
+
+class GoStructFieldsRow(TypedDict):
+    """Row type for go_struct_fields table."""
+    file: str
+    struct_name: str
+    field_name: str
+    field_type: str
+    tag: str | None
+    is_embedded: bool | None
+    is_exported: bool | None
+
+class GoStructsRow(TypedDict):
+    """Row type for go_structs table."""
+    file: str
+    line: int
+    name: str
+    is_exported: bool | None
+    doc_comment: str | None
+
+class GoTypeAssertionsRow(TypedDict):
+    """Row type for go_type_assertions table."""
+    file: str
+    line: int
+    expr: str
+    asserted_type: str
+    is_type_switch: bool | None
+    containing_func: str | None
+
+class GoTypeParamsRow(TypedDict):
+    """Row type for go_type_params table."""
+    file: str
+    line: int
+    parent_name: str
+    parent_kind: str
+    param_index: int
+    param_name: str
+    type_constraint: str | None
+
+class GoVariablesRow(TypedDict):
+    """Row type for go_variables table."""
+    file: str
+    line: int
+    name: str
+    type: str | None
+    initial_value: str | None
+    is_exported: bool | None
+    is_package_level: bool | None
+    containing_func: str | None
+
+class GraphqlArgDirectivesRow(TypedDict):
+    """Row type for graphql_arg_directives table."""
+    id: int
+    field_id: int
+    arg_name: str
+    directive_name: str
+    arguments_json: str | None
 
 class GraphqlExecutionEdgesRow(TypedDict):
     """Row type for graphql_execution_edges table."""
@@ -492,10 +1008,16 @@ class GraphqlFieldArgsRow(TypedDict):
     field_id: int
     arg_name: str
     arg_type: str
-    has_default: Optional[bool]
-    default_value: Optional[str]
-    is_nullable: Optional[bool]
-    directives_json: Optional[str]
+    has_default: bool | None
+    default_value: str | None
+    is_nullable: bool | None
+
+class GraphqlFieldDirectivesRow(TypedDict):
+    """Row type for graphql_field_directives table."""
+    id: int
+    field_id: int
+    directive_name: str
+    arguments_json: str | None
 
 class GraphqlFieldsRow(TypedDict):
     """Row type for graphql_fields table."""
@@ -503,20 +1025,21 @@ class GraphqlFieldsRow(TypedDict):
     type_id: int
     field_name: str
     return_type: str
-    is_list: Optional[bool]
-    is_nullable: Optional[bool]
-    directives_json: Optional[str]
-    line: Optional[int]
-    column: Optional[int]
+    is_list: bool | None
+    is_nullable: bool | None
+    line: int | None
+    column: int | None
 
 class GraphqlFindingsCacheRow(TypedDict):
     """Row type for graphql_findings_cache table."""
     finding_id: int
-    field_id: Optional[int]
-    resolver_symbol_id: Optional[int]
+    field_id: int | None
+    resolver_symbol_id: int | None
     rule: str
     severity: str
-    details_json: str
+    description: str | None
+    message: str | None
+    confidence: str | None
     provenance: str
 
 class GraphqlResolverMappingsRow(TypedDict):
@@ -526,7 +1049,7 @@ class GraphqlResolverMappingsRow(TypedDict):
     resolver_path: str
     resolver_line: int
     resolver_language: str
-    resolver_export: Optional[str]
+    resolver_export: str | None
     binding_style: str
 
 class GraphqlResolverParamsRow(TypedDict):
@@ -535,15 +1058,15 @@ class GraphqlResolverParamsRow(TypedDict):
     arg_name: str
     param_name: str
     param_index: int
-    is_kwargs: Optional[bool]
-    is_list_input: Optional[bool]
+    is_kwargs: bool | None
+    is_list_input: bool | None
 
 class GraphqlSchemasRow(TypedDict):
     """Row type for graphql_schemas table."""
     file_path: str
     schema_hash: str
     language: str
-    last_modified: Optional[int]
+    last_modified: int | None
 
 class GraphqlTypesRow(TypedDict):
     """Row type for graphql_types table."""
@@ -551,9 +1074,19 @@ class GraphqlTypesRow(TypedDict):
     schema_path: str
     type_name: str
     kind: str
-    implements: Optional[str]
-    description: Optional[str]
-    line: Optional[int]
+    implements: str | None
+    description: str | None
+    line: int | None
+
+class ImportSpecifiersRow(TypedDict):
+    """Row type for import_specifiers table."""
+    file: str
+    import_line: int
+    specifier_name: str
+    original_name: str | None
+    is_default: int | None
+    is_namespace: int | None
+    is_named: int | None
 
 class ImportStyleNamesRow(TypedDict):
     """Row type for import_style_names table."""
@@ -568,55 +1101,56 @@ class ImportStylesRow(TypedDict):
     line: int
     package: str
     import_style: str
-    alias_name: Optional[str]
-    full_statement: Optional[str]
+    alias_name: str | None
+    full_statement: str | None
+    resolved_path: str | None
 
 class JwtPatternsRow(TypedDict):
     """Row type for jwt_patterns table."""
     file_path: str
     line_number: int
     pattern_type: str
-    pattern_text: Optional[str]
-    secret_source: Optional[str]
-    algorithm: Optional[str]
+    pattern_text: str | None
+    secret_source: str | None
+    algorithm: str | None
 
 class LockAnalysisRow(TypedDict):
     """Row type for lock_analysis table."""
     file_path: str
     lock_type: str
-    package_manager_version: Optional[str]
-    total_packages: Optional[int]
-    duplicate_packages: Optional[str]
-    lock_file_version: Optional[str]
+    package_manager_version: str | None
+    total_packages: int | None
+    duplicate_packages: str | None
+    lock_file_version: str | None
 
 class NginxConfigsRow(TypedDict):
     """Row type for nginx_configs table."""
     file_path: str
     block_type: str
-    block_context: Optional[str]
-    directives: Optional[str]
-    level: Optional[int]
+    block_context: str | None
+    directives: str | None
+    level: int | None
 
 class ObjectLiteralsRow(TypedDict):
     """Row type for object_literals table."""
     id: int
     file: str
     line: int
-    variable_name: Optional[str]
+    variable_name: str | None
     property_name: str
     property_value: str
-    property_type: Optional[str]
-    nested_level: Optional[int]
-    in_function: Optional[str]
+    property_type: str | None
+    nested_level: int | None
+    in_function: str | None
 
 class OrmQueriesRow(TypedDict):
     """Row type for orm_queries table."""
     file: str
     line: int
     query_type: str
-    includes: Optional[str]
-    has_limit: Optional[bool]
-    has_transaction: Optional[bool]
+    includes: str | None
+    has_limit: bool | None
+    has_transaction: bool | None
 
 class OrmRelationshipsRow(TypedDict):
     """Row type for orm_relationships table."""
@@ -625,22 +1159,45 @@ class OrmRelationshipsRow(TypedDict):
     source_model: str
     target_model: str
     relationship_type: str
-    foreign_key: Optional[str]
-    cascade_delete: Optional[bool]
-    as_name: Optional[str]
+    foreign_key: str | None
+    cascade_delete: bool | None
+    as_name: str | None
 
 class PackageConfigsRow(TypedDict):
     """Row type for package_configs table."""
     file_path: str
-    package_name: Optional[str]
-    version: Optional[str]
-    dependencies: Optional[str]
-    dev_dependencies: Optional[str]
-    peer_dependencies: Optional[str]
-    scripts: Optional[str]
-    engines: Optional[str]
-    workspaces: Optional[str]
-    private: Optional[bool]
+    package_name: str | None
+    version: str | None
+    private: bool | None
+
+class PackageDependenciesRow(TypedDict):
+    """Row type for package_dependencies table."""
+    id: int
+    file_path: str
+    name: str
+    version_spec: str | None
+    is_dev: bool | None
+    is_peer: bool | None
+
+class PackageEnginesRow(TypedDict):
+    """Row type for package_engines table."""
+    id: int
+    file_path: str
+    engine_name: str
+    version_spec: str | None
+
+class PackageScriptsRow(TypedDict):
+    """Row type for package_scripts table."""
+    id: int
+    file_path: str
+    script_name: str
+    script_command: str
+
+class PackageWorkspacesRow(TypedDict):
+    """Row type for package_workspaces table."""
+    id: int
+    file_path: str
+    workspace_path: str
 
 class PlanJobsRow(TypedDict):
     """Row type for plan_jobs table."""
@@ -658,8 +1215,8 @@ class PlanPhasesRow(TypedDict):
     plan_id: int
     phase_number: int
     title: str
-    description: Optional[str]
-    success_criteria: Optional[str]
+    description: str | None
+    success_criteria: str | None
     status: str
     created_at: str
 
@@ -668,414 +1225,150 @@ class PlanSpecsRow(TypedDict):
     id: int
     plan_id: int
     spec_yaml: str
-    spec_type: Optional[str]
+    spec_type: str | None
     created_at: str
 
 class PlanTasksRow(TypedDict):
     """Row type for plan_tasks table."""
     id: int
     plan_id: int
-    phase_id: Optional[int]
+    phase_id: int | None
     task_number: int
     title: str
-    description: Optional[str]
+    description: str | None
     status: str
-    audit_status: Optional[str]
-    assigned_to: Optional[str]
-    spec_id: Optional[int]
+    audit_status: str | None
+    assigned_to: str | None
+    spec_id: int | None
     created_at: str
-    completed_at: Optional[str]
+    completed_at: str | None
 
 class PlansRow(TypedDict):
     """Row type for plans table."""
     id: int
     name: str
-    description: Optional[str]
+    description: str | None
     created_at: str
     status: str
-    metadata_json: Optional[str]
+    metadata_json: str | None
 
 class PrismaModelsRow(TypedDict):
     """Row type for prisma_models table."""
     model_name: str
     field_name: str
     field_type: str
-    is_indexed: Optional[bool]
-    is_unique: Optional[bool]
-    is_relation: Optional[bool]
+    is_indexed: bool | None
+    is_unique: bool | None
+    is_relation: bool | None
 
-class PythonAbstractClassesRow(TypedDict):
-    """Row type for python_abstract_classes table."""
+class PythonBranchesRow(TypedDict):
+    """Row type for python_branches table."""
+    id: int | None
     file: str
     line: int
-    class_name: str
-    abstract_method_count: Optional[int]
+    branch_kind: str
+    branch_type: str | None
+    has_else: int | None
+    has_elif: int | None
+    chain_length: int | None
+    has_complex_condition: int | None
+    nesting_level: int | None
+    case_count: int | None
+    has_guards: int | None
+    has_wildcard: int | None
+    pattern_types: str | None
+    exception_types: str | None
+    handling_strategy: str | None
+    variable_name: str | None
+    exception_type: str | None
+    is_re_raise: int | None
+    from_exception: str | None
+    message: str | None
+    condition: str | None
+    has_cleanup: int | None
+    cleanup_calls: str | None
+    in_function: str | None
 
-class PythonArgumentMutationsRow(TypedDict):
-    """Row type for python_argument_mutations table."""
+class PythonBuildRequiresRow(TypedDict):
+    """Row type for python_build_requires table."""
+    file_path: str
+    name: str
+    version_spec: str | None
+
+class PythonClassFeaturesRow(TypedDict):
+    """Row type for python_class_features table."""
+    id: int | None
     file: str
     line: int
-    parameter_name: str
-    mutation_type: str
-    mutation_detail: str
-    in_function: str
+    feature_kind: str
+    feature_type: str | None
+    class_name: str | None
+    name: str | None
+    in_class: str | None
+    metaclass_name: str | None
+    is_definition: int | None
+    field_count: int | None
+    frozen: int | None
+    enum_name: str | None
+    enum_type: str | None
+    member_count: int | None
+    slot_count: int | None
+    abstract_method_count: int | None
+    method_name: str | None
+    method_type: str | None
+    category: str | None
+    visibility: str | None
+    is_name_mangled: int | None
+    decorator: str | None
+    decorator_type: str | None
+    has_arguments: int | None
 
-class PythonArithmeticProtocolRow(TypedDict):
-    """Row type for python_arithmetic_protocol table."""
-    id: int
+class PythonCollectionsRow(TypedDict):
+    """Row type for python_collections table."""
+    id: int | None
     file: str
     line: int
-    class_name: str
-    methods: str
-    has_reflected: Optional[bool]
-    has_inplace: Optional[bool]
-
-class PythonAssertStatementsRow(TypedDict):
-    """Row type for python_assert_statements table."""
-    id: int
-    file: str
-    line: int
-    has_message: Optional[bool]
-    condition_type: str
-    in_function: str
-
-class PythonAssertionPatternsRow(TypedDict):
-    """Row type for python_assertion_patterns table."""
-    file: str
-    line: int
-    function_name: str
-    assertion_type: str
-    test_expr: Optional[str]
-    assertion_method: Optional[str]
-
-class PythonAsyncForLoopsRow(TypedDict):
-    """Row type for python_async_for_loops table."""
-    id: int
-    file: str
-    line: int
-    has_else: Optional[bool]
-    target_count: int
-    in_function: str
-
-class PythonAsyncFunctionsRow(TypedDict):
-    """Row type for python_async_functions table."""
-    file: str
-    line: int
-    function_name: str
-    has_await: Optional[bool]
-    await_count: Optional[int]
-    has_async_with: Optional[bool]
-    has_async_for: Optional[bool]
-
-class PythonAsyncGeneratorsRow(TypedDict):
-    """Row type for python_async_generators table."""
-    file: str
-    line: int
-    generator_type: str
-    target_vars: Optional[str]
-    iterable_expr: Optional[str]
-    function_name: Optional[str]
-
-class PythonAttributeAccessProtocolRow(TypedDict):
-    """Row type for python_attribute_access_protocol table."""
-    id: int
-    file: str
-    line: int
-    class_name: str
-    has_getattr: Optional[bool]
-    has_setattr: Optional[bool]
-    has_delattr: Optional[bool]
-    has_getattribute: Optional[bool]
-
-class PythonAugmentedAssignmentsRow(TypedDict):
-    """Row type for python_augmented_assignments table."""
-    file: str
-    line: int
-    target: str
-    operator: str
-    target_type: str
-    in_function: str
-
-class PythonAuthDecoratorsRow(TypedDict):
-    """Row type for python_auth_decorators table."""
-    file: str
-    line: int
-    function_name: str
-    decorator_name: str
-    permissions: Optional[str]
-
-class PythonAwaitExpressionsRow(TypedDict):
-    """Row type for python_await_expressions table."""
-    file: str
-    line: int
-    await_expr: str
-    containing_function: Optional[str]
-
-class PythonBlueprintsRow(TypedDict):
-    """Row type for python_blueprints table."""
-    file: str
-    line: Optional[int]
-    blueprint_name: str
-    url_prefix: Optional[str]
-    subdomain: Optional[str]
-
-class PythonBreakContinuePassRow(TypedDict):
-    """Row type for python_break_continue_pass table."""
-    id: int
-    file: str
-    line: int
-    statement_type: str
-    loop_type: str
-    in_function: str
-
-class PythonBuiltinUsageRow(TypedDict):
-    """Row type for python_builtin_usage table."""
-    file: str
-    line: int
-    builtin: str
-    has_key: Optional[bool]
-    in_function: str
-
-class PythonBytesOperationsRow(TypedDict):
-    """Row type for python_bytes_operations table."""
-    id: int
-    file: str
-    line: int
-    operation: str
-    in_function: str
-
-class PythonCachedPropertyRow(TypedDict):
-    """Row type for python_cached_property table."""
-    id: int
-    file: str
-    line: int
-    method_name: str
-    in_class: str
-    is_functools: Optional[bool]
-
-class PythonCallableProtocolRow(TypedDict):
-    """Row type for python_callable_protocol table."""
-    id: int
-    file: str
-    line: int
-    class_name: str
-    param_count: int
-    has_args: Optional[bool]
-    has_kwargs: Optional[bool]
-
-class PythonCeleryBeatSchedulesRow(TypedDict):
-    """Row type for python_celery_beat_schedules table."""
-    file: str
-    line: int
-    schedule_name: str
-    task_name: str
-    schedule_type: str
-    schedule_expression: Optional[str]
-    args: Optional[str]
-    kwargs: Optional[str]
-
-class PythonCeleryTaskCallsRow(TypedDict):
-    """Row type for python_celery_task_calls table."""
-    file: str
-    line: int
-    caller_function: str
-    task_name: str
-    invocation_type: str
-    arg_count: Optional[int]
-    has_countdown: Optional[bool]
-    has_eta: Optional[bool]
-    queue_override: Optional[str]
-
-class PythonCeleryTasksRow(TypedDict):
-    """Row type for python_celery_tasks table."""
-    file: str
-    line: int
-    task_name: str
-    decorator_name: str
-    arg_count: Optional[int]
-    bind: Optional[bool]
-    serializer: Optional[str]
-    max_retries: Optional[int]
-    rate_limit: Optional[str]
-    time_limit: Optional[int]
-    queue: Optional[str]
-
-class PythonChainedComparisonsRow(TypedDict):
-    """Row type for python_chained_comparisons table."""
-    file: str
-    line: int
-    chain_length: int
-    operators: Optional[str]
-    in_function: str
-
-class PythonClassDecoratorsRow(TypedDict):
-    """Row type for python_class_decorators table."""
-    id: int
-    file: str
-    line: int
-    class_name: str
-    decorator: str
-    decorator_type: str
-    has_arguments: Optional[bool]
-
-class PythonClassMutationsRow(TypedDict):
-    """Row type for python_class_mutations table."""
-    file: str
-    line: int
-    class_name: str
-    attribute: str
-    operation: str
-    in_function: str
-    is_classmethod: Optional[bool]
-
-class PythonClosureCapturesRow(TypedDict):
-    """Row type for python_closure_captures table."""
-    file: str
-    line: int
-    inner_function: str
-    captured_variable: str
-    outer_function: str
-    is_lambda: Optional[bool]
-
-class PythonCollectionsUsageRow(TypedDict):
-    """Row type for python_collections_usage table."""
-    file: str
-    line: int
-    collection_type: str
-    default_factory: Optional[str]
-    in_function: str
-
-class PythonCommandInjectionRow(TypedDict):
-    """Row type for python_command_injection table."""
-    file: str
-    line: int
-    function: str
-    shell_true: Optional[bool]
-    is_vulnerable: Optional[bool]
-
-class PythonComparisonProtocolRow(TypedDict):
-    """Row type for python_comparison_protocol table."""
-    id: int
-    file: str
-    line: int
-    class_name: str
-    methods: str
-    is_total_ordering: Optional[bool]
-    has_all_rich: Optional[bool]
+    collection_kind: str
+    collection_type: str | None
+    operation: str | None
+    method: str | None
+    in_function: str | None
+    has_default: int | None
+    mutates_in_place: int | None
+    builtin: str | None
+    has_key: int | None
 
 class PythonComprehensionsRow(TypedDict):
     """Row type for python_comprehensions table."""
+    id: int | None
     file: str
     line: int
-    comp_type: str
-    result_expr: Optional[str]
-    iteration_var: Optional[str]
-    iteration_source: Optional[str]
-    has_filter: Optional[bool]
-    filter_expr: Optional[str]
-    nesting_level: Optional[int]
-    in_function: str
+    comp_kind: str
+    comp_type: str | None
+    iteration_var: str | None
+    iteration_source: str | None
+    result_expr: str | None
+    filter_expr: str | None
+    has_filter: int | None
+    nesting_level: int | None
+    in_function: str | None
 
-class PythonConditionalCallsRow(TypedDict):
-    """Row type for python_conditional_calls table."""
+class PythonControlStatementsRow(TypedDict):
+    """Row type for python_control_statements table."""
+    id: int | None
     file: str
     line: int
-    function_call: str
-    condition_expr: Optional[str]
-    condition_type: str
-    in_function: str
-    nesting_level: int
-
-class PythonContainerProtocolRow(TypedDict):
-    """Row type for python_container_protocol table."""
-    id: int
-    file: str
-    line: int
-    class_name: str
-    has_len: Optional[bool]
-    has_getitem: Optional[bool]
-    has_setitem: Optional[bool]
-    has_delitem: Optional[bool]
-    has_contains: Optional[bool]
-    is_sequence: Optional[bool]
-    is_mapping: Optional[bool]
-
-class PythonContextManagersRow(TypedDict):
-    """Row type for python_context_managers table."""
-    file: str
-    line: int
-    context_type: str
-    context_expr: Optional[str]
-    as_name: Optional[str]
-    is_async: Optional[bool]
-    is_custom: Optional[bool]
-
-class PythonContextManagersEnhancedRow(TypedDict):
-    """Row type for python_context_managers_enhanced table."""
-    file: str
-    line: int
-    context_expr: str
-    variable_name: Optional[str]
-    in_function: str
-    is_async: Optional[bool]
-    resource_type: Optional[str]
-
-class PythonContextlibPatternsRow(TypedDict):
-    """Row type for python_contextlib_patterns table."""
-    file: str
-    line: int
-    pattern: str
-    is_decorator: Optional[bool]
-    in_function: str
-
-class PythonContextvarUsageRow(TypedDict):
-    """Row type for python_contextvar_usage table."""
-    id: int
-    file: str
-    line: int
-    operation: str
-    in_function: str
-
-class PythonCopyProtocolRow(TypedDict):
-    """Row type for python_copy_protocol table."""
-    id: int
-    file: str
-    line: int
-    class_name: str
-    has_copy: Optional[bool]
-    has_deepcopy: Optional[bool]
-
-class PythonCryptoOperationsRow(TypedDict):
-    """Row type for python_crypto_operations table."""
-    file: str
-    line: int
-    algorithm: Optional[str]
-    mode: Optional[str]
-    is_weak: Optional[bool]
-    has_hardcoded_key: Optional[bool]
-
-class PythonDangerousEvalRow(TypedDict):
-    """Row type for python_dangerous_eval table."""
-    file: str
-    line: int
-    function: str
-    is_constant_input: Optional[bool]
-    is_critical: Optional[bool]
-
-class PythonDataclassesRow(TypedDict):
-    """Row type for python_dataclasses table."""
-    file: str
-    line: int
-    class_name: str
-    frozen: Optional[bool]
-    field_count: Optional[int]
-
-class PythonDatetimeOperationsRow(TypedDict):
-    """Row type for python_datetime_operations table."""
-    file: str
-    line: int
-    datetime_type: str
-    in_function: str
+    statement_kind: str
+    statement_type: str | None
+    loop_type: str | None
+    condition_type: str | None
+    has_message: int | None
+    target_count: int | None
+    target_type: str | None
+    context_count: int | None
+    has_alias: int | None
+    is_async: int | None
+    in_function: str | None
 
 class PythonDecoratorsRow(TypedDict):
     """Row type for python_decorators table."""
@@ -1085,127 +1378,39 @@ class PythonDecoratorsRow(TypedDict):
     decorator_type: str
     target_type: str
     target_name: str
-    is_async: Optional[bool]
-
-class PythonDelStatementsRow(TypedDict):
-    """Row type for python_del_statements table."""
-    id: int
-    file: str
-    line: int
-    target_type: str
-    target_count: int
-    in_function: str
-
-class PythonDescriptorProtocolRow(TypedDict):
-    """Row type for python_descriptor_protocol table."""
-    id: int
-    file: str
-    line: int
-    class_name: str
-    has_get: Optional[bool]
-    has_set: Optional[bool]
-    has_delete: Optional[bool]
-    is_data_descriptor: Optional[bool]
+    is_async: bool | None
 
 class PythonDescriptorsRow(TypedDict):
     """Row type for python_descriptors table."""
+    id: int | None
     file: str
     line: int
-    class_name: str
-    has_get: Optional[bool]
-    has_set: Optional[bool]
-    has_delete: Optional[bool]
-    descriptor_type: str
-
-class PythonDictOperationsRow(TypedDict):
-    """Row type for python_dict_operations table."""
-    file: str
-    line: int
-    operation: str
-    has_default: Optional[bool]
-    in_function: str
-
-class PythonDjangoAdminRow(TypedDict):
-    """Row type for python_django_admin table."""
-    file: str
-    line: int
-    admin_class_name: str
-    model_name: Optional[str]
-    list_display: Optional[str]
-    list_filter: Optional[str]
-    search_fields: Optional[str]
-    readonly_fields: Optional[str]
-    has_custom_actions: Optional[bool]
-
-class PythonDjangoFormFieldsRow(TypedDict):
-    """Row type for python_django_form_fields table."""
-    file: str
-    line: int
-    form_class_name: str
-    field_name: str
-    field_type: str
-    required: Optional[bool]
-    max_length: Optional[int]
-    has_custom_validator: Optional[bool]
-
-class PythonDjangoFormsRow(TypedDict):
-    """Row type for python_django_forms table."""
-    file: str
-    line: int
-    form_class_name: str
-    is_model_form: Optional[bool]
-    model_name: Optional[str]
-    field_count: Optional[int]
-    has_custom_clean: Optional[bool]
-
-class PythonDjangoManagersRow(TypedDict):
-    """Row type for python_django_managers table."""
-    file: str
-    line: int
-    manager_name: str
-    base_class: Optional[str]
-    custom_methods: Optional[str]
-    model_assignment: Optional[str]
+    descriptor_kind: str
+    descriptor_type: str | None
+    name: str | None
+    class_name: str | None
+    in_class: str | None
+    has_get: int | None
+    has_set: int | None
+    has_delete: int | None
+    is_data_descriptor: int | None
+    property_name: str | None
+    access_type: str | None
+    has_computation: int | None
+    has_validation: int | None
+    method_name: str | None
+    is_functools: int | None
 
 class PythonDjangoMiddlewareRow(TypedDict):
     """Row type for python_django_middleware table."""
     file: str
     line: int
     middleware_class_name: str
-    has_process_request: Optional[bool]
-    has_process_response: Optional[bool]
-    has_process_exception: Optional[bool]
-    has_process_view: Optional[bool]
-    has_process_template_response: Optional[bool]
-
-class PythonDjangoQuerysetsRow(TypedDict):
-    """Row type for python_django_querysets table."""
-    file: str
-    line: int
-    queryset_name: str
-    base_class: Optional[str]
-    custom_methods: Optional[str]
-    has_as_manager: Optional[bool]
-    method_chain: Optional[str]
-
-class PythonDjangoReceiversRow(TypedDict):
-    """Row type for python_django_receivers table."""
-    file: str
-    line: int
-    function_name: str
-    signals: Optional[str]
-    sender: Optional[str]
-    is_weak: Optional[bool]
-
-class PythonDjangoSignalsRow(TypedDict):
-    """Row type for python_django_signals table."""
-    file: str
-    line: int
-    signal_name: str
-    signal_type: Optional[str]
-    providing_args: Optional[str]
-    sender: Optional[str]
-    receiver_function: Optional[str]
+    has_process_request: bool | None
+    has_process_response: bool | None
+    has_process_exception: bool | None
+    has_process_view: bool | None
+    has_process_template_response: bool | None
 
 class PythonDjangoViewsRow(TypedDict):
     """Row type for python_django_views table."""
@@ -1213,498 +1418,207 @@ class PythonDjangoViewsRow(TypedDict):
     line: int
     view_class_name: str
     view_type: str
-    base_view_class: Optional[str]
-    model_name: Optional[str]
-    template_name: Optional[str]
-    has_permission_check: Optional[bool]
-    http_method_names: Optional[str]
-    has_get_queryset_override: Optional[bool]
+    base_view_class: str | None
+    model_name: str | None
+    template_name: str | None
+    has_permission_check: bool | None
+    http_method_names: str | None
+    has_get_queryset_override: bool | None
 
-class PythonDrfSerializerFieldsRow(TypedDict):
-    """Row type for python_drf_serializer_fields table."""
+class PythonExpressionsRow(TypedDict):
+    """Row type for python_expressions table."""
+    id: int | None
     file: str
     line: int
-    serializer_class_name: str
-    field_name: str
-    field_type: str
-    read_only: Optional[bool]
-    write_only: Optional[bool]
-    required: Optional[bool]
-    allow_null: Optional[bool]
-    has_source: Optional[bool]
-    has_custom_validator: Optional[bool]
+    expression_kind: str
+    expression_type: str | None
+    in_function: str | None
+    target: str | None
+    has_start: int | None
+    has_stop: int | None
+    has_step: int | None
+    is_assignment: int | None
+    element_count: int | None
+    operation: str | None
+    has_rest: int | None
+    target_count: int | None
+    unpack_type: str | None
+    pattern: str | None
+    uses_is: int | None
+    format_type: str | None
+    has_expressions: int | None
+    var_count: int | None
+    context: str | None
+    has_globals: int | None
+    has_locals: int | None
+    generator_function: str | None
+    yield_expr: str | None
+    yield_type: str | None
+    in_loop: int | None
+    condition: str | None
+    awaited_expr: str | None
+    containing_function: str | None
 
-class PythonDrfSerializersRow(TypedDict):
-    """Row type for python_drf_serializers table."""
+class PythonFixtureParamsRow(TypedDict):
+    """Row type for python_fixture_params table."""
+    id: int | None
+    file: str
+    fixture_id: int
+    param_name: str | None
+    param_value: str | None
+    param_order: int | None
+
+class PythonFrameworkConfigRow(TypedDict):
+    """Row type for python_framework_config table."""
+    id: int | None
     file: str
     line: int
-    serializer_class_name: str
-    field_count: Optional[int]
-    is_model_serializer: Optional[bool]
-    has_meta_model: Optional[bool]
-    has_read_only_fields: Optional[bool]
-    has_custom_validators: Optional[bool]
+    config_kind: str
+    config_type: str | None
+    framework: str
+    name: str | None
+    endpoint: str | None
+    cache_type: str | None
+    timeout: int | None
+    class_name: str | None
+    model_name: str | None
+    function_name: str | None
+    target_name: str | None
+    base_class: str | None
+    has_process_request: int | None
+    has_process_response: int | None
+    has_process_exception: int | None
+    has_process_view: int | None
+    has_process_template_response: int | None
 
-class PythonDunderMethodsRow(TypedDict):
-    """Row type for python_dunder_methods table."""
+class PythonFrameworkMethodsRow(TypedDict):
+    """Row type for python_framework_methods table."""
+    id: int | None
     file: str
-    line: int
+    config_id: int
     method_name: str
-    category: str
-    in_class: str
+    method_order: int | None
 
-class PythonDynamicAttributesRow(TypedDict):
-    """Row type for python_dynamic_attributes table."""
+class PythonFunctionsAdvancedRow(TypedDict):
+    """Row type for python_functions_advanced table."""
+    id: int | None
     file: str
     line: int
-    method_name: str
-    in_class: str
-    has_delegation: Optional[bool]
-    has_validation: Optional[bool]
+    function_kind: str
+    function_type: str | None
+    name: str | None
+    function_name: str | None
+    yield_count: int | None
+    has_send: int | None
+    has_yield_from: int | None
+    is_infinite: int | None
+    await_count: int | None
+    has_async_for: int | None
+    has_async_with: int | None
+    parameter_count: int | None
+    parameters: str | None
+    body: str | None
+    captures_closure: int | None
+    captured_vars: str | None
+    used_in: str | None
+    as_name: str | None
+    context_expr: str | None
+    is_async: int | None
+    iter_expr: str | None
+    target_var: str | None
+    base_case_line: int | None
+    calls_function: str | None
+    recursion_type: str | None
+    cache_size: int | None
+    memoization_type: str | None
+    is_recursive: int | None
+    has_memoization: int | None
+    in_function: str | None
 
-class PythonEllipsisUsageRow(TypedDict):
-    """Row type for python_ellipsis_usage table."""
-    id: int
+class PythonImportsAdvancedRow(TypedDict):
+    """Row type for python_imports_advanced table."""
+    id: int | None
     file: str
     line: int
-    context: str
-    in_function: str
-
-class PythonEnumsRow(TypedDict):
-    """Row type for python_enums table."""
-    file: str
-    line: int
-    enum_name: str
-    enum_type: str
-    member_count: Optional[int]
-
-class PythonExceptionCatchesRow(TypedDict):
-    """Row type for python_exception_catches table."""
-    file: str
-    line: int
-    exception_types: str
-    variable_name: Optional[str]
-    handling_strategy: str
-    in_function: str
-
-class PythonExceptionRaisesRow(TypedDict):
-    """Row type for python_exception_raises table."""
-    file: str
-    line: int
-    exception_type: Optional[str]
-    message: Optional[str]
-    from_exception: Optional[str]
-    in_function: str
-    condition: Optional[str]
-    is_re_raise: Optional[bool]
-
-class PythonExecEvalCompileRow(TypedDict):
-    """Row type for python_exec_eval_compile table."""
-    id: int
-    file: str
-    line: int
-    operation: str
-    has_globals: Optional[bool]
-    has_locals: Optional[bool]
-    in_function: str
-
-class PythonFinallyBlocksRow(TypedDict):
-    """Row type for python_finally_blocks table."""
-    file: str
-    line: int
-    cleanup_calls: Optional[str]
-    has_cleanup: Optional[bool]
-    in_function: str
-
-class PythonFlaskAppsRow(TypedDict):
-    """Row type for python_flask_apps table."""
-    file: str
-    line: int
-    factory_name: str
-    app_var_name: Optional[str]
-    config_source: Optional[str]
-    registers_blueprints: Optional[bool]
-
-class PythonFlaskCacheRow(TypedDict):
-    """Row type for python_flask_cache table."""
-    file: str
-    line: int
-    function_name: str
-    cache_type: str
-    timeout: Optional[int]
-
-class PythonFlaskCliCommandsRow(TypedDict):
-    """Row type for python_flask_cli_commands table."""
-    file: str
-    line: int
-    command_name: str
-    function_name: str
-    has_options: Optional[bool]
-
-class PythonFlaskCorsRow(TypedDict):
-    """Row type for python_flask_cors table."""
-    file: str
-    line: int
-    config_type: str
-    origins: Optional[str]
-    is_permissive: Optional[bool]
-
-class PythonFlaskErrorHandlersRow(TypedDict):
-    """Row type for python_flask_error_handlers table."""
-    file: str
-    line: int
-    function_name: str
-    error_code: Optional[int]
-    exception_type: Optional[str]
-
-class PythonFlaskExtensionsRow(TypedDict):
-    """Row type for python_flask_extensions table."""
-    file: str
-    line: int
-    extension_type: str
-    var_name: Optional[str]
-    app_passed_to_constructor: Optional[bool]
-
-class PythonFlaskHooksRow(TypedDict):
-    """Row type for python_flask_hooks table."""
-    file: str
-    line: int
-    hook_type: str
-    function_name: str
-    app_var: Optional[str]
-
-class PythonFlaskRateLimitsRow(TypedDict):
-    """Row type for python_flask_rate_limits table."""
-    file: str
-    line: int
-    function_name: str
-    limit_string: Optional[str]
-
-class PythonFlaskWebsocketsRow(TypedDict):
-    """Row type for python_flask_websockets table."""
-    file: str
-    line: int
-    function_name: str
-    event_name: Optional[str]
-    namespace: Optional[str]
-
-class PythonForLoopsRow(TypedDict):
-    """Row type for python_for_loops table."""
-    id: int
-    file: str
-    line: int
-    loop_type: str
-    has_else: Optional[bool]
-    nesting_level: int
-    target_count: int
-    in_function: str
-
-class PythonFunctoolsUsageRow(TypedDict):
-    """Row type for python_functools_usage table."""
-    file: str
-    line: int
-    function: str
-    is_decorator: Optional[bool]
-    in_function: str
-
-class PythonGeneratorYieldsRow(TypedDict):
-    """Row type for python_generator_yields table."""
-    file: str
-    line: int
-    generator_function: str
-    yield_type: str
-    yield_expr: Optional[str]
-    condition: Optional[str]
-    in_loop: Optional[bool]
-
-class PythonGeneratorsRow(TypedDict):
-    """Row type for python_generators table."""
-    file: str
-    line: int
-    generator_type: str
-    name: str
-    yield_count: Optional[int]
-    has_yield_from: Optional[bool]
-    has_send: Optional[bool]
-    is_infinite: Optional[bool]
-
-class PythonGenericsRow(TypedDict):
-    """Row type for python_generics table."""
-    file: str
-    line: int
-    class_name: str
-    type_params: Optional[str]
-
-class PythonGlobalMutationsRow(TypedDict):
-    """Row type for python_global_mutations table."""
-    file: str
-    line: int
-    global_name: str
-    operation: str
-    in_function: str
-
-class PythonHypothesisStrategiesRow(TypedDict):
-    """Row type for python_hypothesis_strategies table."""
-    file: str
-    line: int
-    test_name: str
-    strategy_count: Optional[int]
-    strategies: Optional[str]
-
-class PythonIfStatementsRow(TypedDict):
-    """Row type for python_if_statements table."""
-    id: int
-    file: str
-    line: int
-    has_elif: Optional[bool]
-    has_else: Optional[bool]
-    chain_length: int
-    nesting_level: int
-    has_complex_condition: Optional[bool]
-    in_function: str
-
-class PythonImportStatementsRow(TypedDict):
-    """Row type for python_import_statements table."""
-    id: int
-    file: str
-    line: int
-    import_type: str
-    module: str
-    has_alias: Optional[bool]
-    is_wildcard: Optional[bool]
-    relative_level: Optional[int]
-    imported_names: str
-    in_function: str
-
-class PythonInstanceMutationsRow(TypedDict):
-    """Row type for python_instance_mutations table."""
-    file: str
-    line: int
-    target: str
-    operation: str
-    in_function: str
-    is_init: Optional[bool]
-    is_property_setter: Optional[bool]
-    is_dunder_method: Optional[bool]
+    import_kind: str
+    import_type: str | None
+    module: str | None
+    name: str | None
+    alias: str | None
+    is_relative: int | None
+    in_function: str | None
+    has_alias: int | None
+    imported_names: str | None
+    is_wildcard: int | None
+    relative_level: int | None
+    attribute: str | None
+    is_default: int | None
+    export_type: str | None
 
 class PythonIoOperationsRow(TypedDict):
     """Row type for python_io_operations table."""
+    id: int | None
     file: str
     line: int
-    io_type: str
-    operation: str
-    target: Optional[str]
-    is_static: Optional[bool]
-    in_function: str
-
-class PythonIteratorProtocolRow(TypedDict):
-    """Row type for python_iterator_protocol table."""
-    id: int
-    file: str
-    line: int
-    class_name: str
-    has_iter: Optional[bool]
-    has_next: Optional[bool]
-    raises_stopiteration: Optional[bool]
-    is_generator: Optional[bool]
-
-class PythonItertoolsUsageRow(TypedDict):
-    """Row type for python_itertools_usage table."""
-    file: str
-    line: int
-    function: str
-    is_infinite: Optional[bool]
-    in_function: str
-
-class PythonJsonOperationsRow(TypedDict):
-    """Row type for python_json_operations table."""
-    file: str
-    line: int
-    operation: str
-    direction: str
-    in_function: str
-
-class PythonJwtOperationsRow(TypedDict):
-    """Row type for python_jwt_operations table."""
-    file: str
-    line: int
-    operation: str
-    algorithm: Optional[str]
-    verify: Optional[bool]
-    is_insecure: Optional[bool]
-
-class PythonLambdaFunctionsRow(TypedDict):
-    """Row type for python_lambda_functions table."""
-    file: str
-    line: int
-    parameter_count: Optional[int]
-    body: Optional[str]
-    captures_closure: Optional[bool]
-    used_in: Optional[str]
-    in_function: str
-
-class PythonListMutationsRow(TypedDict):
-    """Row type for python_list_mutations table."""
-    file: str
-    line: int
-    method: str
-    mutates_in_place: Optional[bool]
-    in_function: str
+    io_kind: str
+    io_type: str | None
+    operation: str | None
+    target: str | None
+    is_static: int | None
+    flow_type: str | None
+    function_name: str | None
+    parameter_name: str | None
+    return_expr: str | None
+    is_async: int | None
+    in_function: str | None
 
 class PythonLiteralsRow(TypedDict):
     """Row type for python_literals table."""
+    id: int | None
     file: str
     line: int
-    usage_context: str
-    name: Optional[str]
-    literal_type: str
+    literal_kind: str
+    literal_type: str | None
+    name: str | None
+    literal_value_1: str | None
+    literal_value_2: str | None
+    literal_value_3: str | None
+    literal_value_4: str | None
+    literal_value_5: str | None
+    function_name: str | None
+    overload_count: int | None
+    variants: str | None
 
-class PythonLoggingPatternsRow(TypedDict):
-    """Row type for python_logging_patterns table."""
+class PythonLoopsRow(TypedDict):
+    """Row type for python_loops table."""
+    id: int | None
     file: str
     line: int
-    log_level: str
-    in_function: str
-
-class PythonLoopComplexityRow(TypedDict):
-    """Row type for python_loop_complexity table."""
-    file: str
-    line: int
-    loop_type: str
-    nesting_level: int
-    has_growing_operation: Optional[bool]
-    in_function: str
-    estimated_complexity: str
-
-class PythonMarshmallowFieldsRow(TypedDict):
-    """Row type for python_marshmallow_fields table."""
-    file: str
-    line: int
-    schema_class_name: str
-    field_name: str
-    field_type: str
-    required: Optional[bool]
-    allow_none: Optional[bool]
-    has_validate: Optional[bool]
-    has_custom_validator: Optional[bool]
-
-class PythonMarshmallowSchemasRow(TypedDict):
-    """Row type for python_marshmallow_schemas table."""
-    file: str
-    line: int
-    schema_class_name: str
-    field_count: Optional[int]
-    has_nested_schemas: Optional[bool]
-    has_custom_validators: Optional[bool]
-
-class PythonMatchStatementsRow(TypedDict):
-    """Row type for python_match_statements table."""
-    id: int
-    file: str
-    line: int
-    case_count: int
-    has_wildcard: Optional[bool]
-    has_guards: Optional[bool]
-    pattern_types: str
-    in_function: str
-
-class PythonMatrixMultiplicationRow(TypedDict):
-    """Row type for python_matrix_multiplication table."""
-    file: str
-    line: int
-    in_function: str
-
-class PythonMembershipTestsRow(TypedDict):
-    """Row type for python_membership_tests table."""
-    file: str
-    line: int
-    operator: str
-    container_type: Optional[str]
-    in_function: str
-
-class PythonMemoizationPatternsRow(TypedDict):
-    """Row type for python_memoization_patterns table."""
-    file: str
-    line: int
-    function_name: str
-    has_memoization: Optional[bool]
-    memoization_type: str
-    is_recursive: Optional[bool]
-    cache_size: Optional[int]
-
-class PythonMetaclassesRow(TypedDict):
-    """Row type for python_metaclasses table."""
-    file: str
-    line: int
-    class_name: str
-    metaclass_name: str
-    is_definition: Optional[bool]
-
-class PythonMethodTypesRow(TypedDict):
-    """Row type for python_method_types table."""
-    file: str
-    line: int
-    method_name: str
-    method_type: str
-    in_class: str
-
-class PythonMockPatternsRow(TypedDict):
-    """Row type for python_mock_patterns table."""
-    file: str
-    line: int
-    mock_type: str
-    target: Optional[str]
-    in_function: Optional[str]
-    is_decorator: Optional[bool]
-
-class PythonModuleAttributesRow(TypedDict):
-    """Row type for python_module_attributes table."""
-    id: int
-    file: str
-    line: int
-    attribute: str
-    usage_type: str
-    in_function: str
-
-class PythonMultipleInheritanceRow(TypedDict):
-    """Row type for python_multiple_inheritance table."""
-    file: str
-    line: int
-    class_name: str
-    base_count: int
-    base_classes: Optional[str]
-
-class PythonNamespacePackagesRow(TypedDict):
-    """Row type for python_namespace_packages table."""
-    id: int
-    file: str
-    line: int
-    pattern: str
-    in_function: str
-
-class PythonNonePatternsRow(TypedDict):
-    """Row type for python_none_patterns table."""
-    file: str
-    line: int
-    pattern: str
-    uses_is: Optional[bool]
-    in_function: str
-
-class PythonNonlocalAccessRow(TypedDict):
-    """Row type for python_nonlocal_access table."""
-    file: str
-    line: int
-    variable_name: str
-    access_type: str
-    in_function: str
+    loop_kind: str
+    loop_type: str | None
+    has_else: int | None
+    nesting_level: int | None
+    target_count: int | None
+    in_function: str | None
+    is_infinite: int | None
+    estimated_complexity: str | None
+    has_growing_operation: int | None
 
 class PythonOperatorsRow(TypedDict):
     """Row type for python_operators table."""
+    id: int | None
     file: str
     line: int
-    operator_type: str
-    operator: str
-    in_function: str
+    operator_kind: str
+    operator_type: str | None
+    operator: str | None
+    in_function: str | None
+    container_type: str | None
+    chain_length: int | None
+    operators: str | None
+    has_complex_condition: int | None
+    variable: str | None
+    used_in: str | None
 
 class PythonOrmFieldsRow(TypedDict):
     """Row type for python_orm_fields table."""
@@ -1712,356 +1626,222 @@ class PythonOrmFieldsRow(TypedDict):
     line: int
     model_name: str
     field_name: str
-    field_type: Optional[str]
-    is_primary_key: Optional[bool]
-    is_foreign_key: Optional[bool]
-    foreign_key_target: Optional[str]
+    field_type: str | None
+    is_primary_key: bool | None
+    is_foreign_key: bool | None
+    foreign_key_target: str | None
 
 class PythonOrmModelsRow(TypedDict):
     """Row type for python_orm_models table."""
     file: str
     line: int
     model_name: str
-    table_name: Optional[str]
+    table_name: str | None
     orm_type: str
-
-class PythonOverloadsRow(TypedDict):
-    """Row type for python_overloads table."""
-    file: str
-    function_name: str
-    overload_count: int
-    variants: str
 
 class PythonPackageConfigsRow(TypedDict):
     """Row type for python_package_configs table."""
     file_path: str
     file_type: str
-    project_name: Optional[str]
-    project_version: Optional[str]
-    dependencies: Optional[str]
-    optional_dependencies: Optional[str]
-    build_system: Optional[str]
-    indexed_at: Optional[Any]
+    project_name: str | None
+    project_version: str | None
+    indexed_at: Any | None
 
-class PythonParameterReturnFlowRow(TypedDict):
-    """Row type for python_parameter_return_flow table."""
-    file: str
-    line: int
-    function_name: str
-    parameter_name: str
-    return_expr: str
-    flow_type: str
-    is_async: Optional[bool]
+class PythonPackageDependenciesRow(TypedDict):
+    """Row type for python_package_dependencies table."""
+    file_path: str
+    name: str
+    version_spec: str | None
+    is_dev: int | None
+    group_name: str | None
+    extras: str | None
+    git_url: str | None
 
-class PythonPasswordHashingRow(TypedDict):
-    """Row type for python_password_hashing table."""
+class PythonProtocolMethodsRow(TypedDict):
+    """Row type for python_protocol_methods table."""
+    id: int | None
     file: str
-    line: int
-    hash_library: Optional[str]
-    hash_method: Optional[str]
-    is_weak: Optional[bool]
-    has_hardcoded_value: Optional[bool]
-
-class PythonPathOperationsRow(TypedDict):
-    """Row type for python_path_operations table."""
-    file: str
-    line: int
-    operation: str
-    path_type: str
-    in_function: str
-
-class PythonPathTraversalRow(TypedDict):
-    """Row type for python_path_traversal table."""
-    file: str
-    line: int
-    function: str
-    has_concatenation: Optional[bool]
-    is_vulnerable: Optional[bool]
-
-class PythonPickleProtocolRow(TypedDict):
-    """Row type for python_pickle_protocol table."""
-    id: int
-    file: str
-    line: int
-    class_name: str
-    has_getstate: Optional[bool]
-    has_setstate: Optional[bool]
-    has_reduce: Optional[bool]
-    has_reduce_ex: Optional[bool]
-
-class PythonPropertyPatternsRow(TypedDict):
-    """Row type for python_property_patterns table."""
-    file: str
-    line: int
-    property_name: str
-    access_type: str
-    in_class: str
-    has_computation: Optional[bool]
-    has_validation: Optional[bool]
+    protocol_id: int
+    method_name: str
+    method_order: int | None
 
 class PythonProtocolsRow(TypedDict):
     """Row type for python_protocols table."""
+    id: int | None
     file: str
     line: int
-    protocol_name: str
-    methods: Optional[str]
-    is_runtime_checkable: Optional[bool]
-
-class PythonPytestFixturesRow(TypedDict):
-    """Row type for python_pytest_fixtures table."""
-    file: str
-    line: int
-    fixture_name: str
-    scope: Optional[str]
-    has_autouse: Optional[bool]
-    has_params: Optional[bool]
-
-class PythonPytestMarkersRow(TypedDict):
-    """Row type for python_pytest_markers table."""
-    file: str
-    line: int
-    test_function: str
-    marker_name: str
-    marker_args: Optional[str]
-
-class PythonPytestParametrizeRow(TypedDict):
-    """Row type for python_pytest_parametrize table."""
-    file: str
-    line: int
-    test_function: str
-    parameter_names: str
-    argvalues_count: Optional[int]
-
-class PythonPytestPluginHooksRow(TypedDict):
-    """Row type for python_pytest_plugin_hooks table."""
-    file: str
-    line: int
-    hook_name: str
-    param_count: Optional[int]
-
-class PythonRecursionPatternsRow(TypedDict):
-    """Row type for python_recursion_patterns table."""
-    file: str
-    line: int
-    function_name: str
-    recursion_type: str
-    calls_function: str
-    base_case_line: Optional[int]
-    is_async: Optional[bool]
-
-class PythonRegexPatternsRow(TypedDict):
-    """Row type for python_regex_patterns table."""
-    file: str
-    line: int
-    operation: str
-    has_flags: Optional[bool]
-    in_function: str
-
-class PythonResourceUsageRow(TypedDict):
-    """Row type for python_resource_usage table."""
-    file: str
-    line: int
-    resource_type: str
-    allocation_expr: str
-    in_function: str
-    has_cleanup: Optional[bool]
+    protocol_kind: str
+    protocol_type: str | None
+    class_name: str | None
+    in_function: str | None
+    has_iter: int | None
+    has_next: int | None
+    is_generator: int | None
+    raises_stopiteration: int | None
+    has_contains: int | None
+    has_getitem: int | None
+    has_setitem: int | None
+    has_delitem: int | None
+    has_len: int | None
+    is_mapping: int | None
+    is_sequence: int | None
+    has_args: int | None
+    has_kwargs: int | None
+    param_count: int | None
+    has_getstate: int | None
+    has_setstate: int | None
+    has_reduce: int | None
+    has_reduce_ex: int | None
+    context_expr: str | None
+    resource_type: str | None
+    variable_name: str | None
+    is_async: int | None
+    has_copy: int | None
+    has_deepcopy: int | None
 
 class PythonRoutesRow(TypedDict):
     """Row type for python_routes table."""
     file: str
-    line: Optional[int]
+    line: int | None
     framework: str
-    method: Optional[str]
-    pattern: Optional[str]
-    handler_function: Optional[str]
-    has_auth: Optional[bool]
-    dependencies: Optional[str]
-    blueprint: Optional[str]
+    method: str | None
+    pattern: str | None
+    handler_function: str | None
+    has_auth: bool | None
+    dependencies: str | None
+    blueprint: str | None
 
-class PythonSetOperationsRow(TypedDict):
-    """Row type for python_set_operations table."""
+class PythonSchemaValidatorsRow(TypedDict):
+    """Row type for python_schema_validators table."""
+    id: int | None
+    file: str
+    schema_id: int
+    validator_name: str
+    validator_type: str | None
+    validator_order: int | None
+
+class PythonSecurityFindingsRow(TypedDict):
+    """Row type for python_security_findings table."""
+    id: int | None
     file: str
     line: int
-    operation: str
-    in_function: str
+    finding_kind: str
+    finding_type: str | None
+    function_name: str | None
+    decorator_name: str | None
+    permissions: str | None
+    is_vulnerable: int | None
+    shell_true: int | None
+    is_constant_input: int | None
+    is_critical: int | None
+    has_concatenation: int | None
 
-class PythonSliceOperationsRow(TypedDict):
-    """Row type for python_slice_operations table."""
+class PythonStateMutationsRow(TypedDict):
+    """Row type for python_state_mutations table."""
+    id: int | None
     file: str
     line: int
-    target: Optional[str]
-    has_start: Optional[bool]
-    has_stop: Optional[bool]
-    has_step: Optional[bool]
-    is_assignment: Optional[bool]
-    in_function: str
+    mutation_kind: str
+    mutation_type: str | None
+    target: str | None
+    operator: str | None
+    target_type: str | None
+    operation: str | None
+    is_init: int | None
+    is_dunder_method: int | None
+    is_property_setter: int | None
+    in_function: str | None
 
-class PythonSlotsRow(TypedDict):
-    """Row type for python_slots table."""
+class PythonStdlibUsageRow(TypedDict):
+    """Row type for python_stdlib_usage table."""
+    id: int | None
     file: str
     line: int
-    class_name: str
-    slot_count: Optional[int]
+    stdlib_kind: str
+    module: str | None
+    usage_type: str | None
+    function_name: str | None
+    pattern: str | None
+    in_function: str | None
+    operation: str | None
+    has_flags: int | None
+    direction: str | None
+    path_type: str | None
+    log_level: str | None
+    threading_type: str | None
+    is_decorator: int | None
 
-class PythonSqlInjectionRow(TypedDict):
-    """Row type for python_sql_injection table."""
+class PythonTestCasesRow(TypedDict):
+    """Row type for python_test_cases table."""
+    id: int | None
     file: str
     line: int
-    db_method: str
-    interpolation_type: Optional[str]
-    is_vulnerable: Optional[bool]
+    test_kind: str
+    test_type: str | None
+    name: str | None
+    function_name: str | None
+    class_name: str | None
+    assertion_type: str | None
+    test_expr: str | None
 
-class PythonStringFormattingRow(TypedDict):
-    """Row type for python_string_formatting table."""
+class PythonTestFixturesRow(TypedDict):
+    """Row type for python_test_fixtures table."""
+    id: int | None
     file: str
     line: int
-    format_type: str
-    has_expressions: Optional[bool]
-    var_count: Optional[int]
-    in_function: str
+    fixture_kind: str
+    fixture_type: str | None
+    name: str | None
+    scope: str | None
+    autouse: int | None
+    in_function: str | None
 
-class PythonStringMethodsRow(TypedDict):
-    """Row type for python_string_methods table."""
+class PythonTypeDefinitionsRow(TypedDict):
+    """Row type for python_type_definitions table."""
+    id: int | None
     file: str
     line: int
-    method: str
-    in_function: str
+    type_kind: str
+    name: str | None
+    type_param_count: int | None
+    type_param_1: str | None
+    type_param_2: str | None
+    type_param_3: str | None
+    type_param_4: str | None
+    type_param_5: str | None
+    is_runtime_checkable: int | None
+    methods: str | None
 
-class PythonTernaryExpressionsRow(TypedDict):
-    """Row type for python_ternary_expressions table."""
+class PythonTypeddictFieldsRow(TypedDict):
+    """Row type for python_typeddict_fields table."""
+    id: int | None
+    file: str
+    typeddict_id: int
+    field_name: str
+    field_type: str | None
+    required: int | None
+    field_order: int | None
+
+class PythonValidationSchemasRow(TypedDict):
+    """Row type for python_validation_schemas table."""
+    id: int | None
     file: str
     line: int
-    has_complex_condition: Optional[bool]
-    in_function: str
-
-class PythonThreadingPatternsRow(TypedDict):
-    """Row type for python_threading_patterns table."""
-    file: str
-    line: int
-    threading_type: str
-    in_function: str
-
-class PythonTruthinessPatternsRow(TypedDict):
-    """Row type for python_truthiness_patterns table."""
-    file: str
-    line: int
-    pattern: str
-    expression: Optional[str]
-    in_function: str
-
-class PythonTupleOperationsRow(TypedDict):
-    """Row type for python_tuple_operations table."""
-    file: str
-    line: int
-    operation: str
-    element_count: Optional[int]
-    in_function: str
-
-class PythonTypeCheckingRow(TypedDict):
-    """Row type for python_type_checking table."""
-    file: str
-    line: int
-    check_type: str
-    in_function: str
-
-class PythonTypedDictsRow(TypedDict):
-    """Row type for python_typed_dicts table."""
-    file: str
-    line: int
-    typeddict_name: str
-    fields: Optional[str]
-
-class PythonUnittestTestCasesRow(TypedDict):
-    """Row type for python_unittest_test_cases table."""
-    file: str
-    line: int
-    test_class_name: str
-    test_method_count: Optional[int]
-    has_setup: Optional[bool]
-    has_teardown: Optional[bool]
-    has_setupclass: Optional[bool]
-    has_teardownclass: Optional[bool]
-
-class PythonUnpackingPatternsRow(TypedDict):
-    """Row type for python_unpacking_patterns table."""
-    file: str
-    line: int
-    unpack_type: str
-    target_count: Optional[int]
-    has_rest: Optional[bool]
-    in_function: str
+    schema_kind: str
+    schema_type: str | None
+    framework: str
+    name: str | None
+    field_type: str | None
+    required: int | None
 
 class PythonValidatorsRow(TypedDict):
     """Row type for python_validators table."""
     file: str
     line: int
     model_name: str
-    field_name: Optional[str]
+    field_name: str | None
     validator_method: str
     validator_type: str
-
-class PythonVisibilityConventionsRow(TypedDict):
-    """Row type for python_visibility_conventions table."""
-    file: str
-    line: int
-    name: str
-    visibility: str
-    is_name_mangled: Optional[bool]
-    in_class: str
-
-class PythonWalrusOperatorsRow(TypedDict):
-    """Row type for python_walrus_operators table."""
-    file: str
-    line: int
-    variable: str
-    used_in: str
-    in_function: str
-
-class PythonWeakrefUsageRow(TypedDict):
-    """Row type for python_weakref_usage table."""
-    id: int
-    file: str
-    line: int
-    usage_type: str
-    in_function: str
-
-class PythonWhileLoopsRow(TypedDict):
-    """Row type for python_while_loops table."""
-    id: int
-    file: str
-    line: int
-    has_else: Optional[bool]
-    is_infinite: Optional[bool]
-    nesting_level: int
-    in_function: str
-
-class PythonWithStatementsRow(TypedDict):
-    """Row type for python_with_statements table."""
-    id: int
-    file: str
-    line: int
-    is_async: Optional[bool]
-    context_count: int
-    has_alias: Optional[bool]
-    in_function: str
-
-class PythonWtformsFieldsRow(TypedDict):
-    """Row type for python_wtforms_fields table."""
-    file: str
-    line: int
-    form_class_name: str
-    field_name: str
-    field_type: str
-    has_validators: Optional[bool]
-    has_custom_validator: Optional[bool]
-
-class PythonWtformsFormsRow(TypedDict):
-    """Row type for python_wtforms_forms table."""
-    file: str
-    line: int
-    form_class_name: str
-    field_count: Optional[int]
-    has_custom_validators: Optional[bool]
 
 class ReactComponentHooksRow(TypedDict):
     """Row type for react_component_hooks table."""
@@ -2077,8 +1857,8 @@ class ReactComponentsRow(TypedDict):
     type: str
     start_line: int
     end_line: int
-    has_jsx: Optional[bool]
-    props_type: Optional[str]
+    has_jsx: bool | None
+    props_type: str | None
 
 class ReactHookDependenciesRow(TypedDict):
     """Row type for react_hook_dependencies table."""
@@ -2094,10 +1874,10 @@ class ReactHooksRow(TypedDict):
     line: int
     component_name: str
     hook_name: str
-    dependency_array: Optional[str]
-    callback_body: Optional[str]
-    has_cleanup: Optional[bool]
-    cleanup_type: Optional[str]
+    dependency_array: str | None
+    callback_body: str | None
+    has_cleanup: bool | None
+    cleanup_type: str | None
 
 class RefactorCandidatesRow(TypedDict):
     """Row type for refactor_candidates table."""
@@ -2105,12 +1885,12 @@ class RefactorCandidatesRow(TypedDict):
     file_path: str
     reason: str
     severity: str
-    loc: Optional[int]
-    cyclomatic_complexity: Optional[int]
-    duplication_percent: Optional[float]
-    num_dependencies: Optional[int]
+    loc: int | None
+    cyclomatic_complexity: int | None
+    duplication_percent: float | None
+    num_dependencies: int | None
     detected_at: str
-    metadata_json: Optional[str]
+    metadata_json: str | None
 
 class RefactorHistoryRow(TypedDict):
     """Row type for refactor_history table."""
@@ -2118,18 +1898,18 @@ class RefactorHistoryRow(TypedDict):
     timestamp: str
     target_file: str
     refactor_type: str
-    migrations_found: Optional[int]
-    migrations_complete: Optional[int]
-    schema_consistent: Optional[int]
-    validation_status: Optional[str]
-    details_json: Optional[str]
+    migrations_found: int | None
+    migrations_complete: int | None
+    schema_consistent: int | None
+    validation_status: str | None
+    details_json: str | None
 
 class RefsRow(TypedDict):
     """Row type for refs table."""
     src: str
     kind: str
     value: str
-    line: Optional[int]
+    line: int | None
 
 class ResolvedFlowAuditRow(TypedDict):
     """Row type for resolved_flow_audit table."""
@@ -2146,10 +1926,18 @@ class ResolvedFlowAuditRow(TypedDict):
     path_json: str
     flow_sensitive: int
     status: str
-    sanitizer_file: Optional[str]
-    sanitizer_line: Optional[int]
-    sanitizer_method: Optional[str]
+    sanitizer_file: str | None
+    sanitizer_line: int | None
+    sanitizer_method: str | None
     engine: str
+
+class ReturnSourceVarsRow(TypedDict):
+    """Row type for return_source_vars table."""
+    file: str
+    line: int
+    function_name: str
+    source_var: str
+    var_index: int
 
 class RouterMountsRow(TypedDict):
     """Row type for router_mounts table."""
@@ -2157,7 +1945,215 @@ class RouterMountsRow(TypedDict):
     line: int
     mount_path_expr: str
     router_variable: str
-    is_literal: Optional[bool]
+    is_literal: bool | None
+
+class RustAsyncFunctionsRow(TypedDict):
+    """Row type for rust_async_functions table."""
+    file_path: str
+    line: int
+    function_name: str
+    return_type: str | None
+    has_await: bool | None
+    await_count: int | None
+
+class RustAttributesRow(TypedDict):
+    """Row type for rust_attributes table."""
+    file_path: str
+    line: int
+    attribute_name: str
+    args: str | None
+    target_type: str | None
+    target_name: str | None
+    target_line: int | None
+
+class RustAwaitPointsRow(TypedDict):
+    """Row type for rust_await_points table."""
+    file_path: str
+    line: int
+    containing_function: str | None
+    awaited_expression: str | None
+
+class RustEnumVariantsRow(TypedDict):
+    """Row type for rust_enum_variants table."""
+    file_path: str
+    enum_line: int
+    variant_index: int
+    variant_name: str
+    variant_kind: str | None
+    fields_json: str | None
+    discriminant: str | None
+
+class RustEnumsRow(TypedDict):
+    """Row type for rust_enums table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    name: str
+    visibility: str | None
+    generics: str | None
+    derives_json: str | None
+
+class RustExternBlocksRow(TypedDict):
+    """Row type for rust_extern_blocks table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    abi: str | None
+
+class RustExternFunctionsRow(TypedDict):
+    """Row type for rust_extern_functions table."""
+    file_path: str
+    line: int
+    name: str
+    abi: str | None
+    return_type: str | None
+    params_json: str | None
+    is_variadic: bool | None
+
+class RustFunctionsRow(TypedDict):
+    """Row type for rust_functions table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    name: str
+    visibility: str | None
+    is_async: bool | None
+    is_unsafe: bool | None
+    is_const: bool | None
+    is_extern: bool | None
+    abi: str | None
+    return_type: str | None
+    params_json: str | None
+    generics: str | None
+    where_clause: str | None
+
+class RustGenericsRow(TypedDict):
+    """Row type for rust_generics table."""
+    file_path: str
+    parent_line: int
+    parent_type: str
+    param_name: str
+    param_kind: str | None
+    bounds: str | None
+    default_value: str | None
+
+class RustImplBlocksRow(TypedDict):
+    """Row type for rust_impl_blocks table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    target_type_raw: str
+    target_type_resolved: str | None
+    trait_name: str | None
+    trait_resolved: str | None
+    generics: str | None
+    where_clause: str | None
+    is_unsafe: bool | None
+
+class RustLifetimesRow(TypedDict):
+    """Row type for rust_lifetimes table."""
+    file_path: str
+    parent_line: int
+    lifetime_name: str
+    is_static: bool | None
+
+class RustMacroInvocationsRow(TypedDict):
+    """Row type for rust_macro_invocations table."""
+    file_path: str
+    line: int
+    macro_name: str
+    containing_function: str | None
+    args_sample: str | None
+
+class RustMacrosRow(TypedDict):
+    """Row type for rust_macros table."""
+    file_path: str
+    line: int
+    name: str
+    macro_type: str | None
+    visibility: str | None
+
+class RustModulesRow(TypedDict):
+    """Row type for rust_modules table."""
+    file_path: str
+    module_name: str
+    line: int
+    visibility: str | None
+    is_inline: bool | None
+    parent_module: str | None
+
+class RustStructFieldsRow(TypedDict):
+    """Row type for rust_struct_fields table."""
+    file_path: str
+    struct_line: int
+    field_index: int
+    field_name: str | None
+    field_type: str
+    visibility: str | None
+    is_pub: bool | None
+
+class RustStructsRow(TypedDict):
+    """Row type for rust_structs table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    name: str
+    visibility: str | None
+    generics: str | None
+    is_tuple_struct: bool | None
+    is_unit_struct: bool | None
+    derives_json: str | None
+
+class RustTraitMethodsRow(TypedDict):
+    """Row type for rust_trait_methods table."""
+    file_path: str
+    trait_line: int
+    method_line: int
+    method_name: str
+    return_type: str | None
+    params_json: str | None
+    has_default: bool | None
+    is_async: bool | None
+
+class RustTraitsRow(TypedDict):
+    """Row type for rust_traits table."""
+    file_path: str
+    line: int
+    end_line: int | None
+    name: str
+    visibility: str | None
+    generics: str | None
+    supertraits: str | None
+    is_unsafe: bool | None
+    is_auto: bool | None
+
+class RustUnsafeBlocksRow(TypedDict):
+    """Row type for rust_unsafe_blocks table."""
+    file_path: str
+    line_start: int
+    line_end: int | None
+    containing_function: str | None
+    reason: str | None
+    safety_comment: str | None
+    has_safety_comment: bool | None
+    operations_json: str | None
+
+class RustUnsafeTraitsRow(TypedDict):
+    """Row type for rust_unsafe_traits table."""
+    file_path: str
+    line: int
+    trait_name: str
+    impl_type: str | None
+
+class RustUseStatementsRow(TypedDict):
+    """Row type for rust_use_statements table."""
+    file_path: str
+    line: int
+    import_path: str
+    local_name: str
+    canonical_path: str | None
+    is_glob: bool | None
+    visibility: str | None
 
 class SequelizeAssociationsRow(TypedDict):
     """Row type for sequelize_associations table."""
@@ -2166,16 +2162,27 @@ class SequelizeAssociationsRow(TypedDict):
     model_name: str
     association_type: str
     target_model: str
-    foreign_key: Optional[str]
-    through_table: Optional[str]
+    foreign_key: str | None
+    through_table: str | None
+
+class SequelizeModelFieldsRow(TypedDict):
+    """Row type for sequelize_model_fields table."""
+    file: str
+    model_name: str
+    field_name: str
+    data_type: str
+    is_primary_key: int | None
+    is_nullable: int | None
+    is_unique: int | None
+    default_value: str | None
 
 class SequelizeModelsRow(TypedDict):
     """Row type for sequelize_models table."""
     file: str
     line: int
     model_name: str
-    table_name: Optional[str]
-    extends_model: Optional[bool]
+    table_name: str | None
+    extends_model: bool | None
 
 class SqlObjectsRow(TypedDict):
     """Row type for sql_objects table."""
@@ -2205,10 +2212,10 @@ class SymbolsRow(TypedDict):
     type: str
     line: int
     col: int
-    end_line: Optional[int]
-    type_annotation: Optional[str]
-    parameters: Optional[str]
-    is_typed: Optional[bool]
+    end_line: int | None
+    type_annotation: str | None
+    parameters: str | None
+    is_typed: bool | None
 
 class SymbolsJsxRow(TypedDict):
     """Row type for symbols_jsx table."""
@@ -2218,7 +2225,7 @@ class SymbolsJsxRow(TypedDict):
     line: int
     col: int
     jsx_mode: str
-    extraction_pass: Optional[int]
+    extraction_pass: int | None
 
 class TaintFlowsRow(TypedDict):
     """Row type for taint_flows table."""
@@ -2235,38 +2242,60 @@ class TaintFlowsRow(TypedDict):
     path_json: str
     flow_sensitive: int
 
+class TerraformDataSourcesRow(TypedDict):
+    """Row type for terraform_data_sources table."""
+    data_id: str
+    file_path: str
+    data_type: str
+    data_name: str
+    line: int | None
+
 class TerraformFilesRow(TypedDict):
     """Row type for terraform_files table."""
     file_path: str
-    module_name: Optional[str]
-    stack_name: Optional[str]
-    backend_type: Optional[str]
-    providers_json: Optional[str]
-    is_module: Optional[bool]
-    module_source: Optional[str]
+    module_name: str | None
+    stack_name: str | None
+    backend_type: str | None
+    providers_json: str | None
+    is_module: bool | None
+    module_source: str | None
 
 class TerraformFindingsRow(TypedDict):
     """Row type for terraform_findings table."""
     finding_id: str
     file_path: str
-    resource_id: Optional[str]
+    resource_id: str | None
     category: str
     severity: str
     title: str
-    description: Optional[str]
-    graph_context_json: Optional[str]
-    remediation: Optional[str]
-    line: Optional[int]
+    description: str | None
+    graph_context_json: str | None
+    remediation: str | None
+    line: int | None
 
 class TerraformOutputsRow(TypedDict):
     """Row type for terraform_outputs table."""
     output_id: str
     file_path: str
     output_name: str
-    value_json: Optional[str]
-    is_sensitive: Optional[bool]
-    description: Optional[str]
-    line: Optional[int]
+    value_json: str | None
+    is_sensitive: bool | None
+    description: str | None
+    line: int | None
+
+class TerraformResourceDepsRow(TypedDict):
+    """Row type for terraform_resource_deps table."""
+    id: int
+    resource_id: str
+    depends_on_ref: str
+
+class TerraformResourcePropertiesRow(TypedDict):
+    """Row type for terraform_resource_properties table."""
+    id: int
+    resource_id: str
+    property_name: str
+    property_value: str | None
+    is_sensitive: bool | None
 
 class TerraformResourcesRow(TypedDict):
     """Row type for terraform_resources table."""
@@ -2274,49 +2303,46 @@ class TerraformResourcesRow(TypedDict):
     file_path: str
     resource_type: str
     resource_name: str
-    module_path: Optional[str]
-    properties_json: Optional[str]
-    depends_on_json: Optional[str]
-    sensitive_flags_json: Optional[str]
-    has_public_exposure: Optional[bool]
-    line: Optional[int]
+    module_path: str | None
+    has_public_exposure: bool | None
+    line: int | None
 
 class TerraformVariableValuesRow(TypedDict):
     """Row type for terraform_variable_values table."""
     id: int
     file_path: str
     variable_name: str
-    variable_value_json: Optional[str]
-    line: Optional[int]
-    is_sensitive_context: Optional[bool]
+    variable_value_json: str | None
+    line: int | None
+    is_sensitive_context: bool | None
 
 class TerraformVariablesRow(TypedDict):
     """Row type for terraform_variables table."""
     variable_id: str
     file_path: str
     variable_name: str
-    variable_type: Optional[str]
-    default_json: Optional[str]
-    is_sensitive: Optional[bool]
-    description: Optional[str]
-    source_file: Optional[str]
-    line: Optional[int]
+    variable_type: str | None
+    default_json: str | None
+    is_sensitive: bool | None
+    description: str | None
+    source_file: str | None
+    line: int | None
 
 class TypeAnnotationsRow(TypedDict):
     """Row type for type_annotations table."""
     file: str
     line: int
-    column: Optional[int]
+    column: int | None
     symbol_name: str
     symbol_kind: str
-    type_annotation: Optional[str]
-    is_any: Optional[bool]
-    is_unknown: Optional[bool]
-    is_generic: Optional[bool]
-    has_type_params: Optional[bool]
-    type_params: Optional[str]
-    return_type: Optional[str]
-    extends_type: Optional[str]
+    type_annotation: str | None
+    is_any: bool | None
+    is_unknown: bool | None
+    is_generic: bool | None
+    has_type_params: bool | None
+    type_params: str | None
+    return_type: str | None
+    extends_type: str | None
 
 class ValidationFrameworkUsageRow(TypedDict):
     """Row type for validation_framework_usage table."""
@@ -2324,9 +2350,9 @@ class ValidationFrameworkUsageRow(TypedDict):
     line: int
     framework: str
     method: str
-    variable_name: Optional[str]
-    is_validator: Optional[bool]
-    argument_expr: Optional[str]
+    variable_name: str | None
+    is_validator: bool | None
+    argument_expr: str | None
 
 class VariableUsageRow(TypedDict):
     """Row type for variable_usage table."""
@@ -2334,9 +2360,32 @@ class VariableUsageRow(TypedDict):
     line: int
     variable_name: str
     usage_type: str
-    in_component: Optional[str]
-    in_hook: Optional[str]
-    scope_level: Optional[int]
+    in_component: str | None
+    in_hook: str | None
+    scope_level: int | None
+
+class VueComponentEmitsRow(TypedDict):
+    """Row type for vue_component_emits table."""
+    file: str
+    component_name: str
+    emit_name: str
+    payload_type: str | None
+
+class VueComponentPropsRow(TypedDict):
+    """Row type for vue_component_props table."""
+    file: str
+    component_name: str
+    prop_name: str
+    prop_type: str | None
+    is_required: int | None
+    default_value: str | None
+
+class VueComponentSetupReturnsRow(TypedDict):
+    """Row type for vue_component_setup_returns table."""
+    file: str
+    component_name: str
+    return_name: str
+    return_type: str | None
 
 class VueComponentsRow(TypedDict):
     """Row type for vue_components table."""
@@ -2345,22 +2394,19 @@ class VueComponentsRow(TypedDict):
     type: str
     start_line: int
     end_line: int
-    has_template: Optional[bool]
-    has_style: Optional[bool]
-    composition_api_used: Optional[bool]
-    props_definition: Optional[str]
-    emits_definition: Optional[str]
-    setup_return: Optional[str]
+    has_template: bool | None
+    has_style: bool | None
+    composition_api_used: bool | None
 
 class VueDirectivesRow(TypedDict):
     """Row type for vue_directives table."""
     file: str
     line: int
     directive_name: str
-    expression: Optional[str]
-    in_component: Optional[str]
-    has_key: Optional[bool]
-    modifiers: Optional[str]
+    expression: str | None
+    in_component: str | None
+    has_key: bool | None
+    modifiers: str | None
 
 class VueHooksRow(TypedDict):
     """Row type for vue_hooks table."""
@@ -2369,9 +2415,9 @@ class VueHooksRow(TypedDict):
     component_name: str
     hook_name: str
     hook_type: str
-    dependencies: Optional[str]
-    return_value: Optional[str]
-    is_async: Optional[bool]
+    dependencies: str | None
+    return_value: str | None
+    is_async: bool | None
 
 class VueProvideInjectRow(TypedDict):
     """Row type for vue_provide_inject table."""
@@ -2380,5 +2426,5 @@ class VueProvideInjectRow(TypedDict):
     component_name: str
     operation_type: str
     key_name: str
-    value_expr: Optional[str]
-    is_reactive: Optional[bool]
+    value_expr: str | None
+    is_reactive: bool | None

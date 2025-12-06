@@ -1,137 +1,214 @@
-"""GraphQL Mutation Authentication Check - Database-First Approach.
+"""GraphQL Mutation Authentication Detection.
 
-Detects mutations without authentication directives or resolver protections.
-Pure SQL queries - NO file I/O.
+Detects GraphQL mutations that lack authentication directives or
+resolver protection. Unprotected mutations allow unauthorized users
+to modify data, leading to privilege escalation and data tampering.
+
+CWE-306: Missing Authentication for Critical Function
+CWE-862: Missing Authorization
 """
-
-
-import sqlite3
-from dataclasses import dataclass
 
 from theauditor.rules.base import (
     Confidence,
     RuleMetadata,
+    RuleResult,
     Severity,
     StandardFinding,
     StandardRuleContext,
 )
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="graphql_mutation_auth",
     category="security",
-    target_extensions=['.graphql', '.gql', '.graphqls', '.py', '.js', '.ts'],
-    execution_scope='database',
-    requires_jsx_pass=False
+    target_extensions=[".graphql", ".gql", ".graphqls", ".py", ".js", ".ts"],
+    exclude_patterns=["node_modules/", ".venv/", "test/", "__pycache__/"],
+    execution_scope="database",
+    primary_table="graphql_fields",
 )
 
 
-@dataclass(frozen=True)
-class MutationAuthPatterns:
-    """Authentication directive and decorator patterns."""
+AUTH_DIRECTIVES = frozenset(
+    [
+        "auth",
+        "authenticated",
+        "requireauth",
+        "require_auth",
+        "authorize",
+        "authorized",
+        "protected",
+        "secure",
+        "isauthenticated",
+        "is_authenticated",
+        "login_required",
+        "permission",
+        "role",
+        "hasrole",
+        "has_role",
+    ]
+)
 
-    AUTH_DIRECTIVES = frozenset([
-        '@auth', '@authenticated', '@requireAuth', '@authorize',
-        '@protected', '@secure', '@isAuthenticated', '@authenticated'
-    ])
 
-    AUTH_DECORATORS = frozenset([
-        'auth_required', 'login_required', 'authenticated',
-        'requireAuth', 'require_auth', 'authorize', 'protected'
-    ])
+PUBLIC_MUTATIONS = frozenset(
+    [
+        "login",
+        "signin",
+        "sign_in",
+        "signup",
+        "sign_up",
+        "register",
+        "createaccount",
+        "create_account",
+        "forgotpassword",
+        "forgot_password",
+        "resetpassword",
+        "reset_password",
+        "verifyemail",
+        "verify_email",
+        "refreshtoken",
+        "refresh_token",
+    ]
+)
 
 
-def check_mutation_auth(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Check for mutations without authentication.
 
-    Strategy:
-    1. Find all Mutation type fields from graphql_fields
-    2. Check for @auth directives in directives_json
-    3. Check if resolver has authentication decorators
-    4. Report mutations without protection
+    Identifies GraphQL mutation fields that lack authentication
+    directives like @auth, @authenticated, @protected, etc.
 
-    NO FALLBACKS. Database must exist.
+    Args:
+        context: Rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
     """
     if not context.db_path:
-        return []
+        return RuleResult(findings=[], manifest={})
 
-    findings = []
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = []
 
-    # Find Mutation type
-    cursor.execute("""
-        SELECT type_id
-        FROM graphql_types
-        WHERE type_name = 'Mutation'
-    """)
-
-    mutation_type = cursor.fetchone()
-    if not mutation_type:
-        return findings  # No Mutation type defined
-
-    mutation_type_id = mutation_type['type_id']
-
-    # Get all mutation fields
-    cursor.execute("""
-        SELECT field_id, field_name, directives_json, line
-        FROM graphql_fields
-        WHERE type_id = ?
-    """, (mutation_type_id,))
-
-    for field_row in cursor.fetchall():
-        field_id = field_row['field_id']
-        field_name = field_row['field_name']
-        directives_json = field_row['directives_json']
-        line = field_row['line'] or 0
-
-        # Check for auth directive on field
-        has_auth_directive = False
-        if directives_json:
-            import json
-            try:
-                directives = json.loads(directives_json)
-                for directive in directives:
-                    if any(auth_dir in directive.get('name', '') for auth_dir in MutationAuthPatterns.AUTH_DIRECTIVES):
-                        has_auth_directive = True
-                        break
-            except json.JSONDecodeError:
-                pass
-
-        if has_auth_directive:
-            continue  # Field has auth directive, skip
-
-        # Check if resolver mapping exists (simplified - no auth decorator check for now)
-        # Note: symbols table has composite PK, so JOIN would need (path, name, type, line, col)
-        # For MVP, we just check if a resolver is mapped - full implementation would check decorators
-        cursor.execute("""
-            SELECT resolver_path
-            FROM graphql_resolver_mappings
-            WHERE field_id = ?
-        """, (field_id,))
-
-        # Skip checking resolver decorators for MVP - would need decorator analysis
-        # which requires GraphQL build command to run first
-        cursor.fetchone()  # Consume result
-
-        # No authentication found - report
-        finding = StandardFinding(
-            rule_name="graphql_mutation_auth",
-            message=f"Mutation '{field_name}' lacks authentication directive or resolver protection",
-            file_path=str(context.file_path),
-            line=line,
-            severity=Severity.HIGH,
-            category="security",
-            confidence=Confidence.MEDIUM,
-            snippet="",
-            cwe_id="CWE-306",
-            additional_info={
-                "field_name": field_name,
-                "type": "Mutation",
-                "recommendation": "Add @auth/@authenticated directive or protect resolver with authentication decorator"
-            }
+        rows = db.query(
+            Q("graphql_fields")
+            .select(
+                "graphql_fields.field_id",
+                "graphql_fields.field_name",
+                "graphql_fields.line",
+                "graphql_types.schema_path",
+            )
+            .join("graphql_types", on=[("type_id", "type_id")])
+            .where("graphql_types.type_name = ?", "Mutation")
         )
-        findings.append(finding)
 
-    conn.close()
-    return findings
+        for row in rows:
+            field_id, field_name, line, schema_path = row
+
+            if field_name and field_name.lower() in PUBLIC_MUTATIONS:
+                continue
+
+            directive_rows = db.query(
+                Q("graphql_field_directives")
+                .select("directive_name")
+                .where("field_id = ?", field_id)
+            )
+
+            has_auth_directive = any(
+                any(auth in (directive_name or "").lower() for auth in AUTH_DIRECTIVES)
+                for (directive_name,) in directive_rows
+            )
+
+            if has_auth_directive:
+                continue
+
+            resolver_rows = db.query(
+                Q("graphql_resolver_mappings")
+                .select("resolver_path", "resolver_line")
+                .where("field_id = ?", field_id)
+            )
+
+            resolver_protected = False
+            for resolver_path, resolver_line in resolver_rows:
+                if not resolver_path:
+                    continue
+
+                decorator_rows = db.query(
+                    Q("function_call_args")
+                    .select("callee_function")
+                    .where("file = ?", resolver_path)
+                    .where("line >= ?", max(1, resolver_line - 5))
+                    .where("line <= ?", resolver_line)
+                )
+                for (callee,) in decorator_rows:
+                    if callee and any(auth in callee.lower() for auth in AUTH_DIRECTIVES):
+                        resolver_protected = True
+                        break
+                if resolver_protected:
+                    break
+
+            if resolver_protected:
+                continue
+
+            manual_auth_found = False
+            for resolver_path, resolver_line in resolver_rows:
+                if not resolver_path:
+                    continue
+
+                condition_rows = db.query(
+                    Q("cfg_blocks")
+                    .select("condition")
+                    .where("file = ?", resolver_path)
+                    .where("start_line >= ?", resolver_line)
+                    .where("start_line <= ?", resolver_line + 50)
+                    .where("block_type = ?", "if")
+                )
+                for (condition,) in condition_rows:
+                    if condition:
+                        cond_lower = condition.lower()
+
+                        if any(
+                            auth_var in cond_lower
+                            for auth_var in [
+                                "context.user",
+                                "request.user",
+                                "current_user",
+                                "is_authenticated",
+                                "user.is_authenticated",
+                                "not user",
+                                "not context.user",
+                                "not request.user",
+                                "user is none",
+                                "user == none",
+                                "user is not none",
+                                ".has_permission",
+                                ".is_staff",
+                                ".is_superuser",
+                            ]
+                        ):
+                            manual_auth_found = True
+                            break
+                if manual_auth_found:
+                    break
+
+            if manual_auth_found:
+                continue
+
+            findings.append(
+                StandardFinding(
+                    rule_name=METADATA.name,
+                    message=f"Mutation '{field_name}' lacks authentication directive or resolver protection",
+                    file_path=schema_path or "",
+                    line=line or 0,
+                    severity=Severity.HIGH,
+                    category=METADATA.category,
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-306",
+                    additional_info={
+                        "mutation": field_name,
+                        "recommendation": "Add @auth, @authenticated, or @protected directive, or protect resolver with authentication decorator",
+                    },
+                )
+            )
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())

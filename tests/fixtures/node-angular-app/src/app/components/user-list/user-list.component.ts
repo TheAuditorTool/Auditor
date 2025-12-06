@@ -1,17 +1,19 @@
-/**
- * User List Component
- * Tests: @Component decorator, @Input/@Output, template, lifecycle hooks, DI
- */
-
-import { Component, OnInit, OnDestroy, Input, Output, EventEmitter } from '@angular/core';
-import { Subject, takeUntil } from 'rxjs';
-import { UserService } from '../../services/user.service';
-import { User } from '../../models/user.model';
+import {
+  Component,
+  OnInit,
+  OnDestroy,
+  Input,
+  Output,
+  EventEmitter,
+} from "@angular/core";
+import { Subject, takeUntil } from "rxjs";
+import { UserService } from "../../services/user.service";
+import { User } from "../../models/user.model";
 
 @Component({
-  selector: 'app-user-list',
-  templateUrl: './user-list.component.html',
-  styleUrls: ['./user-list.component.css']
+  selector: "app-user-list",
+  templateUrl: "./user-list.component.html",
+  styleUrls: ["./user-list.component.css"],
 })
 export class UserListComponent implements OnInit, OnDestroy {
   @Input() filters: any;
@@ -47,7 +49,7 @@ export class UserListComponent implements OnInit, OnDestroy {
         error: (err) => {
           this.error = err.message;
           this.loading = false;
-        }
+        },
       });
   }
 
@@ -64,7 +66,7 @@ export class UserListComponent implements OnInit, OnDestroy {
           this.userDeleted.emit(userId);
           this.loadUsers();
         },
-        error: (err) => (this.error = err.message)
+        error: (err) => (this.error = err.message),
       });
   }
 }

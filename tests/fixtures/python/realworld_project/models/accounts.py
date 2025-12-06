@@ -1,6 +1,5 @@
 """Account and profile models with rich relationship metadata."""
 
-
 from datetime import datetime
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String

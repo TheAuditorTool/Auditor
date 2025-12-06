@@ -1,702 +1,391 @@
-"""Explain TheAuditor concepts and terminology."""
+"""Explain command - comprehensive context for files, symbols, and components.
+
+Provides AI-optimized briefing packet for any code target in a single command.
+Replaces the need to run 5-6 separate queries or read entire files.
+
+NO EMOJIS: Windows Command Prompt uses CP1252 encoding which cannot
+handle emoji characters. All output uses plain ASCII only.
+
+Usage:
+    aud explain src/auth.ts           # File context
+    aud explain authenticateUser      # Symbol context
+    aud explain Dashboard             # React component context
+    aud explain --format json file.py # JSON output for AI
+"""
+
+import json
+import time
+from pathlib import Path
 
 import click
-from typing import Dict
-
-
-# Concept explanations database
-EXPLANATIONS: Dict[str, Dict[str, str]] = {
-    "taint": {
-        "title": "Taint Analysis",
-        "summary": "Tracks untrusted data flow from sources to dangerous sinks",
-        "explanation": """
-Taint analysis is a security technique that tracks how untrusted data (tainted data)
-flows through a program to potentially dangerous operations (sinks).
-
-CONCEPTS:
-- Source: Where untrusted data enters (user input, network, files)
-- Sink: Dangerous operations (SQL queries, system commands, file writes)
-- Taint: The property of being untrusted/contaminated
-- Propagation: How taint spreads through assignments and function calls
-
-HOW IT WORKS:
-1. Identify taint sources (e.g., request.body, input())
-2. Track data flow through variables and functions
-3. Check if tainted data reaches dangerous sinks
-4. Report potential vulnerabilities
-
-EXAMPLE VULNERABILITY:
-    user_input = request.body.get('name')  # SOURCE: User input is tainted
-    query = f"SELECT * FROM users WHERE name = '{user_input}'"  # Taint propagates
-    db.execute(query)  # SINK: SQL injection vulnerability!
-
-WHAT THEAUDITOR DETECTS:
-- SQL Injection (tainted data → SQL query)
-- Command Injection (tainted data → system command)
-- XSS (tainted data → HTML output)
-- Path Traversal (tainted data → file path)
-- LDAP/NoSQL Injection
-
-USE THE COMMAND:
-    aud taint-analyze                  # Full taint analysis
-    aud taint-analyze --severity high  # Only high severity issues
-"""
-    },
-    "workset": {
-        "title": "Workset",
-        "summary": "A focused subset of files for targeted analysis",
-        "explanation": """
-A workset is TheAuditor's mechanism for focusing analysis on specific files
-rather than the entire codebase. This dramatically improves performance and
-relevance when working on specific features or reviewing changes.
-
-WHAT IT CONTAINS:
-- Seed files: Directly changed or selected files
-- Expanded files: Dependencies that could be affected
-- Transitive dependencies: Multi-hop relationships
-
-WHY USE WORKSETS:
-1. Performance: Analyze 10 files instead of 1000 (100x faster)
-2. Relevance: Focus on what actually changed
-3. CI/CD: Only check modified code in pull requests
-4. Incremental: Build on previous analysis
-
-HOW IT WORKS:
-1. Identify seed files (from git diff, patterns, or manual selection)
-2. Trace dependencies using the symbol database
-3. Expand to include all potentially affected files
-4. Save as .pf/workset.json for other commands to use
-
-EXAMPLE WORKFLOW:
-    aud workset --diff HEAD~1          # What changed in last commit?
-    aud lint --workset                 # Lint only those files
-    aud taint-analyze --workset        # Security check changed code
-
-WORKSET STRATEGIES:
-- Git-based: --diff main..feature
-- Pattern-based: --include "*/api/*"
-- Manual: --files auth.py user.py
-- Everything: --all
-"""
-    },
-    "fce": {
-        "title": "Factual Correlation Engine",
-        "summary": "Correlates findings from multiple tools to detect compound vulnerabilities",
-        "explanation": """
-The Factual Correlation Engine (FCE) is TheAuditor's advanced analysis system
-that identifies when multiple seemingly minor issues combine to create serious
-vulnerabilities. It's like a security expert who sees the bigger picture.
-
-THE PROBLEM FCE SOLVES:
-Individual tools often miss complex vulnerabilities because they analyze in
-isolation. For example:
-- Tool A finds: "User input not validated"
-- Tool B finds: "SQL query uses string concatenation"
-- Tool C finds: "No prepared statements"
-Each finding alone might be "low severity", but together they indicate
-a critical SQL injection vulnerability.
-
-HOW FCE WORKS:
-1. Loads findings from all analysis tools
-2. Applies 26 correlation rules
-3. Identifies matching patterns across tools
-4. Elevates severity when patterns combine
-5. Provides evidence chain for each finding
-
-EXAMPLE CORRELATION:
-    Rule: "Authentication Bypass"
-    Evidence Required:
-    - Missing authentication check (from patterns)
-    - Exposed endpoint (from graph analysis)
-    - No rate limiting (from lint)
-    Result: Critical vulnerability - unrestricted access to protected resources
-
-CORRELATION CATEGORIES:
-- Authentication & Authorization (missing auth + exposed endpoints)
-- Injection Attacks (user input + dangerous operations)
-- Data Exposure (debug mode + sensitive data)
-- Infrastructure (misconfigurations + known CVEs)
-- Code Quality (high complexity + no tests = hidden bugs)
-
-VALUE OF FCE:
-- Finds vulnerabilities that single tools miss
-- Reduces false positives through cross-validation
-- Provides complete evidence for each finding
-- Prioritizes real risks over theoretical issues
-"""
-    },
-    "cfg": {
-        "title": "Control Flow Graph",
-        "summary": "Maps all possible execution paths through functions",
-        "explanation": """
-A Control Flow Graph (CFG) represents all possible paths that program execution
-might take through a function. It's essential for understanding code complexity
-and finding bugs.
-
-WHAT IS A CFG:
-- Nodes: Basic blocks (sequences of instructions without branches)
-- Edges: Possible transitions between blocks
-- Entry: Where function execution starts
-- Exit: Where function returns
-
-WHY CFG MATTERS:
-1. Complexity Analysis: More paths = harder to test and understand
-2. Dead Code Detection: Blocks with no incoming edges
-3. Security Analysis: Complex functions hide vulnerabilities
-4. Test Coverage: Ensures all paths are tested
-
-CYCLOMATIC COMPLEXITY:
-The number of independent paths through a function.
-Formula: M = E - N + 2P (Edges - Nodes + 2*Components)
-
-Complexity Guidelines:
-  1-10:  Simple, easy to test
-  11-20: Moderate complexity, needs careful testing
-  21-50: High complexity, should be refactored
-  50+:   Very high risk, almost impossible to test fully
-
-EXAMPLE CFG:
-    def process(x):
-        if x > 0:        # Branch node
-            x = x * 2    # Block 1
-        else:
-            x = -x       # Block 2
-        return x         # Merge node
-
-This creates 2 independent paths with complexity of 2.
-
-THEAUDITOR'S CFG ANALYSIS:
-    aud cfg analyze                           # Find complex functions
-    aud cfg analyze --find-dead-code          # Find unreachable code
-    aud cfg viz --function process            # Visualize CFG
-
-USE CASES:
-- Code review: Identify overly complex functions
-- Testing: Calculate paths to cover
-- Refactoring: Find functions to simplify
-- Security: Complex code hides bugs
-"""
-    },
-    "impact": {
-        "title": "Impact Analysis",
-        "summary": "Measures the blast radius of code changes",
-        "explanation": """
-Impact analysis determines what parts of your codebase would be affected if
-you change a specific function or class. It's like asking "what breaks if I
-change this?"
-
-IMPACT DIMENSIONS:
-1. Upstream Impact: Who depends on this code?
-   - Direct callers
-   - Indirect callers (transitive)
-   - Test files that test this code
-
-2. Downstream Impact: What does this code depend on?
-   - Direct dependencies
-   - Indirect dependencies (transitive)
-   - External libraries
-
-3. Total Blast Radius: All affected files
-
-HOW IT WORKS:
-1. Identify target symbol at specified line
-2. Query symbol database for relationships
-3. Traverse dependency graph in both directions
-4. Calculate transitive closure
-5. Assess risk level
-
-RISK ASSESSMENT:
-- Low Impact: < 5 files affected (safe to change)
-- Medium Impact: 5-20 files (review carefully)
-- High Impact: > 20 files (dangerous change, extensive testing needed)
-
-EXAMPLE ANALYSIS:
-    aud impact --file auth.py --line 42
-
-    Results:
-    - Target: authenticate_user() function
-    - Upstream: 15 files call this function
-    - Downstream: Function uses 8 dependencies
-    - Total Impact: 23 files
-    - Risk: HIGH - extensive testing required
-
-USE CASES:
-1. Before Refactoring: Understand scope of changes
-2. API Changes: See who uses the endpoint
-3. Bug Fixes: Find all affected code paths
-4. Dead Code: If upstream is empty, code might be unused
-5. Architecture: Identify highly coupled code
-
-CROSS-STACK ANALYSIS:
-With --trace-to-backend, TheAuditor can trace:
-- Frontend API calls to backend endpoints
-- Database queries to their users
-- Message queue producers to consumers
-"""
-    },
-    "pipeline": {
-        "title": "Analysis Pipeline",
-        "summary": "TheAuditor's 4-stage optimized execution pipeline",
-        "explanation": """
-The pipeline is TheAuditor's orchestrated execution system that runs multiple
-analysis tools in an optimized sequence with intelligent parallelization.
-
-THE 4-STAGE PIPELINE:
-
-STAGE 1: FOUNDATION (Sequential)
-Must complete first to provide data for other stages:
-- index: Build symbol database (all tools need this)
-- detect-frameworks: Identify Django, Flask, React, etc.
-
-STAGE 2: DATA PREPARATION (Sequential)
-Prepares data structures for parallel analysis:
-- workset: Identify target files
-- graph build: Construct dependency graphs
-- cfg: Extract control flow graphs
-
-STAGE 3: HEAVY ANALYSIS (3 Parallel Tracks)
-Track A: Taint Analysis (isolated for performance)
-  - Runs in separate process/memory space
-  - Most memory-intensive operation
-
-Track B: Static Analysis
-  - lint: Run code quality checks
-  - detect-patterns: Security pattern matching
-  - graph analyze: Find cycles and hotspots
-
-Track C: Network I/O (skippable with --offline)
-  - deps: Check dependencies
-  - docs: Fetch documentation
-
-STAGE 4: AGGREGATION (Sequential)
-Combines findings from all previous stages:
-- fce: Correlate findings across tools
-- report: Generate final output
-
-WHY THIS DESIGN:
-1. Dependencies: Each stage needs data from previous stages
-2. Performance: Parallel tracks reduce total time by 3x
-3. Memory: Taint analysis isolated to prevent OOM
-4. Flexibility: Can skip stages with flags
-
-PERFORMANCE CHARACTERISTICS:
-Small project (<5K LOC):      ~2 minutes
-Medium project (20K LOC):     ~10 minutes
-Large monorepo (100K+ LOC):   ~30-60 minutes
-
-CACHING:
-Second run is 5-10x faster due to:
-- AST cache (.pf/.ast_cache/)
-- Symbol database (repo_index.db)
-- Incremental analysis with worksets
-"""
-    },
-    "severity": {
-        "title": "Severity Levels",
-        "summary": "How TheAuditor classifies finding importance",
-        "explanation": """
-TheAuditor uses a 4-level severity system aligned with industry standards
-like CVSS and CWE to prioritize security findings and code issues.
-
-SEVERITY LEVELS:
-
-CRITICAL (Exit Code 2)
-Immediate security risk requiring emergency response:
-- Remote Code Execution (RCE)
-- SQL Injection with user input
-- Authentication bypass
-- Hardcoded secrets in code
-- Command injection vulnerabilities
-Action: Block deployment, fix immediately
-
-HIGH (Exit Code 1)
-Serious vulnerabilities requiring prompt attention:
-- Cross-Site Scripting (XSS)
-- Path traversal attacks
-- Weak cryptography
-- Missing authentication
-- Insecure deserialization
-Action: Fix before next release
-
-MEDIUM (Exit Code 0, but reported)
-Potential issues requiring investigation:
-- Missing input validation
-- Information disclosure
-- Weak password policies
-- Missing security headers
-- Resource exhaustion risks
-Action: Schedule for next sprint
-
-LOW (Exit Code 0)
-Code quality and minor security concerns:
-- Code complexity issues
-- Missing error handling
-- Deprecated functions
-- Performance problems
-- Style violations
-Action: Fix during refactoring
-
-HOW SEVERITY IS DETERMINED:
-1. Exploitability: How easy to exploit?
-2. Impact: What's the damage potential?
-3. Confidence: How certain is the finding?
-4. Context: Framework-specific considerations
-
-SEVERITY ESCALATION:
-The FCE can escalate severity when patterns combine:
-- Low + Low can become High
-- Medium + Medium can become Critical
-
-Example: "Debug mode" (low) + "Exposes secrets" (medium) = Critical
-
-FILTERING BY SEVERITY:
-    aud taint-analyze --severity critical   # Only critical issues
-    aud full --quiet                       # Exit code indicates severity
-"""
-    },
-    "patterns": {
-        "title": "Pattern Detection",
-        "summary": "Security vulnerability patterns TheAuditor can detect",
-        "explanation": """
-Pattern detection is TheAuditor's rule-based system for finding security
-vulnerabilities and code quality issues using both regex patterns and
-Abstract Syntax Tree (AST) analysis.
-
-DETECTION METHODS:
-
-1. REGEX PATTERNS (Fast)
-   Simple text matching for obvious issues:
-   - Hardcoded passwords: password = "admin123"
-   - API keys: api_key = "sk_live_..."
-   - Debug flags: DEBUG = True
-
-2. AST PATTERNS (Accurate)
-   Semantic understanding of code structure:
-   - SQL injection in string concatenation
-   - Unsafe deserialization
-   - Missing authentication decorators
-
-PATTERN CATEGORIES:
-
-Authentication & Authorization:
-- Hardcoded credentials
-- Weak password validation
-- Missing authentication checks
-- Insecure session management
-- JWT vulnerabilities
-
-Injection Attacks:
-- SQL injection patterns
-- Command injection risks
-- XSS vulnerabilities
-- Template injection
-- LDAP/NoSQL injection
-
-Data Security:
-- Exposed sensitive data
-- Weak cryptography (MD5, SHA1)
-- Insecure random generation
-- Missing encryption
-- Data leakage in logs
-
-Infrastructure:
-- Debug mode enabled
-- CORS misconfiguration
-- Missing security headers
-- Exposed admin panels
-- Insecure file uploads
-
-Code Quality:
-- Empty catch blocks
-- Infinite loops
-- Race conditions
-- Resource leaks
-- Dead code
-
-PATTERN FILES:
-Located in theauditor/patterns/*.yaml
-Each pattern includes:
-- pattern: Regex or AST pattern
-- message: What was found
-- severity: critical/high/medium/low
-- cwe: Common Weakness Enumeration ID
-
-CUSTOM PATTERNS:
-You can add custom patterns for your organization:
-1. Create YAML file in patterns/
-2. Define pattern, severity, message
-3. Run detect-patterns to use
-
-PERFORMANCE:
-- Regex only: Very fast (<30 seconds)
-- With AST: 2-3x slower but more accurate
-- Default: Both methods for comprehensive analysis
-"""
-    },
-    "insights": {
-        "title": "Insights System",
-        "summary": "Optional interpretation layer that adds scoring to raw facts",
-        "explanation": """
-The Insights System is TheAuditor's optional interpretation layer that sits
-ON TOP of factual data. It's the crucial distinction between reporting facts
-and adding judgments about those facts.
-
-TWO-LAYER ARCHITECTURE:
-
-1. TRUTH COURIERS (Core Modules):
-   Report verifiable facts WITHOUT judgment:
-   - "Data flows from req.body to res.send"
-   - "Function complexity is 47"
-   - "17 circular dependencies detected"
-   - "Password field has no validation"
-
-2. INSIGHTS (Optional Interpretation):
-   Add scoring, severity, and predictions:
-   - "This is CRITICAL severity XSS"
-   - "Health score: 35/100 - Needs refactoring"
-   - "Risk prediction: 87% chance of vulnerabilities"
-   - "Recommend immediate review"
-
-AVAILABLE INSIGHTS MODULES:
-
-Machine Learning (theauditor/insights/ml.py):
-- Trains on your codebase patterns
-- Predicts vulnerability likelihood
-- Identifies high-risk files
-- Suggests review priorities
-- Requires: pip install -e ".[ml]"
-
-Graph Health (theauditor/insights/graph.py):
-- Calculates architecture health scores
-- Grades codebase quality (A-F)
-- Identifies hotspots and bottlenecks
-- Recommends refactoring targets
-
-Taint Severity (theauditor/insights/taint.py):
-- Adds CVSS-like severity scores
-- Classifies vulnerability types
-- Calculates exploitability risk
-- Prioritizes security fixes
-
-WHY SEPARATION MATTERS:
-
-Facts are universal:
-- "SQL query concatenates user input" - FACT
-- Everyone agrees this happens
-
-Interpretations are contextual:
-- "This is CRITICAL" - OPINION
-- Depends on your threat model
-- Varies by organization
-
-USING INSIGHTS:
-    aud insights                    # Run all insights
-    aud insights --mode ml          # ML predictions only
-    aud insights --mode graph       # Architecture health
-    aud insights --print-summary    # Show results in terminal
-
-OUTPUT STRUCTURE:
-.pf/
-├── raw/               # Immutable facts (truth)
-└── insights/          # Interpretations (opinions)
-    ├── ml_suggestions.json
-    ├── graph_health.json
-    └── taint_severity.json
-
-PHILOSOPHY:
-TheAuditor deliberately separates facts from interpretations because:
-1. Facts are objective - the code does what it does
-2. Severity is subjective - risk tolerance varies
-3. AI needs both - facts for accuracy, insights for prioritization
-
-The core system will NEVER tell you something is "critical" or "needs fixing."
-It only reports what IS. The insights layer adds what it MEANS.
-"""
-    }
+from rich.panel import Panel
+from rich.table import Table
+
+from theauditor.cli import RichCommand
+from theauditor.context.explain_formatter import ExplainFormatter
+from theauditor.context.query import CodeQueryEngine
+from theauditor.fce import FCEQueryEngine
+from theauditor.fce.formatter import FCEFormatter
+from theauditor.pipeline.ui import console, err_console
+from theauditor.utils.code_snippets import CodeSnippetManager
+from theauditor.utils.error_handler import handle_exceptions
+
+FILE_EXTENSIONS = {
+    ".ts",
+    ".tsx",
+    ".js",
+    ".jsx",
+    ".py",
+    ".rs",
+    ".go",
+    ".java",
+    ".vue",
+    ".rb",
+    ".php",
 }
 
 
-@click.command("explain")
-@click.argument("concept", required=False)
-@click.option("--list", "list_concepts", is_flag=True, help="List all available concepts")
-def explain(concept, list_concepts):
-    """Interactive documentation for TheAuditor concepts, terminology, and security analysis techniques.
+def detect_target_type(target: str, engine: CodeQueryEngine) -> str:
+    """Detect whether target is a file, symbol, or component.
 
-    Built-in reference system that explains security concepts, analysis methodologies, and tool-specific
-    terminology through detailed, example-rich explanations optimized for learning. Covers 9 core topics
-    from taint analysis to pipeline architecture, each with practical examples and related commands.
+    Algorithm:
+    1. If ends with known extension -> 'file'
+    2. If contains '.' with uppercase start -> 'symbol' (Class.method)
+    3. If PascalCase and in react_components -> 'component'
+    4. Default -> 'symbol'
 
-    AI ASSISTANT CONTEXT:
-      Purpose: Provide interactive documentation for TheAuditor concepts
-      Input: Concept name (taint, workset, fce, cfg, etc.)
-      Output: Terminal-formatted explanation with examples
-      Prerequisites: None (standalone documentation)
-      Integration: Referenced throughout other command help texts
-      Performance: Instant (no I/O, pure string formatting)
+    Args:
+        target: User-provided target string
+        engine: CodeQueryEngine for component lookup
 
-    AVAILABLE CONCEPTS (9 topics):
-      taint:
-        - Data flow tracking from untrusted sources to dangerous sinks
-        - Detects SQL injection, XSS, command injection
-        - Example: user_input → query string → database execution
-
-      workset:
-        - Focused file subset for targeted analysis (10-100x faster)
-        - Git diff integration for PR review workflows
-        - Dependency expansion algorithm
-
-      fce:
-        - Feed-forward Correlation Engine for compound risk detection
-        - Combines static analysis + git churn + test coverage
-        - Identifies hot spots (high churn + low coverage + vulnerabilities)
-
-      cfg:
-        - Control Flow Graphs for complexity and reachability analysis
-        - Cyclomatic complexity calculation
-        - Dead code detection via unreachable blocks
-
-      impact:
-        - Change impact analysis (blast radius)
-        - Transitive dependency tracking
-        - PR risk assessment
-
-      pipeline:
-        - Execution stages (index → analyze → correlate → report)
-        - Tool orchestration and data flow
-        - .pf/ directory structure
-
-      severity:
-        - Finding classification (CRITICAL/HIGH/MEDIUM/LOW)
-        - CVSS scoring integration
-        - Severity promotion rules
-
-      patterns:
-        - Pattern detection system architecture
-        - 2000+ built-in security rules
-        - Custom pattern authoring
-
-      insights:
-        - ML-powered risk prediction
-        - Historical learning from audit runs
-        - Root cause vs symptom classification
-
-    HOW IT WORKS (Documentation Lookup):
-      1. Concept Validation:
-         - Checks if concept exists in EXPLANATIONS dict
-         - Shows available concepts if not found
-
-      2. Explanation Retrieval:
-         - Loads detailed explanation from internal database
-         - Includes: title, summary, full explanation, examples
-
-      3. Formatting:
-         - Terminal-optimized layout with sections
-         - Syntax highlighting for code examples
-         - Links to related commands
-
-    EXAMPLES:
-      # Use Case 1: Learn about taint analysis
-      aud explain taint
-
-      # Use Case 2: Understand workset concept
-      aud explain workset
-
-      # Use Case 3: List all available topics
-      aud explain --list
-
-      # Use Case 4: Understand FCE correlation
-      aud explain fce
-
-    COMMON WORKFLOWS:
-      Before First Analysis:
-        aud explain pipeline      # Understand execution flow
-        aud explain taint         # Learn security analysis
-        aud init && aud full
-
-      Understanding Command Output:
-        aud taint-analyze
-        aud explain taint         # Learn what taint findings mean
-
-      Troubleshooting Performance:
-        aud explain workset       # Learn optimization techniques
-        aud workset --diff HEAD
-
-    OUTPUT FORMAT (Terminal Display):
-      CONCEPT: Taint Analysis
-      ----------------------------------------
-      SUMMARY: Tracks untrusted data flow from sources to dangerous sinks
-
-      EXPLANATION:
-      Taint analysis is a security technique that tracks how untrusted data...
-      [Detailed multi-paragraph explanation with examples]
-
-      USE THE COMMAND:
-        aud taint-analyze
-        aud taint-analyze --severity high
-
-    PERFORMANCE EXPECTATIONS:
-      Instant: <1ms (pure string formatting, no I/O)
-
-    FLAG INTERACTIONS:
-      --list: Shows all 9 available concepts with one-line summaries
-
-    PREREQUISITES:
-      None (standalone documentation, works offline)
-
-    EXIT CODES:
-      0 = Success, explanation displayed
-      1 = Unknown concept (use --list to see available)
-
-    RELATED COMMANDS:
-      All commands reference specific concepts in their help text
-      Use 'aud <command> --help' for command-specific documentation
-
-    SEE ALSO:
-      TheAuditor documentation: docs/
-      Online docs: https://github.com/user/theauditor
-
-    TROUBLESHOOTING:
-      Concept not found:
-        -> Use 'aud explain --list' to see all available concepts
-        -> Check spelling (case-sensitive: 'taint' not 'Taint')
-        -> Some advanced concepts may not have explanations yet
-
-      Output formatting issues:
-        -> Terminal width <80 chars may cause wrapping
-        -> Use terminal with proper UTF-8 support
-        -> Pipe to 'less' for scrolling: aud explain fce | less
-
-    NOTE: Explanations are embedded in the CLI for offline use. They cover
-    core concepts but not every command detail - use --help on specific commands
-    for comprehensive usage information.
+    Returns:
+        One of: 'file', 'symbol', 'component'
     """
 
-    if list_concepts:
-        click.echo("\nAvailable concepts to explain:\n")
-        for key, info in EXPLANATIONS.items():
-            click.echo(f"  {key:12} - {info['summary']}")
-        click.echo("\nUse 'aud explain <concept>' for detailed information.")
+    for ext in FILE_EXTENSIONS:
+        if target.endswith(ext):
+            return "file"
+
+    if "/" in target or "\\" in target:
+        return "file"
+
+    if "." in target and target[0].isupper():
+        return "symbol"
+
+    if target and target[0].isupper() and len(target) > 1:
+        component = engine.get_component_tree(target)
+        if not isinstance(component, dict) or "error" not in component:
+            return "component"
+
+    return "symbol"
+
+
+@click.command(cls=RichCommand)
+@click.argument("target", required=False)
+@click.option(
+    "--depth", default=1, type=int, help="Call graph depth for callers/callees (1-5, default=1)"
+)
+@click.option(
+    "--format",
+    "output_format",
+    default="text",
+    type=click.Choice(["text", "json"]),
+    help="Output format: text (human), json (AI)",
+)
+@click.option(
+    "--section",
+    default="all",
+    type=click.Choice(["all", "symbols", "hooks", "deps", "callers", "callees"]),
+    help="Show only specific section",
+)
+@click.option("--no-code", is_flag=True, help="Disable code snippets (faster output)")
+@click.option("--limit", default=20, type=int, help="Max items per section (default=20)")
+@click.option(
+    "--fce", is_flag=True, help="Include FCE vector signal density (convergence analysis)"
+)
+@handle_exceptions
+def explain(
+    target: str, depth: int, output_format: str, section: str, no_code: bool, limit: int, fce: bool
+):
+    """Get comprehensive context about a file, symbol, or component.
+
+    Provides a complete "briefing packet" in ONE command, eliminating the need
+    to run multiple queries or read entire files. Optimized for AI workflows.
+
+    TARGET can be:
+
+    \b
+      File path:     aud explain src/auth.ts
+      Symbol:        aud explain authenticateUser
+      Class.method:  aud explain UserController.create
+      Component:     aud explain Dashboard
+
+    \b
+    WHAT IT RETURNS:
+
+      For files:
+        - SYMBOLS DEFINED: All functions, classes, variables with line numbers
+        - HOOKS USED: React/Vue hooks (if applicable)
+        - DEPENDENCIES: Files imported by this file
+        - DEPENDENTS: Files that import this file
+        - OUTGOING CALLS: Functions called from this file
+        - INCOMING CALLS: Functions in this file called elsewhere
+
+      For symbols:
+        - DEFINITION: File, line, type, signature
+        - CALLERS: Who calls this symbol
+        - CALLEES: What this symbol calls
+
+      For components:
+        - COMPONENT INFO: Type, props, file location
+        - HOOKS USED: React hooks with lines
+        - CHILD COMPONENTS: Components rendered by this one
+
+    \b
+    WHY USE THIS:
+      - Single command replaces 5-6 queries
+      - Includes code snippets by default
+      - Saves 5,000-10,000 context tokens per task
+      - Auto-detects target type (no flags needed)
+
+    \b
+    AI ASSISTANT CONTEXT:
+      Purpose: Comprehensive code context in one call
+      Input: File path, symbol name, or component name
+      Output: Structured context with optional code snippets
+      Performance: <100ms for files with <50 symbols
+      Integration: Use before refactoring, debugging, or code review
+
+    \b
+    EXAMPLES:
+
+      # Get full context for a file
+      aud explain src/auth/service.ts
+
+      # Get symbol definition and callers
+      aud explain validateInput
+
+      # JSON output for AI consumption
+      aud explain Dashboard --format json
+
+      # Fast mode without code snippets
+      aud explain OrderController.create --no-code
+
+      # Limit output size
+      aud explain utils/helpers.py --limit 10
+
+    \b
+    ANTI-PATTERNS (Do NOT Do This)
+    ------------------------------
+      X  aud explain --symbol foo
+         -> Just use: aud explain foo (auto-detects target type)
+
+      X  aud explain .
+         -> Use 'aud blueprint' for project overview
+
+      X  Running 'aud query' before 'aud explain'
+         -> Always try 'explain' first - it returns more comprehensive context
+
+      X  aud explain --format json | jq '.symbols'
+         -> JSON structure varies by target type, check OUTPUT FORMAT below
+
+    \b
+    OUTPUT FORMAT
+    -------------
+    Text mode (file target):
+      === FILE: src/auth.py ===
+      SYMBOLS DEFINED (5):
+        - authenticate (function) line 42-58
+        - User (class) line 10-40
+      DEPENDENCIES (3):
+        - src/utils/crypto.py
+        - src/db/users.py
+      INCOMING CALLS (2):
+        - src/api/login.py:15 login_handler() -> authenticate
+
+    JSON mode (--format json):
+      {
+        "target": "src/auth.py",
+        "target_type": "file",
+        "symbols": [{"name": "authenticate", "type": "function", "line": 42}],
+        "imports": ["src/utils/crypto.py"],
+        "incoming_calls": [{"file": "src/api/login.py", "line": 15, ...}]
+      }
+
+    SEE ALSO:
+      aud manual explain    Learn about the explain command
+      aud manual context    Apply business logic rules to findings
+    """
+    if not target:
+        console.print()
+        console.print(
+            Panel.fit(
+                "[bold cyan]aud explain[/bold cyan]\n"
+                "[dim]Get comprehensive context about any code target in one call[/dim]",
+                border_style="cyan",
+            )
+        )
+        console.print()
+
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column("Target", style="green", width=28)
+        table.add_column("Description", style="dim")
+        table.add_row("aud explain src/auth.py", "File context (symbols, deps, calls)")
+        table.add_row("aud explain authenticate", "Symbol context (callers, callees)")
+        table.add_row("aud explain User.create", "Method context (class + method)")
+        table.add_row("aud explain Dashboard", "React component (hooks, children)")
+        console.print(Panel(table, title="[bold]TARGET TYPES[/bold]", border_style="blue"))
+
+        opts_table = Table(show_header=False, box=None, padding=(0, 2))
+        opts_table.add_column("Option", style="yellow", width=20)
+        opts_table.add_column("Effect", style="dim")
+        opts_table.add_row("--format json", "Machine-readable output")
+        opts_table.add_row("--depth N", "Call graph depth (1-5)")
+        opts_table.add_row("--no-code", "Skip code snippets (faster)")
+        opts_table.add_row("--fce", "Include vector signal density")
+        console.print(Panel(opts_table, title="[bold]OPTIONS[/bold]", border_style="blue"))
+
+        console.print()
+        console.print("[dim]Prerequisite:[/dim] aud full [dim](builds the database)[/dim]")
+        console.print("[dim]More info:[/dim]    aud explain --help")
+        console.print()
         return
 
-    if not concept:
-        click.echo("Please specify a concept to explain or use --list to see available topics.")
-        click.echo("\nExample: aud explain taint")
-        return
+    start_time = time.perf_counter()
 
-    # Normalize concept name
-    concept = concept.lower().strip()
+    depth = max(1, min(5, depth))
 
-    if concept not in EXPLANATIONS:
-        click.echo(f"Unknown concept: '{concept}'")
-        click.echo("\nAvailable concepts:")
-        for key in EXPLANATIONS:
-            click.echo(f"  - {key}")
-        return
+    root = Path.cwd()
+    engine = CodeQueryEngine(root)
+    snippet_manager = CodeSnippetManager(root)
+    formatter = ExplainFormatter(snippet_manager, show_code=not no_code, limit=limit)
 
-    # Display explanation
-    info = EXPLANATIONS[concept]
-    click.echo(f"\n{'=' * 70}")
-    click.echo(f"{info['title'].upper()}")
-    click.echo(f"{'=' * 70}")
-    click.echo(info['explanation'])
-    click.echo(f"{'=' * 70}\n")
+    try:
+        target_type = detect_target_type(target, engine)
+
+        truncated_sections = []
+
+        if target_type == "file":
+            data = engine.get_file_context_bundle(target, limit=limit)
+
+            for key in ["symbols", "imports", "importers", "outgoing_calls", "incoming_calls"]:
+                if len(data.get(key, [])) > limit:
+                    truncated_sections.append(key)
+
+                    data[key] = data[key][:limit]
+
+            if section != "all":
+                section_map = {
+                    "symbols": ["symbols"],
+                    "hooks": ["hooks"],
+                    "deps": ["imports", "importers"],
+                    "callers": ["incoming_calls"],
+                    "callees": ["outgoing_calls"],
+                }
+                keep_keys = section_map.get(section, [])
+                for key in [
+                    "symbols",
+                    "hooks",
+                    "imports",
+                    "importers",
+                    "outgoing_calls",
+                    "incoming_calls",
+                    "framework_info",
+                ]:
+                    if key not in keep_keys:
+                        data[key] = [] if isinstance(data.get(key), list) else {}
+
+            output = formatter.format_file_explain(data)
+
+        elif target_type == "symbol":
+            data = engine.get_symbol_context_bundle(target, limit=limit, depth=depth)
+            if "error" in data:
+                console.print(f"[error]Error: {data['error']}[/error]", highlight=False)
+                return
+
+            for key in ["callers", "callees"]:
+                if len(data.get(key, [])) > limit:
+                    truncated_sections.append(key)
+
+                    data[key] = data[key][:limit]
+
+            if section != "all":
+                section_map = {
+                    "callers": ["callers"],
+                    "callees": ["callees"],
+                }
+                keep_keys = section_map.get(section, [])
+                for key in ["callers", "callees"]:
+                    if key not in keep_keys:
+                        data[key] = []
+
+            output = formatter.format_symbol_explain(data)
+
+        else:
+            data = engine.get_component_tree(target)
+            if isinstance(data, dict) and "error" in data:
+                err_console.print(f"[error]Error: {data['error']}[/error]", highlight=False)
+                return
+            data["target"] = target
+            data["target_type"] = "component"
+            output = formatter.format_component_explain(data)
+
+        fce_signal = None
+        if fce:
+            try:
+                fce_engine = FCEQueryEngine(root)
+
+                if target_type == "file":
+                    fce_file = target
+                elif target_type == "symbol":
+                    definition = data.get("definition", {})
+                    fce_file = definition.get("file") if isinstance(definition, dict) else None
+                elif target_type == "component" and "file" in data:
+                    fce_file = data["file"]
+                else:
+                    fce_file = None
+
+                if fce_file:
+                    fce_signal = fce_engine.get_vector_density(fce_file)
+
+                    fce_fmt = FCEFormatter()
+                    data["fce"] = {
+                        "file": fce_file,
+                        "density": fce_signal.density,
+                        "density_label": fce_signal.density_label,
+                        "vectors": fce_fmt.get_vector_code_string(fce_signal),
+                        "vectors_present": list(fce_signal.vectors_present),
+                    }
+
+                    output += "\n\nFCE SIGNAL DENSITY:\n"
+                    output += f"  File: {fce_file}\n"
+                    output += f"  Vectors: [{fce_signal.density_label}] {fce_fmt.get_vector_code_string(fce_signal)}\n"
+                    if fce_signal.vectors_present:
+                        output += "  Analysis vectors present:\n"
+                        for v in sorted(fce_signal.vectors_present):
+                            vector_names = {
+                                "static": "STATIC (linters: ruff, eslint, bandit)",
+                                "flow": "FLOW (taint analysis)",
+                                "process": "PROCESS (code churn)",
+                                "structural": "STRUCTURAL (complexity)",
+                            }
+                            output += f"    - {vector_names.get(v, v)}\n"
+                    output += "  -> Run 'aud fce' for full convergence details\n"
+                fce_engine.close()
+            except FileNotFoundError:
+                pass
+
+        elapsed_ms = (time.perf_counter() - start_time) * 1000
+        data["metadata"] = {
+            "query_time_ms": round(elapsed_ms, 1),
+            "truncated_sections": truncated_sections,
+        }
+
+        if output_format == "json":
+            console.print(json.dumps(data, indent=2, default=str), markup=False)
+        else:
+            console.print(output, markup=False)
+            console.print(f"\n(Query time: {elapsed_ms:.1f}ms)", highlight=False)
+
+    finally:
+        engine.close()

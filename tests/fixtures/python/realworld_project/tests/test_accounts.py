@@ -2,22 +2,25 @@
 
 These patterns should be extracted by testing_extractors.py.
 """
+
 import pytest
 
 
-# pytest.mark.parametrize patterns
-@pytest.mark.parametrize("username,email,expected", [
-    ("john_doe", "john@example.com", True),
-    ("jane_doe", "jane@example.com", True),
-    ("invalid", "notanemail", False),
-    ("", "empty@example.com", False),
-])
+@pytest.mark.parametrize(
+    "username,email,expected",
+    [
+        ("john_doe", "john@example.com", True),
+        ("jane_doe", "jane@example.com", True),
+        ("invalid", "notanemail", False),
+        ("", "empty@example.com", False),
+    ],
+)
 def test_user_validation(username, email, expected):
     """Test user validation with multiple parameter sets.
 
     Should be extracted as parametrize with 3 parameter names and 4 argvalue sets.
     """
-    # Mock validation
+
     is_valid = bool(username) and "@" in email
     assert is_valid == expected
 
@@ -28,7 +31,7 @@ def test_fetch_user_by_id(user_id):
 
     Should be extracted as parametrize with 1 parameter and 5 argvalues.
     """
-    # Mock fetch
+
     user = {"id": user_id}
     assert user["id"] == user_id
 
@@ -39,7 +42,7 @@ def test_fetch_user_by_id(user_id):
         ({"name": "Alice"}, {"name": "ALICE"}),
         ({"name": "bob"}, {"name": "BOB"}),
         ({}, {}),
-    ]
+    ],
 )
 def test_data_transformation(input_data, expected_output):
     """Test data transformation with dict parameters."""
@@ -47,7 +50,6 @@ def test_data_transformation(input_data, expected_output):
     assert result == expected_output
 
 
-# Custom pytest markers
 @pytest.mark.slow
 def test_slow_operation():
     """Test marked as slow.
@@ -55,6 +57,7 @@ def test_slow_operation():
     Should be extracted as pytest marker 'slow'.
     """
     import time
+
     time.sleep(0.1)
     assert True
 
@@ -83,10 +86,9 @@ def test_known_failure():
 
     Should be extracted as pytest marker 'xfail' with args.
     """
-    assert False
+    raise AssertionError()
 
 
-# Multiple markers on same test
 @pytest.mark.slow
 @pytest.mark.integration
 @pytest.mark.parametrize("count", [10, 100, 1000])
@@ -100,7 +102,6 @@ def test_bulk_operation(count):
     assert count > 0
 
 
-# Parametrize with ids
 @pytest.mark.parametrize(
     "value,expected",
     [
@@ -108,7 +109,7 @@ def test_bulk_operation(count):
         (5, 10),
         (0, 0),
     ],
-    ids=["double_one", "double_five", "double_zero"]
+    ids=["double_one", "double_five", "double_zero"],
 )
 def test_doubling_with_ids(value, expected):
     """Parametrize with custom test IDs."""

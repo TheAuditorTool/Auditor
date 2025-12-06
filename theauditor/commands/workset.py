@@ -1,23 +1,25 @@
 """Compute target file set from git diff and dependencies."""
 
 import click
+
+from theauditor.cli import RichCommand
+from theauditor.pipeline.ui import console
 from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.command()
+@click.command(cls=RichCommand)
 @handle_exceptions
 @click.option("--root", default=".", help="Root directory")
 @click.option("--db", default=None, help="Input SQLite database path")
-@click.option("--manifest", default=None, help="Input manifest file path")
 @click.option("--all", is_flag=True, help="Include all source files (ignores common directories)")
 @click.option("--diff", help="Git diff range (e.g., main..HEAD)")
 @click.option("--files", multiple=True, help="Explicit file list")
 @click.option("--include", multiple=True, help="Include glob patterns")
 @click.option("--exclude", multiple=True, help="Exclude glob patterns")
-@click.option("--max-depth", default=None, type=int, help="Maximum dependency depth")
+@click.option("--max-depth", default=10, type=int, help="Maximum dependency depth")
 @click.option("--out", default=None, help="Output workset file path")
 @click.option("--print-stats", is_flag=True, help="Print summary statistics")
-def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, out, print_stats):
+def workset(root, db, all, diff, files, include, exclude, max_depth, out, print_stats):
     """Compute targeted file subset for incremental analysis based on git changes or patterns.
 
     Performance optimization tool that creates a focused subset of files for analysis instead
@@ -33,8 +35,8 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
       Purpose: Creates focused file subset for targeted analysis (incremental workflows)
       Input: Git diff / file patterns + .pf/repo_index.db (import graph)
       Output: .pf/workset.json (seed files + expanded dependencies)
-      Prerequisites: aud index (for dependency expansion), git repository (for --diff)
-      Integration: Used with --workset flag on taint-analyze, lint, impact, etc.
+      Prerequisites: aud full (for dependency expansion), git repository (for --diff)
+      Integration: Output consumed by aud lint --workset for targeted analysis
       Performance: ~1-3 seconds (git diff + graph query), analysis 10-100x faster
 
     WHAT IT COMPUTES:
@@ -60,7 +62,7 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
          - Git diff: Run `git diff --name-only <range>` for changed files
          - Explicit: Use --files list directly
          - Glob: Expand --include patterns to matching files
-         - All: Query manifest.json for all indexed files
+         - All: Query database for all indexed files
 
       2. Dependency Expansion (Graph Traversal):
          - Query refs table for files importing seed files
@@ -80,29 +82,29 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
 
     EXAMPLES:
       # Use Case 1: Analyze files changed in last commit
-      aud workset --diff HEAD~1 && aud taint-analyze --workset
+      aud workset --diff HEAD~1 && aud lint --workset
 
       # Use Case 2: PR review workflow (feature branch vs main)
-      aud workset --diff main..feature && aud full --workset
+      aud workset --diff main..feature && aud lint --workset
 
       # Use Case 3: Analyze specific files and their dependencies
       aud workset --files auth.py api.py --max-depth 2
 
       # Use Case 4: Pattern-based analysis (all API endpoints)
-      aud workset --include "*/api/*" && aud docker-analyze --workset
+      aud workset --include "*/api/*" && aud lint --workset
 
-      # Use Case 5: Full analysis without git diff (all source files)
-      aud workset --all && aud deadcode --workset
+      # Use Case 5: Targeted lint on all source files
+      aud workset --all && aud lint --workset
 
     COMMON WORKFLOWS:
       Pre-Commit Hook (Fast Validation):
-        aud workset --diff HEAD && aud taint-analyze --workset --fail-fast
+        aud workset --diff HEAD && aud lint --workset
 
       CI/CD PR Checks (Changed Files Only):
-        aud index && aud workset --diff origin/main..HEAD && aud full --workset
+        aud full --index && aud workset --diff origin/main..HEAD && aud lint --workset
 
       Iterative Development (After Code Changes):
-        aud workset --diff HEAD~3 && aud lint --workset && aud impact --workset
+        aud workset --diff HEAD~3 && aud lint --workset
 
     OUTPUT FILES:
       .pf/workset.json               # Workset file consumed by --workset flag
@@ -154,11 +156,11 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
 
     PREREQUISITES:
       Required:
-        aud index              # Populates refs table for dependency expansion
+        aud full               # Populates refs table for dependency expansion
 
       Optional:
         Git repository         # For --diff flag (not needed for --files/--all)
-        .pf/manifest.json      # For --all flag (lists all indexed files)
+        .pf/repo_index.db      # For --all flag (queries files table)
 
     EXIT CODES:
       0 = Success, workset created
@@ -166,10 +168,8 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
       2 = No files matched criteria (empty workset)
 
     RELATED COMMANDS:
-      aud index              # Must run first to populate import graph
-      aud taint-analyze --workset   # Use workset for targeted taint analysis
-      aud impact --workset   # Use workset for change impact analysis
-      aud full --workset     # Run all checks on workset files only
+      aud full               # Must run first to populate import graph
+      aud lint --workset     # Use workset for targeted lint analysis
 
     SEE ALSO:
       aud explain workset    # Deep dive into workset algorithm
@@ -188,38 +188,29 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
 
       Workset empty (no files matched):
         -> Check git diff output: git diff --name-only <range>
-        -> Verify files exist in .pf/manifest.json (run 'aud index')
+        -> Verify files exist in database (run 'aud full --index')
         -> Check --include/--exclude patterns are correct
 
       Missing dependencies (analysis incomplete):
         -> Increase --max-depth to capture transitive dependencies
-        -> Verify 'aud index' ran successfully (check .pf/repo_index.db)
+        -> Verify 'aud full' ran successfully (check .pf/repo_index.db)
         -> Use --print-stats to see seed vs expanded file counts
 
     NOTE: Workset is purely a performance optimization - it does NOT change analysis
     behavior, only which files are analyzed. For maximum confidence, run full analysis
     periodically even if using workset for daily development.
     """
+    from theauditor.commands.config import DB_PATH, WORKSET_PATH
     from theauditor.workset import compute_workset
-    from theauditor.config_runtime import load_runtime_config
-    
-    # Load configuration
-    config = load_runtime_config(root)
-    
-    # Use config defaults if not provided
+
     if db is None:
-        db = config["paths"]["db"]
-    if manifest is None:
-        manifest = config["paths"]["manifest"]
+        db = DB_PATH
     if out is None:
-        out = config["paths"]["workset"]
-    if max_depth is None:
-        max_depth = config["limits"]["max_graph_depth"]
+        out = WORKSET_PATH
 
     result = compute_workset(
         root_path=root,
         db_path=db,
-        manifest_path=manifest,
         all_files=all,
         diff_spec=diff,
         file_list=list(files) if files else None,
@@ -231,6 +222,6 @@ def workset(root, db, manifest, all, diff, files, include, exclude, max_depth, o
     )
 
     if not print_stats:
-        click.echo(f"Workset written to {out}")
-        click.echo(f"  Seed files: {result['seed_count']}")
-        click.echo(f"  Expanded files: {result['expanded_count']}")
+        console.print(f"Workset written to {out}", highlight=False)
+        console.print(f"  Seed files: {result['seed_count']}", highlight=False)
+        console.print(f"  Expanded files: {result['expanded_count']}", highlight=False)

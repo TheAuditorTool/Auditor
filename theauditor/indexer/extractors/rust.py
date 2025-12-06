@@ -1,197 +1,154 @@
-"""Rust file extractor using tree-sitter.
+"""Rust file extractor - Extract Rust code structures for indexing."""
 
-This implementation uses tree-sitter-rust for complete AST traversal,
-replacing the previous LSP-based approach (see rust_lsp_backup.py).
-
-Why tree-sitter over LSP:
-- Complete AST access (LSP only provides symbol locations)
-- No regex needed (LSP required regex for imports - forbidden pattern)
-- Faster (~10ms vs ~200ms per file)
-- No temporary workspace or binary installation required
-- Provides all 12 required extraction methods
-
-LSP code preserved in:
-- theauditor/indexer/extractors/rust_lsp_backup.py
-- theauditor/lsp/rust_analyzer_client.py
-- theauditor/toolboxes/rust.py
-"""
-
-
-import logging
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Any
 
+from theauditor.utils.logging import logger
+
+from ...ast_extractors import rust_impl as rust_core
+from ..fidelity_utils import FidelityToken
 from . import BaseExtractor
-
-logger = logging.getLogger(__name__)
 
 
 class RustExtractor(BaseExtractor):
-    """Extractor for Rust files using tree-sitter AST parser."""
+    """Extractor for Rust source files."""
 
     def __init__(self, root_path: Path, ast_parser: Any | None = None):
-        """Initialize the Rust extractor.
-
-        Args:
-            root_path: Project root path
-            ast_parser: Optional AST parser (unused, tree-sitter manages its own)
-        """
+        """Initialize Rust extractor."""
         super().__init__(root_path, ast_parser)
-        self._parser = None  # Lazy initialization
-
-    def _get_parser(self):
-        """Get or create tree-sitter parser for Rust.
-
-        Lazy initialization to avoid import overhead if not used.
-        """
-        if self._parser is not None:
-            return self._parser
-
-        try:
-            from tree_sitter import Language, Parser
-            import tree_sitter_rust as ts_rust
-
-            self._parser = Parser()
-            # tree-sitter v0.20+ uses property assignment, not set_language()
-            self._parser.language = Language(ts_rust.language())
-            return self._parser
-
-        except ImportError as e:
-            logger.error(
-                f"tree-sitter-rust not installed: {e}\n"
-                f"Install with: pip install tree-sitter tree-sitter-rust"
-            )
-            raise
 
     def supported_extensions(self) -> list[str]:
         """Return list of file extensions this extractor supports."""
-        return ['.rs']
+        return [".rs"]
 
-    def extract(self, file_info: dict[str, Any], content: str,
-                tree: Any | None = None) -> dict[str, Any]:
+    def extract(
+        self, file_info: dict[str, Any], content: str, tree: Any | None = None
+    ) -> dict[str, Any]:
         """Extract all relevant information from a Rust file.
 
         Args:
-            file_info: File metadata dictionary with 'path', 'ext', etc.
-            content: File content
-            tree: Ignored (tree-sitter manages its own parsing)
+            file_info: Dict with file metadata including 'path'
+            content: File content as string
+            tree: Parsed AST tree (tree-sitter)
 
         Returns:
-            Dictionary containing all extracted data matching the 12-method interface:
-            {
-                'symbols': [...],         # Functions, structs, enums, traits
-                'imports': [...],         # use declarations
-                'exports': [...],         # pub items
-                'calls': [...],           # Function calls
-                'properties': [...],      # Field accesses
-                'assignments': [...],     # let bindings
-                'returns': [...],         # return expressions
-                'function_params': {...}, # Function parameter mapping
-                'function_calls_with_args': [...],  # Calls with arguments
-                'cfg': [...]              # Control flow graphs
-            }
+            Dict with keys matching rust_* table names
         """
+        file_path = file_info["path"]
+
+        if not tree or tree.get("type") != "tree_sitter" or not tree.get("tree"):
+            logger.error(
+                "Tree-sitter failed to parse Rust file: %s. "
+                "Check tree-sitter-language-pack installation or file syntax.",
+                file_path,
+            )
+            return {}
+
+        from ...ast_extractors.base import check_tree_sitter_parse_quality
+
+        ts_tree = tree["tree"]
+        root = ts_tree.root_node
+        check_tree_sitter_parse_quality(root, file_path, logger)
+
+        rust_functions = rust_core.extract_rust_functions(root, file_path)
+        rust_structs = rust_core.extract_rust_structs(root, file_path)
+        rust_enums = rust_core.extract_rust_enums(root, file_path)
+        rust_traits = rust_core.extract_rust_traits(root, file_path)
+        rust_use_statements = rust_core.extract_rust_use_statements(root, file_path)
+
+        symbols = []
+        for func in rust_functions:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": func.get("name", ""),
+                    "type": "function",
+                    "line": func.get("line", 0),
+                    "col": 0,
+                    "end_line": func.get("end_line"),
+                    "parameters": func.get("params_json"),
+                }
+            )
+        for struct in rust_structs:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": struct.get("name", ""),
+                    "type": "class",
+                    "line": struct.get("line", 0),
+                    "col": 0,
+                    "end_line": struct.get("end_line"),
+                }
+            )
+        for enum in rust_enums:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": enum.get("name", ""),
+                    "type": "class",
+                    "line": enum.get("line", 0),
+                    "col": 0,
+                    "end_line": enum.get("end_line"),
+                }
+            )
+        for trait in rust_traits:
+            symbols.append(
+                {
+                    "path": file_path,
+                    "name": trait.get("name", ""),
+                    "type": "class",
+                    "line": trait.get("line", 0),
+                    "col": 0,
+                    "end_line": trait.get("end_line"),
+                }
+            )
+
+        imports_for_refs = []
+        for use_stmt in rust_use_statements:
+            imports_for_refs.append(
+                {
+                    "kind": "import",
+                    "value": use_stmt.get("import_path", ""),
+                    "line": use_stmt.get("line"),
+                }
+            )
+
         result = {
-            'symbols': [],
-            'imports': [],
-            'exports': [],
-            'calls': [],
-            'properties': [],
-            'assignments': [],
-            'returns': [],
-            'function_params': {},
-            'function_calls': [],  # CRITICAL: Must match orchestrator expectation (not function_calls_with_args)
-            'cfg': []
+            "symbols": symbols,
+            "imports": imports_for_refs,
+            "rust_modules": rust_core.extract_rust_modules(root, file_path),
+            "rust_use_statements": rust_use_statements,
+            "rust_functions": rust_functions,
+            "rust_structs": rust_structs,
+            "rust_enums": rust_enums,
+            "rust_traits": rust_traits,
+            "rust_impl_blocks": rust_core.extract_rust_impl_blocks(root, file_path),
+            "rust_generics": rust_core.extract_rust_generics(root, file_path),
+            "rust_lifetimes": rust_core.extract_rust_lifetimes(root, file_path),
+            "rust_macros": rust_core.extract_rust_macros(root, file_path),
+            "rust_macro_invocations": rust_core.extract_rust_macro_invocations(root, file_path),
+            "rust_attributes": rust_core.extract_rust_attributes(root, file_path),
+            "rust_async_functions": rust_core.extract_rust_async_functions(root, file_path),
+            "rust_await_points": rust_core.extract_rust_await_points(root, file_path),
+            "rust_unsafe_blocks": rust_core.extract_rust_unsafe_blocks(root, file_path),
+            "rust_unsafe_traits": rust_core.extract_rust_unsafe_traits(root, file_path),
+            "rust_struct_fields": rust_core.extract_rust_struct_fields(root, file_path),
+            "rust_enum_variants": rust_core.extract_rust_enum_variants(root, file_path),
+            "rust_trait_methods": rust_core.extract_rust_trait_methods(root, file_path),
+            "rust_extern_functions": rust_core.extract_rust_extern_functions(root, file_path),
+            "rust_extern_blocks": rust_core.extract_rust_extern_blocks(root, file_path),
+            "assignments": rust_core.extract_rust_assignments(root, file_path),
+            "function_calls": rust_core.extract_rust_function_calls(root, file_path),
+            "returns": rust_core.extract_rust_returns(root, file_path),
+            "cfg": rust_core.extract_rust_cfg(root, file_path),
         }
 
-        try:
-            # Parse file with tree-sitter
-            parser = self._get_parser()
-            tree = parser.parse(bytes(content, 'utf8'))
+        logger.debug(
+            f"Extracted Rust: {file_path} -> "
+            f"{len(result['rust_functions'])} functions, "
+            f"{len(result['rust_structs'])} structs, "
+            f"{len(result['rust_traits'])} traits, "
+            f"{len(result['rust_impl_blocks'])} impl blocks"
+        )
 
-            # Import rust_impl for extraction methods
-            from theauditor.ast_extractors import rust_impl
-
-            # Extract all features using the 12 required methods
-            # Symbols (functions + structs/enums)
-            functions = rust_impl.extract_rust_functions(tree, content, file_info['path'])
-            classes = rust_impl.extract_rust_classes(tree, content, file_info['path'])
-            result['symbols'] = functions + classes
-
-            # Imports (use declarations) - NO REGEX, pure AST
-            result['imports'] = rust_impl.extract_rust_imports(tree, content, file_info['path'])
-
-            # Exports (pub items)
-            result['exports'] = rust_impl.extract_rust_exports(tree, content, file_info['path'])
-
-            # Function calls - add to symbols table with type='call' for taint analysis
-            calls = rust_impl.extract_rust_calls(tree, content, file_info['path'])
-            result['calls'] = calls
-            for call in calls:
-                result['symbols'].append({
-                    'name': call.get('name', ''),
-                    'type': 'call',
-                    'line': call.get('line', 0),
-                    'col': call.get('col', 0)
-                })
-
-            # Properties (field access) - add to symbols table with type='property' for taint analysis
-            properties = rust_impl.extract_rust_properties(tree, content, file_info['path'])
-            result['properties'] = properties
-            for prop in properties:
-                result['symbols'].append({
-                    'name': prop.get('name', ''),
-                    'type': 'property',
-                    'line': prop.get('line', 0),
-                    'col': prop.get('col', 0)
-                })
-
-            # Assignments (let bindings)
-            result['assignments'] = rust_impl.extract_rust_assignments(tree, content, file_info['path'])
-
-            # Returns
-            result['returns'] = rust_impl.extract_rust_returns(tree, content, file_info['path'])
-
-            # Function parameters
-            result['function_params'] = rust_impl.extract_rust_function_params(tree, content, file_info['path'])
-
-            # Function calls with arguments (CRITICAL for taint analysis)
-            # MUST use key 'function_calls' to match orchestrator's expectation at __init__.py:342
-            raw_calls = rust_impl.extract_rust_calls_with_args(
-                tree, content, file_info['path'], result['function_params']
-            )
-            # Filter out calls with empty callee_function (violates CHECK constraint)
-            result['function_calls'] = [
-                call for call in raw_calls
-                if call.get('callee_function', '').strip()
-            ]
-
-            # Control flow graphs
-            result['cfg'] = rust_impl.extract_rust_cfg(tree, content, file_info['path'])
-
-        except ImportError as e:
-            logger.error(f"Rust extraction failed - missing dependencies: {e}")
-            logger.error("Install with: pip install tree-sitter tree-sitter-rust")
-            # Return empty results (graceful degradation)
-        except Exception as e:
-            logger.error(f"Rust extraction failed for {file_info['path']}: {e}")
-            logger.debug(f"Full traceback:", exc_info=True)
-
-            # Count what we extracted before failure
-            counts = {k: len(v) if isinstance(v, (list, dict)) else 0
-                     for k, v in result.items()}
-            logger.warning(
-                f"Partial extraction for {file_info['path']}: "
-                f"symbols={counts['symbols']}, imports={counts['imports']}, "
-                f"calls={counts['calls']}, returns={counts['returns']}"
-            )
-            # Return partial results (may be useful even with errors)
-
-        return result
-
-    def cleanup(self) -> None:
-        """Clean up resources.
-
-        tree-sitter doesn't require cleanup, but method provided for interface compatibility.
-        """
-        self._parser = None
+        return FidelityToken.attach_manifest(result)

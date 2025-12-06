@@ -8,11 +8,11 @@ Demonstrates:
 - Migration from Auth0 to Cognito patterns
 """
 
-from aws_cognito import CognitoIdentityClient
-from validators import validate_cognito_token, extract_user_id, extract_groups, extract_permissions
-from exceptions import InvalidTokenError, ExpiredTokenError
 import os
 import sqlite3
+
+from aws_cognito import CognitoIdentityClient
+from validators import extract_groups, extract_permissions, extract_user_id, validate_cognito_token
 
 
 class AuthService:
@@ -22,8 +22,7 @@ class AuthService:
         self.cognito_pool_id = os.getenv("COGNITO_USER_POOL_ID")
         self.cognito_client_id = os.getenv("COGNITO_CLIENT_ID")
         self.client = CognitoIdentityClient(
-            user_pool_id=self.cognito_pool_id,
-            client_id=self.cognito_client_id
+            user_pool_id=self.cognito_pool_id, client_id=self.cognito_client_id
         )
 
     def login(self, username, password):
@@ -41,20 +40,18 @@ class AuthService:
         Returns:
             Token payload with user info
         """
-        # TAINT FLOW: Token validation via validators module
+
         payload = validate_cognito_token(token)
 
-        # Extract user ID
         user_id = extract_user_id(payload)
 
-        # TAINT FLOW: User lookup with raw SQL
         user_info = self._get_user_from_database(user_id)
 
         return {
             "payload": payload,
             "user": user_info,
             "groups": extract_groups(payload),
-            "permissions": extract_permissions(payload)
+            "permissions": extract_permissions(payload),
         }
 
     def _get_user_from_database(self, user_id):
@@ -67,27 +64,24 @@ class AuthService:
         Returns:
             User dict
         """
-        db_path = os.getenv('DATABASE_PATH', 'users.db')
+        db_path = os.getenv("DATABASE_PATH", "users.db")
         conn = sqlite3.connect(db_path)
         cursor = conn.cursor()
 
-        # Raw SQL query (tests sql_queries table)
-        cursor.execute("""
+        cursor.execute(
+            """
             SELECT id, email, role, created_at
             FROM users
             WHERE cognito_user_id = ?
-        """, (user_id,))
+        """,
+            (user_id,),
+        )
 
         result = cursor.fetchone()
         conn.close()
 
         if result:
-            return {
-                'id': result[0],
-                'email': result[1],
-                'role': result[2],
-                'created_at': result[3]
-            }
+            return {"id": result[0], "email": result[1], "role": result[2], "created_at": result[3]}
 
         return None
 
@@ -96,5 +90,4 @@ class AuthService:
         return self.client.get_user_attributes(user_id)
 
 
-# Global auth instance
 auth = AuthService()

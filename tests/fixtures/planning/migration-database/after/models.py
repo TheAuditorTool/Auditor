@@ -7,9 +7,9 @@ Tests ORM relationship extraction after rename:
 - All FK references updated from User to Account
 """
 
-from sqlalchemy import Column, Integer, String, DateTime, Text, ForeignKey
-from sqlalchemy.orm import relationship
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import relationship
 
 Base = declarative_base()
 
@@ -17,7 +17,7 @@ Base = declarative_base()
 class Account(Base):
     """Account model (renamed from User)."""
 
-    __tablename__ = 'accounts'
+    __tablename__ = "accounts"
 
     id = Column(Integer, primary_key=True)
     username = Column(String(100), unique=True, nullable=False, index=True)
@@ -25,9 +25,10 @@ class Account(Base):
     password_hash = Column(String(255), nullable=False)
     created_at = Column(DateTime)
 
-    # Bidirectional relationships (updated to Account)
-    profile = relationship('Profile', back_populates='account', uselist=False, cascade='all, delete-orphan')
-    posts = relationship('Post', back_populates='author', cascade='all, delete-orphan')
+    profile = relationship(
+        "Profile", back_populates="account", uselist=False, cascade="all, delete-orphan"
+    )
+    posts = relationship("Post", back_populates="author", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Account(username='{self.username}')>"
@@ -36,16 +37,17 @@ class Account(Base):
 class Profile(Base):
     """Account profile (1-to-1 with Account)."""
 
-    __tablename__ = 'profiles'
+    __tablename__ = "profiles"
 
     id = Column(Integer, primary_key=True)
-    account_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), unique=True, nullable=False)
+    account_id = Column(
+        Integer, ForeignKey("accounts.id", ondelete="CASCADE"), unique=True, nullable=False
+    )
     bio = Column(Text)
     avatar_url = Column(String(500))
     updated_at = Column(DateTime)
 
-    # Bidirectional relationship (renamed to account)
-    account = relationship('Account', back_populates='profile')
+    account = relationship("Account", back_populates="profile")
 
     def __repr__(self):
         return f"<Profile(account_id={self.account_id})>"
@@ -54,16 +56,17 @@ class Profile(Base):
 class Post(Base):
     """Account post (many-to-one with Account)."""
 
-    __tablename__ = 'posts'
+    __tablename__ = "posts"
 
     id = Column(Integer, primary_key=True)
-    author_id = Column(Integer, ForeignKey('accounts.id', ondelete='CASCADE'), nullable=False, index=True)
+    author_id = Column(
+        Integer, ForeignKey("accounts.id", ondelete="CASCADE"), nullable=False, index=True
+    )
     title = Column(String(200), nullable=False)
     content = Column(Text)
     created_at = Column(DateTime)
 
-    # Bidirectional relationship
-    author = relationship('Account', back_populates='posts')
+    author = relationship("Account", back_populates="posts")
 
     def __repr__(self):
         return f"<Post(title='{self.title}')>"

@@ -9,10 +9,7 @@ Tests extraction when:
 Validates that import resolution handles circular imports without crashing.
 """
 
-from typing import List, Optional
-
-# DIRECT import from models - creates circular dependency
-from models import User, Post, Comment
+from models import Comment, Post, User
 
 
 class UserService:
@@ -39,13 +36,14 @@ class UserService:
         Get all posts for this user.
         Tests: Method returning list of circularly imported models.
         """
-        # Would query from database in real code
+
         return []
 
     def delete_user(self) -> bool:
         """Delete user and cascade to posts."""
-        # Would use controllers in real code
+
         from controllers import UserController
+
         controller = UserController()
         return controller.delete_user_cascade(self.user.user_id)
 
@@ -61,7 +59,7 @@ class PostService:
 
     def publish(self) -> bool:
         """Publish the post."""
-        # Would update database
+
         return True
 
     def get_author(self) -> User | None:
@@ -69,25 +67,15 @@ class PostService:
         Get post author.
         Tests: Method returning circularly imported User model.
         """
-        # This creates a cycle: PostService → User (from models)
-        # But User.get_service() → UserService (from services)
-        return User(
-            user_id=self.post.author_id,
-            username="author",
-            email="author@example.com"
-        )
+
+        return User(user_id=self.post.author_id, username="author", email="author@example.com")
 
     def add_comment(self, author_id: int, text: str) -> Comment:
         """
         Add comment to post.
         Tests: Method creating Comment instance (circular import).
         """
-        comment = Comment(
-            comment_id=0,
-            post_id=self.post.post_id,
-            author_id=author_id,
-            text=text
-        )
+        comment = Comment(comment_id=0, post_id=self.post.post_id, author_id=author_id, text=text)
         return comment
 
 
@@ -109,13 +97,13 @@ class CommentService:
         Get the post this service is for.
         Tests: Circular path through multiple modules.
         """
-        # Imports from controllers which imports from models
+
         from controllers import PostController
+
         controller = PostController()
         return controller.get_post(self.post_id)
 
 
-# Module-level function that uses models
 def create_user(username: str, email: str) -> User:
     """
     Factory function to create User.

@@ -1,622 +1,721 @@
-"""Python Cryptography Vulnerability Analyzer - Database-First Approach.
+"""Python Cryptography Vulnerability Analyzer - Detects weak crypto, hardcoded keys, and misconfigurations."""
 
-Detects weak cryptography and insecure crypto practices using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
-
-Detects:
-- Weak hash algorithms (MD5, SHA1)
-- Hardcoded cryptographic keys/secrets
-- Insecure random number generation
-- Missing HMAC verification
-- Weak key derivation
-- ECB mode usage
-- Small key sizes
-"""
-
-
-import sqlite3
-from typing import List, Set
-from dataclasses import dataclass
-
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-
-
-# ============================================================================
-# RULE METADATA (Phase 3B Smart Filtering)
-# ============================================================================
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="python_crypto",
     category="cryptography",
-    target_extensions=['.py'],
-    exclude_patterns=['frontend/', 'client/', 'node_modules/', 'test/', '__tests__/', 'migrations/'],
-    requires_jsx_pass=False
+    target_extensions=[".py"],
+    exclude_patterns=[
+        "node_modules/",
+        "vendor/",
+        ".venv/",
+        "__pycache__/",
+    ],
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
 
-# ============================================================================
-# PATTERN DEFINITIONS (Golden Standard: Frozen Dataclass)
-# ============================================================================
-
-@dataclass(frozen=True)
-class CryptoPatterns:
-    """Immutable pattern definitions for cryptography detection."""
-
-    # Weak hash algorithms
-    WEAK_HASHES = frozenset([
-        'md5', 'hashlib.md5', 'MD5', 'md5sum',
-        'sha1', 'hashlib.sha1', 'SHA1', 'sha1sum',
-        'sha', 'hashlib.sha', 'SHA'  # SHA-0 is broken
-    ])
-
-    # Acceptable hashes (for comparison)
-    STRONG_HASHES = frozenset([
-        'sha256', 'sha384', 'sha512', 'sha3_256', 'sha3_384', 'sha3_512',
-        'blake2b', 'blake2s', 'scrypt', 'argon2', 'bcrypt', 'pbkdf2'
-    ])
-
-    # Broken crypto algorithms
-    BROKEN_CRYPTO = frozenset([
-        'DES', 'des', 'DES3', '3DES', 'RC2', 'RC4', 'Blowfish',
-        'IDEA', 'CAST5', 'XOR'
-    ])
-
-    # ECB mode (insecure)
-    ECB_MODE = frozenset([
-        'MODE_ECB', 'ECB', 'mode=ECB', 'AES.MODE_ECB',
-        'DES.MODE_ECB', 'Blowfish.MODE_ECB'
-    ])
-
-    # Insecure random
-    INSECURE_RANDOM = frozenset([
-        'random.random', 'random.randint', 'random.choice',
-        'random.randrange', 'random.seed', 'random.getrandbits',
-        'random.randbytes', 'random.SystemRandom'  # This one is actually secure
-    ])
-
-    # Secure random (for comparison)
-    SECURE_RANDOM = frozenset([
-        'secrets', 'os.urandom', 'random.SystemRandom',
-        'Crypto.Random', 'get_random_bytes', 'token_bytes',
-        'token_hex', 'token_urlsafe'
-    ])
-
-    # Hardcoded key patterns
-    KEY_VARIABLES = frozenset([
-        'key', 'secret', 'password', 'passphrase', 'pin',
-        'api_key', 'secret_key', 'private_key', 'encryption_key',
-        'signing_key', 'master_key', 'session_key', 'symmetric_key',
-        'aes_key', 'des_key', 'rsa_key', 'dsa_key', 'ecdsa_key'
-    ])
-
-    # Key generation methods
-    KEY_GENERATION = frozenset([
-        'generate_key', 'gen_key', 'KeyGenerator', 'new',
-        'Fernet.generate_key', 'RSA.generate', 'DSA.generate',
-        'EC.generate', 'nacl.utils.random'
-    ])
-
-    # HMAC/MAC methods
-    HMAC_METHODS = frozenset([
-        'hmac.new', 'hmac.digest', 'hmac.compare_digest',
-        'HMAC.new', 'HMAC', 'MAC', 'CMAC', 'Poly1305'
-    ])
-
-    # Key derivation functions
-    KDF_METHODS = frozenset([
-        'PBKDF2', 'pbkdf2_hmac', 'scrypt', 'argon2',
-        'bcrypt', 'hashpw', 'kdf', 'derive_key'
-    ])
-
-    # Weak KDF iterations
-    WEAK_ITERATIONS = frozenset([
-        '1000', '5000', '10000'  # PBKDF2 should use 100000+
-    ])
-
-    # JWT/Token patterns
-    JWT_PATTERNS = frozenset([
-        'jwt.encode', 'jwt.decode', 'HS256', 'none', 'None',
-        'algorithm=none', 'algorithm="none"', "algorithm='none'"
-    ])
-
-    # SSL/TLS patterns
-    SSL_PATTERNS = frozenset([
-        'ssl.CERT_NONE', 'verify=False', 'check_hostname=False',
-        'SSLContext', 'PROTOCOL_SSLv2', 'PROTOCOL_SSLv3',
-        'PROTOCOL_TLSv1', 'PROTOCOL_TLSv1_1'  # TLS 1.0 and 1.1 are deprecated
-    ])
-
-    # Cryptography libraries
-    CRYPTO_LIBS = frozenset([
-        'Crypto', 'cryptography', 'pycrypto', 'pycryptodome',
-        'nacl', 'pyca', 'M2Crypto', 'cryptg'
-    ])
-
-
-# ============================================================================
-# ANALYZER CLASS (Golden Standard)
-# ============================================================================
-
-class CryptoAnalyzer:
-    """Analyzer for Python cryptography vulnerabilities."""
-
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with database context.
-
-        Args:
-            context: Rule context containing database path
-        """
-        self.context = context
-        self.patterns = CryptoPatterns()
-        self.findings = []
-
-    def analyze(self) -> list[StandardFinding]:
-        """Main analysis entry point.
-
-        Returns:
-            List of cryptography vulnerabilities found
-        """
-        if not self.context.db_path:
-            return []
-
-        conn = sqlite3.connect(self.context.db_path)
-        self.cursor = conn.cursor()
-
-        try:
-            # Run all crypto checks
-            self._check_weak_hashes()
-            self._check_broken_crypto()
-            self._check_ecb_mode()
-            self._check_insecure_random()
-            self._check_weak_kdf()
-            self._check_jwt_issues()
-            self._check_ssl_issues()
-            self._check_hardcoded_keys()
-            self._check_key_reuse()
-
-        finally:
-            conn.close()
-
-        return self.findings
-
-    def _check_weak_hashes(self):
-        """Detect weak hash algorithm usage."""
-        from theauditor.indexer.schema import build_query
-
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
-
-        # Filter for weak hashes in Python
-        weak_hash_usages = []
-        for file, line, method, args in self.cursor.fetchall():
-            method_lower = method.lower()
-            # Check if callee contains weak hash patterns
-            if method in self.patterns.WEAK_HASHES or '.md5' in method_lower or '.sha1' in method_lower:
-                weak_hash_usages.append((file, line, method, args))
-
-        for file, line, method, args in weak_hash_usages:
-            # Determine if it's used for security (vs checksums)
-            is_security_context = self._check_security_context(file, line)
-
-            if is_security_context:
-                severity = Severity.CRITICAL
-                confidence = Confidence.HIGH
-                message = f'Weak hash {method} used in security context'
-            else:
-                severity = Severity.MEDIUM
-                confidence = Confidence.MEDIUM
-                message = f'Weak hash {method} - vulnerable to collisions'
-
-            self.findings.append(StandardFinding(
-                rule_name='python-weak-hash',
-                message=message,
-                file_path=file,
-                line=line,
-                severity=severity,
-                category='cryptography',
-                confidence=confidence,
-                cwe_id='CWE-327'
-            ))
-
-    def _check_broken_crypto(self):
-        """Detect broken cryptographic algorithms."""
-        from theauditor.indexer.schema import build_query
-
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
-
-        for file, line, method, args in self.cursor.fetchall():
-            # Check for broken crypto in method name or args
-            method_upper = method.upper()
-            if not ('DES' in method_upper or 'RC4' in method_upper or 'RC2' in method_upper):
-                if not (args and any(algo in args for algo in self.patterns.BROKEN_CRYPTO)):
-                    continue
-            algo = 'DES' if 'DES' in method else 'RC4' if 'RC4' in method else 'broken algorithm'
-
-            self.findings.append(StandardFinding(
-                rule_name='python-broken-crypto',
-                message=f'Broken cryptographic algorithm {algo} detected',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='cryptography',
-                confidence=Confidence.HIGH,
-                cwe_id='CWE-327'
-            ))
-
-    def _check_ecb_mode(self):
-        """Detect ECB mode usage (insecure)."""
-        from theauditor.indexer.schema import build_query
-
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
-
-        for file, line, method, args in self.cursor.fetchall():
-            # Check for ECB patterns in args or method
-            has_ecb = False
-            if args and (any(ecb in args for ecb in self.patterns.ECB_MODE) or 'MODE_ECB' in args):
-                has_ecb = True
-            if 'ECB' in method.upper():
-                has_ecb = True
-            if not has_ecb:
-                continue
-            self.findings.append(StandardFinding(
-                rule_name='python-ecb-mode',
-                message='ECB mode encryption is insecure - patterns are preserved',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='cryptography',
-                confidence=Confidence.HIGH,
-                cwe_id='CWE-327'
-            ))
-
-    def _check_insecure_random(self):
-        """Detect insecure random number generation for crypto."""
-        insecure_placeholders = ','.join('?' * len(self.patterns.INSECURE_RANDOM))
-
-        self.cursor.execute(f"""
-            SELECT file, line, callee_function, argument_expr, caller_function
-            FROM function_call_args
-            WHERE callee_function IN ({insecure_placeholders})
-            ORDER BY file, line
-        """, list(self.patterns.INSECURE_RANDOM))
-        # ✅ FIX: Store results before loop to avoid cursor state bug
-        insecure_random_usages = self.cursor.fetchall()
-
-        for file, line, method, args, caller in insecure_random_usages:
-            # Skip random.SystemRandom (it's actually secure)
-            if 'SystemRandom' in method:
-                continue
-
-            # Check if used in crypto context
-            is_crypto = self._check_crypto_context(file, line, caller)
-
-            if is_crypto:
-                self.findings.append(StandardFinding(
-                    rule_name='python-insecure-random',
-                    message=f'Insecure random {method} used for cryptography',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='cryptography',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-338'
-                ))
-
-    def _check_hardcoded_keys(self):
-        """Detect hardcoded cryptographic keys."""
-        from theauditor.indexer.schema import build_query
-
-        # Fetch all assignments, filter in Python
-        query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
-
-        for file, line, var, expr in self.cursor.fetchall():
-            # Check if var is a key variable
-            var_lower = var.lower()
-            if var not in self.patterns.KEY_VARIABLES and not (var.endswith('_key') or var.endswith('_secret') or var.endswith('_password')):
-                continue
-            # Check if it's a literal string (hardcoded)
-            if expr and (expr.startswith('"') or expr.startswith("'") or expr.startswith('b"') or expr.startswith("b'")):
-                # Check length to avoid false positives on placeholders
-                if len(expr) > 10:
-                    self.findings.append(StandardFinding(
-                        rule_name='python-hardcoded-key',
-                        message=f'Hardcoded cryptographic key/secret: {var}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        category='cryptography',
-                        confidence=Confidence.HIGH,
-                        cwe_id='CWE-798'
-                    ))
-
-    def _check_weak_kdf(self):
-        """Detect weak key derivation functions."""
-        from theauditor.indexer.schema import build_query
-
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
-
-        for file, line, method, args in self.cursor.fetchall():
-            # Check for KDF methods
-            method_lower = method.lower()
-            if method not in self.patterns.KDF_METHODS and 'pbkdf2' not in method_lower and 'scrypt' not in method_lower:
-                continue
-            if not args:
-                continue
-
-            # Check for weak iteration counts
-            has_weak_iterations = any(iters in args for iters in self.patterns.WEAK_ITERATIONS)
-
-            if has_weak_iterations:
-                self.findings.append(StandardFinding(
-                    rule_name='python-weak-kdf-iterations',
-                    message=f'Weak KDF iterations in {method}',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='cryptography',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-916'
-                ))
-
-            # Check for missing salt
-            if 'salt' not in args.lower():
-                self.findings.append(StandardFinding(
-                    rule_name='python-kdf-no-salt',
-                    message=f'KDF {method} possibly missing salt',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='cryptography',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-916'
-                ))
-
-    def _check_jwt_issues(self):
-        """Detect JWT/token security issues."""
-        from theauditor.indexer.schema import build_query
-
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
-
-        for file, line, method, args in self.cursor.fetchall():
-            # Check for JWT patterns
-            method_lower = method.lower()
-            if method not in self.patterns.JWT_PATTERNS and 'jwt.' not in method_lower:
-                if not (args and 'algorithm' in args.lower()):
-                    continue
-            if not args:
-                continue
-
-            # Check for algorithm=none vulnerability
-            if any(none in args.lower() for none in ['algorithm=none', 'algorithm="none"', "algorithm='none'"]):
-                self.findings.append(StandardFinding(
-                    rule_name='python-jwt-none-algorithm',
-                    message='JWT with algorithm=none allows token forgery',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='cryptography',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-347'
-                ))
-
-            # Check for weak HS256 with guessable secret
-            elif 'HS256' in args and 'secret' in args.lower():
-                self.findings.append(StandardFinding(
-                    rule_name='python-jwt-weak-secret',
-                    message='JWT HS256 requires strong secret (256+ bits)',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='cryptography',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-347'
-                ))
-
-    def _check_ssl_issues(self):
-        """Detect SSL/TLS misconfigurations."""
-        from theauditor.indexer.schema import build_query
-
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        self.cursor.execute(query)
-
-        for file, line, method, args in self.cursor.fetchall():
-            # Check for SSL patterns in method or args
-            has_ssl_pattern = (method in self.patterns.SSL_PATTERNS or
-                              (args and (any(pattern in args for pattern in self.patterns.SSL_PATTERNS) or
-                                        'verify=False' in args or 'CERT_NONE' in args)))
-            if not has_ssl_pattern:
-                continue
-            if 'verify=False' in str(args) or 'CERT_NONE' in str(args):
-                self.findings.append(StandardFinding(
-                    rule_name='python-ssl-no-verify',
-                    message='SSL certificate verification disabled - MITM attacks possible',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.CRITICAL,
-                    category='cryptography',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-295'
-                ))
-
-            elif any(old in str(args) for old in ['SSLv2', 'SSLv3', 'TLSv1', 'TLSv1_1']):
-                self.findings.append(StandardFinding(
-                    rule_name='python-old-tls',
-                    message='Deprecated SSL/TLS version detected',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='cryptography',
-                    confidence=Confidence.HIGH,
-                    cwe_id='CWE-327'
-                ))
-
-    def _check_key_reuse(self):
-        """Detect key reuse across different contexts."""
-        from theauditor.indexer.schema import build_query
-
-        # Fetch all assignments, filter and group in Python
-        query = build_query('assignments', ['file', 'target_var'])
-        self.cursor.execute(query)
-
-        # Group by file and var
-        key_counts = {}
-        for file, var in self.cursor.fetchall():
-            var_lower = var.lower()
-            if 'key' not in var_lower and 'secret' not in var_lower:
-                continue
-            key = (file, var)
-            key_counts[key] = key_counts.get(key, 0) + 1
-
-        # Find reused keys
-        for (file, var), count in key_counts.items():
-            if count > 2:
-                self.findings.append(StandardFinding(
-                    rule_name='python-key-reuse',
-                    message=f'Cryptographic key "{var}" reused {count} times',
-                    file_path=file,
-                    line=1,
-                    severity=Severity.MEDIUM,
-                    category='cryptography',
-                    confidence=Confidence.LOW,
-                    cwe_id='CWE-323'
-                ))
-
-    def _check_security_context(self, file: str, line: int) -> bool:
-        """Check if code is in security-sensitive context."""
-        from theauditor.indexer.schema import build_query
-
-        # Look for auth/password/token/session nearby
-        security_keywords = ['auth', 'password', 'token', 'session', 'login', 'user', 'secret']
-
-        # Fetch nearby function calls, filter in Python
-        query = build_query('function_call_args', ['callee_function', 'argument_expr'],
-                           where="file = ? AND ABS(line - ?) <= 10")
-        self.cursor.execute(query, (file, line))
-
-        for callee, arg_expr in self.cursor.fetchall():
-            callee_lower = callee.lower() if callee else ''
-            arg_lower = arg_expr.lower() if arg_expr else ''
-
-            for keyword in security_keywords:
-                if keyword in callee_lower or keyword in arg_lower:
-                    return True
-
-        return False
-
-    def _check_crypto_context(self, file: str, line: int, caller: str) -> bool:
-        """Check if random is used in cryptographic context."""
-        # Check function name
-        if caller and any(c in caller.lower() for c in ['key', 'token', 'nonce', 'salt', 'iv', 'crypto', 'encrypt']):
-            return True
-
-        # Check for crypto library usage nearby - fetch and filter in Python
-        from theauditor.indexer.schema import build_query
-
-        query = build_query('function_call_args', ['callee_function'],
-                           where="file = ? AND ABS(line - ?) <= 20")
-        self.cursor.execute(query, (file, line))
-
-        for (callee,) in self.cursor.fetchall():
-            if 'crypt' in callee.lower():
-                return True
-
-        return False
-
-
-# ============================================================================
-# MISSING DATABASE FEATURES FLAGGED
-# ============================================================================
-
-"""
-FLAGGED: Missing database features for better crypto detection:
-
-1. Constant values:
-   - Can't determine actual key length (need to evaluate "a" * 16)
-   - Can't check if iterations is actually a number
-
-2. Import tracking:
-   - Can't detect: from Crypto.Cipher import AES
-   - Need to know which crypto library is used
-
-3. Configuration files:
-   - Can't check TLS config in settings files
-   - Need config parsing
-
-4. Certificate validation:
-   - Can't detect custom certificate validation functions
-   - Need to track verify callbacks
-
-5. Random seed tracking:
-   - Can't detect if random is seeded with constant
-   - Need to track random.seed() calls
-"""
-
-
-# ============================================================================
-# MAIN RULE FUNCTION (Orchestrator Entry Point)
-# ============================================================================
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
+WEAK_HASHES = frozenset(
+    [
+        "md5",
+        "hashlib.md5",
+        "MD5",
+        "md5sum",
+        "sha1",
+        "hashlib.sha1",
+        "SHA1",
+        "sha1sum",
+        "sha",
+        "hashlib.sha",
+        "SHA",
+    ]
+)
+
+
+BROKEN_CRYPTO = frozenset(
+    [
+        "DES",
+        "des",
+        "DES3",
+        "3DES",
+        "RC2",
+        "RC4",
+        "Blowfish",
+        "IDEA",
+        "CAST5",
+        "XOR",
+    ]
+)
+
+
+ECB_MODE_PATTERNS = frozenset(
+    [
+        "MODE_ECB",
+        "ECB",
+        "mode=ECB",
+        "AES.MODE_ECB",
+        "DES.MODE_ECB",
+        "Blowfish.MODE_ECB",
+    ]
+)
+
+
+INSECURE_RANDOM = frozenset(
+    [
+        "random.random",
+        "random.randint",
+        "random.choice",
+        "random.randrange",
+        "random.seed",
+        "random.getrandbits",
+        "random.randbytes",
+    ]
+)
+
+
+KEY_VARIABLES = frozenset(
+    [
+        "key",
+        "secret",
+        "password",
+        "passphrase",
+        "pin",
+        "api_key",
+        "secret_key",
+        "private_key",
+        "encryption_key",
+        "signing_key",
+        "master_key",
+        "session_key",
+        "symmetric_key",
+        "aes_key",
+        "des_key",
+        "rsa_key",
+        "dsa_key",
+        "ecdsa_key",
+    ]
+)
+
+
+KDF_METHODS = frozenset(
+    [
+        "PBKDF2",
+        "pbkdf2_hmac",
+        "scrypt",
+        "argon2",
+        "bcrypt",
+        "hashpw",
+        "kdf",
+        "derive_key",
+    ]
+)
+
+
+WEAK_ITERATIONS = frozenset(["1000", "5000", "10000"])
+
+
+JWT_PATTERNS = frozenset(
+    [
+        "jwt.encode",
+        "jwt.decode",
+        "HS256",
+        "none",
+        "None",
+        "algorithm=none",
+        'algorithm="none"',
+        "algorithm='none'",
+    ]
+)
+
+
+SSL_PATTERNS = frozenset(
+    [
+        "ssl.CERT_NONE",
+        "verify=False",
+        "check_hostname=False",
+        "SSLContext",
+        "PROTOCOL_SSLv2",
+        "PROTOCOL_SSLv3",
+        "PROTOCOL_TLSv1",
+        "PROTOCOL_TLSv1_1",
+    ]
+)
+
+
+SECURITY_KEYWORDS = frozenset(
+    [
+        "auth",
+        "password",
+        "token",
+        "session",
+        "login",
+        "user",
+        "secret",
+    ]
+)
+
+
+CRYPTO_CONTEXT_KEYWORDS = frozenset(
+    [
+        "key",
+        "token",
+        "nonce",
+        "salt",
+        "iv",
+        "crypto",
+        "encrypt",
+    ]
+)
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Python cryptography vulnerabilities.
 
     Args:
-        context: Standardized rule context with database path
+        context: Provides db_path, file_path, content, language, project_path
 
     Returns:
-        List of cryptography vulnerabilities found
+        RuleResult with findings list and fidelity manifest
     """
-    analyzer = CryptoAnalyzer(context)
-    return analyzer.analyze()
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
+        seen: set[str] = set()
+
+        def add_finding(
+            file: str,
+            line: int,
+            rule_name: str,
+            message: str,
+            severity: Severity,
+            confidence: Confidence = Confidence.HIGH,
+            cwe_id: str | None = None,
+        ) -> None:
+            """Add a finding if not already seen."""
+            key = f"{file}:{line}:{rule_name}"
+            if key in seen:
+                return
+            seen.add(key)
+
+            findings.append(
+                StandardFinding(
+                    rule_name=rule_name,
+                    message=message,
+                    file_path=file,
+                    line=line,
+                    severity=severity,
+                    category=METADATA.category,
+                    confidence=confidence,
+                    cwe_id=cwe_id,
+                )
+            )
+
+        _check_weak_hashes(db, add_finding)
+        _check_broken_crypto(db, add_finding)
+        _check_ecb_mode(db, add_finding)
+        _check_insecure_random(db, add_finding)
+        _check_weak_kdf(db, add_finding)
+        _check_jwt_issues(db, add_finding)
+        _check_ssl_issues(db, add_finding)
+        _check_hardcoded_keys(db, add_finding)
+        _check_key_reuse(db, add_finding)
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-# ============================================================================
-# TAINT REGISTRATION (For Orchestrator)
-# ============================================================================
+def _check_weak_hashes(db: RuleDB, add_finding) -> None:
+    """Detect weak hash algorithm usage (MD5, SHA1)."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-def register_taint_patterns(taint_registry):
-    """Register crypto-specific taint patterns.
+    for row in rows:
+        file, line, method, _args = row[0], row[1], row[2], row[3]
+        if not method:
+            continue
 
-    Args:
-        taint_registry: TaintRegistry instance
+        method_lower = method.lower()
+
+        is_weak = method in WEAK_HASHES or ".md5" in method_lower or ".sha1" in method_lower
+
+        if not is_weak:
+            continue
+
+        is_security = _check_security_context(db, file, line)
+
+        if is_security:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-weak-hash",
+                message=f"Weak hash {method} used in security context",
+                severity=Severity.CRITICAL,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-327",
+            )
+        else:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-weak-hash",
+                message=f"Weak hash {method} - vulnerable to collisions",
+                severity=Severity.MEDIUM,
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-327",
+            )
+
+
+def _check_broken_crypto(db: RuleDB, add_finding) -> None:
+    """Detect broken cryptographic algorithms (DES, RC4, etc.)."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for row in rows:
+        file, line, method, args = row[0], row[1], row[2], row[3]
+        if not method:
+            continue
+
+        method_upper = method.upper()
+
+        has_broken = "DES" in method_upper or "RC4" in method_upper or "RC2" in method_upper
+
+        if not has_broken and args:
+            has_broken = any(algo in str(args) for algo in BROKEN_CRYPTO)
+
+        if not has_broken:
+            continue
+
+        algo = (
+            "DES"
+            if "DES" in method_upper
+            else "RC4"
+            if "RC4" in method_upper
+            else "broken algorithm"
+        )
+
+        add_finding(
+            file=file,
+            line=line,
+            rule_name="python-broken-crypto",
+            message=f"Broken cryptographic algorithm {algo} detected",
+            severity=Severity.CRITICAL,
+            confidence=Confidence.HIGH,
+            cwe_id="CWE-327",
+        )
+
+
+def _check_ecb_mode(db: RuleDB, add_finding) -> None:
+    """Detect ECB mode usage - insecure because patterns are preserved."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for row in rows:
+        file, line, method, args = row[0], row[1], row[2], row[3]
+        if not method:
+            continue
+
+        has_ecb = False
+
+        if args:
+            has_ecb = any(ecb in str(args) for ecb in ECB_MODE_PATTERNS) or "MODE_ECB" in str(args)
+
+        if "ECB" in method.upper():
+            has_ecb = True
+
+        if has_ecb:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-ecb-mode",
+                message="ECB mode encryption is insecure - patterns are preserved",
+                severity=Severity.HIGH,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-327",
+            )
+
+
+def _check_insecure_random(db: RuleDB, add_finding) -> None:
+    """Detect insecure random number generation for cryptographic purposes."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr", "caller_function")
+        .where_in("callee_function", list(INSECURE_RANDOM))
+        .order_by("file, line")
+    )
+
+    for row in rows:
+        file, line, method, _args, caller = row[0], row[1], row[2], row[3], row[4]
+
+        is_crypto = _check_crypto_context(db, file, line, caller)
+
+        if is_crypto:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-insecure-random",
+                message=f"Insecure random {method} used for cryptography",
+                severity=Severity.CRITICAL,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-338",
+            )
+
+
+def _check_weak_kdf(db: RuleDB, add_finding) -> None:
+    """Detect weak key derivation functions - low iterations or missing salt."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for row in rows:
+        file, line, method, args = row[0], row[1], row[2], row[3]
+        if not method or not args:
+            continue
+
+        method_lower = method.lower()
+
+        is_kdf = method in KDF_METHODS or "pbkdf2" in method_lower or "scrypt" in method_lower
+
+        if not is_kdf:
+            continue
+
+        args_str = str(args)
+
+        if any(iters in args_str for iters in WEAK_ITERATIONS):
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-weak-kdf-iterations",
+                message=f"Weak KDF iterations in {method}",
+                severity=Severity.HIGH,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-916",
+            )
+
+        if "salt" not in args_str.lower():
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-kdf-no-salt",
+                message=f"KDF {method} possibly missing salt",
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-916",
+            )
+
+
+def _check_jwt_issues(db: RuleDB, add_finding) -> None:
+    """Detect JWT/token security issues - algorithm=none, weak secrets."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for row in rows:
+        file, line, method, args = row[0], row[1], row[2], row[3]
+        if not method or not args:
+            continue
+
+        method_lower = method.lower()
+
+        is_jwt = (
+            method in JWT_PATTERNS or "jwt." in method_lower or "algorithm" in str(args).lower()
+        )
+
+        if not is_jwt:
+            continue
+
+        args_lower = str(args).lower()
+
+        if any(
+            none in args_lower
+            for none in ["algorithm=none", 'algorithm="none"', "algorithm='none'"]
+        ):
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-jwt-none-algorithm",
+                message="JWT with algorithm=none allows token forgery",
+                severity=Severity.CRITICAL,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-347",
+            )
+
+        elif "HS256" in str(args) and "secret" in args_lower:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-jwt-weak-secret",
+                message="JWT HS256 requires strong secret (256+ bits)",
+                severity=Severity.HIGH,
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-347",
+            )
+
+
+def _check_ssl_issues(db: RuleDB, add_finding) -> None:
+    """Detect SSL/TLS misconfigurations - disabled verification, old protocols."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for row in rows:
+        file, line, method, args = row[0], row[1], row[2], row[3]
+        if not method:
+            continue
+
+        args_str = str(args) if args else ""
+
+        has_ssl = method in SSL_PATTERNS or any(pattern in args_str for pattern in SSL_PATTERNS)
+
+        if not has_ssl:
+            continue
+
+        if "verify=False" in args_str or "CERT_NONE" in args_str:
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-ssl-no-verify",
+                message="SSL certificate verification disabled - MITM attacks possible",
+                severity=Severity.CRITICAL,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-295",
+            )
+
+        elif any(old in args_str for old in ["SSLv2", "SSLv3", "TLSv1", "TLSv1_1"]):
+            add_finding(
+                file=file,
+                line=line,
+                rule_name="python-old-tls",
+                message="Deprecated SSL/TLS version detected",
+                severity=Severity.HIGH,
+                confidence=Confidence.HIGH,
+                cwe_id="CWE-327",
+            )
+
+
+def _calculate_entropy(text: str) -> float:
+    """Calculate Shannon entropy of a string.
+
+    Higher entropy indicates more randomness (like real keys).
+    English text: ~4.0 bits/char, random hex: ~4.0, random base64: ~6.0
     """
-    patterns = CryptoPatterns()
+    import math
 
-    # Register weak crypto as sinks
-    for pattern in patterns.WEAK_HASHES:
-        taint_registry.register_sink(pattern, "weak_crypto", "python")
+    if not text:
+        return 0.0
+    freq: dict[str, int] = {}
+    for char in text:
+        freq[char] = freq.get(char, 0) + 1
+    entropy = 0.0
+    for count in freq.values():
+        p = count / len(text)
+        entropy -= p * math.log2(p)
+    return entropy
 
-    for pattern in patterns.BROKEN_CRYPTO:
-        taint_registry.register_sink(pattern, "broken_crypto", "python")
 
-    # Register insecure random as sources
-    for pattern in patterns.INSECURE_RANDOM:
-        if 'SystemRandom' not in pattern:
-            taint_registry.register_source(pattern, "insecure_random", "python")
+PLACEHOLDER_VALUES = frozenset(
+    [
+        "changeme",
+        "change_me",
+        "your-key-here",
+        "your_key_here",
+        "placeholder",
+        "example",
+        "test",
+        "demo",
+        "dummy",
+        "fake",
+        "xxx",
+        "yyy",
+        "zzz",
+        "abc123",
+        "password123",
+        "secret123",
+        "todo",
+        "fixme",
+        "replace_me",
+        "insert_key_here",
+    ]
+)
 
-    # Register hardcoded keys as sources
-    for pattern in patterns.KEY_VARIABLES:
-        taint_registry.register_source(pattern, "hardcoded_secret", "python")
+
+def _check_hardcoded_keys(db: RuleDB, add_finding) -> None:
+    """Detect hardcoded cryptographic keys and secrets.
+
+    Uses multi-layered detection:
+    1. Known vendor prefixes (AWS AKIA, Stripe sk_live_, etc.) - HIGH confidence
+    2. Entropy-based detection for long strings - MEDIUM confidence
+    3. Filters out obvious placeholders
+    """
+    rows = db.query(
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
+    )
+
+    for row in rows:
+        file, line, var, expr = row[0], row[1], row[2], row[3]
+        if not var or not expr:
+            continue
+
+        is_key_var = (
+            var in KEY_VARIABLES
+            or var.endswith("_key")
+            or var.endswith("_secret")
+            or var.endswith("_password")
+        )
+
+        if not is_key_var:
+            continue
+
+        expr_str = str(expr)
+        is_string_literal = (
+            expr_str.startswith('"')
+            or expr_str.startswith("'")
+            or expr_str.startswith('b"')
+            or expr_str.startswith("b'")
+        )
+
+        if not is_string_literal:
+            continue
+
+        val = expr_str.strip("\"'")
+        if val.startswith("b"):
+            val = val[1:].strip("\"'")
+
+        if len(val) < 8:
+            continue
+
+        val_lower = val.lower()
+        if any(placeholder in val_lower for placeholder in PLACEHOLDER_VALUES):
+            continue
+
+        if "os.getenv" in expr_str or "os.environ" in expr_str or "getenv" in expr_str:
+            continue
+
+        vendor_patterns = [
+            ("AKIA", 20, "AWS Access Key"),
+            ("ASIA", 20, "AWS Temp Key"),
+            ("sk_live_", 32, "Stripe Live Key"),
+            ("sk_test_", 32, "Stripe Test Key"),
+            ("pk_live_", 32, "Stripe Pub Key"),
+            ("ghp_", 36, "GitHub PAT"),
+            ("gho_", 36, "GitHub OAuth"),
+            ("glpat-", 20, "GitLab PAT"),
+            ("xox", 40, "Slack Token"),
+        ]
+
+        for prefix, min_len, vendor_name in vendor_patterns:
+            if val.startswith(prefix) and len(val) >= min_len:
+                add_finding(
+                    file=file,
+                    line=line,
+                    rule_name="python-hardcoded-key",
+                    message=f"Hardcoded {vendor_name} detected in {var}",
+                    severity=Severity.CRITICAL,
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-798",
+                )
+                break
+        else:
+            if len(val) >= 20:
+                entropy = _calculate_entropy(val)
+
+                if entropy > 3.5:
+                    add_finding(
+                        file=file,
+                        line=line,
+                        rule_name="python-hardcoded-key",
+                        message=f"Likely hardcoded secret in {var} (high entropy: {entropy:.1f})",
+                        severity=Severity.HIGH,
+                        confidence=Confidence.MEDIUM,
+                        cwe_id="CWE-798",
+                    )
+
+
+def _check_key_reuse(db: RuleDB, add_finding) -> None:
+    """Detect key reuse across different contexts."""
+    rows = db.query(Q("assignments").select("file", "target_var"))
+
+    key_counts: dict[tuple[str, str], int] = {}
+    for row in rows:
+        file, var = row[0], row[1]
+        if not var:
+            continue
+
+        var_lower = var.lower()
+        if "key" not in var_lower and "secret" not in var_lower:
+            continue
+
+        key = (file, var)
+        key_counts[key] = key_counts.get(key, 0) + 1
+
+    for (file, var), count in key_counts.items():
+        if count > 2:
+            add_finding(
+                file=file,
+                line=1,
+                rule_name="python-key-reuse",
+                message=f'Cryptographic key "{var}" reused {count} times',
+                severity=Severity.MEDIUM,
+                confidence=Confidence.LOW,
+                cwe_id="CWE-323",
+            )
+
+
+def _check_security_context(db: RuleDB, file: str, line: int) -> bool:
+    """Check if code is in security-sensitive context."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("callee_function", "argument_expr")
+        .where("file = ? AND line >= ? AND line <= ?", file, line - 10, line + 10)
+    )
+
+    for row in rows:
+        callee, arg_expr = row[0], row[1]
+        callee_lower = str(callee).lower() if callee else ""
+        arg_lower = str(arg_expr).lower() if arg_expr else ""
+
+        if any(keyword in callee_lower or keyword in arg_lower for keyword in SECURITY_KEYWORDS):
+            return True
+
+    return False
+
+
+def _check_crypto_context(db: RuleDB, file: str, line: int, caller: str | None) -> bool:
+    """Check if random is used in cryptographic context."""
+
+    if caller and any(kw in caller.lower() for kw in CRYPTO_CONTEXT_KEYWORDS):
+        return True
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("callee_function")
+        .where("file = ? AND line >= ? AND line <= ?", file, line - 20, line + 20)
+    )
+
+    return any("crypt" in str(row[0]).lower() for row in rows if row[0])

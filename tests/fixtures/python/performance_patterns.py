@@ -14,15 +14,11 @@ Expected extractions:
 import functools
 
 
-# ============================================================================
-# PATTERN 1: Loop Complexity
-# ============================================================================
-
 def simple_loop():
     """Test simple O(n) loop."""
     result = []
     for i in range(100):
-        result.append(i * 2)  # Growing operation
+        result.append(i * 2)
     return result
 
 
@@ -31,7 +27,7 @@ def nested_loop_2d():
     matrix = []
     for i in range(10):
         row = []
-        for j in range(10):  # Nested loop (nesting level 2)
+        for j in range(10):
             row.append(i * j)
         matrix.append(row)
     return matrix
@@ -44,7 +40,7 @@ def nested_loop_3d():
         plane = []
         for j in range(5):
             row = []
-            for k in range(5):  # Triple nested (nesting level 3)
+            for k in range(5):
                 row.append(i + j + k)
             plane.append(row)
         cube.append(plane)
@@ -54,54 +50,50 @@ def nested_loop_3d():
 def while_loop():
     """Test while loop."""
     count = 0
-    while count < 100:  # While loop
+    while count < 100:
         count += 1
     return count
 
 
 def list_comprehension():
     """Test list comprehension (implicit loop)."""
-    return [x * 2 for x in range(100)]  # Comprehension (nesting level 1)
+    return [x * 2 for x in range(100)]
 
 
 def nested_comprehension():
     """Test nested list comprehension."""
-    return [[i * j for j in range(10)] for i in range(10)]  # Nested comprehension (nesting level 2)
+    return [[i * j for j in range(10)] for i in range(10)]
 
 
 def loop_no_growing():
     """Test loop without growing operations."""
     total = 0
     for i in range(100):
-        total += i  # Augmented assignment (counted as growing operation)
+        total += i
     return total
 
 
 def dict_comprehension():
     """Test dict comprehension."""
-    return {i: i ** 2 for i in range(100)}  # Dict comprehension
+    return {i: i**2 for i in range(100)}
 
-
-# ============================================================================
-# PATTERN 2: Resource Usage
-# ============================================================================
 
 def large_list_comprehension():
     """Test large list allocation."""
-    return [x for x in range(10000)]  # Large list (>1000 elements)
+    return list(range(10000))
 
 
 def large_dict_literal():
     """Test large dict literal (>100 elements)."""
-    data = {str(i): i for i in range(150)}  # Large dict
+    data = {str(i): i for i in range(150)}
     return data
 
 
 def unclosed_file_handle():
     """Test file handle without context manager."""
-    f = open("test.txt")  # File handle without cleanup
+    f = open("test.txt")
     data = f.read()
-    # No f.close() - missing cleanup
+
     return data
 
 
@@ -109,75 +101,67 @@ def string_concatenation_loop():
     """Test string concatenation in loop (inefficient)."""
     result = ""
     for i in range(100):
-        result += str(i)  # String concat in loop (resource usage)
+        result += str(i)
     return result
 
 
 def large_range_comprehension():
     """Test large range in comprehension."""
-    return [x ** 2 for x in range(5000)]  # Large range
+    return [x**2 for x in range(5000)]
 
 
 def multiple_large_structures():
     """Test multiple large allocations."""
-    list1 = [x for x in range(2000)]  # Large list 1
-    list2 = [x * 2 for x in range(2000)]  # Large list 2
-    dict1 = {i: i ** 2 for i in range(200)}  # Large dict
+    list1 = list(range(2000))
+    list2 = [x * 2 for x in range(2000)]
+    dict1 = {i: i**2 for i in range(200)}
     return list1, list2, dict1
 
-
-# ============================================================================
-# PATTERN 3: Memoization
-# ============================================================================
 
 @functools.lru_cache(maxsize=128)
 def fibonacci_memoized(n):
     """Test memoized recursive function."""
     if n <= 1:
         return n
-    return fibonacci_memoized(n - 1) + fibonacci_memoized(n - 2)  # Recursive with memoization
+    return fibonacci_memoized(n - 1) + fibonacci_memoized(n - 2)
 
 
 def fibonacci_unmemoized(n):
     """Test unmemoized recursive function (opportunity)."""
     if n <= 1:
         return n
-    return fibonacci_unmemoized(n - 1) + fibonacci_unmemoized(n - 2)  # Recursive WITHOUT memoization
+    return fibonacci_unmemoized(n - 1) + fibonacci_unmemoized(n - 2)
 
 
 @functools.lru_cache(maxsize=256)
 def expensive_computation(x, y):
     """Test memoization with custom cache size."""
-    return x ** y + y ** x  # Expensive computation with LRU cache
+    return x**y + y**x
 
 
-# Manual cache example
 _manual_cache = {}
+
 
 def manual_cache_function(key):
     """Test manual caching pattern."""
     if key in _manual_cache:
-        return _manual_cache[key]  # Manual cache hit
+        return _manual_cache[key]
 
-    result = key ** 2  # Compute
-    _manual_cache[key] = result  # Store in manual cache
+    result = key**2
+    _manual_cache[key] = result
     return result
 
 
 def non_recursive_function(x):
     """Test non-recursive function (no memoization needed)."""
-    return x * 2  # Simple function, no memoization
+    return x * 2
 
 
 @functools.lru_cache
 def memoized_no_maxsize(data):
     """Test lru_cache without maxsize (unbounded)."""
-    return len(data) * 2  # Memoized, no cache size limit
+    return len(data) * 2
 
-
-# ============================================================================
-# COMBINED PATTERNS (Complex Real-World Example)
-# ============================================================================
 
 def matrix_multiplication(a, b):
     """Test O(n^3) algorithm with growing operations."""
@@ -187,29 +171,27 @@ def matrix_multiplication(a, b):
         row = []
         for j in range(n):
             value = 0
-            for k in range(n):  # Triple nested loop (O(n^3))
-                value += a[i][k] * b[k][j]  # Augmented assignment (growing operation)
-            row.append(value)  # Growing operation
-        result.append(row)  # Growing operation
+            for k in range(n):
+                value += a[i][k] * b[k][j]
+            row.append(value)
+        result.append(row)
     return result
 
 
 def process_large_dataset():
     """Test multiple performance patterns together."""
-    # Large allocation
-    data = [x for x in range(10000)]  # Large list
 
-    # Nested loops with growing operations
+    data = list(range(10000))
+
     transformed = []
     for i in range(len(data)):
         if i % 2 == 0:
-            for j in range(10):  # Nested loop
-                transformed.append(data[i] * j)  # Growing operation
+            for j in range(10):
+                transformed.append(data[i] * j)
 
-    # String concatenation (inefficient)
     output = ""
     for val in transformed[:100]:
-        output += str(val) + ","  # String concat in loop
+        output += str(val) + ","
 
     return output
 
@@ -219,13 +201,13 @@ def recursive_with_cache(n, memo=None):
     """Test recursive function with both lru_cache and manual cache."""
     if n <= 0:
         return 1
-    return n * recursive_with_cache(n - 1)  # Recursive with memoization
+    return n * recursive_with_cache(n - 1)
 
 
 def nested_loop_search(matrix, target):
     """Test nested loop search O(n^2)."""
     for i in range(len(matrix)):
-        for j in range(len(matrix[i])):  # Nested loop
+        for j in range(len(matrix[i])):
             if matrix[i][j] == target:
                 return (i, j)
     return None
@@ -240,7 +222,7 @@ def triple_nested_tensor_op(tensor):
             row = []
             for k in range(len(tensor[i][j])):
                 col = []
-                for l in range(len(tensor[i][j][k])):  # 4-level nesting
+                for l in range(len(tensor[i][j][k])):
                     col.append(tensor[i][j][k][l] ** 2)
                 row.append(col)
             plane.append(row)

@@ -1,8 +1,6 @@
 """Registry of framework detection patterns and test framework configurations."""
 
-# Framework detection registry - defines where to find each framework
 FRAMEWORK_REGISTRY = {
-    # Python frameworks
     "django": {
         "language": "python",
         "detection_sources": {
@@ -141,8 +139,6 @@ FRAMEWORK_REGISTRY = {
         },
         "import_patterns": ["from sanic", "import sanic"],
     },
-    
-    # JavaScript/TypeScript frameworks
     "express": {
         "language": "javascript",
         "detection_sources": {
@@ -238,9 +234,6 @@ FRAMEWORK_REGISTRY = {
         "import_patterns": ["vite"],
         "config_files": ["vite.config.js", "vite.config.ts"],
     },
-
-    # Validation/Schema libraries (JavaScript/TypeScript)
-    # These are sanitizers that reduce false positives in taint analysis
     "zod": {
         "language": "javascript",
         "detection_sources": {
@@ -260,7 +253,7 @@ FRAMEWORK_REGISTRY = {
                 ["devDependencies"],
             ],
         },
-        "package_pattern": "joi",  # Matches both 'joi' and '@hapi/joi'
+        "package_pattern": "joi",
         "import_patterns": ["require('joi')", "from 'joi'", "import Joi", "import * as Joi"],
         "category": "validation",
     },
@@ -308,8 +301,6 @@ FRAMEWORK_REGISTRY = {
         "import_patterns": ["from 'express-validator'", "require('express-validator')"],
         "category": "validation",
     },
-
-    # PHP frameworks
     "laravel": {
         "language": "php",
         "detection_sources": {
@@ -364,8 +355,6 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "codeigniter4/framework",
         "file_markers": ["spark"],
     },
-    
-    # Go frameworks
     "gin": {
         "language": "go",
         "detection_sources": {
@@ -414,8 +403,54 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "github.com/gorilla/mux",
         "import_patterns": ["github.com/gorilla/mux"],
     },
-    
-    # Java frameworks
+    "net_http": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "exists",
+        },
+        "import_patterns": ["net/http"],
+        "file_markers": ["*.go"],
+    },
+    "gorm": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "content_search",
+        },
+        "package_pattern": "gorm.io/gorm",
+        "import_patterns": ["gorm.io/gorm", "gorm.io/driver"],
+    },
+    "sqlx_go": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "content_search",
+        },
+        "package_pattern": "github.com/jmoiron/sqlx",
+        "import_patterns": ["github.com/jmoiron/sqlx"],
+    },
+    "ent": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "content_search",
+        },
+        "package_pattern": "entgo.io/ent",
+        "import_patterns": ["entgo.io/ent"],
+    },
+    "cobra": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "content_search",
+        },
+        "package_pattern": "github.com/spf13/cobra",
+        "import_patterns": ["github.com/spf13/cobra"],
+    },
+    "grpc_go": {
+        "language": "go",
+        "detection_sources": {
+            "go.mod": "content_search",
+        },
+        "package_pattern": "google.golang.org/grpc",
+        "import_patterns": ["google.golang.org/grpc"],
+    },
     "spring": {
         "language": "java",
         "detection_sources": {
@@ -465,121 +500,88 @@ FRAMEWORK_REGISTRY = {
         "package_pattern": "com.typesafe.play",
         "content_patterns": ["com.typesafe.play"],
     },
-    
-    # Rust frameworks
+    # Rust web frameworks - detected via Cargo.toml and use statements
     "actix-web": {
         "language": "rust",
-        "detection_sources": {
-            "Cargo.toml": [
-                ["dependencies"],
-                ["dev-dependencies"],
-            ],
-        },
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
         "package_pattern": "actix-web",
-        "import_patterns": ["use actix_web", "actix_web::", "HttpServer"],
-    },
-    "rocket": {
-        "language": "rust",
-        "detection_sources": {
-            "Cargo.toml": [
-                ["dependencies"],
-                ["dev-dependencies"],
-            ],
-        },
-        "package_pattern": "rocket",
-        "import_patterns": ["use rocket", "rocket::", "#[launch]", "#[get(", "#[post("],
+        "import_patterns": ["actix_web::", "HttpServer::new", "web::resource"],
+        "attribute_patterns": ["#[actix_web::main]", "#[get(", "#[post(", "#[route("],
     },
     "axum": {
         "language": "rust",
-        "detection_sources": {
-            "Cargo.toml": [
-                ["dependencies"],
-                ["dev-dependencies"],
-            ],
-        },
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
         "package_pattern": "axum",
-        "import_patterns": ["use axum", "axum::", "Router::new"],
+        "import_patterns": ["axum::", "axum::Router", "axum::extract"],
+        "attribute_patterns": ["#[debug_handler]"],
+    },
+    "rocket": {
+        "language": "rust",
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
+        "package_pattern": "rocket",
+        "import_patterns": ["rocket::", "rocket::serde"],
+        "attribute_patterns": ["#[launch]", "#[rocket::main]", "#[get(", "#[post("],
     },
     "warp": {
         "language": "rust",
-        "detection_sources": {
-            "Cargo.toml": [
-                ["dependencies"],
-                ["dev-dependencies"],
-            ],
-        },
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
         "package_pattern": "warp",
-        "import_patterns": ["use warp", "warp::", "warp::Filter"],
+        "import_patterns": ["warp::", "warp::Filter", "warp::path"],
     },
+    # Rust async runtimes
     "tokio": {
         "language": "rust",
-        "detection_sources": {
-            "Cargo.toml": [
-                ["dependencies"],
-                ["dev-dependencies"],
-            ],
-        },
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
         "package_pattern": "tokio",
-        "import_patterns": ["use tokio", "tokio::", "#[tokio::main]"],
+        "import_patterns": ["tokio::", "tokio::spawn", "tokio::sync"],
+        "attribute_patterns": ["#[tokio::main]", "#[tokio::test]"],
     },
     "async-std": {
         "language": "rust",
-        "detection_sources": {
-            "Cargo.toml": [
-                ["dependencies"],
-                ["dev-dependencies"],
-            ],
-        },
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
         "package_pattern": "async-std",
-        "import_patterns": ["use async_std", "async_std::"],
+        "import_patterns": ["async_std::", "async_std::task"],
+        "attribute_patterns": ["#[async_std::main]", "#[async_std::test]"],
     },
+    # Rust ORMs and database libs
     "diesel": {
         "language": "rust",
-        "detection_sources": {
-            "Cargo.toml": [
-                ["dependencies"],
-                ["dev-dependencies"],
-            ],
-        },
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
         "package_pattern": "diesel",
-        "import_patterns": ["use diesel", "diesel::", "diesel::prelude::*"],
-        "file_markers": ["diesel.toml"],
+        "import_patterns": ["diesel::", "diesel::prelude"],
+        "file_markers": ["diesel.toml", "migrations/"],
+        "attribute_patterns": ["#[derive(Queryable", "#[derive(Insertable", "#[table_name"],
     },
     "sqlx": {
         "language": "rust",
-        "detection_sources": {
-            "Cargo.toml": [
-                ["dependencies"],
-                ["dev-dependencies"],
-            ],
-        },
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
         "package_pattern": "sqlx",
-        "import_patterns": ["use sqlx", "sqlx::", "sqlx::query"],
+        "import_patterns": ["sqlx::", "sqlx::query", "sqlx::FromRow"],
+        "attribute_patterns": ["#[derive(sqlx::FromRow)", "#[sqlx("],
     },
     "sea-orm": {
         "language": "rust",
-        "detection_sources": {
-            "Cargo.toml": [
-                ["dependencies"],
-                ["dev-dependencies"],
-            ],
-        },
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
         "package_pattern": "sea-orm",
-        "import_patterns": ["use sea_orm", "sea_orm::"],
+        "import_patterns": ["sea_orm::", "sea_orm::entity"],
+        "attribute_patterns": ["#[derive(DeriveEntityModel"],
     },
+    # Rust serialization
     "serde": {
         "language": "rust",
-        "detection_sources": {
-            "Cargo.toml": [
-                ["dependencies"],
-                ["dev-dependencies"],
-            ],
-        },
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
         "package_pattern": "serde",
-        "import_patterns": ["use serde", "serde::", "#[derive(Serialize", "#[derive(Deserialize"],
+        "import_patterns": ["serde::", "serde_json::"],
+        "attribute_patterns": ["#[derive(Serialize", "#[derive(Deserialize", "#[serde("],
     },
-
-    # Ruby frameworks
+    "validator": {
+        "language": "rust",
+        "category": "validation",
+        "detection_sources": {"Cargo.toml": [["dependencies"], ["dev-dependencies"]]},
+        "package_pattern": "validator",
+        "import_patterns": ["validator::"],
+        "attribute_patterns": ["#[derive(Validate)", "#[validate("],
+    },
     "rails": {
         "language": "ruby",
         "detection_sources": {
@@ -613,13 +615,9 @@ FRAMEWORK_REGISTRY = {
         },
         "package_pattern": "grape",
     },
-}
-
-
-# Test framework detection registry
-TEST_FRAMEWORK_REGISTRY = {
     "pytest": {
         "language": "python",
+        "category": "test",
         "command": "pytest -q -p no:cacheprovider",
         "detection_sources": {
             "pyproject.toml": [
@@ -655,12 +653,14 @@ TEST_FRAMEWORK_REGISTRY = {
     },
     "unittest": {
         "language": "python",
+        "category": "test",
         "command": "python -m unittest discover -q",
         "import_patterns": ["import unittest", "from unittest"],
         "file_patterns": ["test*.py", "*_test.py"],
     },
     "jest": {
         "language": "javascript",
+        "category": "test",
         "command": "npm test --silent",
         "detection_sources": {
             "package.json": [
@@ -676,6 +676,7 @@ TEST_FRAMEWORK_REGISTRY = {
     },
     "vitest": {
         "language": "javascript",
+        "category": "test",
         "command": "npm test --silent",
         "detection_sources": {
             "package.json": [
@@ -683,11 +684,17 @@ TEST_FRAMEWORK_REGISTRY = {
                 ["devDependencies"],
             ],
         },
-        "config_files": ["vitest.config.js", "vitest.config.ts", "vite.config.js", "vite.config.ts"],
+        "config_files": [
+            "vitest.config.js",
+            "vitest.config.ts",
+            "vite.config.js",
+            "vite.config.ts",
+        ],
         "script_patterns": ["vitest"],
     },
     "mocha": {
         "language": "javascript",
+        "category": "test",
         "command": "npm test --silent",
         "detection_sources": {
             "package.json": [
@@ -698,8 +705,9 @@ TEST_FRAMEWORK_REGISTRY = {
         "config_files": [".mocharc.js", ".mocharc.json", ".mocharc.yaml", ".mocharc.yml"],
         "script_patterns": ["mocha"],
     },
-    "go": {
+    "gotest": {
         "language": "go",
+        "category": "test",
         "command": "go test ./...",
         "file_patterns": ["*_test.go"],
         "detection_sources": {
@@ -708,6 +716,7 @@ TEST_FRAMEWORK_REGISTRY = {
     },
     "junit": {
         "language": "java",
+        "category": "test",
         "command_maven": "mvn test",
         "command_gradle": "gradle test",
         "detection_sources": {
@@ -721,6 +730,7 @@ TEST_FRAMEWORK_REGISTRY = {
     },
     "rspec": {
         "language": "ruby",
+        "category": "test",
         "command": "rspec",
         "detection_sources": {
             "Gemfile": "line_search",
@@ -729,14 +739,33 @@ TEST_FRAMEWORK_REGISTRY = {
         "config_files": [".rspec", "spec/spec_helper.rb"],
         "directory_markers": ["spec/"],
     },
-    "cargo": {
+    "cargo-test": {
         "language": "rust",
-        "command": "cargo test",
-        "detection_sources": {
-            "Cargo.toml": "exists",
-        },
-        "file_patterns": ["*_test.rs", "tests/*.rs"],
-        "directory_markers": ["tests/"],
-        "content_patterns": ["#[test]", "#[cfg(test)]"],
+        "category": "test",
+        "command": "cargo test --quiet",
+        "detection_sources": {"Cargo.toml": "exists"},
+        "file_patterns": ["tests/*.rs", "src/**/*_test.rs"],
+        "directory_markers": ["tests/", "benches/"],
+        "attribute_patterns": ["#[test]", "#[cfg(test)]", "#[tokio::test]", "#[ignore]"],
+    },
+    "bash": {
+        "language": "bash",
+        "detection_sources": {},
+        "file_markers": ["*.sh", "*.bash"],
+        "shebang_patterns": ["#!/bin/bash", "#!/usr/bin/env bash", "#!/bin/sh"],
+    },
+    "shellcheck": {
+        "language": "bash",
+        "category": "lint",
+        "command": "shellcheck",
+        "file_patterns": ["*.sh", "*.bash"],
+        "config_files": [".shellcheckrc"],
+    },
+    "bats": {
+        "language": "bash",
+        "category": "test",
+        "command": "bats",
+        "file_patterns": ["*.bats", "test/*.bats"],
+        "directory_markers": ["test/"],
     },
 }

@@ -1,6 +1,5 @@
 """Dependency helpers referenced by FastAPI routes."""
 
-
 from collections.abc import Generator
 
 from ..repositories.accounts import AccountRepository

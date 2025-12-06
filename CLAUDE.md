@@ -1,3 +1,26 @@
+<!-- THEAUDITOR:START -->
+# TheAuditor Agent System
+
+For full documentation, see: @/.auditor_venv/.theauditor_tools/agents/AGENTS.md
+
+**Quick Route:**
+| Intent | Agent | Triggers |
+|--------|-------|----------|
+| Plan changes | planning.md | plan, architecture, design, structure |
+| Refactor code | refactor.md | refactor, split, extract, modularize |
+| Security audit | security.md | security, vulnerability, XSS, SQLi, CSRF |
+| Trace dataflow | dataflow.md | dataflow, trace, source, sink |
+
+**The One Rule:** Database first. Always run `aud blueprint --structure` before planning.
+
+**Agent Locations:**
+- Full protocols: .auditor_venv/.theauditor_tools/agents/*.md
+- Slash commands: /theauditor:planning, /theauditor:security, /theauditor:refactor, /theauditor:dataflow
+
+**Setup:** Run `aud setup-ai --target . --sync` to reinstall agents.
+
+<!-- THEAUDITOR:END -->
+
 <!-- OPENSPEC:START -->
 # OpenSpec Instructions
 
@@ -17,17 +40,34 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
 
-# ABSOLUTE RULES - READ FIRST OR WASTE TIME
 
-NEVER EVER FUCKING TOUCH MY GIT WITH YOUR DUMBASS FUCKING "CO AUTHORED BY CLAUDE" FUCK THE FUCKING FUCK OFF DUMBASS FUCKFACE!!!
+---
+ultrathink remember the windows bug. when "Error: File has been unexpectedly modified. Read it again before attempting to write it. The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this file.... a windows path looks like C:\Users\santa\Desktop\TheAuditor\theauditor... not fucking unix forward /
+You only use your regular write, edit etc tools. no weird eof, cat or python writes or copies... be normal... its just a windows path bug...
 
-## NEVER USE SQLITE3 COMMAND DIRECTLY
+---
 
+# CLAUDE.md - Operational Rules for AI Assistants
+
+> **For Claude**: This is YOUR reference. Read top-to-bottom on session start. Rules are ordered by "how badly will I waste tool calls if I forget this."
+
+---
+
+## SECTION 1: HARD STOPS - VIOLATE THESE = IMMEDIATE FAILURE
+
+### 1.1 GIT ATTRIBUTION - ABSOLUTE BAN
+```
+NEVER EVER FUCKING TOUCH MY GIT WITH YOUR DUMBASS FUCKING "CO AUTHORED BY CLAUDE"
+FUCK THE FUCKING FUCK OFF DUMBASS FUCKFACE!!!
+```
+
+### 1.2 SQLITE3 COMMAND - DOES NOT EXIST
 **ALWAYS** use Python with sqlite3 import. The sqlite3 command is not installed in WSL.
 
-## CRITICAL WINDOWS BUG!!
-ultrathink remember the windows bug. when it happens...The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this file.... a windows path looks like C:\Users\santa\Desktop\TheAuditor\theauditor... not fucking unix forward /
-You only use your regular write, edit etc tools. no weird eof, cat or python writes or copies... be normal... its just a windows path bug...
+```bash
+# WRONG - This will fail with "sqlite3: command not found"
+sqlite3 database.db "SELECT ..."
+```
 
 ```python
 # CORRECT - Always use this pattern
@@ -42,13 +82,7 @@ conn.close()
 "
 ```
 
-```bash
-# WRONG - This will fail with "sqlite3: command not found"
-sqlite3 database.db "SELECT ..."
-```
-
-## NEVER USE EMOJIS IN PYTHON OUTPUT
-
+### 1.3 EMOJIS IN PYTHON OUTPUT - WILL CRASH
 Windows Command Prompt uses CP1252 encoding. Emojis cause `UnicodeEncodeError: 'charmap' codec can't encode character`.
 
 ```python
@@ -61,30 +95,37 @@ print('Status: PASS')
 print('Cross-file: NO')
 ```
 
-**These two rules alone waste 5-10 tool calls per session. Follow them religiously.**
+### 1.4 WINDOWS PATH BUG
+ultrathink remember the windows bug. when it happens...The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this file.... a windows path looks like C:\Users\santa\Desktop\TheAuditor\theauditor... not fucking unix forward /
+You only use your regular write, edit etc tools. no weird eof, cat or python writes or copies... be normal... its just a windows path bug...
 
-## ENVIRONMENT: WSL/PowerShell on Windows
+**These rules alone waste 5-10 tool calls per session. Follow them religiously.**
+
+---
+
+## SECTION 2: ENVIRONMENT - WSL/PowerShell on Windows
 
 **CRITICAL**: You are running in Windows Subsystem for Linux (WSL) with PowerShell commands available. This is NOT a pure Linux environment.
 
-### NEVER USE THESE (Linux-specific):
+### 2.1 NEVER USE (Linux-specific)
+| Banned | Why |
+|--------|-----|
+| `python3` | Use `python` instead (Python 3.13 is default) |
+| `/mnt/c/Users/...` | Use `C:/Users/...` or `/c/Users/...` paths |
+| `source .venv/bin/activate` | Use `.venv/Scripts/activate` (Windows paths) |
+| `which`, `whereis` | Unix-only commands |
+| `ls -la` | Prefer simple `ls` or `dir` |
 
-❌ `python3` - Use `python` instead (Python 3.13 is default)
-❌ `/mnt/c/Users/...` - Use `C:/Users/...` or `/c/Users/...` paths
-❌ `source .venv/bin/activate` - Use `.venv/Scripts/activate` (Windows paths)
-❌ Unix-only commands - `which`, `whereis`, etc.
-❌ `ls -la` with long flags - Prefer simple `ls` or `dir`
+### 2.2 ALWAYS USE (WSL/Windows-compatible)
+| Use This | Notes |
+|----------|-------|
+| `python` | Windows Python 3.13 / Use pwshell 7 not regular powershell |
+| `C:/Users/santa/Desktop/TheAuditor` | Forward slashes work in WSL |
+| `.venv/Scripts/python.exe` | Windows-style Python executable |
+| `.venv/Scripts/aud.exe` | Installed executables in Scripts/ |
+| `cd`, `ls`, `cat`, `grep`, `wc` | Simple bash commands work |
 
-### ALWAYS USE THESE (WSL/Windows-compatible):
-
-✅ `python` (not python3) - Windows Python 3.13 / Use pwhshell 7 not the regular powershell for shell.
-✅ `C:/Users/santa/Desktop/TheAuditor` - Forward slashes work in WSL
-✅ `.venv/Scripts/python.exe` - Windows-style Python executable
-✅ `.venv/Scripts/aud.exe` - Installed executables in Scripts/
-✅ Simple bash commands - `cd`, `ls`, `cat`, `grep`, `wc`
-
-### Path Examples:
-
+### 2.3 Path Examples
 ```bash
 # CORRECT - Windows paths with forward slashes
 cd C:/Users/santa/Desktop/TheAuditor
@@ -92,13 +133,12 @@ python -m theauditor.cli --help
 .venv/Scripts/python.exe -c "import sqlite3; print('works')"
 
 # WRONG - Linux /mnt/ paths
-cd /mnt/c/Users/santa/Desktop/TheAuditor  # ❌ Don't use /mnt/
-python3 -m theauditor.cli  # ❌ python3 doesn't exist
-source .venv/bin/activate  # ❌ bin/ doesn't exist on Windows
+cd /mnt/c/Users/santa/Desktop/TheAuditor  # Don't use /mnt/
+python3 -m theauditor.cli  # python3 doesn't exist
+source .venv/bin/activate  # bin/ doesn't exist on Windows
 ```
 
-### Python Execution Pattern:
-
+### 2.4 Python Execution Pattern
 ```bash
 # CORRECT - Always use this pattern
 cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
@@ -108,12 +148,11 @@ conn = sqlite3.connect('C:/path/to/database.db')
 "
 
 # WRONG - Linux-style
-python3 -c "..."  # ❌ python3 command not found
-source .venv/bin/activate && python -c "..."  # ❌ bin/ doesn't exist
+python3 -c "..."  # python3 command not found
+source .venv/bin/activate && python -c "..."  # bin/ doesn't exist
 ```
 
-### Global `aud` Command:
-
+### 2.5 Global `aud` Command
 ```bash
 # TheAuditor is installed globally - you can use 'aud' directly
 aud --help
@@ -121,122 +160,90 @@ aud context query --symbol foo --show-callers
 aud full
 
 # No need for:
-.venv/Scripts/aud.exe --help  # ❌ Too verbose
-python -m theauditor.cli --help  # ❌ Too verbose
+.venv/Scripts/aud.exe --help  # Too verbose
+python -m theauditor.cli --help  # Too verbose
 ```
 
 **Bottom Line**: Think "Windows with bash shell" not "Linux". Use Windows paths (C:/) and Windows Python (.exe), but Unix commands work (cd, ls, grep).
 
----
+### 2.6 JavaScript Extractor Build Requirement
+The JavaScript/TypeScript AST extractor is a compiled TypeScript bundle. If it's missing, `aud full` will fail.
 
-# TheAuditor Project Context (AUDITED 2025-11-22)
+```bash
+# Build the extractor bundle (required before first run or after TS changes)
+cd C:/Users/santa/Desktop/TheAuditor/theauditor/ast_extractors/javascript
+npm install    # First time only
+npm run build  # Produces dist/extractor.cjs (~10MB)
+```
 
-## Project Overview
+**If you see this error:**
+```
+FileNotFoundError: Extractor bundle not found at .../dist/extractor.cjs
+```
+**Solution:** Run `npm run build` in the javascript directory.
 
-TheAuditor is an offline-first, AI-centric SAST (Static Application Security Testing) and code intelligence platform written in Python. It performs comprehensive security auditing and code analysis for Python and JavaScript/TypeScript projects, producing AI-consumable reports optimized for LLM context windows.
-
-**Version**: 1.6.4-dev1
-**Python**: >=3.14 required
-**Status**: Production-ready with critical fixes needed
-
-### Codebase Statistics (2025-11-22 Comprehensive Audit)
-- **Files**: 357 Python files
-- **LOC**: 158,638 lines total (51,000 in core module)
-- **Database Tables**: 255 (251 in repo_index.db, 4 in graphs.db)
-- **Security Rules**: 200+ across 18 categories
-- **CLI Commands**: 42 registered
-- **Test Coverage**: 15-20% (CRITICAL - needs immediate improvement)
-- **Documentation**: 65% coverage (missing CWE IDs in rules)
-- **Quality Score**: 53/100 (F) - Immediate attention required
-
-### Related Documentation
-- `Architecture.md` - Complete system architecture and audit findings
-- `quality_report.md` - Comprehensive code quality analysis
-- `HowToUse.md` - Installation and usage guide
-- `README.md` - Project overview
+**Important:**
+- DO NOT edit `dist/extractor.cjs` directly - it's auto-generated
+- Source files are in `src/` directory (TypeScript)
+- After editing `src/*.ts`, run `npm run build` to regenerate bundle
 
 ---
 
-## CRITICAL ISSUES REQUIRING IMMEDIATE ATTENTION
+## SECTION 3: AUD COMMANDS - CORRECT USAGE
 
-### P0 - Security Vulnerabilities (Fix Immediately)
-1. **SQL Injection via f-strings** - 4 locations in blueprint.py, query.py, base_database.py
-2. **Command Injection (shell=True)** - 5 locations including cli.py, workset.py
-3. **Weak Hash (MD5)** - Replace with SHA-256 in ast_parser.py, docs_fetch.py
-4. **ZERO FALLBACK violations** - 10+ files returning empty instead of crashing
+**ONLY USE THESE:**
+```bash
+aud full --index      # Just indexing (rebuilds repo_index.db + graphs.db)
+aud full --offline    # Full pipeline WITHOUT network (PREFERRED - no rate limiting)
+aud full              # Full pipeline with network (slow due to docs/deps fetching)
+```
 
-### P0 - Critical Gaps
-1. **Test Coverage**: Only 6% of security rules have tests (5/83)
-2. **Backup Files**: Delete `theauditor/taint/backup/` (2,590 lines of dead code)
-3. **Taint Module**: Actually 4,280 lines, not ~2,000 as documented
-4. **FCE Performance**: 8 separate DB connections causing 400-800ms overhead
+**DEPRECATED - DO NOT USE:**
+- ~~`aud index`~~ - DOES NOT EXIST
+- ~~`aud init`~~ - DOES NOT EXIST
+- Any other standalone indexing commands
 
----
-
-## WHY TWO DATABASES (.pf/repo_index.db + .pf/graphs.db)
-
-**repo_index.db (181MB)**: Raw extracted facts from AST parsing - symbols, calls, assignments, etc.
-- Updated: Every `aud full` (regenerated fresh during indexing phase)
-- Used by: Everything (rules, taint, FCE, context queries)
-- Tables: 251 normalized tables across 8 schema domains
-
-**graphs.db (126MB)**: Pre-computed graph structures built FROM repo_index.db
-- Updated: During `aud full` via `aud graph build` phase (automatic)
-- Used by: Graph commands only (`aud graph query`, `aud graph viz`)
-- Tables: 4 polymorphic tables (nodes, edges, analysis_results, metadata)
-
-**Why separate?** Different query patterns (point lookups vs graph traversal). Separate files allow selective loading. Standard data warehouse design: fact tables vs computed aggregates.
-
-**Key insight**: FCE reads from repo_index.db, NOT graphs.db. Graph database is optional for visualization/exploration only.
+**Why --offline is preferred:** Network fetches for docs/deps have aggressive rate limiting and take forever. Use `--offline` unless you specifically need version checking.
 
 ---
 
-# ⚠️ CRITICAL ARCHITECTURE RULE - READ FIRST ⚠️
-
-## ZERO FALLBACK POLICY - ABSOLUTE AND NON-NEGOTIABLE
+## SECTION 4: ZERO FALLBACK POLICY - ARCHITECTURE LAW
 
 **NO FALLBACKS. NO EXCEPTIONS. NO WORKAROUNDS. NO "JUST IN CASE" LOGIC.**
 
 This is the MOST IMPORTANT rule in the entire codebase. Violation of this rule is grounds for immediate rejection.
 
-### Current Violations (MUST FIX)
-- **fce.py**: 6+ try/except blocks returning empty
-- **express_analyze.py**: 10 silent exception handlers
-- **sql_injection_analyze.py**: 3 table existence checks
-- **context/query.py**: 14 OperationalError handlers
+### 4.1 What is BANNED FOREVER
 
-### What is BANNED FOREVER:
-
-1. **Database Query Fallbacks** - NEVER write multiple queries with fallback logic:
-   ```python
-   # ❌❌❌ ABSOLUTELY FORBIDDEN ❌❌❌
-   cursor.execute("SELECT * FROM table WHERE name = ?", (normalized_name,))
-   result = cursor.fetchone()
-   if not result:  # ← THIS IS CANCER
-       cursor.execute("SELECT * FROM table WHERE name = ?", (original_name,))
-       result = cursor.fetchone()
-   ```
-
-2. **Try-Except Fallbacks** - NEVER catch exceptions to fall back to alternative logic:
-   ```python
-   # ❌❌❌ ABSOLUTELY FORBIDDEN ❌❌❌
-   try:
-       data = load_from_database()
-   except Exception:  # ← THIS IS CANCER
-       data = load_from_json()  # Fallback to JSON
-   ```
-
-3. **Table Existence Checks** - NEVER check if tables exist before querying:
-   ```python
-   # ❌❌❌ ABSOLUTELY FORBIDDEN ❌❌❌
-   if 'function_call_args' in existing_tables:  # ← THIS IS CANCER
-       cursor.execute("SELECT * FROM function_call_args")
-   ```
-
-### CORRECT Pattern - HARD FAIL IMMEDIATELY:
-
+**Database Query Fallbacks** - NEVER write multiple queries with fallback logic:
 ```python
-# ✅ CORRECT - Single query, hard fail if wrong
+# ABSOLUTELY FORBIDDEN
+cursor.execute("SELECT * FROM table WHERE name = ?", (normalized_name,))
+result = cursor.fetchone()
+if not result:  # THIS IS CANCER
+    cursor.execute("SELECT * FROM table WHERE name = ?", (original_name,))
+    result = cursor.fetchone()
+```
+
+**Try-Except Fallbacks** - NEVER catch exceptions to fall back to alternative logic:
+```python
+# ABSOLUTELY FORBIDDEN
+try:
+    data = load_from_database()
+except Exception:  # THIS IS CANCER
+    data = load_from_json()  # Fallback to JSON
+```
+
+**Table Existence Checks** - NEVER check if tables exist before querying:
+```python
+# ABSOLUTELY FORBIDDEN
+if 'function_call_args' in existing_tables:  # THIS IS CANCER
+    cursor.execute("SELECT * FROM function_call_args")
+```
+
+### 4.2 CORRECT Pattern - HARD FAIL IMMEDIATELY
+```python
+# CORRECT - Single query, hard fail if wrong
 cursor.execute("SELECT path FROM symbols WHERE name = ? AND type = 'function'", (name,))
 result = cursor.fetchone()
 if not result:
@@ -250,74 +257,59 @@ if not result:
 
 ---
 
-## Major Engines and Their Status
+## SECTION 5: DATABASE ARCHITECTURE
 
-### 1. Indexer Engine (`theauditor/indexer/`)
-- **Status**: HEALTHY
-- **Performance**: Good with batch optimizations
-- **Issues**: FastAPI dependency extraction bug (checks annotations instead of defaults)
-- **Extractors**: 12 language-specific (Python, JS/TS, Terraform, Docker, SQL, etc.)
+### 5.1 Two Databases Explained
 
-### 2. Taint Analysis Engine (`theauditor/taint/`)
-- **Status**: FUNCTIONAL with issues
-- **Lines**: 4,280 (NOT ~2,000 as claimed)
-- **Architecture**: 3-layer (Schema, Discovery, Analysis)
-- **Issues**: 6+ ZERO FALLBACK violations, backup files need deletion
-- **Missing**: Python-specific sinks (pickle.loads, yaml.load)
+| Database | Size | Purpose | Updated |
+|----------|------|---------|---------|
+| `.pf/repo_index.db` | ~181MB | Raw extracted facts from AST parsing | Every `aud full` |
+| `.pf/graphs.db` | ~126MB | Pre-computed graph structures | During `aud full` via `aud graph build` |
 
-### 3. Rules Engine (`theauditor/rules/`)
-- **Status**: CRITICAL - needs immediate attention
-- **Rules**: 200+ across 18 categories
-- **Test Coverage**: 6% (5/83 rules tested)
-- **Issues**: 4 files violate ZERO FALLBACK policy
-- **N+1 Queries**: 20+ rules with performance issues
+**repo_index.db** - Raw extracted facts from AST parsing (symbols, calls, assignments, etc.)
+- Used by: Everything (rules, taint, FCE, context queries)
 
-### 4. Graph Engine (`theauditor/graph/`)
-- **Status**: EXCELLENT
-- **Performance**: 9/10
-- **Features**: Cycle detection, hotspot analysis, visualization
-- **Issues**: Missing aggregate query index
+**graphs.db** - Pre-computed graph structures built FROM repo_index.db
+- Used by: Graph commands only (`aud graph query`, `aud graph viz`)
 
-### 5. Context Query Engine (`theauditor/context/`)
-- **Status**: GOOD
-- **Performance**: <50ms for most queries
-- **Issues**: No workset filtering, no VS Code integration
+**Why separate?** Different query patterns (point lookups vs graph traversal). Separate files allow selective loading. Standard data warehouse design: fact tables vs computed aggregates.
 
-### 6. FCE Engine (`theauditor/fce.py`)
-- **Status**: FUNCTIONAL but needs optimization
-- **Issues**: 8 separate DB connections, 6+ ZERO FALLBACK violations
-- **Test Coverage**: 0% (1,846 LOC untested)
-
-### 7. CLI System (`theauditor/cli.py`)
-- **Status**: WELL-DESIGNED
-- **Commands**: 42 registered
-- **Issues**: Emojis crash Windows, inconsistent --workset flag
-- **Test Coverage**: 30% (29 commands untested)
+**Key insight**: FCE reads from repo_index.db, NOT graphs.db. Graph database is optional for visualization/exploration only.
 
 ---
 
-## Performance Bottlenecks and Optimizations
+## SECTION 6: SLASH COMMANDS REFERENCE
 
-### Critical Performance Issues
-1. **FCE 8 DB connections**: 400-800ms overhead → Use connection pool (87% reduction)
-2. **GraphQL N+1 queries**: 101 queries → Use JOIN (99% reduction)
-3. **Missing indexes**: Add 5 composite indexes (10-100x speedup)
-4. **LIKE '%...%' patterns**: No index use → Use exact matches (2-10x speedup)
-5. **FlowResolver discovery**: O(n) queries → Bulk load (99% reduction)
+### 6.1 Custom Slash Commands (`.claude/commands/`)
 
-**Total potential speedup**: 15-50% on large codebases
+Workflow commands encoding team philosophy. Use these as guidance even when not explicitly invoked.
 
-### Memory Usage
-- Small projects: ~250MB peak
-- Medium projects: ~600MB peak
-- Large projects: ~2GB peak
-- Monorepos: ~6GB peak
+| Command | Purpose | Key Insight |
+|---------|---------|-------------|
+| `/onboard` | Session init with roles/rules | Read teamsop.md + CLAUDE.md fully |
+| `/start <ticket>` | Load ticket, verify, brief before building | NO partial reads, cross-reference against reality |
+| `/spec` | Create OpenSpec proposal | Atomic, ironclad, explicit HOW and WHY |
+| `/check <target>` | OpenSpec proposal due diligence | Ironclad verification, FULL reads only, zero detective work |
+| `/review <target>` | Code modernization/quality review | Balance: fix real issues, skip code style fetishes |
+| `/docs <target>` | Document a component | Use `aud explain` first, write to root |
+| `/audit <path>` | Comprehensive code audit | Run aud commands + manual review, prioritized output |
+| `/explore` | Architecture discovery | Database first, propose structure, wait for approval |
+| `/git` | Generate commit message | NO Co-authored-by, explain WHY not WHAT |
+| `/progress` | Re-onboard after compaction | Restore context, sync state from tasks.md |
+| `/sop` | Generate completion report | Template C-4.20, SHOW actual code evidence |
+
+### 6.2 Core Philosophy Baked Into Commands
+1. **ZERO FALLBACK** - Hunt and destroy hidden fallbacks
+2. **Polyglot awareness** - Python + Node + Rust, don't forget the orchestrator
+3. **Verification first** - Read code before making claims (Prime Directive)
+4. **No over-engineering** - Fix functionality, skip developer purist fetishes
+5. **Single root output** - Docs/reports to root, not nested folder hell
 
 ---
 
-## Critical Development Patterns
+## SECTION 7: DEVELOPMENT PATTERNS
 
-### Adding New Commands
+### 7.1 Adding New Commands
 
 1. Create module in `theauditor/commands/`:
 ```python
@@ -342,7 +334,7 @@ from theauditor.commands import your_command
 cli.add_command(your_command.command_name)
 ```
 
-### Adding Language Support
+### 7.2 Adding Language Support
 
 Create extractor in `theauditor/indexer/extractors/`:
 ```python
@@ -357,123 +349,3 @@ class YourLanguageExtractor(BaseExtractor):
     def extract(self, file_info, content, tree):
         # Return dict with symbols, imports, etc.
 ```
-
-### Python Framework Extraction (Parity Work)
-
-- **ORM models**: SQLAlchemy and Django definitions populate `python_orm_models`, `python_orm_fields`, and the shared `orm_relationships` table (bidirectional rows with cascade flags).
-- **HTTP routes**: Flask blueprints/routes and FastAPI handlers land in `python_routes` (method, auth flag, dependency metadata) and `python_blueprints`.
-- **Validation**: Pydantic decorators produce entries in `python_validators` with field vs root classification for sanitizer parity.
-- **Import resolution**: Python imports are stored in the `refs` table with `.py` file paths as targets (no separate resolved_imports dict/table exists).
-- **Verification**: Fixtures under `tests/fixtures/python/` pair with `pytest tests/test_python_framework_extraction.py` to guard regressions.
-
----
-
-## Common CLI Commands
-
-```bash
-# Full analysis pipeline
-aud full
-
-# Query symbol information
-aud context query --symbol function_name --show-callers
-
-# Run security rules
-aud detect-patterns
-
-# Taint analysis
-aud taint-analyze
-
-# Graph visualization
-aud graph viz --output graph.svg
-
-# Check specific file
-aud workset --files file1.py file2.py
-
-# Generate report
-aud report
-```
-
----
-
-## Known Issues and Workarounds
-
-### Windows-Specific Issues
-1. **Emojis crash**: context.py uses emojis that crash CP1252 - needs ASCII replacement
-2. **shell=True vulnerability**: Multiple subprocess calls use shell=True on Windows
-3. **Path handling**: Always use full Windows paths with drive letters
-
-### Database Issues
-1. **Foreign keys not enforced**: PRAGMA foreign_keys = 0 by design
-2. **Empty tables**: python_celery_task_calls, python_crypto_operations
-3. **Unknown vulnerability types**: 1,134/1,135 flows unclassified
-
-### Framework Extraction Issues
-1. **FastAPI dependencies**: Bug in extractor checks annotations instead of defaults
-2. **Missing extractors**: NestJS, Redux, Webpack configs not implemented
-3. **TypeScript interfaces**: Intentionally excluded but needed
-
----
-
-## Technical Debt Summary
-
-| Category | Hours to Fix | Priority |
-|----------|--------------|----------|
-| Security vulnerabilities | 40 | P0 |
-| Test coverage gaps | 200 | P0 |
-| ZERO FALLBACK violations | 20 | P0 |
-| Performance bottlenecks | 30 | P1 |
-| Dead code removal | 10 | P2 |
-| Documentation gaps | 80 | P2 |
-| Type hints | 60 | P3 |
-| Code duplication | 40 | P3 |
-| **TOTAL** | **480 hours** | - |
-
----
-
-## Common Misconceptions
-
-### TheAuditor is NOT:
-- ❌ A semantic understanding tool
-- ❌ A business logic validator
-- ❌ An AI enhancement tool
-- ❌ A code generator
-
-### TheAuditor IS:
-- ✅ A consistency checker (finds where code doesn't match itself)
-- ✅ A fact reporter (ground truth about code)
-- ✅ A context provider (gives AI full picture)
-- ✅ An audit trail (immutable record)
-
----
-
-## Quick Reference - Key Files
-
-| Component | File | Lines |
-|-----------|------|-------|
-| Orchestrator | `theauditor/indexer/orchestrator.py` | 740 |
-| Schema | `theauditor/indexer/schemas/*.py` | ~2000 |
-| Database | `theauditor/indexer/database/__init__.py` + mixins | 2,313 |
-| Storage | `theauditor/indexer/storage.py` | 1,200+ |
-| Rule Orchestrator | `theauditor/rules/orchestrator.py` | 889 |
-| Taint Analyzer | `theauditor/taint/*.py` | 4,280 |
-| Graph Analyzer | `theauditor/graph/analyzer.py` | 485 |
-| FCE Engine | `theauditor/fce.py` | 1,846 |
-| CLI | `theauditor/cli.py` | 350 |
-
----
-
-## Immediate Action Items
-
-1. **Fix SQL injection vulnerabilities** - Use parameterized queries
-2. **Remove shell=True** - Security critical
-3. **Delete backup files** - `theauditor/taint/backup/`
-4. **Fix ZERO FALLBACK violations** - Let DB errors crash
-5. **Add tests for security rules** - 78 rules need tests
-6. **Implement connection pooling** - 20-30% speedup
-7. **Add missing DB indexes** - 10-100x query speedup
-
----
-
-**Last Comprehensive Audit**: 2025-11-22 by 15 parallel AI agents
-**Next Audit Recommended**: After P0 fixes completed
-**Confidence Level**: HIGH - Based on complete codebase analysis

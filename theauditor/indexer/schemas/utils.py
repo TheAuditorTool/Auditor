@@ -1,26 +1,13 @@
-"""
-Schema utility classes - Foundation for all schema definitions.
+"""Schema utility classes - Foundation for all schema definitions."""
 
-This module contains the core class definitions used by ALL schema modules:
-- Column: Represents a database column with type and constraints
-- ForeignKey: Foreign key relationship metadata for JOIN query generation
-- TableSchema: Complete table schema definition
-
-Design Philosophy:
-- Zero dependencies on table definitions (avoids circular imports)
-- Used by all language-specific schema modules
-- Pure class definitions only (no table registries)
-"""
-
-
-from typing import Dict, List, Optional, Tuple
-from dataclasses import dataclass, field
 import sqlite3
+from dataclasses import dataclass, field
 
 
 @dataclass
 class Column:
     """Represents a database column with type and constraints."""
+
     name: str
     type: str
     nullable: bool = True
@@ -38,7 +25,7 @@ class Column:
             parts.append(f"DEFAULT {self.default}")
         if self.primary_key:
             parts.append("PRIMARY KEY")
-            # AUTOINCREMENT only valid for INTEGER PRIMARY KEY
+
             if self.autoincrement and self.type.upper() == "INTEGER":
                 parts.append("AUTOINCREMENT")
         if self.check:
@@ -48,36 +35,16 @@ class Column:
 
 @dataclass
 class ForeignKey:
-    """Foreign key relationship metadata for JOIN query generation.
+    """Foreign key relationship metadata for JOIN query generation."""
 
-    Purpose: Enables build_join_query() to validate and construct JOINs.
-    NOT used for CREATE TABLE generation (database.py defines FKs).
-
-    Attributes:
-        local_columns: Column names in this table (e.g., ['query_file', 'query_line'])
-        foreign_table: Referenced table name (e.g., 'sql_queries')
-        foreign_columns: Column names in foreign table (e.g., ['file_path', 'line_number'])
-
-    Example:
-        ForeignKey(
-            local_columns=['query_file', 'query_line'],
-            foreign_table='sql_queries',
-            foreign_columns=['file_path', 'line_number']
-        )
-    """
     local_columns: list[str]
     foreign_table: str
     foreign_columns: list[str]
 
-    def validate(self, local_table: str, all_tables: dict[str, "TableSchema"]) -> list[str]:
-        """Validate foreign key definition against schema.
-
-        Returns:
-            List of error messages (empty if valid)
-        """
+    def validate(self, local_table: str, all_tables: dict[str, TableSchema]) -> list[str]:
+        """Validate foreign key definition against schema."""
         errors = []
 
-        # Check foreign table exists
         if self.foreign_table not in all_tables:
             errors.append(f"Foreign table '{self.foreign_table}' does not exist")
             return errors
@@ -85,19 +52,16 @@ class ForeignKey:
         local_schema = all_tables[local_table]
         foreign_schema = all_tables[self.foreign_table]
 
-        # Check local columns exist
         local_col_names = set(local_schema.column_names())
         for col in self.local_columns:
             if col not in local_col_names:
                 errors.append(f"Local column '{col}' not found in table '{local_table}'")
 
-        # Check foreign columns exist
         foreign_col_names = set(foreign_schema.column_names())
         for col in self.foreign_columns:
             if col not in foreign_col_names:
                 errors.append(f"Foreign column '{col}' not found in table '{self.foreign_table}'")
 
-        # Check column count matches
         if len(self.local_columns) != len(self.foreign_columns):
             errors.append(
                 f"Column count mismatch: {len(self.local_columns)} local vs "
@@ -109,39 +73,14 @@ class ForeignKey:
 
 @dataclass
 class TableSchema:
-    """Represents a complete table schema.
+    """Represents a complete table schema."""
 
-    Design Pattern - Foreign Key Constraints:
-        Foreign keys serve TWO purposes in this schema:
-
-        1. JOIN Query Generation (NEW):
-           The foreign_keys field provides metadata for build_join_query() to:
-           - Validate JOIN conditions reference correct tables/columns
-           - Auto-generate proper JOIN ON clauses
-           - Enable type-safe relational queries
-
-        2. Database Integrity (UNCHANGED):
-           Actual FOREIGN KEY constraints in CREATE TABLE statements are still
-           defined exclusively in database.py. This separation maintains backward
-           compatibility and avoids circular dependencies during table creation.
-
-        The foreign_keys field is OPTIONAL and backward compatible. Tables without
-        foreign keys can still be queried normally with build_query().
-
-    Attributes:
-        name: Table name
-        columns: List of column definitions
-        indexes: List of (index_name, [column_names]) tuples
-        primary_key: Composite primary key column list (for multi-column PKs)
-        unique_constraints: List of UNIQUE constraint column lists
-        foreign_keys: List of ForeignKey definitions (for JOIN generation)
-    """
     name: str
-    columns: list["Column"]
+    columns: list[Column]
     indexes: list[tuple[str, list[str]]] = field(default_factory=list)
-    primary_key: list[str] | None = None  # Composite primary keys
-    unique_constraints: list[list[str]] = field(default_factory=list)  # UNIQUE constraints
-    foreign_keys: list["ForeignKey"] = field(default_factory=list)  # For JOIN query generation
+    primary_key: list[str] | None = None
+    unique_constraints: list[list[str]] = field(default_factory=list)
+    foreign_keys: list[ForeignKey] = field(default_factory=list)
 
     def column_names(self) -> list[str]:
         """Get list of column names in definition order."""
@@ -149,51 +88,76 @@ class TableSchema:
 
     def create_table_sql(self) -> str:
         """Generate CREATE TABLE statement."""
+
+        column_pks = [col.name for col in self.columns if col.primary_key]
+        if column_pks and self.primary_key:
+            raise ValueError(
+                f"PRIMARY KEY conflict in table '{self.name}': "
+                f"Column-level PRIMARY KEY on {column_pks} AND table-level PRIMARY KEY on {self.primary_key}. "
+                f"Use only ONE: either Column(primary_key=True) OR TableSchema(primary_key=[...])."
+            )
+
         col_defs = [col.to_sql() for col in self.columns]
 
-        # Add composite primary key if defined
         if self.primary_key:
             pk_cols = ", ".join(self.primary_key)
             col_defs.append(f"PRIMARY KEY ({pk_cols})")
 
-        # Add unique constraints if defined
         for unique_cols in self.unique_constraints:
             unique_str = ", ".join(unique_cols)
             col_defs.append(f"UNIQUE({unique_str})")
+
+        for fk in self.foreign_keys:
+            if isinstance(fk, ForeignKey):
+                local_cols = ", ".join(fk.local_columns)
+                foreign_cols = ", ".join(fk.foreign_columns)
+                col_defs.append(
+                    f"FOREIGN KEY ({local_cols}) REFERENCES {fk.foreign_table} ({foreign_cols})"
+                )
+            elif isinstance(fk, tuple) and len(fk) >= 3:
+                local_col, foreign_table, foreign_col = fk[0], fk[1], fk[2]
+                col_defs.append(
+                    f"FOREIGN KEY ({local_col}) REFERENCES {foreign_table} ({foreign_col})"
+                )
 
         return f"CREATE TABLE IF NOT EXISTS {self.name} (\n    " + ",\n    ".join(col_defs) + "\n)"
 
     def create_indexes_sql(self) -> list[str]:
         """Generate CREATE INDEX statements."""
         stmts = []
-        for idx_name, idx_cols in self.indexes:
+        for idx_def in self.indexes:
+            if len(idx_def) == 2:
+                idx_name, idx_cols = idx_def
+                where_clause = None
+            else:
+                idx_name, idx_cols, where_clause = idx_def
+
             cols_str = ", ".join(idx_cols)
-            stmts.append(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {self.name} ({cols_str})")
+            stmt = f"CREATE INDEX IF NOT EXISTS {idx_name} ON {self.name} ({cols_str})"
+            if where_clause:
+                stmt += f" WHERE {where_clause}"
+            stmts.append(stmt)
         return stmts
 
     def validate_against_db(self, cursor: sqlite3.Cursor) -> tuple[bool, list[str]]:
-        """
-        Validate that actual database table matches this schema.
+        """Validate that actual database table matches this schema.
 
-        Returns:
-            (is_valid, [error_messages])
+        Checks:
+        1. Table exists
+        2. All columns exist with correct types
+        3. UNIQUE constraints exist (using PRAGMA, not string matching)
+        4. Foreign key constraints exist (using PRAGMA foreign_key_list)
         """
         errors = []
 
-        # Check table exists
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (self.name,)
-        )
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (self.name,))
         if not cursor.fetchone():
             errors.append(f"Table {self.name} does not exist")
             return False, errors
 
-        # Get actual columns
         cursor.execute(f"PRAGMA table_info({self.name})")
-        actual_cols = {row[1]: row[2] for row in cursor.fetchall()}  # {name: type}
+        actual_cols = {row[1]: row[2] for row in cursor.fetchall()}
 
-        # Validate columns (only check required columns, allow extra for migrations)
         for col in self.columns:
             if col.name not in actual_cols:
                 errors.append(f"Column {self.name}.{col.name} missing in database")
@@ -203,23 +167,79 @@ class TableSchema:
                     f"expected {col.type}, got {actual_cols[col.name]}"
                 )
 
-        # Validate UNIQUE constraints if defined in schema
         if self.unique_constraints:
-            # Get the CREATE TABLE SQL from sqlite_master
+            cursor.execute(f"PRAGMA index_list({self.name})")
+            db_unique_sets: list[set[str]] = []
+
+            for idx_row in cursor.fetchall():
+                idx_name = idx_row[1]
+                is_unique = idx_row[2]
+
+                if is_unique:
+                    cursor.execute(f"PRAGMA index_info({idx_name})")
+                    idx_cols = {row[2] for row in cursor.fetchall()}
+                    db_unique_sets.append(idx_cols)
+
             cursor.execute(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?",
-                (self.name,)
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (self.name,)
             )
             result = cursor.fetchone()
-            if result:
-                create_sql = result[0] or ""
-                # Check each expected UNIQUE constraint exists in the SQL
-                for unique_cols in self.unique_constraints:
-                    unique_str = ", ".join(unique_cols)
-                    # Match both "UNIQUE(col1, col2)" and "UNIQUE (col1, col2)" formats
-                    if f"UNIQUE({unique_str})" not in create_sql and f"UNIQUE ({unique_str})" not in create_sql:
+            create_sql = (result[0] or "").upper() if result else ""
+
+            for unique_cols in self.unique_constraints:
+                expected_set = set(unique_cols)
+
+                found = any(expected_set == db_set for db_set in db_unique_sets)
+
+                if not found:
+                    normalized_cols = [c.strip('"').strip("'") for c in unique_cols]
+                    for variant in [
+                        f"UNIQUE({', '.join(normalized_cols)})",
+                        f"UNIQUE ({', '.join(normalized_cols)})",
+                        f'UNIQUE("{'", "'.join(normalized_cols)}")',
+                    ]:
+                        if variant.upper() in create_sql:
+                            found = True
+                            break
+
+                if not found:
+                    errors.append(
+                        f"UNIQUE constraint on ({', '.join(unique_cols)}) missing in database table {self.name}"
+                    )
+
+        if self.foreign_keys:
+            cursor.execute(f"PRAGMA foreign_key_list({self.name})")
+
+            db_fks: dict[str, list[tuple[str, str]]] = {}
+
+            for fk_row in cursor.fetchall():
+                fk_id = fk_row[0]
+                foreign_table = fk_row[2]
+                local_col = fk_row[3]
+                foreign_col = fk_row[4]
+
+                key = (fk_id, foreign_table)
+                if key not in db_fks:
+                    db_fks[key] = []
+                db_fks[key].append((local_col, foreign_col))
+
+            for fk in self.foreign_keys:
+                if isinstance(fk, ForeignKey):
+                    expected_table = fk.foreign_table
+                    expected_pairs = list(zip(fk.local_columns, fk.foreign_columns, strict=True))
+
+                    found = False
+                    for (_fk_id, db_table), db_pairs in db_fks.items():
+                        if db_table == expected_table and set(db_pairs) == set(expected_pairs):
+                            found = True
+                            break
+
+                    if not found:
+                        local_str = ", ".join(fk.local_columns)
+                        foreign_str = ", ".join(fk.foreign_columns)
                         errors.append(
-                            f"UNIQUE constraint on ({unique_str}) missing in database table {self.name}"
+                            f"FOREIGN KEY ({local_str}) REFERENCES {expected_table}({foreign_str}) "
+                            f"missing in database table {self.name}"
                         )
 
         return len(errors) == 0, errors

@@ -20,13 +20,9 @@ Validates that:
 """
 
 import asyncio
-from typing import List, Dict, Optional, Any
 from contextlib import asynccontextmanager
+from typing import Any
 
-
-# ==============================================================================
-# Basic Async Functions
-# ==============================================================================
 
 async def simple_async_function():
     """
@@ -46,20 +42,16 @@ async def async_with_params(user_id: int, timeout: float = 1.0):
     return f"User {user_id} data"
 
 
-# ==============================================================================
-# Await Call Chains (Function Awaits Function Awaits Function)
-# ==============================================================================
-
 async def fetch_user_profile(profile_id: int) -> dict[str, Any]:
     """
     Fetch user profile from database (simulated).
     Tests: Leaf async function in call chain.
     """
-    await asyncio.sleep(0.05)  # Simulate DB query
+    await asyncio.sleep(0.05)
     return {
         "profile_id": profile_id,
         "bio": "Software engineer",
-        "avatar_url": f"https://example.com/avatar/{profile_id}"
+        "avatar_url": f"https://example.com/avatar/{profile_id}",
     }
 
 
@@ -68,7 +60,7 @@ async def fetch_user_permissions(user_id: int) -> list[str]:
     Fetch user permissions from auth service (simulated).
     Tests: Another leaf async function.
     """
-    await asyncio.sleep(0.05)  # Simulate API call
+    await asyncio.sleep(0.05)
     return ["read", "write", "admin"]
 
 
@@ -77,16 +69,15 @@ async def fetch_user_data(user_id: int) -> dict[str, Any]:
     Fetch core user data from database.
     Tests: Intermediate async function - awaits another async function.
     """
-    await asyncio.sleep(0.1)  # Simulate DB query
+    await asyncio.sleep(0.1)
 
-    # Await another async function (call chain!)
     profile = await fetch_user_profile(user_id)
 
     return {
         "user_id": user_id,
         "username": f"user_{user_id}",
         "email": f"user{user_id}@example.com",
-        "profile": profile
+        "profile": profile,
     }
 
 
@@ -99,22 +90,13 @@ async def fetch_user(user_id: int) -> dict[str, Any]:
     fetch_user → await fetch_user_data → await fetch_user_profile
     fetch_user → await fetch_user_permissions
     """
-    # First await - fetches data which itself awaits profile
+
     data = await fetch_user_data(user_id)
 
-    # Second await - fetches permissions in parallel conceptually
     permissions = await fetch_user_permissions(user_id)
 
-    # Combine results
-    return {
-        **data,
-        "permissions": permissions
-    }
+    return {**data, "permissions": permissions}
 
-
-# ==============================================================================
-# Parallel Async Operations (asyncio.gather)
-# ==============================================================================
 
 async def process_item(item_id: int) -> str:
     """
@@ -130,10 +112,9 @@ async def process_batch(items: list[int]) -> list[str]:
     Process multiple items in parallel using asyncio.gather.
     Tests: Parallel async execution - multiple await points.
     """
-    # Create tasks for parallel execution
+
     tasks = [process_item(item_id) for item_id in items]
 
-    # Await all tasks in parallel
     results = await asyncio.gather(*tasks)
 
     return results
@@ -144,16 +125,12 @@ async def fetch_user_and_posts(user_id: int) -> dict[str, Any]:
     Fetch user and their posts in parallel.
     Tests: Multiple independent await calls (parallel pattern).
     """
-    # Execute both fetches in parallel
+
     user_data, posts_data = await asyncio.gather(
-        fetch_user_data(user_id),
-        fetch_posts_for_user(user_id)
+        fetch_user_data(user_id), fetch_posts_for_user(user_id)
     )
 
-    return {
-        "user": user_data,
-        "posts": posts_data
-    }
+    return {"user": user_data, "posts": posts_data}
 
 
 async def fetch_posts_for_user(user_id: int) -> list[dict[str, Any]]:
@@ -164,13 +141,9 @@ async def fetch_posts_for_user(user_id: int) -> list[dict[str, Any]]:
     await asyncio.sleep(0.1)
     return [
         {"post_id": 1, "title": "First post", "author_id": user_id},
-        {"post_id": 2, "title": "Second post", "author_id": user_id}
+        {"post_id": 2, "title": "Second post", "author_id": user_id},
     ]
 
-
-# ==============================================================================
-# Async Context Managers (async with)
-# ==============================================================================
 
 class AsyncDatabaseConnection:
     """
@@ -187,7 +160,7 @@ class AsyncDatabaseConnection:
         Async context manager enter.
         Tests: __aenter__ async method extraction.
         """
-        await asyncio.sleep(0.05)  # Simulate connection setup
+        await asyncio.sleep(0.05)
         self.connected = True
         return self
 
@@ -196,7 +169,7 @@ class AsyncDatabaseConnection:
         Async context manager exit.
         Tests: __aexit__ async method extraction.
         """
-        await asyncio.sleep(0.02)  # Simulate connection teardown
+        await asyncio.sleep(0.02)
         self.connected = False
 
     async def execute(self, query: str) -> list[dict[str, Any]]:
@@ -207,7 +180,7 @@ class AsyncDatabaseConnection:
         if not self.connected:
             raise RuntimeError("Not connected")
 
-        await asyncio.sleep(0.1)  # Simulate query execution
+        await asyncio.sleep(0.1)
         return [{"result": "data"}]
 
 
@@ -217,14 +190,13 @@ async def get_db_connection(connection_string: str):
     Async context manager using @asynccontextmanager decorator.
     Tests: Decorator-based async context manager.
     """
-    # Setup
+
     connection = AsyncDatabaseConnection(connection_string)
     await connection.__aenter__()
 
     try:
         yield connection
     finally:
-        # Teardown
         await connection.__aexit__(None, None, None)
 
 
@@ -248,10 +220,6 @@ async def query_with_decorator_context_manager(query: str) -> list[dict[str, Any
         return results
 
 
-# ==============================================================================
-# Async Generators (async for)
-# ==============================================================================
-
 async def generate_numbers(count: int):
     """
     Async generator yielding numbers.
@@ -268,10 +236,9 @@ async def fetch_paginated_results(page_size: int = 10):
     Tests: Realistic async generator pattern.
     """
     page = 0
-    while page < 5:  # Fetch 5 pages
-        await asyncio.sleep(0.1)  # Simulate API call
+    while page < 5:
+        await asyncio.sleep(0.1)
 
-        # Yield batch of results
         yield [{"id": page * page_size + i, "data": f"item_{i}"} for i in range(page_size)]
         page += 1
 
@@ -297,19 +264,15 @@ async def process_paginated_data():
     all_items = []
 
     async for batch in fetch_paginated_results(page_size=10):
-        # Process each batch
         for item in batch:
             all_items.append(item)
 
     return all_items
 
 
-# ==============================================================================
-# Async Error Handling
-# ==============================================================================
-
 class AsyncOperationError(Exception):
     """Custom exception for async operations."""
+
     pass
 
 
@@ -335,7 +298,6 @@ async def handle_async_errors(should_fail: bool = False):
         result = await risky_async_operation(should_fail)
         return result
     except AsyncOperationError as e:
-        # Handle error
         return f"Error: {e}"
 
 
@@ -348,31 +310,29 @@ async def retry_async_operation(max_attempts: int = 3):
         try:
             result = await risky_async_operation(should_fail=(attempt < max_attempts))
             return result
-        except AsyncOperationError as e:
+        except AsyncOperationError:
             if attempt == max_attempts:
                 raise
 
-            # Exponential backoff
             delay = 2 ** (attempt - 1) * 0.1
             await asyncio.sleep(delay)
 
-
-# ==============================================================================
-# Async Decorators
-# ==============================================================================
 
 def async_timer(func):
     """
     Decorator to time async function execution.
     Tests: Decorator on async function (from Task 3).
     """
+
     async def wrapper(*args, **kwargs):
         import time
+
         start = time.time()
         result = await func(*args, **kwargs)
         elapsed = time.time() - start
         print(f"Async {func.__name__} took {elapsed:.2f}s")
         return result
+
     return wrapper
 
 
@@ -381,16 +341,19 @@ def async_retry(max_attempts: int = 3):
     Parameterized decorator for async retry logic.
     Tests: Parameterized decorator on async function.
     """
+
     def decorator(func):
         async def wrapper(*args, **kwargs):
             for attempt in range(1, max_attempts + 1):
                 try:
                     return await func(*args, **kwargs)
-                except Exception as e:
+                except Exception:
                     if attempt == max_attempts:
                         raise
                     await asyncio.sleep(0.1 * attempt)
+
         return wrapper
+
     return decorator
 
 
@@ -404,10 +367,6 @@ async def decorated_async_function(param: str):
     await asyncio.sleep(0.1)
     return f"Result for {param}"
 
-
-# ==============================================================================
-# Mixed Sync/Async Code
-# ==============================================================================
 
 def sync_helper(data: str) -> str:
     """
@@ -424,7 +383,6 @@ async def async_calling_sync(data: str) -> str:
     """
     await asyncio.sleep(0.05)
 
-    # Call sync function
     result = sync_helper(data)
 
     return result
@@ -439,10 +397,6 @@ async def run_in_executor(func, *args):
     result = await loop.run_in_executor(None, func, *args)
     return result
 
-
-# ==============================================================================
-# Async Class Methods
-# ==============================================================================
 
 class AsyncService:
     """
@@ -500,27 +454,18 @@ class AsyncService:
         return instance
 
 
-# ==============================================================================
-# Async Comprehensions
-# ==============================================================================
-
 async def async_comprehension_example():
     """
     Async comprehensions and expressions.
     Tests: Async list/dict comprehensions.
     """
-    # Async list comprehension
+
     results = [await process_item(i) for i in range(5)]
 
-    # Async dict comprehension
     result_dict = {i: await process_item(i) for i in range(3)}
 
     return {"list": results, "dict": result_dict}
 
-
-# ==============================================================================
-# Real-World Async Pattern: API Client
-# ==============================================================================
 
 class AsyncAPIClient:
     """
@@ -578,13 +523,10 @@ async def use_api_client():
     Tests: Complex async pattern usage.
     """
     async with AsyncAPIClient("https://api.example.com", "key123") as client:
-        # Single request
         user = await client.get("/users/1")
 
-        # Parallel requests
         results = await client.fetch_multiple(["/users/1", "/users/2", "/users/3"])
 
-        # POST request
         created = await client.post("/users", {"name": "New User"})
 
         return {"user": user, "results": results, "created": created}

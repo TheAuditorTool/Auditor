@@ -1,33 +1,12 @@
-"""Base utilities and shared helpers for AST extraction.
-
-This module contains utility functions shared across all language implementations.
-
-ARCHITECTURAL PRINCIPLE: NO REGEX FOR EXTRACTION
-================================================
-This module must remain regex-free for code extraction. We have ASTs - use them.
-The only regex that ever existed here was extract_vars_from_tree_sitter_expr(),
-which has been deprecated and gutted to enforce proper AST traversal.
-
-If you're tempted to add regex:
-1. STOP
-2. You already have an AST node
-3. Traverse the AST structure instead
-4. Text parsing is a lazy escape hatch that defeats the entire purpose
-
-This is a deliberate architectural decision to maintain extraction purity.
-"""
-
+"""Base utilities and shared helpers for AST extraction."""
 
 import ast
-from typing import Any, List, Optional
 from pathlib import Path
+from typing import Any
 
 
 def get_node_name(node: Any) -> str:
-    """Get the name from an AST node, handling different node types.
-    
-    Works with Python's built-in AST nodes.
-    """
+    """Get the name from an AST node, handling different node types."""
     if isinstance(node, ast.Name):
         return node.id
     elif isinstance(node, ast.Attribute):
@@ -41,16 +20,12 @@ def get_node_name(node: Any) -> str:
 
 
 def extract_vars_from_expr(node: ast.AST) -> list[str]:
-    """Extract all variable names from a Python expression.
-
-    Walks the AST to find all Name and Attribute nodes.
-    """
+    """Extract all variable names from a Python expression."""
     vars_list = []
     for subnode in ast.walk(node):
         if isinstance(subnode, ast.Name):
             vars_list.append(subnode.id)
         elif isinstance(subnode, ast.Attribute):
-            # For x.y.z, get the full chain
             chain = []
             current = subnode
             while isinstance(current, ast.Attribute):
@@ -63,58 +38,36 @@ def extract_vars_from_expr(node: ast.AST) -> list[str]:
 
 
 def extract_vars_from_typescript_node(node: Any, depth: int = 0) -> list[str]:
-    """Extract all variable names from a TypeScript/JavaScript AST node.
-
-    This is the AST-pure replacement for the gutted extract_vars_from_tree_sitter_expr().
-    Recursively traverses the TypeScript compiler API AST to find all identifiers.
-
-    Args:
-        node: TypeScript AST node (Dict from semantic parser)
-        depth: Recursion depth to prevent infinite loops
-
-    Returns:
-        List of variable names found in the expression
-
-    Example:
-        node = {"kind": "BinaryExpression", "text": "req.body.name", ...}
-        returns ["req.body.name", "req.body", "req"]
-    """
+    """Extract all variable names from a TypeScript/JavaScript AST node."""
     if depth > 50 or not isinstance(node, dict):
         return []
 
     vars_list = []
     kind = node.get("kind", "")
 
-    # PropertyAccessExpression: req.body, user.name, etc.
     if kind == "PropertyAccessExpression":
-        # Use the authoritative text from TypeScript compiler
         full_text = node.get("text", "").strip()
         if full_text:
             vars_list.append(full_text)
-            # Also add prefixes: req.body.name → ["req.body.name", "req.body", "req"]
+
             parts = full_text.split(".")
             for i in range(len(parts) - 1, 0, -1):
                 prefix = ".".join(parts[:i])
                 if prefix:
                     vars_list.append(prefix)
 
-    # Identifier: single variable name
     elif kind == "Identifier":
         text = node.get("text", "").strip()
         if text:
             vars_list.append(text)
 
-    # CallExpression: function calls - extract the callee
     elif kind == "CallExpression":
-        # Don't include the call itself, but do include arguments
         pass
 
-    # Recurse through children
     for child in node.get("children", []):
         if isinstance(child, dict):
             vars_list.extend(extract_vars_from_typescript_node(child, depth + 1))
 
-    # Remove duplicates while preserving order
     seen = set()
     result = []
     for var in vars_list:
@@ -126,12 +79,7 @@ def extract_vars_from_typescript_node(node: Any, depth: int = 0) -> list[str]:
 
 
 def sanitize_call_name(name: Any) -> str:
-    """Normalize call expression names for downstream analysis.
-
-    Removes argument lists, trailing dots, and extra whitespace so that
-    `app.get('/users', handler)` and `router.post(`/foo`)` both normalize to
-    `app.get` / `router.post`.
-    """
+    """Normalize call expression names for downstream analysis."""
     if not isinstance(name, str):
         return ""
 
@@ -139,14 +87,12 @@ def sanitize_call_name(name: Any) -> str:
     if not cleaned:
         return ""
 
-    # Remove everything after the first parenthesis (argument list)
-    paren_idx = cleaned.find('(')
+    paren_idx = cleaned.find("(")
     if paren_idx != -1:
         cleaned = cleaned[:paren_idx]
 
-    # Collapse internal whitespace and trim trailing property separators
     cleaned = " ".join(cleaned.split())
-    cleaned = cleaned.rstrip('.')
+    cleaned = cleaned.rstrip(".")
 
     return cleaned
 
@@ -154,15 +100,17 @@ def sanitize_call_name(name: Any) -> str:
 def find_containing_function_python(tree: ast.AST, line: int) -> str | None:
     """Find the function containing a given line in Python AST."""
     containing_func = None
-    
+
     for node in ast.walk(tree):
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                if node.lineno <= line <= (node.end_lineno or node.lineno):
-                    # Check if this is more specific than current containing_func
-                    if containing_func is None or node.lineno > containing_func[1]:
-                        containing_func = (node.name, node.lineno)
-    
+        if (
+            isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+            and hasattr(node, "lineno")
+            and hasattr(node, "end_lineno")
+            and node.lineno <= line <= (node.end_lineno or node.lineno)
+            and (containing_func is None or node.lineno > containing_func[1])
+        ):
+            containing_func = (node.name, node.lineno)
+
     return containing_func[0] if containing_func else None
 
 
@@ -171,117 +119,87 @@ def find_containing_class_python(tree: ast.AST, line: int) -> str | None:
     containing_class = None
 
     for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef):
-            if hasattr(node, "lineno") and hasattr(node, "end_lineno"):
-                if node.lineno <= line <= (node.end_lineno or node.lineno):
-                    if containing_class is None or node.lineno > containing_class[1]:
-                        containing_class = (node.name, node.lineno)
+        if (
+            isinstance(node, ast.ClassDef)
+            and hasattr(node, "lineno")
+            and hasattr(node, "end_lineno")
+            and node.lineno <= line <= (node.end_lineno or node.lineno)
+            and (containing_class is None or node.lineno > containing_class[1])
+        ):
+            containing_class = (node.name, node.lineno)
 
     return containing_class[0] if containing_class else None
 
 
 def find_containing_function_tree_sitter(node: Any, content: str, language: str) -> str | None:
-    """Find the function containing a node in Tree-sitter AST.
-    
-    Walks up the tree to find parent function, handling all modern JS/TS patterns.
-    """
-    # Walk up the tree to find parent function
+    """Find the function containing a node in Tree-sitter AST."""
+
     current = node
-    while current and hasattr(current, 'parent') and current.parent:
+    while current and hasattr(current, "parent") and current.parent:
         current = current.parent
         if language in ["javascript", "typescript"]:
-            # CRITICAL FIX: Handle ALL function patterns in modern JS/TS
             function_types = [
-                "function_declaration",      # function foo() {}
-                "function_expression",        # const foo = function() {}
-                "arrow_function",            # const foo = () => {}
-                "method_definition",         # class { foo() {} }
-                "generator_function",        # function* foo() {}
-                "async_function",           # async function foo() {}
+                "function_declaration",
+                "function_expression",
+                "arrow_function",
+                "method_definition",
+                "generator_function",
+                "async_function",
             ]
-            
+
             if current.type in function_types:
-                # Special handling for arrow functions FIRST
-                # They need different logic than regular functions
                 if current.type == "arrow_function":
-                    # Arrow functions don't have names directly, check parent
-                    parent = current.parent if hasattr(current, 'parent') else None
+                    parent = current.parent if hasattr(current, "parent") else None
                     if parent:
-                        # Check if it's assigned to a variable: const foo = () => {}
                         if parent.type == "variable_declarator":
-                            # Use field-based API to get the name
-                            if hasattr(parent, 'child_by_field_name'):
-                                name_node = parent.child_by_field_name('name')
+                            if hasattr(parent, "child_by_field_name"):
+                                name_node = parent.child_by_field_name("name")
                                 if name_node and name_node.text:
                                     return name_node.text.decode("utf-8", errors="ignore")
-                            # Fallback to child iteration
+
                             for child in parent.children:
                                 if child.type == "identifier" and child != current:
                                     return child.text.decode("utf-8", errors="ignore")
-                        # Check if it's a property: { foo: () => {} }
+
                         elif parent.type == "pair":
                             for child in parent.children:
-                                if child.type in ["property_identifier", "identifier", "string"] and child != current:
+                                if (
+                                    child.type in ["property_identifier", "identifier", "string"]
+                                    and child != current
+                                ):
                                     text = child.text.decode("utf-8", errors="ignore")
-                                    # Remove quotes from string keys
-                                    return text.strip('"\'')
-                    # CRITICAL FIX (Lead Auditor feedback): Don't return anything here!
-                    # Continue searching upward for containing named function
-                    # This handles cases like: function outer() { arr.map(() => {}) }
-                    # The arrow function should be tracked as within "outer", not "anonymous"
-                    # Let the while loop continue to find outer function
-                    continue  # Skip the rest and continue searching upward
-                
-                # For non-arrow functions, try field-based API first
-                if hasattr(current, 'child_by_field_name'):
-                    name_node = current.child_by_field_name('name')
+
+                                    return text.strip("\"'")
+
+                    continue
+
+                if hasattr(current, "child_by_field_name"):
+                    name_node = current.child_by_field_name("name")
                     if name_node and name_node.text:
                         return name_node.text.decode("utf-8", errors="ignore")
-                
-                # Fallback to child iteration for regular functions
+
                 for child in current.children:
                     if child.type in ["identifier", "property_identifier"]:
                         return child.text.decode("utf-8", errors="ignore")
-                
-                # If still no name found for this regular function, it's anonymous
+
                 return "anonymous"
-                
+
         elif language == "python":
             if current.type == "function_definition":
-                # Try field-based API first
-                if hasattr(current, 'child_by_field_name'):
-                    name_node = current.child_by_field_name('name')
+                if hasattr(current, "child_by_field_name"):
+                    name_node = current.child_by_field_name("name")
                     if name_node and name_node.text:
                         return name_node.text.decode("utf-8", errors="ignore")
-                # Fallback to child iteration
+
                 for child in current.children:
                     if child.type == "identifier":
                         return child.text.decode("utf-8", errors="ignore")
-    
-    # If no function found, return "global" instead of None for better tracking
+
     return "global"
 
 
 def extract_vars_from_rust_node(node: Any, content: str, depth: int = 0) -> list[str]:
-    """Extract all variable names from a Rust tree-sitter AST node.
-
-    This is the AST-pure extraction for Rust, matching the pattern of
-    extract_vars_from_typescript_node().
-
-    Recursively traverses the tree-sitter AST to find all identifiers.
-
-    Args:
-        node: Rust tree-sitter node
-        content: File content for text extraction
-        depth: Recursion depth to prevent infinite loops
-
-    Returns:
-        List of variable names found in the expression
-
-    Example:
-        node = field_expression for "request.body.name"
-        returns ["request.body.name", "request.body", "request"]
-    """
+    """Extract all variable names from a Rust tree-sitter AST node."""
     if depth > 50 or node is None:
         return []
 
@@ -290,34 +208,30 @@ def extract_vars_from_rust_node(node: Any, content: str, depth: int = 0) -> list
     def _get_text(n):
         """Helper to extract text from tree-sitter node."""
         if n is None:
-            return ''
-        return content[n.start_byte:n.end_byte]
+            return ""
+        return content[n.start_byte : n.end_byte]
 
-    # Field expressions: obj.field, self.value, etc.
-    if node.type == 'field_expression':
+    if node.type == "field_expression":
         full_text = _get_text(node).strip()
         if full_text:
             vars_list.append(full_text)
-            # Add prefixes: req.body.name → ["req.body.name", "req.body", "req"]
-            parts = full_text.split('.')
+
+            parts = full_text.split(".")
             for i in range(len(parts) - 1, 0, -1):
-                prefix = '.'.join(parts[:i])
+                prefix = ".".join(parts[:i])
                 if prefix:
                     vars_list.append(prefix)
 
-    # Identifiers: single variable name
-    elif node.type == 'identifier':
+    elif node.type == "identifier":
         text = _get_text(node).strip()
-        # Filter out Rust keywords
-        if text and text not in ['self', 'super', 'crate', 'true', 'false', 'None', 'Some']:
+
+        if text and text not in ["self", "super", "crate", "true", "false", "None", "Some"]:
             vars_list.append(text)
 
-    # Recurse through children
-    if hasattr(node, 'children'):
+    if hasattr(node, "children"):
         for child in node.children:
             vars_list.extend(extract_vars_from_rust_node(child, content, depth + 1))
 
-    # Remove duplicates while preserving order
     seen = set()
     result = []
     for var in vars_list:
@@ -329,10 +243,7 @@ def extract_vars_from_rust_node(node: Any, content: str, depth: int = 0) -> list
 
 
 def detect_language(file_path: Path) -> str:
-    """Detect language from file extension.
-
-    Returns empty string for unsupported languages.
-    """
+    """Detect language from file extension."""
     ext_map = {
         ".py": "python",
         ".js": "javascript",
@@ -341,7 +252,42 @@ def detect_language(file_path: Path) -> str:
         ".tsx": "typescript",
         ".mjs": "javascript",
         ".cjs": "javascript",
-        ".vue": "javascript",  # Vue SFCs contain JavaScript/TypeScript
-        ".rs": "rust",  # Rust language support
+        ".vue": "javascript",
+        ".rs": "rust",
     }
     return ext_map.get(file_path.suffix.lower(), "")
+
+
+def check_tree_sitter_parse_quality(root_node: Any, file_path: str, logger: Any) -> None:
+    """Log warning if tree-sitter parse has high error rate.
+
+    Tree-sitter is forgiving - it returns partial trees with ERROR nodes
+    instead of failing. This function detects when >10% of the tree is
+    errors, which indicates extraction will be incomplete.
+
+    Args:
+        root_node: Tree-sitter root node
+        file_path: Path to the file being parsed (for logging)
+        logger: Logger instance for warnings
+    """
+    error_count = 0
+    total_count = 0
+
+    def count_nodes(node: Any) -> None:
+        nonlocal error_count, total_count
+        total_count += 1
+        if node.type == "ERROR":
+            error_count += 1
+        for child in node.children:
+            count_nodes(child)
+
+    count_nodes(root_node)
+
+    if total_count > 0 and error_count / total_count > 0.1:
+        logger.warning(
+            "High parse error rate (%d/%d nodes, %.1f%%) in %s - extraction may be incomplete",
+            error_count,
+            total_count,
+            100 * error_count / total_count,
+            file_path,
+        )

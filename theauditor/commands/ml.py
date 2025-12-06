@@ -1,22 +1,45 @@
 """Machine learning commands for TheAuditor."""
 
-import click
 from pathlib import Path
 
+import click
 
-@click.command(name="learn")
+from theauditor.cli import RichCommand
+from theauditor.pipeline.ui import console, err_console
+
+
+@click.command(name="learn", cls=RichCommand)
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
-@click.option("--manifest", default="./.pf/manifest.json", help="Manifest file path")
 @click.option("--enable-git", is_flag=True, help="Enable git churn features")
 @click.option("--model-dir", default="./.pf/ml", help="Model output directory")
 @click.option("--window", default=50, type=int, help="Journal window size")
 @click.option("--seed", default=13, type=int, help="Random seed")
 @click.option("--feedback", help="Path to human feedback JSON file")
-@click.option("--train-on", type=click.Choice(["full", "diff", "all"]), default="full", help="Type of historical runs to train on")
-@click.option("--session-dir", help="Path to Claude Code session logs (Tier 5 agent behavior features)")
-@click.option("--session-analysis", is_flag=True, help="Show agent behavior analysis from session logs")
+@click.option(
+    "--train-on",
+    type=click.Choice(["full", "diff", "all"]),
+    default="full",
+    help="Type of historical runs to train on",
+)
+@click.option(
+    "--session-dir", help="Path to Claude Code session logs (Tier 5 agent behavior features)"
+)
+@click.option(
+    "--session-analysis", is_flag=True, help="Show agent behavior analysis from session logs"
+)
 @click.option("--print-stats", is_flag=True, help="Print training statistics")
-def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, train_on, session_dir, session_analysis, print_stats):
+def learn(
+    db_path,
+    enable_git,
+    model_dir,
+    window,
+    seed,
+    feedback,
+    train_on,
+    session_dir,
+    session_analysis,
+    print_stats,
+):
     """Train machine learning models from historical audit data to predict file risk and root causes.
 
     Learns patterns from past audit runs stored in .pf/history/ to build predictive models
@@ -182,7 +205,7 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
       aud learn-feedback         # Re-train with human corrections
 
     SEE ALSO:
-      aud explain fce            # Understand root cause vs symptom distinction
+      aud manual ml              # Deep dive into machine learning concepts
       aud suggest --help         # Learn how models are used for predictions
 
     TROUBLESHOOTING:
@@ -210,35 +233,37 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
     meaningful accuracy. Cold-start mode works with less data but predictions are
     unreliable. Re-train models weekly to incorporate new findings and patterns.
     """
-    from theauditor.insights.ml import learn as ml_learn
-    
-    click.echo(f"[ML] Training models from audit artifacts (using {train_on} runs)...")
-    
-    # Show session analysis if requested
+    from theauditor.MachineL import learn as ml_learn
+
+    console.print(
+        f"\\[ML] Training models from audit artifacts (using {train_on} runs)...", highlight=False
+    )
+
     if session_analysis and session_dir:
-        import sqlite3
         import json
+        import sqlite3
 
-        click.echo("[SESSION] Analyzing AI agent behavior from session logs...")
+        console.print("\\[SESSION] Analyzing AI agent behavior from session logs...")
 
-        # Show Tier 5 statistics from session_executions table
         try:
-            # Session data stored in persistent .pf/ml/ directory
-            session_db = Path('.pf/ml/session_history.db')
+            session_db = Path(".pf/ml/session_history.db")
             if not session_db.exists():
-                click.echo("[WARN] session_history.db not found - run session analysis first", err=True)
+                err_console.print(
+                    "[warning]session_history.db not found - run session analysis first[/warning]",
+                )
             else:
-                # Connect to session database
                 conn = sqlite3.connect(session_db)
                 cursor = conn.cursor()
 
-                # Check if session_executions table exists
-                cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='session_executions'")
+                cursor.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table' AND name='session_executions'"
+                )
                 if not cursor.fetchone():
-                    click.echo("[WARN] session_executions table not found - run session analysis first", err=True)
+                    err_console.print(
+                        "[warning]session_executions table not found - run session analysis first[/warning]",
+                    )
                     conn.close()
                 else:
-                    # Get overall statistics
                     cursor.execute("""
                         SELECT COUNT(*) as total_sessions,
                                SUM(workflow_compliant) as compliant_sessions,
@@ -253,25 +278,34 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
                     if stats and stats[0] > 0:
                         total, compliant, avg_comp, avg_risk, avg_eng, total_edits = stats
 
-                        # Calculate unique files
                         cursor.execute("SELECT diffs_scored FROM session_executions")
                         all_files = set()
                         for row in cursor.fetchall():
                             diffs = json.loads(row[0])
-                            all_files.update(d['file'] for d in diffs)
+                            all_files.update(d["file"] for d in diffs)
                         unique_files = len(all_files)
 
-                        click.echo("\nTIER 5 (AGENT BEHAVIOR INTELLIGENCE) STATISTICS")
-                        click.echo("=" * 60)
-                        click.echo(f"Sessions analyzed: {total}")
-                        click.echo(f"Total edits: {total_edits}")
-                        click.echo(f"Unique files: {unique_files}")
-                        click.echo(f"Workflow compliance rate: {(compliant/total)*100:.1f}% ({compliant}/{total} compliant)")
-                        click.echo(f"Average compliance score: {avg_comp:.3f} (0.0-1.0 scale)")
-                        click.echo(f"Average risk score: {avg_risk:.3f} (0.0-1.0 scale)")
-                        click.echo(f"Average user engagement: {avg_eng:.3f} (INVERSE: lower = better)")
+                        console.print("\nTIER 5 (AGENT BEHAVIOR INTELLIGENCE) STATISTICS")
+                        console.rule()
+                        console.print(f"Sessions analyzed: {total}", highlight=False)
+                        console.print(f"Total edits: {total_edits}", highlight=False)
+                        console.print(f"Unique files: {unique_files}", highlight=False)
+                        console.print(
+                            f"Workflow compliance rate: {(compliant / total) * 100:.1f}% ({compliant}/{total} compliant)",
+                            highlight=False,
+                        )
+                        console.print(
+                            f"Average compliance score: {avg_comp:.3f} (0.0-1.0 scale)",
+                            highlight=False,
+                        )
+                        console.print(
+                            f"Average risk score: {avg_risk:.3f} (0.0-1.0 scale)", highlight=False
+                        )
+                        console.print(
+                            f"Average user engagement: {avg_eng:.3f} (INVERSE: lower = better)",
+                            highlight=False,
+                        )
 
-                        # Show top risky sessions
                         cursor.execute("""
                             SELECT session_id, risk_score, files_modified, user_engagement_rate
                             FROM session_executions
@@ -281,11 +315,13 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
                         risky_sessions = cursor.fetchall()
 
                         if risky_sessions:
-                            click.echo("\nTop 3 riskiest sessions:")
+                            console.print("\nTop 3 riskiest sessions:")
                             for i, (sid, risk, files, eng) in enumerate(risky_sessions, 1):
-                                click.echo(f"  {i}. Session {sid[:40]}... (risk={risk:.3f}, files={files}, engagement={eng:.2f})")
+                                console.print(
+                                    f"  {i}. Session {sid[:40]}... (risk={risk:.3f}, files={files}, engagement={eng:.2f})",
+                                    highlight=False,
+                                )
 
-                        # Show compliance correlation
                         cursor.execute("""
                             SELECT AVG(risk_score) as avg_risk, AVG(user_engagement_rate) as avg_eng
                             FROM session_executions
@@ -300,23 +336,36 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
                         """)
                         non_compliant_stats = cursor.fetchone()
 
-                        if compliant_stats and non_compliant_stats and compliant_stats[0] is not None:
-                            click.echo("\nWorkflow Compliance Correlation:")
-                            click.echo(f"  Compliant sessions:     risk={compliant_stats[0]:.3f}, engagement={compliant_stats[1]:.2f}")
-                            click.echo(f"  Non-compliant sessions: risk={non_compliant_stats[0]:.3f}, engagement={non_compliant_stats[1]:.2f}")
+                        if (
+                            compliant_stats
+                            and non_compliant_stats
+                            and compliant_stats[0] is not None
+                        ):
+                            console.print("\nWorkflow Compliance Correlation:")
+                            console.print(
+                                f"  Compliant sessions:     risk={compliant_stats[0]:.3f}, engagement={compliant_stats[1]:.2f}",
+                                highlight=False,
+                            )
+                            console.print(
+                                f"  Non-compliant sessions: risk={non_compliant_stats[0]:.3f}, engagement={non_compliant_stats[1]:.2f}",
+                                highlight=False,
+                            )
 
-                        click.echo()
+                        console.print()
                     else:
-                        click.echo("[WARN] No session data found in session_executions table", err=True)
+                        err_console.print(
+                            "[warning]No session data found in session_executions table[/warning]",
+                        )
 
                     conn.close()
 
         except Exception as e:
-            click.echo(f"[WARN] Could not load Tier 5 statistics: {e}", err=True)
+            err_console.print(
+                f"[warning]Could not load Tier 5 statistics: {e}[/warning]",
+            )
 
     result = ml_learn(
         db_path=db_path,
-        manifest_path=manifest,
         enable_git=enable_git,
         model_dir=model_dir,
         window=window,
@@ -329,29 +378,33 @@ def learn(db_path, manifest, enable_git, model_dir, window, seed, feedback, trai
 
     if result.get("success"):
         stats = result.get("stats", {})
-        click.echo(f"[OK] Models trained successfully")
-        click.echo(f"  * Training data: {train_on} runs from history")
-        click.echo(f"  * Files analyzed: {result.get('source_files', 0)}")
-        click.echo(f"  * Features: {stats.get('n_features', 0)} dimensions")
-        click.echo(f"  * Root cause ratio: {stats.get('root_cause_positive_ratio', 0):.2%}")
-        click.echo(f"  * Risk mean: {stats.get('mean_risk', 0):.3f}")
-        if stats.get('cold_start'):
-            click.echo(f"  [WARN] Cold-start mode (<500 samples)")
-        click.echo(f"  * Models saved to: {result.get('model_dir')}")
+        console.print("[success]Models trained successfully[/success]")
+        console.print(f"  * Training data: {train_on} runs from history", highlight=False)
+        console.print(f"  * Files analyzed: {result.get('source_files', 0)}", highlight=False)
+        console.print(f"  * Features: {stats.get('n_features', 0)} dimensions", highlight=False)
+        console.print(
+            f"  * Root cause ratio: {stats.get('root_cause_positive_ratio', 0):.2%}",
+            highlight=False,
+        )
+        console.print(f"  * Risk mean: {stats.get('mean_risk', 0):.3f}", highlight=False)
+        if stats.get("cold_start"):
+            console.print("  [warning]Cold-start mode (<500 samples)[/warning]")
+        console.print(f"  * Models saved to: {result.get('model_dir')}", highlight=False)
     else:
-        click.echo(f"[FAIL] Training failed: {result.get('error')}", err=True)
+        err_console.print(
+            f"[error]Training failed: {result.get('error')}[/error]",
+        )
         raise click.ClickException(result.get("error"))
 
 
-@click.command(name="suggest")
+@click.command(name="suggest", cls=RichCommand)
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
-@click.option("--manifest", default="./.pf/manifest.json", help="Manifest file path")
 @click.option("--workset", default="./.pf/workset.json", help="Workset file path")
 @click.option("--model-dir", default="./.pf/ml", help="Model directory")
 @click.option("--topk", default=10, type=int, help="Top K files to suggest")
 @click.option("--out", default="./.pf/insights/ml_suggestions.json", help="Output file path")
 @click.option("--print-plan", is_flag=True, help="Print suggestions to console")
-def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
+def suggest(db_path, workset, model_dir, topk, out, print_plan):
     """Generate ML-powered priority list of files most likely to contain vulnerabilities.
 
     Uses trained ML models (from 'aud learn') to predict which files in the current
@@ -365,7 +418,7 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
       Input: .pf/ml/ (trained models), .pf/workset.json (files to analyze)
       Output: .pf/insights/ml_suggestions.json (ranked file list with scores)
       Prerequisites: aud learn (must train models first), aud workset (files to rank)
-      Integration: Priority list for human reviewers or targeted 'aud taint-analyze'
+      Integration: Priority list for human reviewers or targeted 'aud taint'
       Performance: ~1-5 seconds (inference only, no training)
 
     WHAT IT PREDICTS:
@@ -420,7 +473,7 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
       aud suggest --out ./build/review_priority.json
 
       # Use Case 4: Focus taint analysis on high-risk files
-      aud suggest --topk 3 && aud taint-analyze --files $(cat .pf/insights/ml_suggestions.json | jq -r '.suggestions[].file')
+      aud suggest --topk 3 && aud taint --files $(cat .pf/insights/ml_suggestions.json | jq -r '.suggestions[].file')
 
     COMMON WORKFLOWS:
       Code Review Prioritization:
@@ -502,8 +555,8 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
       aud full                   # Creates training data for 'aud learn'
 
     SEE ALSO:
+      aud manual ml              # Deep dive into machine learning concepts
       aud learn --help           # Understand model training process
-      aud explain fce            # Learn about root cause vs symptom
 
     TROUBLESHOOTING:
       Error: "Models not found" or "No such file":
@@ -530,39 +583,51 @@ def suggest(db_path, manifest, workset, model_dir, topk, out, print_plan):
     of vulnerabilities. Use as a prioritization tool, not a replacement for thorough
     review. Re-train models weekly to keep predictions accurate as code evolves.
     """
-    from theauditor.insights.ml import suggest as ml_suggest
-    
-    click.echo("[ML] Generating suggestions from trained models...")
-    
+    from theauditor.MachineL import suggest as ml_suggest
+
+    console.print("\\[ML] Generating suggestions from trained models...")
+
     result = ml_suggest(
         db_path=db_path,
-        manifest_path=manifest,
         workset_path=workset,
         model_dir=model_dir,
         topk=topk,
         out_path=out,
         print_plan=print_plan,
     )
-    
+
     if result.get("success"):
-        click.echo(f"[OK] Suggestions generated")
-        click.echo(f"  * Workset size: {result.get('workset_size', 0)} files")
-        click.echo(f"  * Source files analyzed: {result.get('workset_size', 0)}")
-        click.echo(f"  * Non-source excluded: {result.get('excluded_count', 0)}")
-        click.echo(f"  * Top {result.get('topk', 10)} suggestions saved to: {result.get('out_path')}")
+        console.print("[success]Suggestions generated[/success]")
+        console.print(f"  * Workset size: {result.get('workset_size', 0)} files", highlight=False)
+        console.print(
+            f"  * Source files analyzed: {result.get('workset_size', 0)}", highlight=False
+        )
+        console.print(
+            f"  * Non-source excluded: {result.get('excluded_count', 0)}", highlight=False
+        )
+        console.print(
+            f"  * Top {result.get('topk', 10)} suggestions saved to: {result.get('out_path')}",
+            highlight=False,
+        )
     else:
-        click.echo(f"[FAIL] Suggestion generation failed: {result.get('error')}", err=True)
+        err_console.print(
+            f"[error]Suggestion generation failed: {result.get('error')}[/error]",
+        )
         raise click.ClickException(result.get("error"))
 
 
-@click.command(name="learn-feedback")
+@click.command(name="learn-feedback", cls=RichCommand)
 @click.option("--feedback-file", required=True, help="Path to feedback JSON file")
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
-@click.option("--manifest", default="./.pf/manifest.json", help="Manifest file path")
 @click.option("--model-dir", default="./.pf/ml", help="Model output directory")
-@click.option("--train-on", type=click.Choice(["full", "diff", "all"]), default="full", help="Type of historical runs to train on")
+@click.option(
+    "--train-on",
+    type=click.Choice(["full", "diff", "all"]),
+    default="full",
+    help="Type of historical runs to train on",
+)
 @click.option("--print-stats", is_flag=True, help="Print training statistics")
-def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_stats):
+def learn_feedback(feedback_file, db_path, model_dir, train_on, print_stats):
     """Re-train ML models with human corrections to improve prediction accuracy via supervised learning.
 
     Human-in-the-loop machine learning workflow that incorporates expert feedback to correct
@@ -722,8 +787,8 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
       aud full                   # Creates training data in .pf/history/
 
     SEE ALSO:
+      aud manual ml              # Deep dive into machine learning concepts
       aud learn --help           # Understand base training process
-      aud suggest --help         # Learn how models make predictions
 
     TROUBLESHOOTING:
       Error: "Feedback file not found":
@@ -744,58 +809,66 @@ def learn_feedback(feedback_file, db_path, manifest, model_dir, train_on, print_
       Feedback file paths don't match project files:
         -> Use relative paths from project root (e.g., "src/auth.py")
         -> Avoid absolute paths (e.g., "/home/user/project/src/auth.py")
-        -> Paths must match exactly as they appear in .pf/manifest.json
+        -> Paths must match exactly as they appear in the files table
 
     NOTE: Feedback quality matters more than quantity - 10 accurate corrections beat
     50 guesses. Focus feedback on files where model predictions were confidently wrong
     (high-risk predictions that were clean, or low-risk predictions that had bugs).
     """
-    from theauditor.insights.ml import learn as ml_learn
-    
-    # Validate feedback file exists
+    from theauditor.MachineL import learn as ml_learn
+
     if not Path(feedback_file).exists():
-        click.echo(f"[FAIL] Feedback file not found: {feedback_file}", err=True)
+        err_console.print(
+            f"[error]Feedback file not found: {feedback_file}[/error]",
+        )
         raise click.ClickException(f"Feedback file not found: {feedback_file}")
-    
-    # Validate feedback file format
+
     try:
         import json
+
         with open(feedback_file) as f:
             feedback_data = json.load(f)
-        
+
         if not isinstance(feedback_data, dict):
             raise ValueError("Feedback file must contain a JSON object")
-        
-        # Count feedback entries
+
         feedback_count = len(feedback_data)
-        click.echo(f"[ML] Loading human feedback for {feedback_count} files...")
-        
+        console.print(
+            f"\\[ML] Loading human feedback for {feedback_count} files...", highlight=False
+        )
+
     except Exception as e:
-        click.echo(f"[FAIL] Invalid feedback file format: {e}", err=True)
-        raise click.ClickException(f"Invalid feedback file: {e}")
-    
-    click.echo(f"[ML] Re-training models with human feedback (using {train_on} runs)...")
-    
+        err_console.print(
+            f"[error]Invalid feedback file format: {e}[/error]",
+        )
+        raise click.ClickException(f"Invalid feedback file: {e}") from e
+
+    console.print(
+        f"\\[ML] Re-training models with human feedback (using {train_on} runs)...", highlight=False
+    )
+
     result = ml_learn(
         db_path=db_path,
-        manifest_path=manifest,
         model_dir=model_dir,
         print_stats=print_stats,
         feedback_path=feedback_file,
         train_on=train_on,
-        # Use default paths for historical data from .pf/history
-        enable_git=False,  # Disable git for speed in feedback mode
+        enable_git=False,
     )
-    
+
     if result.get("success"):
         stats = result.get("stats", {})
-        click.echo(f"[OK] Models re-trained with human feedback")
-        click.echo(f"  * Training data: {train_on} runs from history")
-        click.echo(f"  * Files analyzed: {result.get('source_files', 0)}")
-        click.echo(f"  * Human feedback incorporated: {feedback_count} files")
-        click.echo(f"  * Features: {stats.get('n_features', 0)} dimensions")
-        click.echo(f"  * Models saved to: {result.get('model_dir')}")
-        click.echo(f"\n[TIP] The models have learned from your feedback and will provide more accurate predictions.")
+        console.print("[success]Models re-trained with human feedback[/success]")
+        console.print(f"  * Training data: {train_on} runs from history", highlight=False)
+        console.print(f"  * Files analyzed: {result.get('source_files', 0)}", highlight=False)
+        console.print(f"  * Human feedback incorporated: {feedback_count} files", highlight=False)
+        console.print(f"  * Features: {stats.get('n_features', 0)} dimensions", highlight=False)
+        console.print(f"  * Models saved to: {result.get('model_dir')}", highlight=False)
+        console.print(
+            "\n\\[TIP] The models have learned from your feedback and will provide more accurate predictions."
+        )
     else:
-        click.echo(f"[FAIL] Re-training failed: {result.get('error')}", err=True)
+        err_console.print(
+            f"[error]Re-training failed: {result.get('error')}[/error]",
+        )
         raise click.ClickException(result.get("error"))

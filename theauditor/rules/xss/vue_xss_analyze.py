@@ -1,151 +1,134 @@
 """Vue.js-specific XSS Detection.
 
-This module detects XSS vulnerabilities specific to Vue.js applications.
-Uses Vue-specific database tables for accurate detection.
-
-REFACTORED (2025-11-22):
-- Constants moved to constants.py (Single Source of Truth)
-- Context manager + sqlite3.Row for name-based access
-- Removed symbol scan heuristic per NO FALLBACK POLICY
+Detects Vue.js-specific cross-site scripting vulnerabilities:
+- v-html directive with user input
+- Dynamic template compilation
+- Render function innerHTML injection
+- Component props used in v-html
+- Slot content XSS
+- Vue filter XSS (Vue 2)
+- Computed properties building HTML
 """
 
-
-import sqlite3
-
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, RuleMetadata
-
-# Single Source of Truth - all Vue XSS constants from constants.py
+from theauditor.rules.base import (
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 from theauditor.rules.xss.constants import (
-    VUE_DANGEROUS_DIRECTIVES,
-    VUE_SAFE_DIRECTIVES,
-    VUE_INPUT_SOURCES,
     VUE_COMPILE_METHODS,
+    VUE_INPUT_SOURCES,
     VUE_TARGET_EXTENSIONS,
     is_sanitized,
 )
 
-
-# NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
-# If tables are missing, the rule MUST crash to expose indexer bugs.
-
-# ============================================================================
-# RULE METADATA - Phase 3B Addition (2025-10-02)
-# ============================================================================
 METADATA = RuleMetadata(
     name="vue_xss",
     category="xss",
     target_extensions=VUE_TARGET_EXTENSIONS,
-    exclude_patterns=['test/', '__tests__/', 'node_modules/', '*.spec.js'],
-    requires_jsx_pass=False,
-    execution_scope="database"  # Database-wide query, not per-file iteration
+    exclude_patterns=["test/", "__tests__/", "node_modules/", "*.spec.js"],
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
 
-def find_vue_xss(context: StandardRuleContext) -> list[StandardFinding]:
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Vue.js-specific XSS vulnerabilities.
 
-    REFACTORED: Uses context manager + sqlite3.Row for cleaner code.
+    Args:
+        context: Provides db_path, file_path, content, language, project_path
 
     Returns:
-        List of Vue-specific XSS findings
+        RuleResult with findings list and fidelity manifest
     """
-    findings = []
-
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    # Phase 4: Context Manager & Row Factory
-    with sqlite3.connect(context.db_path) as conn:
-        conn.row_factory = sqlite3.Row  # Access columns by name!
-        cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        if not _is_vue_app(db):
+            return RuleResult(findings=[], manifest=db.get_manifest())
 
-        # Only run if Vue is detected (NO FALLBACK - trust frameworks table)
-        if not _is_vue_app(cursor):
-            return findings
+        findings: list[StandardFinding] = []
 
-        findings.extend(_check_vhtml_directive(cursor))
-        findings.extend(_check_template_compilation(cursor))
-        findings.extend(_check_render_functions(cursor))
-        findings.extend(_check_component_props_injection(cursor))
-        findings.extend(_check_slot_injection(cursor))
-        findings.extend(_check_filter_injection(cursor))
-        findings.extend(_check_computed_xss(cursor))
+        findings.extend(_check_vhtml_directive(db))
+        findings.extend(_check_template_compilation(db))
+        findings.extend(_check_render_functions(db))
+        findings.extend(_check_component_props_injection(db))
+        findings.extend(_check_slot_injection(db))
+        findings.extend(_check_filter_injection(db))
+        findings.extend(_check_computed_xss(db))
 
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-def _is_vue_app(cursor: sqlite3.Cursor) -> bool:
-    """Check if this is a Vue.js application.
-
-    NO FALLBACK: Removed symbol scan heuristic per ZERO FALLBACK POLICY.
-    Trust frameworks table and vue_components table only.
-    """
-    # Check frameworks table
-    cursor.execute("""
-        SELECT COUNT(*) as cnt FROM frameworks
-        WHERE name IN ('vue', 'vuejs', 'vue.js', 'Vue')
-          AND language = 'javascript'
-    """)
-
-    if cursor.fetchone()['cnt'] > 0:
+def _is_vue_app(db: RuleDB) -> bool:
+    """Check if this is a Vue.js application."""
+    framework_rows = db.query(
+        Q("frameworks")
+        .select("name")
+        .where("name IN (?, ?, ?, ?)", "vue", "vuejs", "vue.js", "Vue")
+        .where("language = ?", "javascript")
+        .limit(1)
+    )
+    if list(framework_rows):
         return True
 
-    # Check vue_components table
-    cursor.execute("""
-        SELECT COUNT(*) as cnt FROM vue_components
-        -- REMOVED LIMIT: was hiding bugs
-        """)
-
-    if cursor.fetchone()['cnt'] > 0:
-        return True
-
-    # NO FALLBACK - If frameworks/vue_components don't detect Vue, it's not Vue
-    return False
+    component_rows = db.query(Q("vue_components").select("name").limit(1))
+    return len(list(component_rows)) > 0
 
 
-def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_vhtml_directive(db: RuleDB) -> list[StandardFinding]:
     """Check v-html directives with user input."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    # Use Vue directives table directly
-    cursor.execute("""
-        SELECT vd.file, vd.line, vd.expression, vd.in_component
-        FROM vue_directives vd
-        WHERE vd.directive_name = 'v-html'
-        ORDER BY vd.file, vd.line
-    """)
+    rows = db.query(
+        Q("vue_directives")
+        .select("file", "line", "expression", "in_component")
+        .where("directive_name = ?", "v-html")
+        .order_by("file, line")
+    )
 
-    for file, line, expression, component in cursor.fetchall():
-        # Check if expression contains user input
-        has_user_input = any(src in (expression or '') for src in VUE_INPUT_SOURCES)
-        # Use is_sanitized() for proper function call detection
-        if has_user_input and not is_sanitized(expression or ''):
-            findings.append(StandardFinding(
-                rule_name='vue-xss-vhtml',
-                message=f'XSS: v-html in {component} with user input',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='xss',
-                snippet=f'v-html="{expression[:60]}"' if len(expression or '') > 60 else f'v-html="{expression}"',
-                cwe_id='CWE-79'
-            ))
+    for file, line, expression, component in rows:
+        has_user_input = any(src in (expression or "") for src in VUE_INPUT_SOURCES)
 
-        # Check for complex expressions that might hide user input
-        if '(' in (expression or '') or '?' in (expression or ''):  # Method calls or ternary
-            findings.append(StandardFinding(
-                rule_name='vue-xss-vhtml-complex',
-                message='XSS: v-html with complex expression (verify for user input)',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='xss',
-                snippet=f'v-html with complex expression',
-                cwe_id='CWE-79'
-            ))
+        if has_user_input and not is_sanitized(expression or ""):
+            snippet = (
+                f'v-html="{expression[:60]}"'
+                if len(expression or "") > 60
+                else f'v-html="{expression}"'
+            )
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-xss-vhtml",
+                    message=f"XSS: v-html in {component} with user input",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="xss",
+                    snippet=snippet,
+                    cwe_id="CWE-79",
+                )
+            )
 
-    # Check for v-html combined with v-once (caching issues)
-    cursor.execute("""
+        if "(" in (expression or "") or "?" in (expression or ""):
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-xss-vhtml-complex",
+                    message="XSS: v-html with complex expression (verify for user input)",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="xss",
+                    snippet="v-html with complex expression",
+                    cwe_id="CWE-79",
+                )
+            )
+
+    sql, params = Q.raw("""
         SELECT vd1.file, vd1.line, vd1.in_component
         FROM vue_directives vd1
         JOIN vue_directives vd2 ON vd1.file = vd2.file
@@ -155,83 +138,75 @@ def _check_vhtml_directive(cursor: sqlite3.Cursor) -> list[StandardFinding]:
           AND vd2.directive_name = 'v-once'
         ORDER BY vd1.file, vd1.line
     """)
+    rows = list(db.execute(sql, params))
 
-    for file, line, component in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-xss-vhtml-vonce',
-            message='XSS: v-html with v-once can cache malicious content',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='xss',
-            snippet='v-html combined with v-once',
-            cwe_id='CWE-79'
-        ))
+    for file, line, _component in rows:
+        findings.append(
+            StandardFinding(
+                rule_name="vue-xss-vhtml-vonce",
+                message="XSS: v-html with v-once can cache malicious content",
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category="xss",
+                snippet="v-html combined with v-once",
+                cwe_id="CWE-79",
+            )
+        )
 
     return findings
 
 
-def _check_template_compilation(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_template_compilation(db: RuleDB) -> list[StandardFinding]:
     """Check for dynamic template compilation with user input."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    # Check for Vue.compile() or similar with user input
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.argument_index = 0
-          AND f.callee_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("argument_index = 0")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, callee, template_arg in cursor.fetchall():
-        # Filter in Python: Check if callee matches any compile method
-        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-        #       Move filtering logic to SQL WHERE clause for efficiency
+    for file, line, callee, template_arg in rows:
         is_compile_method = any(method in callee for method in VUE_COMPILE_METHODS)
         if not is_compile_method:
             continue
 
-        has_user_input = any(src in (template_arg or '') for src in VUE_INPUT_SOURCES)
+        has_user_input = any(src in (template_arg or "") for src in VUE_INPUT_SOURCES)
 
         if has_user_input:
-            findings.append(StandardFinding(
-                rule_name='vue-template-injection',
-                message=f'Template Injection: {callee} with user input',
-                file_path=file,
-                line=line,
-                severity=Severity.CRITICAL,
-                category='injection',
-                snippet=f'{callee}(userTemplate)',
-                cwe_id='CWE-94'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-template-injection",
+                    message=f"Template Injection: {callee} with user input",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    snippet=f"{callee}(userTemplate)",
+                    cwe_id="CWE-94",
+                )
+            )
 
-    # Check for inline templates with user input
-    cursor.execute("""
-        SELECT vc.file, vc.start_line, vc.name
-        FROM vue_components vc
-        WHERE vc.has_template = 1
-    """)
+    component_rows = db.query(
+        Q("vue_components").select("file", "start_line", "name").where("has_template = ?", 1)
+    )
 
-    for file, line, comp_name in cursor.fetchall():
-        # Check if template contains user input interpolation
-        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
-        #       Rewrite with JOIN or CTE to eliminate per-row queries
-        cursor.execute("""
-            SELECT a.source_expr
-            FROM assignments a
-            WHERE a.file = ?
-              AND a.line >= ?
-              AND a.line <= ? + 50
-              AND a.source_expr IS NOT NULL
-        """, [file, line, line])
+    for file, line, comp_name in component_rows:
+        assignment_rows = db.query(
+            Q("assignments")
+            .select("source_expr")
+            .where("file = ?", file)
+            .where("line >= ?", line)
+            .where("line <= ?", line + 50)
+            .where("source_expr IS NOT NULL")
+        )
 
-        for (template_source,) in cursor.fetchall():
-            # Filter in Python: Check for template with interpolation
-            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-            #       Move filtering logic to SQL WHERE clause for efficiency
-            has_template = 'template:' in template_source
-            has_interpolation = '${' in template_source or '`' in template_source
+        for (template_source,) in assignment_rows:
+            has_template = "template:" in template_source
+            has_interpolation = "${" in template_source or "`" in template_source
 
             if not (has_template and has_interpolation):
                 continue
@@ -239,57 +214,50 @@ def _check_template_compilation(cursor: sqlite3.Cursor) -> list[StandardFinding]
             has_user_input = any(src in template_source for src in VUE_INPUT_SOURCES)
 
             if has_user_input:
-                findings.append(StandardFinding(
-                    rule_name='vue-dynamic-template',
-                    message=f'XSS: Component {comp_name} has dynamic template with user input',
-                    file_path=file,
-                    line=line,
-                    severity=Severity.HIGH,
-                    category='xss',
-                    snippet='template: `<div>${userInput}</div>`',
-                    cwe_id='CWE-79'
-                ))
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-dynamic-template",
+                        message=f"XSS: Component {comp_name} has dynamic template with user input",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="xss",
+                        snippet="template: `<div>${userInput}</div>`",
+                        cwe_id="CWE-79",
+                    )
+                )
 
     return findings
 
 
-def _check_render_functions(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_render_functions(db: RuleDB) -> list[StandardFinding]:
     """Check render functions for XSS vulnerabilities."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    # Check Vue components with render functions
-    cursor.execute("""
-        SELECT vc.file, vc.start_line, vc.name, vc.setup_return
-        FROM vue_components vc
-        WHERE vc.type = 'render-function'
-           OR vc.setup_return IS NOT NULL
-    """)
+    component_rows = db.query(
+        Q("vue_components")
+        .select("file", "start_line", "name", "setup_return")
+        .where("type = ? OR setup_return IS NOT NULL", "render-function")
+    )
 
-    for file, line, comp_name, setup_return in cursor.fetchall():
-        # Filter in Python: Check if setup_return contains render function patterns
-        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
-        #       Rewrite with JOIN or CTE to eliminate per-row queries
+    dangerous_props = ["innerHTML", "domProps", "v-html"]
+
+    for file, line, comp_name, setup_return in component_rows:
         if setup_return:
-            has_render_pattern = 'h(' in setup_return or 'createVNode' in setup_return
+            has_render_pattern = "h(" in setup_return or "createVNode" in setup_return
             if not has_render_pattern:
                 continue
 
-        # Check for innerHTML or dangerous props in render function
-        dangerous_props = ['innerHTML', 'domProps', 'v-html']
+        assignment_rows = db.query(
+            Q("assignments")
+            .select("source_expr")
+            .where("file = ?", file)
+            .where("line >= ?", line)
+            .where("line <= ?", line + 100)
+            .where("source_expr IS NOT NULL")
+        )
 
-        cursor.execute("""
-            SELECT a.source_expr
-            FROM assignments a
-            WHERE a.file = ?
-              AND a.line >= ?
-              AND a.line <= ? + 100
-              AND a.source_expr IS NOT NULL
-        """, [file, line, line])
-
-        for (source,) in cursor.fetchall():
-            # Filter in Python: Check for dangerous props
-            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-            #       Move filtering logic to SQL WHERE clause for efficiency
+        for (source,) in assignment_rows:
             has_dangerous_prop = any(prop in source for prop in dangerous_props)
             if not has_dangerous_prop:
                 continue
@@ -297,303 +265,267 @@ def _check_render_functions(cursor: sqlite3.Cursor) -> list[StandardFinding]:
             has_user_input = any(src in source for src in VUE_INPUT_SOURCES)
 
             if has_user_input:
-                findings.append(StandardFinding(
-                    rule_name='vue-render-function-xss',
-                    message=f'XSS: Render function in {comp_name} uses innerHTML with user input',
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-render-function-xss",
+                        message=f"XSS: Render function in {comp_name} uses innerHTML with user input",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="xss",
+                        snippet='h("div", { domProps: { innerHTML: userInput } })',
+                        cwe_id="CWE-79",
+                    )
+                )
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "argument_expr")
+        .where("callee_function IN (?, ?, ?)", "h", "createVNode", "createElementVNode")
+        .where("argument_expr IS NOT NULL")
+        .order_by("file, line")
+    )
+
+    for file, line, args in rows:
+        if "innerHTML" not in (args or ""):
+            continue
+
+        has_user_input = any(src in (args or "") for src in VUE_INPUT_SOURCES)
+
+        if has_user_input:
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-vnode-innerhtml",
+                    message="XSS: VNode created with innerHTML from user input",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
-                    category='xss',
-                    snippet='h("div", { domProps: { innerHTML: userInput } })',
-                    cwe_id='CWE-79'
-                ))
-
-    # Check for JSX in Vue (if used)
-    cursor.execute("""
-        SELECT f.file, f.line, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IN ('h', 'createVNode', 'createElementVNode')
-          AND f.argument_expr IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
-
-    for file, line, args in cursor.fetchall():
-        # Filter in Python: Check for innerHTML
-        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-        #       Move filtering logic to SQL WHERE clause for efficiency
-        if 'innerHTML' not in (args or ''):
-            continue
-
-        has_user_input = any(src in (args or '') for src in VUE_INPUT_SOURCES)
-
-        if has_user_input:
-            findings.append(StandardFinding(
-                rule_name='vue-vnode-innerhtml',
-                message='XSS: VNode created with innerHTML from user input',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='xss',
-                snippet='h("div", { innerHTML: userContent })',
-                cwe_id='CWE-79'
-            ))
+                    category="xss",
+                    snippet='h("div", { innerHTML: userContent })',
+                    cwe_id="CWE-79",
+                )
+            )
 
     return findings
 
 
-def _check_component_props_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_component_props_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for XSS through component props."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    # Check Vue components with dangerous props
-    cursor.execute("""
-        SELECT vc.file, vc.start_line, vc.name, vc.props_definition
-        FROM vue_components vc
-        WHERE vc.props_definition IS NOT NULL
-    """)
+    rows = db.query(
+        Q("vue_directives")
+        .select(
+            "vue_directives.file",
+            "vue_directives.line",
+            "vue_directives.expression",
+            "vue_components.name",
+        )
+        .join("vue_components", on=[("file", "file"), ("in_component", "name")])
+        .where("vue_directives.directive_name = ?", "v-html")
+        .where("vue_directives.expression IS NOT NULL")
+        .where("vue_components.props_definition IS NOT NULL")
+    )
 
-    for file, line, comp_name, props_def in cursor.fetchall():
-        # Check if props are used with v-html
-        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
-        #       Rewrite with JOIN or CTE to eliminate per-row queries
-        cursor.execute("""
-            SELECT vd.line, vd.expression
-            FROM vue_directives vd
-            WHERE vd.file = ?
-              AND vd.in_component = ?
-              AND vd.directive_name = 'v-html'
-              AND vd.expression IS NOT NULL
-        """, [file, comp_name])
+    for file, dir_line, expression, comp_name in rows:
+        if "props." not in (expression or ""):
+            continue
 
-        for dir_line, expression in cursor.fetchall():
-            # Filter in Python: Check for props usage
-            # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-            #       Move filtering logic to SQL WHERE clause for efficiency
-            if 'props.' not in expression:
-                continue
-
-            findings.append(StandardFinding(
-                rule_name='vue-props-vhtml',
-                message=f'XSS: Component {comp_name} uses props directly in v-html',
+        findings.append(
+            StandardFinding(
+                rule_name="vue-props-vhtml",
+                message=f"XSS: Component {comp_name} uses props directly in v-html",
                 file_path=file,
                 line=dir_line,
                 severity=Severity.HIGH,
-                category='xss',
-                snippet=f'v-html="props.content"',
-                cwe_id='CWE-79'
-            ))
+                category="xss",
+                snippet='v-html="props.content"',
+                cwe_id="CWE-79",
+            )
+        )
 
-    # Check for $attrs usage with v-html
-    cursor.execute("""
-        SELECT vd.file, vd.line, vd.expression, vd.in_component
-        FROM vue_directives vd
-        WHERE vd.directive_name = 'v-html'
-          AND vd.expression IS NOT NULL
-        ORDER BY vd.file, vd.line
-    """)
+    rows = db.query(
+        Q("vue_directives")
+        .select("file", "line", "expression", "in_component")
+        .where("directive_name = ?", "v-html")
+        .where("expression IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, expression, component in cursor.fetchall():
-        # Filter in Python: Check for $attrs usage
-        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-        #       Move filtering logic to SQL WHERE clause for efficiency
-        if '$attrs' not in expression:
+    for file, line, expression, _component in rows:
+        if "$attrs" not in expression:
             continue
 
-        findings.append(StandardFinding(
-            rule_name='vue-attrs-vhtml',
-            message='XSS: $attrs used in v-html (uncontrolled input)',
-            file_path=file,
-            line=line,
-            severity=Severity.CRITICAL,
-            category='xss',
-            snippet='v-html="$attrs.content"',
-            cwe_id='CWE-79'
-        ))
+        findings.append(
+            StandardFinding(
+                rule_name="vue-attrs-vhtml",
+                message="XSS: $attrs used in v-html (uncontrolled input)",
+                file_path=file,
+                line=line,
+                severity=Severity.CRITICAL,
+                category="xss",
+                snippet='v-html="$attrs.content"',
+                cwe_id="CWE-79",
+            )
+        )
 
     return findings
 
 
-def _check_slot_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_slot_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for XSS through slot content."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    # Check for slot content used with v-html
-    cursor.execute("""
-        SELECT vd.file, vd.line, vd.expression, vd.in_component
-        FROM vue_directives vd
-        WHERE vd.directive_name = 'v-html'
-          AND vd.expression IS NOT NULL
-        ORDER BY vd.file, vd.line
-    """)
+    rows = db.query(
+        Q("vue_directives")
+        .select("file", "line", "expression", "in_component")
+        .where("directive_name = ?", "v-html")
+        .where("expression IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, expression, component in cursor.fetchall():
-        # Filter in Python: Check for slot usage
-        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-        #       Move filtering logic to SQL WHERE clause for efficiency
-        has_slot = '$slots' in expression or 'slot.' in expression
+    for file, line, expression, _component in rows:
+        has_slot = "$slots" in expression or "slot." in expression
         if not has_slot:
             continue
 
-        findings.append(StandardFinding(
-            rule_name='vue-slot-vhtml',
-            message='XSS: Slot content used in v-html',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='xss',
-            snippet='v-html="$slots.default"',
-            cwe_id='CWE-79'
-        ))
+        findings.append(
+            StandardFinding(
+                rule_name="vue-slot-vhtml",
+                message="XSS: Slot content used in v-html",
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category="xss",
+                snippet='v-html="$slots.default"',
+                cwe_id="CWE-79",
+            )
+        )
 
-    # Check for scoped slots with dangerous content
-    cursor.execute("""
-        SELECT a.file, a.line, a.source_expr
-        FROM assignments a
-        WHERE a.source_expr IS NOT NULL
-        ORDER BY a.file, a.line
-    """)
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "source_expr")
+        .where("source_expr IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, source in cursor.fetchall():
-        # Filter in Python: Check for scopedSlots with innerHTML
-        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-        #       Move filtering logic to SQL WHERE clause for efficiency
-        has_scoped_slots = 'scopedSlots' in source
-        has_innerHTML = 'innerHTML' in source
+    for file, line, source in rows:
+        has_scoped_slots = "scopedSlots" in source
+        has_inner_html = "innerHTML" in source
 
-        if not (has_scoped_slots and has_innerHTML):
+        if not (has_scoped_slots and has_inner_html):
             continue
 
-        findings.append(StandardFinding(
-            rule_name='vue-scoped-slot-xss',
-            message='XSS: Scoped slot with innerHTML manipulation',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='xss',
-            snippet='scopedSlots with innerHTML',
-            cwe_id='CWE-79'
-        ))
+        findings.append(
+            StandardFinding(
+                rule_name="vue-scoped-slot-xss",
+                message="XSS: Scoped slot with innerHTML manipulation",
+                file_path=file,
+                line=line,
+                severity=Severity.MEDIUM,
+                category="xss",
+                snippet="scopedSlots with innerHTML",
+                cwe_id="CWE-79",
+            )
+        )
 
     return findings
 
 
-def _check_filter_injection(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_filter_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for XSS through Vue filters (Vue 2)."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    # Check for custom filters that don't escape HTML
-    cursor.execute("""
-        SELECT f.file, f.line, f.callee_function, f.argument_expr
-        FROM function_call_args f
-        WHERE f.callee_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, func, filter_def in cursor.fetchall():
-        # Filter in Python: Check if function is a Vue filter registration
-        # TODO: PYTHON FILTERING DETECTED - 'if/continue' pattern found
-        #       Move filtering logic to SQL WHERE clause for efficiency
-        is_filter_registration = func.startswith('Vue.filter') or '.filter' in func
+    for file, line, func, filter_def in rows:
+        is_filter_registration = func.startswith("Vue.filter") or ".filter" in func
         if not is_filter_registration:
             continue
 
-        # Check if filter returns raw HTML
-        if 'innerHTML' in (filter_def or '') or '<' in (filter_def or ''):
-            findings.append(StandardFinding(
-                rule_name='vue-filter-xss',
-                message='XSS: Vue filter may return unescaped HTML',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='xss',
-                snippet='Vue.filter returns HTML string',
-                cwe_id='CWE-79'
-            ))
+        if "innerHTML" in (filter_def or "") or "<" in (filter_def or ""):
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-filter-xss",
+                    message="XSS: Vue filter may return unescaped HTML",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="xss",
+                    snippet="Vue.filter returns HTML string",
+                    cwe_id="CWE-79",
+                )
+            )
 
     return findings
 
 
-def _check_computed_xss(cursor: sqlite3.Cursor) -> list[StandardFinding]:
+def _check_computed_xss(db: RuleDB) -> list[StandardFinding]:
     """Check computed properties that might cause XSS."""
-    findings = []
+    findings: list[StandardFinding] = []
 
-    # Check Vue hooks for computed properties with dangerous patterns
-    cursor.execute("""
-        SELECT vh.file, vh.line, vh.component_name, vh.hook_name, vh.return_value
-        FROM vue_hooks vh
-        WHERE vh.hook_type = 'computed'
-          AND vh.return_value IS NOT NULL
-        ORDER BY vh.file, vh.line
-    """)
+    rows = db.query(
+        Q("vue_hooks")
+        .select("file", "line", "component_name", "hook_name", "return_value")
+        .where("hook_type = ?", "computed")
+        .where("return_value IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, comp_name, hook_name, return_val in cursor.fetchall():
-        # Check if computed property builds HTML
-        if any(tag in (return_val or '') for tag in ['<div', '<span', '<script', '<img']):
+    for file, line, _comp_name, hook_name, return_val in rows:
+        if any(tag in (return_val or "") for tag in ["<div", "<span", "<script", "<img"]):
             has_user_input = any(src in return_val for src in VUE_INPUT_SOURCES)
 
             if has_user_input:
-                findings.append(StandardFinding(
-                    rule_name='vue-computed-html',
-                    message=f'XSS: Computed property {hook_name} builds HTML with user input',
+                findings.append(
+                    StandardFinding(
+                        rule_name="vue-computed-html",
+                        message=f"XSS: Computed property {hook_name} builds HTML with user input",
+                        file_path=file,
+                        line=line,
+                        severity=Severity.HIGH,
+                        category="xss",
+                        snippet=f"computed: {{ {hook_name}() {{ return `<div>${{user}}</div>` }} }}",
+                        cwe_id="CWE-79",
+                    )
+                )
+
+    watcher_rows = db.query(
+        Q("vue_hooks")
+        .select("file", "line", "component_name", "hook_name")
+        .where("hook_type = ?", "watcher")
+        .order_by("file, line")
+    )
+
+    for file, line, _comp_name, watched_prop in watcher_rows:
+        assignment_rows = db.query(
+            Q("assignments")
+            .select("target_var")
+            .where("file = ?", file)
+            .where("line >= ?", line)
+            .where("line <= ?", line + 20)
+            .where("target_var IS NOT NULL")
+        )
+
+        has_inner_html = any(".innerHTML" in target_var for (target_var,) in assignment_rows)
+
+        if has_inner_html:
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-watcher-innerhtml",
+                    message=f"XSS: Watcher for {watched_prop} manipulates innerHTML",
                     file_path=file,
                     line=line,
-                    severity=Severity.HIGH,
-                    category='xss',
-                    snippet=f'computed: {{ {hook_name}() {{ return `<div>${{user}}</div>` }} }}',
-                    cwe_id='CWE-79'
-                ))
-
-    # Check for watchers that manipulate innerHTML
-    cursor.execute("""
-        SELECT vh.file, vh.line, vh.component_name, vh.hook_name
-        FROM vue_hooks vh
-        WHERE vh.hook_type = 'watcher'
-        ORDER BY vh.file, vh.line
-    """)
-
-    for file, line, comp_name, watched_prop in cursor.fetchall():
-        # Check if watcher manipulates DOM
-        # TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop
-        #       Rewrite with JOIN or CTE to eliminate per-row queries
-        cursor.execute("""
-            SELECT a.target_var
-            FROM assignments a
-            WHERE a.file = ?
-              AND a.line >= ?
-              AND a.line <= ? + 20
-              AND a.target_var IS NOT NULL
-        """, [file, line, line])
-
-        # Filter in Python: Check for innerHTML manipulation
-        has_innerHTML = False
-        for (target_var,) in cursor.fetchall():
-            if '.innerHTML' in target_var:
-                has_innerHTML = True
-                break
-
-        if has_innerHTML:
-            findings.append(StandardFinding(
-                rule_name='vue-watcher-innerhtml',
-                message=f'XSS: Watcher for {watched_prop} manipulates innerHTML',
-                file_path=file,
-                line=line,
-                severity=Severity.MEDIUM,
-                category='xss',
-                snippet=f'watch: {{ {watched_prop}() {{ el.innerHTML = ... }} }}',
-                cwe_id='CWE-79'
-            ))
+                    severity=Severity.MEDIUM,
+                    category="xss",
+                    snippet=f"watch: {{ {watched_prop}() {{ el.innerHTML = ... }} }}",
+                    cwe_id="CWE-79",
+                )
+            )
 
     return findings
-
-
-# ============================================================================
-# ORCHESTRATOR ENTRY POINT
-# ============================================================================
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
-    return find_vue_xss(context)

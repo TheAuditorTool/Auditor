@@ -10,7 +10,7 @@ Use these files to describe *which* legacy identifiers should disappear after a 
 
 ## Quick Start
 
-1. Ensure `.pf/repo_index.db` exists (`aud full` or `aud index`).
+1. Ensure `.pf/repo_index.db` exists (`aud full`).
 2. Copy an existing profile (e.g., `profile.yaml` from your project) into this directory.
 3. Define rules with `match` (old identifiers) and `expect` (new identifiers).
 4. Run:
@@ -32,11 +32,11 @@ Use these files to describe *which* legacy identifiers should disappear after a 
 - Project-specific copies can live in the target repo (e.g., `PlantFlow/profile.yaml`) and point to them with `aud refactor --file`.
 - Comments are encouraged—profiles double as runbooks for other engineers or AI loops.
 
-For the field-by-field schema, see `templates_instructions.md` in this folder.
+For the field-by-field schema (including regex pattern syntax), see `templates_instructions.md` in this folder.
 
 ## Relationship to semantic contexts
 
 - **Refactor profiles** (this folder) → used by `aud refactor --file`, operate directly on code/migration data.
-- **Semantic contexts** (`theauditor/insights/semantic_rules/`) → used by `aud context --file`, reclassify security findings.
+- **Semantic contexts** (`theauditor/context/semantic_rules/`) → used by `aud context --file`, reclassify security findings.
 
 Keep them separate; they solve different problems.

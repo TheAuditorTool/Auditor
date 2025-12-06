@@ -1,7 +1,6 @@
 """User service making intra-package imports."""
 
-
-from typing import Any, Optional
+from typing import Any
 
 from ..util.helpers import now_millis
 from .repository import UserRepository

@@ -1,0 +1,113 @@
+feat!: TheAuditor v2.0 - Polyglot Code Intelligence Platform
+
+BREAKING: This release fundamentally transforms TheAuditor from a
+Python/JavaScript SAST tool into a polyglot code intelligence platform.
+Schema changes require full reindexing. Several commands removed.
+
+## Polyglot Language Expansion
+
+Add Go, Rust, and Bash language support with full static analysis:
+
+- Go: tree-sitter AST, HTTP/ORM detection, taint analysis, 4 DFG strategies
+- Rust: 20 tables, unsafe block analysis, FFI boundaries, Cargo workspace support
+- Bash: security-focused analysis, command injection, quoting issues
+
+All languages now wire into unified taint engine and graph infrastructure.
+
+## Schema Consolidation
+
+Python schema collapsed from 149 tables to 8 core + junction tables:
+
+- 22MB database size reduction
+- 3x query performance improvement
+- JSON blob columns eliminated
+- Proper FK constraints enforced
+- Node.js schema normalized with 8 junction tables
+- 106 rules migrated to fidelity layer (schema-aware, fail-loud)
+
+## Zero Fallback Policy
+
+Systematic elimination of silent failures across entire codebase:
+
+- Removed try/except fallbacks returning empty results
+- Extraction failures crash pipeline instead of continuing
+- Database query failures exposed instead of hidden
+- 20+ modules refactored to comply
+
+The cardinal rule: No silent failures. Crash loud. Debug fast.
+
+## Performance Optimizations
+
+Query and I/O performance dramatically improved:
+
+- SQL Recursive CTEs replace Python loops (95x faster incoming calls)
+- O(N) ghost imports detection (was O(N^2))
+- O(1) graph node lookup (was O(N))
+- Single os.walk replaces 15x rglob calls
+- WAL mode + 64MB cache for SQLite
+- In-memory taint analysis (no temp files)
+- Async parallel linter execution
+
+## CLI Modernization
+
+Complete user experience overhaul:
+
+- Rich-formatted help for all 80+ subcommands
+- AI-optimized --help descriptions
+- 42 workflow guides in `aud manual`
+- New `aud explain` command for code context
+- Unified Loguru logging (92 missed prints fixed)
+- `aud taint` replaces `taint-analyze`
+
+Removed commands: `aud index` (use `--index`), `aud init`, `aud summary`
+
+## Architecture Documentation
+
+26 new architecture documents:
+
+- 12 core module docs (indexer, extractors, graph, taint, FCE, rules,
+  linters, MachineL, pipeline, context, session, commands)
+- 14 feature docs (planning, refactor, context, manual, rich help,
+  explain, blueprint, boundaries, deadcode, session, agents, query,
+  MachineL features, impact)
+
+## Codebase Hygiene
+
+Aggressive cleanup to reduce AI hallucination risk:
+
+- 15,952 comments purged
+- 280+ ruff lint errors fixed
+- Dead code removed: snapshots.py, config_runtime.py, treesitter_impl.py,
+  Contributing.md, .pf/readthis/ system
+- `insights/` renamed to `MachineL/` with flattened structure
+
+## Infrastructure
+
+- Pipeline observer pattern for event-driven architecture
+- FCE vector-based consensus engine rewrite
+- pygit2 shadow sidecar repository for planning
+- Async HTTP client (httpx) for dependency checking
+- Pydantic validation for FCE schemas
+
+## Breaking Changes
+
+- Requires Python >=3.14 (was 3.12)
+- Existing .pf/ databases incompatible (reindex required)
+- Graph builder uses Strategy Pattern (language-specific logic extracted)
+- Commands removed: `aud index`, `aud init`, `aud summary`
+- Command renamed: `taint-analyze` -> `taint`
+
+## Dependencies
+
+Added: rich>=13.0.0, loguru==0.7.3, pydantic==2.12.4, httpx>=0.28.0,
+       pygit2>=1.14.0, libcst==1.8.6 (dev)
+Updated: mypy 1.18.2 -> 1.19.0
+
+## Stats
+
+- 385 commits
+- 1169 files changed
+- +286,176 / -156,702 lines
+- ~320 hours development time
+
+Migration: Delete .pf/, run `aud full`. Update scripts using removed commands.

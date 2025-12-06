@@ -1,24 +1,8 @@
-"""Centralized tool path management for TheAuditor's sandboxed tools.
-
-This module provides a single source of truth for locating binaries in the
-.auditor_venv/.theauditor_tools sandbox, eliminating path construction duplication
-across venv_install.py, linters.py, and vulnerability_scanner.py.
-
-PHILOSOPHY:
-- DRY: One place to update when sandbox structure changes
-- Fail-fast: Raise FileNotFoundError with helpful messages
-- Platform-aware: Handle Windows/Unix path differences
-- Fallback support: Check system PATH as secondary option
-"""
-
+"""Centralized tool path management for TheAuditor's sandboxed tools."""
 
 import platform
-import shutil
 from pathlib import Path
-from typing import Optional
 
-
-# Platform detection
 IS_WINDOWS = platform.system() == "Windows"
 
 
@@ -26,14 +10,7 @@ class Toolbox:
     """Manages paths to sandboxed tools in .auditor_venv/.theauditor_tools."""
 
     def __init__(self, project_root: Path):
-        """Initialize with project root directory.
-
-        Args:
-            project_root: Path to project root (where .auditor_venv exists)
-
-        Raises:
-            ValueError: If project_root doesn't exist or isn't a directory
-        """
+        """Initialize with project root directory."""
         self.root = Path(project_root).resolve()
 
         if not self.root.exists():
@@ -45,18 +22,7 @@ class Toolbox:
         self.sandbox = self.venv / ".theauditor_tools"
 
     def get_venv_binary(self, name: str, required: bool = True) -> Path | None:
-        """Get path to binary in main venv (Python linters).
-
-        Args:
-            name: Binary name (e.g., 'ruff', 'mypy', 'black')
-            required: If True, raise FileNotFoundError when missing
-
-        Returns:
-            Path to binary, or None if not required and not found
-
-        Raises:
-            FileNotFoundError: If required=True and binary not found
-        """
+        """Get path to binary in main venv (Python linters)."""
         venv_bin = self.venv / ("Scripts" if IS_WINDOWS else "bin")
         binary = venv_bin / (f"{name}.exe" if IS_WINDOWS else name)
 
@@ -72,23 +38,10 @@ class Toolbox:
         return None
 
     def get_node_runtime(self, required: bool = True) -> Path | None:
-        """Get path to bundled Node.js executable.
-
-        Args:
-            required: If True, raise FileNotFoundError when missing
-
-        Returns:
-            Path to node executable, or None if not required and not found
-
-        Raises:
-            FileNotFoundError: If required=True and not found
-        """
+        """Get path to bundled Node.js executable."""
         node_runtime = self.sandbox / "node-runtime"
 
-        if IS_WINDOWS:
-            node_exe = node_runtime / "node.exe"
-        else:
-            node_exe = node_runtime / "bin" / "node"
+        node_exe = node_runtime / "node.exe" if IS_WINDOWS else node_runtime / "bin" / "node"
 
         if node_exe.exists():
             return node_exe
@@ -102,21 +55,10 @@ class Toolbox:
         return None
 
     def get_npm_command(self, required: bool = True) -> list | None:
-        """Get npm command for running npm operations.
-
-        Args:
-            required: If True, raise FileNotFoundError when missing
-
-        Returns:
-            List of command components to run npm, or None if not required and not found
-
-        Raises:
-            FileNotFoundError: If required=True and not found
-        """
+        """Get npm command for running npm operations."""
         node_runtime = self.sandbox / "node-runtime"
 
         if IS_WINDOWS:
-            # Windows: Try npm-cli.js first, then npm.cmd
             node_exe = node_runtime / "node.exe"
             npm_cli = node_runtime / "node_modules" / "npm" / "bin" / "npm-cli.js"
 
@@ -127,7 +69,6 @@ class Toolbox:
             if npm_cmd.exists():
                 return [str(npm_cmd)]
         else:
-            # Unix: Use npm shell script
             npm_exe = node_runtime / "bin" / "npm"
             if npm_exe.exists():
                 return [str(npm_exe)]
@@ -141,17 +82,7 @@ class Toolbox:
         return None
 
     def get_eslint(self, required: bool = True) -> Path | None:
-        """Get path to ESLint binary in sandbox.
-
-        Args:
-            required: If True, raise FileNotFoundError when missing
-
-        Returns:
-            Path to ESLint binary, or None if not required and not found
-
-        Raises:
-            FileNotFoundError: If required=True and not found
-        """
+        """Get path to ESLint binary in sandbox."""
         node_modules = self.sandbox / "node_modules" / ".bin"
         eslint = node_modules / ("eslint.cmd" if IS_WINDOWS else "eslint")
 
@@ -167,17 +98,7 @@ class Toolbox:
         return None
 
     def get_typescript_compiler(self, required: bool = True) -> Path | None:
-        """Get path to TypeScript compiler (tsc) in sandbox.
-
-        Args:
-            required: If True, raise FileNotFoundError when missing
-
-        Returns:
-            Path to tsc binary, or None if not required and not found
-
-        Raises:
-            FileNotFoundError: If required=True and not found
-        """
+        """Get path to TypeScript compiler (tsc) in sandbox."""
         node_modules = self.sandbox / "node_modules" / ".bin"
         tsc = node_modules / ("tsc.cmd" if IS_WINDOWS else "tsc")
 
@@ -193,68 +114,85 @@ class Toolbox:
         return None
 
     def get_osv_scanner(self, required: bool = True) -> str | None:
-        """Get path to OSV-Scanner binary.
-
-        Args:
-            required: If True, raise FileNotFoundError when missing
-
-        Returns:
-            Path to osv-scanner executable, or None if not required and not found
-
-        Raises:
-            FileNotFoundError: If required=True and not found in either location
-        """
+        """Get path to OSV-Scanner binary in sandbox."""
         osv_dir = self.sandbox / "osv-scanner"
-
-        if IS_WINDOWS:
-            bundled = osv_dir / "osv-scanner.exe"
-        else:
-            bundled = osv_dir / "osv-scanner"
+        bundled = osv_dir / "osv-scanner.exe" if IS_WINDOWS else osv_dir / "osv-scanner"
 
         if bundled.exists():
             return str(bundled)
 
-        # Fallback to system osv-scanner
-        system_osv = shutil.which("osv-scanner")
-        if system_osv:
-            return system_osv
-
         if required:
             raise FileNotFoundError(
-                f"osv-scanner not found at {bundled} or in system PATH. "
+                f"osv-scanner not found at {bundled}. "
                 f"Run 'aud setup-ai --target {self.root}' to install vulnerability scanners."
             )
 
         return None
 
     def get_osv_database_dir(self) -> Path:
-        """Get path to OSV-Scanner offline database directory.
-
-        Returns:
-            Path to database directory (may not exist yet)
-        """
+        """Get path to OSV-Scanner offline database directory."""
         return self.sandbox / "osv-scanner" / "db"
 
     def get_eslint_config(self) -> Path:
-        """Get path to ESLint flat config in sandbox.
-
-        Returns:
-            Path to eslint.config.cjs
-        """
+        """Get path to ESLint flat config in sandbox."""
         return self.sandbox / "eslint.config.cjs"
 
     def get_python_linter_config(self) -> Path:
-        """Get path to Python linter config (pyproject.toml) in sandbox.
-
-        Returns:
-            Path to pyproject.toml
-        """
+        """Get path to Python linter config (pyproject.toml) in sandbox."""
         return self.sandbox / "pyproject.toml"
 
     def get_typescript_config(self) -> Path:
-        """Get path to TypeScript config in sandbox.
+        """Get path to TypeScript config in sandbox."""
+        return self.sandbox / "tsconfig.json"
+
+    def get_golangci_lint(self, required: bool = False) -> Path | None:
+        """Get path to golangci-lint binary in sandbox.
+
+        Optional by default since not all projects use Go.
+
+        Args:
+            required: If True, raise FileNotFoundError when not found
 
         Returns:
-            Path to tsconfig.json
+            Path to golangci-lint binary, or None if not found and not required
         """
-        return self.sandbox / "tsconfig.json"
+        bin_dir = self.sandbox / "bin"
+        bundled = bin_dir / ("golangci-lint.exe" if IS_WINDOWS else "golangci-lint")
+
+        if bundled.exists():
+            return bundled
+
+        if required:
+            raise FileNotFoundError(
+                f"golangci-lint not found at {bundled}. "
+                f"Run 'aud setup-ai --target {self.root}' or install via: "
+                f"go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+            )
+
+        return None
+
+    def get_shellcheck(self, required: bool = False) -> Path | None:
+        """Get path to shellcheck binary in sandbox.
+
+        Optional by default since not all projects use Bash.
+
+        Args:
+            required: If True, raise FileNotFoundError when not found
+
+        Returns:
+            Path to shellcheck binary, or None if not found and not required
+        """
+        bin_dir = self.sandbox / "bin"
+        bundled = bin_dir / ("shellcheck.exe" if IS_WINDOWS else "shellcheck")
+
+        if bundled.exists():
+            return bundled
+
+        if required:
+            raise FileNotFoundError(
+                f"shellcheck not found at {bundled}. "
+                f"Run 'aud setup-ai --target {self.root}' or install via: "
+                f"apt install shellcheck / brew install shellcheck / scoop install shellcheck"
+            )
+
+        return None

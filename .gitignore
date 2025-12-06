@@ -25,6 +25,8 @@ share/python-wheels/
 .installed.cfg
 *.egg
 MANIFEST
+NodeSaaS-master/
+
 
 # PyInstaller
 *.manifest
@@ -80,6 +82,10 @@ repo_index.db
 /tmp/
 teamsop.md
 node_modules/
+
+# JavaScript extractor build artifacts
+theauditor/ast_extractors/javascript/dist/
+theauditor/ast_extractors/javascript/node_modules/
 
 # Test and temporary files
 test_output/

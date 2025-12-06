@@ -1,546 +1,461 @@
-"""Vue Component Analyzer - Database-First Approach.
+"""Vue Component Analyzer - Fidelity Layer Implementation.
 
-Detects Vue-specific component anti-patterns and performance issues using
-indexed database data. NO AST traversal. Pure SQL queries.
-
-Follows v1.1+ gold standard patterns:
-- Frozensets for all patterns (O(1) lookups)
-- NO table existence checks (schema contract guarantees all tables exist)
-- Direct database queries (crash on missing tables to expose indexer bugs)
-- Proper confidence levels via Confidence enum
+Detects Vue component anti-patterns, performance issues, and maintainability problems:
+- Props mutations (immutability violations)
+- Missing v-for keys (reconciliation performance)
+- Complex components (maintainability)
+- Unnecessary re-renders ($forceUpdate abuse)
+- Missing component names (debugging difficulty)
+- Inefficient computed properties
+- Complex template expressions
 """
 
-
-import sqlite3
-from typing import List, Set
-from pathlib import Path
-
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-
-
-# ============================================================================
-# RULE METADATA (Phase 3B - Smart Filtering)
-# ============================================================================
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="vue_component",
     category="vue",
-    target_extensions=['.vue', '.js', '.ts', '.jsx', '.tsx'],
-    target_file_patterns=['frontend/', 'client/', 'src/components/', 'src/views/', 'src/pages/'],
-    exclude_patterns=['backend/', 'server/', 'api/', 'migrations/', '__tests__/', '*.test.*', '*.spec.*'],
-    requires_jsx_pass=False  # Uses standard tables, not JSX-preserved
+    target_extensions=[".vue", ".js", ".ts", ".jsx", ".tsx"],
+    target_file_patterns=[
+        "frontend/",
+        "client/",
+        "src/components/",
+        "src/views/",
+        "src/pages/",
+    ],
+    exclude_patterns=[
+        "backend/",
+        "server/",
+        "api/",
+        "migrations/",
+        "__tests__/",
+        "*.test.*",
+        "*.spec.*",
+    ],
+    execution_scope="database",
+    primary_table="vue_components",
 )
 
 
-# ============================================================================
-# PATTERN DEFINITIONS (Golden Standard: Use Frozensets)
-# ============================================================================
-
-# Vue directives that modify DOM
-VUE_DIRECTIVES = frozenset([
-    'v-if', 'v-else', 'v-else-if', 'v-for', 'v-show',
-    'v-model', 'v-text', 'v-html', 'v-pre', 'v-cloak', 'v-once'
-])
-
-# Props that shouldn't be mutated
-IMMUTABLE_PROPS = frozenset([
-    'props.', 'this.props.', 'this.$props.',
-    'prop.', 'parentProp.', 'inheritedProp.'
-])
-
-# Vue lifecycle hooks
-LIFECYCLE_HOOKS = frozenset([
-    'beforeCreate', 'created', 'beforeMount', 'mounted',
-    'beforeUpdate', 'updated', 'beforeDestroy', 'destroyed',
-    'beforeUnmount', 'unmounted', 'activated', 'deactivated',
-    'errorCaptured', 'renderTracked', 'renderTriggered'
-])
-
-# Composition API hooks
-COMPOSITION_HOOKS = frozenset([
-    'onBeforeMount', 'onMounted', 'onBeforeUpdate', 'onUpdated',
-    'onBeforeUnmount', 'onUnmounted', 'onActivated', 'onDeactivated',
-    'onErrorCaptured', 'onRenderTracked', 'onRenderTriggered'
-])
-
-# Vue methods that cause re-renders
-RENDER_TRIGGERS = frozenset([
-    '$forceUpdate', 'forceUpdate', '$set', '$delete',
-    'Vue.set', 'Vue.delete', 'this.$nextTick'
-])
-
-# Expensive operations in templates
-EXPENSIVE_TEMPLATE_OPS = frozenset([
-    'JSON.stringify', 'JSON.parse', 'Object.keys', 'Object.values',
-    'Array.from', '.filter', '.map', '.reduce', '.sort'
-])
-
-# Component registration patterns
-COMPONENT_REGISTRATION = frozenset([
-    'components:', 'component(', 'Vue.component', 'app.component',
-    'globalProperties', 'mixins:', 'extends:'
-])
+IMMUTABLE_PROPS = frozenset(
+    [
+        "props.",
+        "this.props.",
+        "this.$props.",
+        "prop.",
+        "parentProp.",
+        "inheritedProp.",
+    ]
+)
 
 
-# ============================================================================
-# MAIN RULE FUNCTION (Orchestrator Entry Point)
-# ============================================================================
+RENDER_TRIGGERS = frozenset(
+    [
+        "$forceUpdate",
+        "forceUpdate",
+        "$set",
+        "$delete",
+        "Vue.set",
+        "Vue.delete",
+        "this.$nextTick",
+    ]
+)
 
-def find_vue_component_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect Vue component anti-patterns and performance issues.
 
-    Detects:
-    - Props mutation anti-pattern
-    - Missing keys in v-for loops
-    - Excessive component complexity
-    - Unnecessary re-renders
-    - Missing component names
-    - Inefficient computed properties
-    - Template expression complexity
+EXPENSIVE_TEMPLATE_OPS = frozenset(
+    [
+        "JSON.stringify",
+        "JSON.parse",
+        "Object.keys",
+        "Object.values",
+        "Array.from",
+        ".filter",
+        ".map",
+        ".reduce",
+        ".sort",
+    ]
+)
 
-    Args:
-        context: Standardized rule context with database path
 
-    Returns:
-        List of Vue component issues found
-    """
-    findings = []
-
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Vue component anti-patterns and performance issues."""
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    # NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
-    # If tables are missing, the rule MUST crash to expose indexer bugs.
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = []
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
-
-    try:
-        # Get Vue files (schema contract guarantees tables exist)
-        vue_files = _get_vue_files(cursor)
+        vue_files = _get_vue_files(db)
         if not vue_files:
-            return findings
+            return RuleResult(findings=findings, manifest=db.get_manifest())
 
-        # Run all checks - schema contract guarantees all tables exist
-        findings.extend(_find_props_mutations(cursor, vue_files))
-        findings.extend(_find_missing_vfor_keys(cursor, vue_files))
-        findings.extend(_find_complex_components(cursor, vue_files))
-        findings.extend(_find_unnecessary_rerenders(cursor, vue_files))
-        findings.extend(_find_missing_component_names(cursor, vue_files))
-        findings.extend(_find_inefficient_computed(cursor, vue_files))
-        findings.extend(_find_complex_template_expressions(cursor, vue_files))
+        findings.extend(_find_props_mutations(db, vue_files))
+        findings.extend(_find_missing_vfor_keys(db, vue_files))
+        findings.extend(_find_complex_components(db, vue_files))
+        findings.extend(_find_unnecessary_rerenders(db, vue_files))
+        findings.extend(_find_missing_component_names(db, vue_files))
+        findings.extend(_find_inefficient_computed(db, vue_files))
+        findings.extend(_find_complex_template_expressions(db, vue_files))
 
-    finally:
-        conn.close()
-
-    return findings
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-# ============================================================================
-# HELPER FUNCTIONS
-# ============================================================================
+def _get_vue_files(db: RuleDB) -> set[str]:
+    """Get all Vue-related files from the database."""
+    vue_files: set[str] = set()
 
-def _get_vue_files(cursor) -> set[str]:
-    """Get all Vue-related files from the database.
+    rows = db.query(Q("vue_components").select("file"))
+    vue_files.update(row[0] for row in rows)
 
-    Schema contract (v1.1+) guarantees all tables exist.
-    If table is missing, we WANT the rule to crash to expose indexer bugs.
+    rows = db.query(Q("files").select("path").where("ext = ?", ".vue"))
+    vue_files.update(row[0] for row in rows)
 
-    Queries ALL relevant tables and combines results - no conditional logic.
-    No early returns - trust the database schema.
-    """
-    vue_files = set()
+    rows = db.query(Q("symbols").select("path", "name").where("name IS NOT NULL"))
 
-    # Primary source: vue_components table (schema contract guarantees existence)
-    cursor.execute("""
-        SELECT DISTINCT file
-        FROM vue_components
-    """)
-    vue_files.update(row[0] for row in cursor.fetchall())
-
-    # Secondary source: Files with .vue extension
-    cursor.execute("""
-        SELECT DISTINCT path
-        FROM files
-        WHERE ext = '.vue'
-    """)
-    vue_files.update(row[0] for row in cursor.fetchall())
-
-    # Tertiary source: JavaScript/TypeScript files that import Vue
-    cursor.execute("""
-        SELECT DISTINCT path
-        FROM symbols
-        WHERE name IS NOT NULL
-    """)
-
-    # Filter in Python for Vue patterns
-    for (path,) in cursor.fetchall():
-        # Get symbols for this file
-        cursor.execute("SELECT name FROM symbols WHERE path = ?", (path,))
-        for (name,) in cursor.fetchall():
-            if name and any(pattern in name for pattern in ['Vue', 'defineComponent', 'createApp']):
-                vue_files.add(path)
-                break
+    vue_patterns = ("Vue", "defineComponent", "createApp")
+    for path, name in rows:
+        if name and any(pattern in name for pattern in vue_patterns):
+            vue_files.add(path)
 
     return vue_files
 
 
-# ============================================================================
-# DETECTION FUNCTIONS
-# ============================================================================
+def _find_props_mutations(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find direct props mutations (anti-pattern in Vue).
 
-def _find_props_mutations(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find direct props mutations (anti-pattern in Vue)."""
-    findings = []
-
-    props_patterns = list(IMMUTABLE_PROPS)
-    placeholders = ','.join('?' * len(vue_files))
-
-    # Find assignments to props
-    cursor.execute(f"""
-        SELECT file, line, target_var, source_expr
-        FROM assignments
-        WHERE file IN ({placeholders})
-          AND target_var IS NOT NULL
-        ORDER BY file, line
-    """, list(vue_files))
-
-    # Filter in Python for props mutations
-    props_mutations = []
-    for file, line, target, source in cursor.fetchall():
-        if any(pattern in target for pattern in IMMUTABLE_PROPS):
-            props_mutations.append((file, line, target, source))
-
-    for file, line, target, source in props_mutations:
-        findings.append(StandardFinding(
-            rule_name='vue-props-mutation',
-            message=f'Direct mutation of prop "{target}" - props should be immutable',
-            file_path=file,
-            line=line,
-            severity=Severity.HIGH,
-            category='vue-antipattern',
-            confidence=Confidence.HIGH,
-            cwe_id='CWE-471'
-        ))
-
-    return findings
-
-
-def _find_missing_vfor_keys(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find v-for loops without :key attribute.
-
-    Uses BOTH vue_directives (authoritative) and symbols (heuristic) to
-    maximize detection coverage. No conditional logic - executes both strategies
-    unconditionally and deduplicates findings.
+    Props should be immutable. Mutating them breaks one-way data flow
+    and can cause subtle bugs with component re-rendering.
     """
     findings = []
-    found_locations = set()  # Deduplicate findings by (file, line)
 
-    placeholders = ','.join('?' * len(vue_files))
+    if not vue_files:
+        return findings
 
-    # Strategy 1: Query vue_directives table (HIGH confidence, authoritative)
-    cursor.execute(f"""
-        SELECT file, line, expression
-        FROM vue_directives
-        WHERE file IN ({placeholders})
-          AND directive_name = 'v-for'
-          AND has_key = 0
-        ORDER BY file, line
-    """, list(vue_files))
+    rows = db.query(
+        Q("assignments")
+        .select("file", "line", "target_var", "source_expr")
+        .where("target_var IS NOT NULL")
+        .order_by("file, line")
+    )
 
-    for file, line, expression in cursor.fetchall():
-        location = (file, line)
-        if location not in found_locations:
-            found_locations.add(location)
-            findings.append(StandardFinding(
-                rule_name='vue-missing-vfor-key',
-                message=f'v-for directive without :key attribute: "{expression}"',
-                file_path=file,
-                line=line,
-                severity=Severity.HIGH,
-                category='vue-performance',
-                confidence=Confidence.HIGH,
-                cwe_id='CWE-704'
-            ))
-
-    # Strategy 2: Query symbols table (MEDIUM confidence, heuristic)
-    # Look for v-for patterns without adjacent key
-    cursor.execute(f"""
-        SELECT s1.path, s1.line, s1.name
-        FROM symbols s1
-        WHERE s1.path IN ({placeholders})
-          AND s1.name IS NOT NULL
-        ORDER BY s1.path, s1.line
-    """, list(vue_files))
-
-    # Filter in Python for v-for without keys
-    all_symbols = cursor.fetchall()
-    for file, line, name in all_symbols:
-        if 'v-for' not in name:
+    for file, line, target, source in rows:
+        if file not in vue_files:
             continue
 
-        # Check for adjacent :key symbols within 2 lines
-        has_key = False
-        for file2, line2, name2 in all_symbols:
-            if file2 == file and abs(line2 - line) <= 2:
-                if ':key' in name2 or 'v-bind:key' in name2:
-                    has_key = True
-                    break
-
-        if not has_key:
-            location = (file, line)
-            if location not in found_locations:  # Deduplicate
-                found_locations.add(location)
-                findings.append(StandardFinding(
-                    rule_name='vue-missing-vfor-key-heuristic',
-                    message='v-for without :key detected via heuristic - verify manually',
+        if any(pattern in target for pattern in IMMUTABLE_PROPS):
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-props-mutation",
+                    message=f"Direct mutation of prop '{target}' - props should be immutable",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
-                    category='vue-performance',
-                    confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-704'
-                ))
+                    category="vue-antipattern",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-471",
+                    snippet=f"{target} = {source[:50] if source else '...'}",
+                )
+            )
 
     return findings
 
 
-def _find_complex_components(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find components with excessive complexity."""
+def _find_missing_vfor_keys(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find v-for loops without :key attribute.
+
+    Missing keys cause Vue to use an inefficient in-place patch strategy
+    instead of reordering elements, leading to bugs with stateful components.
+    """
+    findings = []
+    found_locations: set[tuple[str, int]] = set()
+
+    if not vue_files:
+        return findings
+
+    rows = db.query(
+        Q("vue_directives")
+        .select("file", "line", "expression")
+        .where("directive_name = ?", "v-for")
+        .where("has_key = ?", 0)
+        .order_by("file, line")
+    )
+
+    for file, line, expression in rows:
+        if file not in vue_files:
+            continue
+
+        location = (file, line)
+        if location not in found_locations:
+            found_locations.add(location)
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-missing-vfor-key",
+                    message=f"v-for directive without :key attribute: '{expression}'",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="vue-performance",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-1050",
+                    snippet=f'v-for="{expression}"',
+                )
+            )
+
+    return findings
+
+
+def _find_complex_components(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find components with excessive complexity.
+
+    Components with too many methods or data properties are hard to maintain
+    and should be split into smaller, focused components.
+    """
     findings = []
 
-    placeholders = ','.join('?' * len(vue_files))
+    if not vue_files:
+        return findings
 
-    # Count methods per component
-    cursor.execute(f"""
-        SELECT path AS file, name
-        FROM symbols
-        WHERE path IN ({placeholders})
-          AND type = 'function'
-          AND name IS NOT NULL
-    """, list(vue_files))
+    rows = db.query(
+        Q("symbols").select("path", "name").where("type = ?", "function").where("name IS NOT NULL")
+    )
 
-    # Filter in Python for non-event-handler methods
-    file_methods = {}
-    for file, name in cursor.fetchall():
-        if not name.startswith('on') and not name.startswith('handle'):
-            if file not in file_methods:
-                file_methods[file] = set()
-            file_methods[file].add(name)
+    file_methods: dict[str, set[str]] = {}
+    for path, name in rows:
+        if path not in vue_files:
+            continue
+
+        if name.startswith("on") or name.startswith("handle"):
+            continue
+        if path not in file_methods:
+            file_methods[path] = set()
+        file_methods[path].add(name)
 
     for file, methods in file_methods.items():
         method_count = len(methods)
         if method_count > 15:
-            findings.append(StandardFinding(
-                rule_name='vue-complex-component',
-                message=f'Component has {method_count} methods - consider splitting',
-                file_path=file,
-                line=1,
-                severity=Severity.MEDIUM,
-                category='vue-maintainability',
-                confidence=Confidence.MEDIUM,
-                cwe_id='CWE-1061'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-complex-component",
+                    message=f"Component has {method_count} methods - consider splitting into smaller components",
+                    file_path=file,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="vue-maintainability",
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-1061",
+                )
+            )
 
-    # Count data properties
-    cursor.execute(f"""
-        SELECT path AS file, name
-        FROM symbols
-        WHERE path IN ({placeholders})
-          AND type IN ('property', 'variable')
-          AND name IS NOT NULL
-    """, list(vue_files))
+    rows = db.query(
+        Q("symbols")
+        .select("path", "name")
+        .where("type IN (?, ?)", "property", "variable")
+        .where("name IS NOT NULL")
+    )
 
-    # Filter in Python for data/state properties
-    file_data = {}
-    for file, name in cursor.fetchall():
-        if name.startswith('data.') or name.startswith('state.'):
-            if file not in file_data:
-                file_data[file] = 0
-            file_data[file] += 1
+    file_data: dict[str, int] = {}
+    for path, name in rows:
+        if path not in vue_files:
+            continue
+        if name.startswith("data.") or name.startswith("state."):
+            file_data[path] = file_data.get(path, 0) + 1
 
     for file, data_count in file_data.items():
         if data_count > 20:
-            findings.append(StandardFinding(
-                rule_name='vue-excessive-data',
-                message=f'Component has {data_count} data properties - consider composition',
-                file_path=file,
-                line=1,
-                severity=Severity.LOW,
-                category='vue-maintainability',
-                confidence=Confidence.LOW,
-                cwe_id='CWE-1061'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-excessive-data",
+                    message=f"Component has {data_count} data properties - consider using composition API or splitting",
+                    file_path=file,
+                    line=1,
+                    severity=Severity.LOW,
+                    category="vue-maintainability",
+                    confidence=Confidence.LOW,
+                    cwe_id="CWE-1061",
+                )
+            )
 
     return findings
 
 
-def _find_unnecessary_rerenders(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find unnecessary re-render triggers."""
+def _find_unnecessary_rerenders(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find unnecessary re-render triggers.
+
+    $forceUpdate and manual Vue.set/delete calls often indicate
+    reactivity issues that should be fixed at the source.
+    """
     findings = []
 
-    render_triggers = list(RENDER_TRIGGERS)
-    trigger_placeholders = ','.join('?' * len(render_triggers))
-    file_placeholders = ','.join('?' * len(vue_files))
+    if not vue_files:
+        return findings
 
-    cursor.execute(f"""
-        SELECT file, line, callee_function, argument_expr
-        FROM function_call_args
-        WHERE file IN ({file_placeholders})
-          AND callee_function IN ({trigger_placeholders})
-        ORDER BY file, line
-    """, list(vue_files) + render_triggers)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-    for file, line, func, args in cursor.fetchall():
-        if func == '$forceUpdate' or func == 'forceUpdate':
+    for file, line, func, _args in rows:
+        if file not in vue_files:
+            continue
+
+        if func not in RENDER_TRIGGERS:
+            continue
+
+        if func in ("$forceUpdate", "forceUpdate"):
             severity = Severity.HIGH
-            message = 'Using $forceUpdate - indicates reactivity issue'
+            message = "Using $forceUpdate - indicates reactivity issue that should be fixed"
         else:
             severity = Severity.MEDIUM
-            message = f'Manual reactivity trigger {func} - review necessity'
+            message = f"Manual reactivity trigger '{func}' - review if necessary"
 
-        findings.append(StandardFinding(
-            rule_name='vue-unnecessary-rerender',
-            message=message,
-            file_path=file,
-            line=line,
-            severity=severity,
-            category='vue-performance',
-            confidence=Confidence.MEDIUM,
-            cwe_id='CWE-1050'
-        ))
+        findings.append(
+            StandardFinding(
+                rule_name="vue-unnecessary-rerender",
+                message=message,
+                file_path=file,
+                line=line,
+                severity=severity,
+                category="vue-performance",
+                confidence=Confidence.MEDIUM,
+                cwe_id="CWE-1050",
+                snippet=f"{func}(...)",
+            )
+        )
 
     return findings
 
 
-def _find_missing_component_names(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find components without explicit names (harder to debug)."""
+def _find_missing_component_names(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find components without explicit names.
+
+    Named components are easier to debug in Vue DevTools and produce
+    better warning messages.
+    """
     findings = []
 
-    placeholders = ','.join('?' * len(vue_files))
+    if not vue_files:
+        return findings
 
-    # Check for components without name property
-    cursor.execute(f"""
-        SELECT DISTINCT f.path
-        FROM files f
-        WHERE f.path IN ({placeholders})
-          AND f.ext = '.vue'
-    """, list(vue_files))
+    rows = db.query(Q("files").select("path").where("ext = ?", ".vue"))
 
-    # Filter in Python for components without name
-    vue_component_files = [row[0] for row in cursor.fetchall()]
+    vue_component_files = [row[0] for row in rows if row[0] in vue_files]
 
     for file in vue_component_files:
-        # Check for name property in symbols
-        cursor.execute("""
-            SELECT name
-            FROM symbols
-            WHERE path = ?
-              AND name IS NOT NULL
-        """, (file,))
+        rows = db.query(
+            Q("symbols").select("name").where("path = ?", file).where("name IS NOT NULL")
+        )
 
         has_name = False
-        for (name,) in cursor.fetchall():
-            if name == 'name' or name.startswith('name:') or name.startswith('"name"'):
+        for (name,) in rows:
+            if name == "name" or name.startswith("name:") or name.startswith('"name"'):
                 has_name = True
                 break
 
         if not has_name:
-            findings.append(StandardFinding(
-                rule_name='vue-missing-name',
-                message='Component missing explicit name - harder to debug',
-                file_path=file,
-                line=1,
-                severity=Severity.LOW,
-                category='vue-maintainability',
-                confidence=Confidence.LOW,
-                cwe_id='CWE-1061'
-            ))
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-missing-name",
+                    message="Component missing explicit name property - harder to debug in DevTools",
+                    file_path=file,
+                    line=1,
+                    severity=Severity.LOW,
+                    category="vue-maintainability",
+                    confidence=Confidence.LOW,
+                    cwe_id="CWE-1061",
+                )
+            )
 
     return findings
 
 
-def _find_inefficient_computed(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find inefficient computed properties."""
-    findings = []
+def _find_inefficient_computed(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find inefficient computed properties.
 
-    expensive_ops = list(EXPENSIVE_TEMPLATE_OPS)
-    ops_placeholders = ','.join('?' * len(expensive_ops))
-    file_placeholders = ','.join('?' * len(vue_files))
-
-    # Find computed properties with expensive operations
-    cursor.execute(f"""
-        SELECT f.file, f.line, f.callee_function, f.caller_function
-        FROM function_call_args f
-        WHERE f.file IN ({file_placeholders})
-          AND f.callee_function IN ({ops_placeholders})
-          AND f.caller_function IS NOT NULL
-        ORDER BY f.file, f.line
-    """, list(vue_files) + expensive_ops)
-
-    # Filter in Python for computed properties
-    expensive_computed = []
-    for file, line, operation, computed_name in cursor.fetchall():
-        if 'computed' in computed_name or 'get ' in computed_name:
-            expensive_computed.append((file, line, operation, computed_name))
-
-    for file, line, operation, computed_name in expensive_computed:
-        findings.append(StandardFinding(
-            rule_name='vue-expensive-computed',
-            message=f'Expensive operation {operation} in computed property',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='vue-performance',
-            confidence=Confidence.MEDIUM,
-            cwe_id='CWE-1050'
-        ))
-
-    return findings
-
-
-def _find_complex_template_expressions(cursor, vue_files: set[str]) -> list[StandardFinding]:
-    """Find overly complex expressions in templates."""
-    findings = []
-
-    placeholders = ','.join('?' * len(vue_files))
-
-    # Find complex expressions (multiple operations in one line)
-    cursor.execute(f"""
-        SELECT path, line, name
-        FROM symbols
-        WHERE path IN ({placeholders})
-          AND (
-              (LENGTH(name) - LENGTH(REPLACE(name, '&&', ''))) / 2 > 2
-              OR (LENGTH(name) - LENGTH(REPLACE(name, '||', ''))) / 2 > 2
-              OR (LENGTH(name) - LENGTH(REPLACE(name, '?', ''))) > 2
-          )
-        ORDER BY path, line
-    """, list(vue_files))
-
-    for file, line, expression in cursor.fetchall():
-        findings.append(StandardFinding(
-            rule_name='vue-complex-template',
-            message='Complex logic in template - move to computed property',
-            file_path=file,
-            line=line,
-            severity=Severity.MEDIUM,
-            category='vue-maintainability',
-            confidence=Confidence.LOW,
-            cwe_id='CWE-1061'
-        ))
-
-    return findings
-
-
-# ============================================================================
-# ORCHESTRATOR ENTRY POINT
-# ============================================================================
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
+    Expensive operations in computed properties run on every dependency change.
+    Consider memoization or moving to methods with manual caching.
     """
-    return find_vue_component_issues(context)
+    findings = []
+
+    if not vue_files:
+        return findings
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "caller_function")
+        .where("caller_function IS NOT NULL")
+        .order_by("file, line")
+    )
+
+    for file, line, operation, caller in rows:
+        if file not in vue_files:
+            continue
+
+        if operation not in EXPENSIVE_TEMPLATE_OPS:
+            continue
+
+        if "computed" in caller or "get " in caller:
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-expensive-computed",
+                    message=f"Expensive operation '{operation}' in computed property - consider memoization",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="vue-performance",
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-1050",
+                    snippet=f"{operation}(...) in computed",
+                )
+            )
+
+    return findings
+
+
+def _find_complex_template_expressions(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
+    """Find overly complex expressions in templates.
+
+    Complex logic in templates is hard to read and test.
+    Move to computed properties or methods.
+    """
+    findings = []
+
+    if not vue_files:
+        return findings
+
+    rows = db.query(
+        Q("symbols").select("path", "line", "name").where("name IS NOT NULL").order_by("path, line")
+    )
+
+    for path, line, name in rows:
+        if path not in vue_files:
+            continue
+
+        and_count = name.count("&&")
+        or_count = name.count("||")
+        ternary_count = name.count("?")
+
+        if and_count > 2 or or_count > 2 or ternary_count > 2:
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-complex-template",
+                    message="Complex logic in template - move to computed property for readability",
+                    file_path=path,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="vue-maintainability",
+                    confidence=Confidence.LOW,
+                    cwe_id="CWE-1061",
+                )
+            )
+
+    return findings

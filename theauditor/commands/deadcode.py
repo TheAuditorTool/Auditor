@@ -3,27 +3,28 @@
 Usage: aud deadcode
 """
 
-import click
 import json
 from pathlib import Path
-from theauditor.context.deadcode import detect_isolated_modules
+
+import click
+
+from theauditor.cli import RichCommand
+from theauditor.context.deadcode_graph import detect_isolated_modules
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.command("deadcode")
+@click.command("deadcode", cls=RichCommand)
 @click.option("--project-path", default=".", help="Root directory to analyze")
 @click.option("--path-filter", help="Only analyze paths matching filter (e.g., 'theauditor/%')")
 @click.option(
     "--exclude",
     multiple=True,
-    default=['test', '__tests__', 'migrations', 'node_modules', '.venv'],
-    help="Exclude paths matching patterns"
+    default=["test", "__tests__", "migrations", "node_modules", ".venv"],
+    help="Exclude paths matching patterns",
 )
 @click.option(
-    "--format",
-    type=click.Choice(['text', 'json', 'summary']),
-    default='text',
-    help="Output format"
+    "--format", type=click.Choice(["text", "json", "summary"]), default="text", help="Output format"
 )
 @click.option("--save", type=click.Path(), help="Save output to file")
 @click.option("--fail-on-dead-code", is_flag=True, help="Exit 1 if dead code found")
@@ -39,7 +40,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
       Purpose: Finds unused code (modules, functions) that can be safely removed
       Input: .pf/repo_index.db (symbols and refs tables)
       Output: List of isolated modules with confidence levels
-      Prerequisites: aud index (populates import graph in database)
+      Prerequisites: aud full (populates import graph in database)
       Integration: Code cleanup workflow, technical debt reduction
       Performance: ~1-2 seconds (pure database query, no file I/O)
 
@@ -74,7 +75,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     EXAMPLES:
       # Use Case 1: Find all dead code after indexing
-      aud index && aud deadcode
+      aud full && aud deadcode
 
       # Use Case 2: Analyze specific directory
       aud deadcode --path-filter 'src/features/%'
@@ -90,7 +91,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     COMMON WORKFLOWS:
       Code Cleanup Sprint:
-        aud index && aud deadcode --format json --save cleanup_targets.json
+        aud full && aud deadcode --format json --save cleanup_targets.json
 
       Pre-Release Audit:
         aud deadcode --exclude test --fail-on-dead-code
@@ -145,7 +146,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     PREREQUISITES:
       Required:
-        aud index              # Populates symbols and refs tables
+        aud full               # Populates symbols and refs tables
 
       Optional:
         None (standalone database query)
@@ -156,7 +157,7 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
       2 = Error (database missing or query failed)
 
     RELATED COMMANDS:
-      aud index              # Populates import graph in database
+      aud full               # Populates import graph in database
       aud graph analyze      # Shows dependency graph (complementary view)
       aud refactor           # Detects incomplete refactorings (related issue)
       aud impact             # Analyzes change blast radius (opposite of dead code)
@@ -166,20 +167,20 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
 
     TROUBLESHOOTING:
       Error: "Database not found"
-        → Run 'aud index' first to create .pf/repo_index.db
+        -> Run 'aud full' first to create .pf/repo_index.db
 
       False positive: CLI entry point flagged as dead
-        → Expected (medium confidence) - CLI files invoked externally
-        → Review manually, entry points are not dead code
+        -> Expected (medium confidence) - CLI files invoked externally
+        -> Review manually, entry points are not dead code
 
       False positive: Test file flagged as dead
-        → Tests not imported, invoked by test runner
-        → Use --exclude test to filter out test files
+        -> Tests not imported, invoked by test runner
+        -> Use --exclude test to filter out test files
 
       Missing dead code (known unused file not detected):
-        → File might have no symbols (empty or only imports)
-        → Check if file was indexed: grep filename .pf/manifest.json
-        → Re-run 'aud index' to refresh database
+        -> File might have no symbols (empty or only imports)
+        -> Check if file was indexed: aud query --file filename
+        -> Re-run 'aud full' to refresh database
 
     NOTE: This analysis is conservative - it detects modules never imported, not
     functions never called within modules. For function-level analysis, use 'aud graph analyze'.
@@ -188,48 +189,44 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
     db_path = project_path / ".pf" / "repo_index.db"
 
     if not db_path.exists():
-        click.echo("Error: Database not found. Run 'aud full' first.", err=True)
+        err_console.print(
+            "[error]Error: Database not found. Run 'aud full' first.[/error]",
+        )
         raise click.ClickException("Database not found")
 
     try:
         modules = detect_isolated_modules(
-            str(db_path),
-            path_filter=path_filter,
-            exclude_patterns=list(exclude)
+            str(db_path), path_filter=path_filter, exclude_patterns=list(exclude)
         )
 
-        # Write deadcode results to JSON
         output_path = project_path / ".pf" / "raw" / "deadcode.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
         deadcode_data = json.loads(_format_json(modules))
         with open(output_path, "w") as f:
             json.dump(deadcode_data, f, indent=2)
-        click.echo(f"[OK] Deadcode analysis saved to {output_path}")
+        console.print(f"[success]Deadcode analysis saved to {output_path}[/success]")
 
-        # Format output for user
-        if format == 'json':
+        if format == "json":
             output = _format_json(modules)
-        elif format == 'summary':
+        elif format == "summary":
             output = _format_summary(modules)
         else:
             output = _format_text(modules)
 
-        click.echo(output)
+        console.print(output, markup=False)
 
-        # Save to custom path if requested
         if save:
             save_path = Path(save)
             save_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(save_path, 'w', encoding='utf-8') as f:
+            with open(save_path, "w", encoding="utf-8") as f:
                 f.write(output)
-            click.echo(f"\nSaved to: {save_path}", err=True)
+            err_console.print(f"[error]\nSaved to: {save_path}[/error]", highlight=False)
 
-        # Exit code logic
         if fail_on_dead_code and len(modules) > 0:
             raise click.ClickException(f"Dead code detected: {len(modules)} files")
 
     except Exception as e:
-        click.echo(f"Error: {e}", err=True)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         raise
 
 
@@ -250,11 +247,9 @@ def _format_text(modules) -> str:
     lines.append("-" * 80)
 
     for module in modules:
-        confidence_marker = {
-            'high': '[HIGH]',
-            'medium': '[MED ]',
-            'low': '[LOW ]'
-        }.get(module.confidence, '[????]')
+        confidence_marker = {"high": "[HIGH]", "medium": "[MED ]", "low": "[LOW ]"}.get(
+            module.confidence, "[????]"
+        )
 
         lines.append(f"{confidence_marker} {module.path}")
         lines.append(f"   Symbols: {module.symbol_count}")
@@ -268,21 +263,19 @@ def _format_text(modules) -> str:
 def _format_json(modules) -> str:
     """Format as JSON for CI/CD."""
     data = {
-        'summary': {
-            'total_items': len(modules)
-        },
-        'findings': [
+        "summary": {"total_items": len(modules)},
+        "findings": [
             {
-                'type': m.type,
-                'path': m.path,
-                'name': m.name,
-                'line': m.line,
-                'symbol_count': m.symbol_count,
-                'confidence': m.confidence,
-                'reason': m.reason
+                "type": m.type,
+                "path": m.path,
+                "name": m.name,
+                "line": m.line,
+                "symbol_count": m.symbol_count,
+                "confidence": m.confidence,
+                "reason": m.reason,
             }
             for m in modules
-        ]
+        ],
     }
     return json.dumps(data, indent=2)
 

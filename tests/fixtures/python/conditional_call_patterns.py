@@ -14,19 +14,15 @@ Expected extractions:
 """
 
 
-# ============================================================================
-# PATTERN 1: If/Elif/Else Conditional Calls
-# ============================================================================
-
 def check_permissions(user):
     """Test basic conditional function calls."""
     if user.is_admin:
-        delete_all_users()  # Conditional call: only when user.is_admin
+        delete_all_users()
 
     if user.is_moderator:
-        ban_user()  # Conditional call: only when user.is_moderator
+        ban_user()
     else:
-        report_user()  # Conditional call: in else branch
+        report_user()
 
 
 def process_data(data, debug=False):
@@ -34,44 +30,36 @@ def process_data(data, debug=False):
     if data is None:
         return None
     elif len(data) == 0:
-        initialize_empty()  # Conditional call: in elif branch
+        initialize_empty()
     elif len(data) > 1000:
-        process_large_dataset()  # Conditional call: in elif branch
+        process_large_dataset()
     else:
-        process_normal()  # Conditional call: in else branch
+        process_normal()
 
-
-# ============================================================================
-# PATTERN 2: Guard Clauses (Early Returns)
-# ============================================================================
 
 def validate_input(value):
     """Test guard clause pattern."""
     if value is None:
-        return  # Guard clause (early return)
+        return
 
     if value < 0:
-        raise ValueError("Negative value")  # Guard clause (early raise)
+        raise ValueError("Negative value")
 
-    process_valid_input(value)  # Normal flow after guards
+    process_valid_input(value)
 
 
 def authenticate_user(credentials):
     """Test guard clauses with function calls."""
     if not credentials:
-        log_invalid_credentials()  # Guard: called only when credentials are missing
+        log_invalid_credentials()
         return False
 
     if not verify_signature(credentials):
-        log_failed_auth()  # Guard: called only when signature fails
+        log_failed_auth()
         return False
 
     return True
 
-
-# ============================================================================
-# PATTERN 3: Exception-Dependent Code Paths
-# ============================================================================
 
 def risky_operation(filename):
     """Test exception-dependent calls."""
@@ -79,11 +67,11 @@ def risky_operation(filename):
         data = open(filename).read()
         process_file(data)
     except FileNotFoundError:
-        create_default_file()  # Exception-dependent: only called if FileNotFoundError
+        create_default_file()
     except PermissionError:
-        request_elevated_permissions()  # Exception-dependent: only called if PermissionError
+        request_elevated_permissions()
     finally:
-        cleanup()  # Always called (not conditional)
+        cleanup()
 
 
 def network_request(url):
@@ -92,87 +80,153 @@ def network_request(url):
         response = fetch_url(url)
         return response
     except TimeoutError:
-        retry_with_backoff()  # Exception-dependent
+        retry_with_backoff()
     except ConnectionError:
-        switch_to_fallback_server()  # Exception-dependent
+        switch_to_fallback_server()
 
-
-# ============================================================================
-# PATTERN 4: Nested Conditionals
-# ============================================================================
 
 def complex_authorization(user, resource):
     """Test nested conditional calls."""
     if user.is_authenticated:
         if resource.is_public:
-            grant_read_access()  # Nested conditional: nesting_level=2
+            grant_read_access()
         else:
             if user.owns_resource(resource):
-                grant_full_access()  # Nested conditional: nesting_level=3
+                grant_full_access()
             else:
-                deny_access()  # Nested conditional: nesting_level=3
+                deny_access()
 
 
 def nested_validation(config):
     """Test deeply nested conditionals."""
-    if config.debug:
-        if config.verbose:
-            enable_detailed_logging()  # Nesting level 2
-            if config.trace:
-                enable_stack_traces()  # Nesting level 3
+    if config.debug and config.verbose:
+        enable_detailed_logging()
+        if config.trace:
+            enable_stack_traces()
 
-
-# ============================================================================
-# PATTERN 5: Conditional Assignments and Returns
-# ============================================================================
 
 def conditional_assignment(flag):
     """Test assignments with conditional function calls."""
     if flag:
-        result = expensive_computation()  # Conditional: function call on right side
+        result = expensive_computation()
     else:
-        result = default_value()  # Conditional: function call in else
+        result = default_value()
     return result
 
 
 def conditional_return(mode):
     """Test return statements with conditional function calls."""
     if mode == "fast":
-        return quick_process()  # Conditional: return with function call
+        return quick_process()
     elif mode == "accurate":
-        return detailed_process()  # Conditional: elif return with function call
+        return detailed_process()
     else:
-        return fallback_process()  # Conditional: else return with function call
+        return fallback_process()
 
 
-# ============================================================================
-# Helper Functions (Stubs)
-# ============================================================================
+def delete_all_users():
+    pass
 
-def delete_all_users(): pass
-def ban_user(): pass
-def report_user(): pass
-def initialize_empty(): pass
-def process_large_dataset(): pass
-def process_normal(): pass
-def process_valid_input(value): pass
-def log_invalid_credentials(): pass
-def verify_signature(credentials): pass
-def log_failed_auth(): pass
-def process_file(data): pass
-def create_default_file(): pass
-def request_elevated_permissions(): pass
-def cleanup(): pass
-def fetch_url(url): pass
-def retry_with_backoff(): pass
-def switch_to_fallback_server(): pass
-def grant_read_access(): pass
-def grant_full_access(): pass
-def deny_access(): pass
-def enable_detailed_logging(): pass
-def enable_stack_traces(): pass
-def expensive_computation(): pass
-def default_value(): pass
-def quick_process(): pass
-def detailed_process(): pass
-def fallback_process(): pass
+
+def ban_user():
+    pass
+
+
+def report_user():
+    pass
+
+
+def initialize_empty():
+    pass
+
+
+def process_large_dataset():
+    pass
+
+
+def process_normal():
+    pass
+
+
+def process_valid_input(value):
+    pass
+
+
+def log_invalid_credentials():
+    pass
+
+
+def verify_signature(credentials):
+    pass
+
+
+def log_failed_auth():
+    pass
+
+
+def process_file(data):
+    pass
+
+
+def create_default_file():
+    pass
+
+
+def request_elevated_permissions():
+    pass
+
+
+def cleanup():
+    pass
+
+
+def fetch_url(url):
+    pass
+
+
+def retry_with_backoff():
+    pass
+
+
+def switch_to_fallback_server():
+    pass
+
+
+def grant_read_access():
+    pass
+
+
+def grant_full_access():
+    pass
+
+
+def deny_access():
+    pass
+
+
+def enable_detailed_logging():
+    pass
+
+
+def enable_stack_traces():
+    pass
+
+
+def expensive_computation():
+    pass
+
+
+def default_value():
+    pass
+
+
+def quick_process():
+    pass
+
+
+def detailed_process():
+    pass
+
+
+def fallback_process():
+    pass

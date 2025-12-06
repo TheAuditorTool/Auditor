@@ -1,42 +1,29 @@
-"""Linters package - REFACTORED: Single-file orchestration.
+"""Linters package - Async parallel linter orchestration.
 
-DEPRECATED modules (renamed to .bak, kept for reference):
-- detector.py.bak (272 lines) - Replaced by LinterOrchestrator database queries
-- runner.py.bak (387 lines) - Replaced by LinterOrchestrator._run_* methods
-- parsers.py.bak (504 lines) - Replaced by LinterOrchestrator JSON parsing
-
-NEW architecture (single file):
-- linters.py (400 lines) - Complete linter orchestration
-
-Config files (kept for setup):
-- package.json - Copied to .auditor_venv/.theauditor_tools/ during setup
-- eslint.config.cjs - Copied to .auditor_venv/.theauditor_tools/ during setup
-- pyproject.toml - Copied to .auditor_venv/.theauditor_tools/ during setup
+This package provides:
+- LinterOrchestrator: Main entry point for running linters
+- Finding: Typed dataclass for lint results
+- BaseLinter: ABC for implementing new linters
+- Individual linter classes for each supported tool
 """
 
-
-# Import from the new single-file module in this directory
+from .base import BaseLinter, Finding
+from .clippy import ClippyLinter
+from .eslint import EslintLinter
+from .golangci import GolangciLinter
 from .linters import LinterOrchestrator
+from .mypy import MypyLinter
+from .ruff import RuffLinter
+from .shellcheck import ShellcheckLinter
 
 __all__ = [
+    "BaseLinter",
+    "ClippyLinter",
+    "EslintLinter",
+    "Finding",
+    "GolangciLinter",
     "LinterOrchestrator",
+    "MypyLinter",
+    "RuffLinter",
+    "ShellcheckLinter",
 ]
-
-# Backward compatibility warning for old imports
-def __getattr__(name):
-    """Provide helpful error messages for deprecated imports."""
-    deprecated_names = {
-        "detect_linters": "Use LinterOrchestrator instead",
-        "run_linter": "Use LinterOrchestrator.run_all_linters() instead",
-        "parse_eslint_output": "Internal to LinterOrchestrator",
-        "parse_ruff_output": "Internal to LinterOrchestrator",
-        "parse_mypy_output": "Internal to LinterOrchestrator",
-    }
-
-    if name in deprecated_names:
-        raise ImportError(
-            f"'{name}' is deprecated. {deprecated_names[name]}.\n"
-            f"The linters package has been refactored to use LinterOrchestrator."
-        )
-
-    raise AttributeError(f"module 'theauditor.linters' has no attribute '{name}'")

@@ -1,78 +1,35 @@
-"""Framework extractors - Backward-compatible facade.
-
-This module re-exports all framework extraction functions from domain-specific modules.
-Existing code using `from framework_extractors import extract_*` will continue working.
-
-New code should import directly from domain modules for clarity:
-  from .orm_extractors import extract_sqlalchemy_definitions
-  from .validation_extractors import extract_pydantic_validators
-  from .django_web_extractors import extract_django_cbvs
-  from .task_graphql_extractors import extract_celery_tasks
-
-REFACTOR NOTE:
-This file was reduced from 2222 lines to ~150 lines as part of refactor-framework-extractors-domain-split.
-All implementation moved to domain-specific files. This file now serves as a re-export facade only.
-"""
-
-
-# ============================================================================
-# Re-exports from ORM Extractors
-# ============================================================================
-
-from .orm_extractors import (
-    extract_sqlalchemy_definitions,
-    extract_django_definitions,
-    extract_flask_blueprints,  # TEMP - will move to flask_extractors.py in future PR
-)
-
-
-# ============================================================================
-# Re-exports from Validation Extractors
-# ============================================================================
-
-from .validation_extractors import (
-    extract_pydantic_validators,
-    extract_marshmallow_schemas,
-    extract_marshmallow_fields,
-    extract_drf_serializers,
-    extract_drf_serializer_fields,
-    extract_wtforms_forms,
-    extract_wtforms_fields,
-)
-
-
-# ============================================================================
-# Re-exports from Django Web Extractors
-# ============================================================================
+"""Framework extractors - Backward-compatible facade."""
 
 from .django_web_extractors import (
-    extract_django_cbvs,
-    extract_django_forms,
-    extract_django_form_fields,
     extract_django_admin,
+    extract_django_cbvs,
+    extract_django_form_fields,
+    extract_django_forms,
     extract_django_middleware,
 )
-
-
-# ============================================================================
-# Re-exports from Task Queue + GraphQL Extractors
-# ============================================================================
-
+from .orm_extractors import (
+    extract_django_definitions,
+    extract_flask_blueprints,
+    extract_sqlalchemy_definitions,
+)
 from .task_graphql_extractors import (
-    extract_celery_tasks,
-    extract_celery_task_calls,
-    extract_celery_beat_schedules,
-    extract_graphene_resolvers,
     extract_ariadne_resolvers,
+    extract_celery_beat_schedules,
+    extract_celery_task_calls,
+    extract_celery_tasks,
+    extract_graphene_resolvers,
     extract_strawberry_resolvers,
 )
+from .validation_extractors import (
+    extract_drf_serializer_fields,
+    extract_drf_serializers,
+    extract_marshmallow_fields,
+    extract_marshmallow_schemas,
+    extract_pydantic_validators,
+    extract_wtforms_fields,
+    extract_wtforms_forms,
+)
 
-
-# ============================================================================
-# FastAPI Constants and Helpers (TEMPORARY - Pending FastAPI Routes Work)
-# ============================================================================
-
-# These will move to fastapi_extractors.py when FastAPI routes extraction is implemented
 FASTAPI_HTTP_METHODS = {
     "get",
     "post",
@@ -85,18 +42,9 @@ FASTAPI_HTTP_METHODS = {
 
 
 def _extract_fastapi_dependencies(func_node):
-    """Collect dependency call targets from FastAPI route parameters.
-
-    TEMPORARY: This function is not yet used but will be needed for FastAPI routes extraction.
-    Will be moved to fastapi_extractors.py in future PR.
-
-    Args:
-        func_node: ast.FunctionDef node representing a FastAPI route function
-
-    Returns:
-        List of dependency target names extracted from Depends() calls
-    """
+    """Collect dependency call targets from FastAPI route parameters."""
     import ast
+
     from ..base import get_node_name
 
     dependencies = []
@@ -115,12 +63,11 @@ def _extract_fastapi_dependencies(func_node):
                 return get_node_name(keyword.value)
         return "Depends"
 
-    # Extract from positional args with defaults
     positional = list(func_node.args.args)
     defaults = list(func_node.args.defaults)
     pos_defaults_start = len(positional) - len(defaults)
 
-    for idx, arg in enumerate(positional):
+    for idx, _arg in enumerate(positional):
         default = None
         if idx >= pos_defaults_start and defaults:
             default = defaults[idx - pos_defaults_start]
@@ -129,8 +76,7 @@ def _extract_fastapi_dependencies(func_node):
             if dep:
                 dependencies.append(dep)
 
-    # Extract from keyword-only args
-    for kw_arg, default in zip(func_node.args.kwonlyargs, func_node.args.kw_defaults):
+    for _kw_arg, default in zip(func_node.args.kwonlyargs, func_node.args.kw_defaults, strict=True):
         if isinstance(default, ast.Call):
             dep = _dependency_name(default)
             if dep:
@@ -139,37 +85,28 @@ def _extract_fastapi_dependencies(func_node):
     return dependencies
 
 
-# ============================================================================
-# Explicit Exports
-# ============================================================================
-
 __all__ = [
-    # ORM
-    'extract_sqlalchemy_definitions',
-    'extract_django_definitions',
-    'extract_flask_blueprints',
-    # Validation
-    'extract_pydantic_validators',
-    'extract_marshmallow_schemas',
-    'extract_marshmallow_fields',
-    'extract_drf_serializers',
-    'extract_drf_serializer_fields',
-    'extract_wtforms_forms',
-    'extract_wtforms_fields',
-    # Django Web
-    'extract_django_cbvs',
-    'extract_django_forms',
-    'extract_django_form_fields',
-    'extract_django_admin',
-    'extract_django_middleware',
-    # Tasks + GraphQL
-    'extract_celery_tasks',
-    'extract_celery_task_calls',
-    'extract_celery_beat_schedules',
-    'extract_graphene_resolvers',
-    'extract_ariadne_resolvers',
-    'extract_strawberry_resolvers',
-    # FastAPI (temp)
-    'FASTAPI_HTTP_METHODS',
-    '_extract_fastapi_dependencies',
+    "extract_sqlalchemy_definitions",
+    "extract_django_definitions",
+    "extract_flask_blueprints",
+    "extract_pydantic_validators",
+    "extract_marshmallow_schemas",
+    "extract_marshmallow_fields",
+    "extract_drf_serializers",
+    "extract_drf_serializer_fields",
+    "extract_wtforms_forms",
+    "extract_wtforms_fields",
+    "extract_django_cbvs",
+    "extract_django_forms",
+    "extract_django_form_fields",
+    "extract_django_admin",
+    "extract_django_middleware",
+    "extract_celery_tasks",
+    "extract_celery_task_calls",
+    "extract_celery_beat_schedules",
+    "extract_graphene_resolvers",
+    "extract_ariadne_resolvers",
+    "extract_strawberry_resolvers",
+    "FASTAPI_HTTP_METHODS",
+    "_extract_fastapi_dependencies",
 ]

@@ -1,16 +1,16 @@
 """GraphQL schema analysis and resolver mapping."""
 
 import json
-import sqlite3
 from pathlib import Path
+
 import click
-from theauditor.config_runtime import load_runtime_config
-from theauditor.utils.logger import setup_logger
 
-logger = setup_logger(__name__)
+from theauditor.cli import RichCommand, RichGroup
+from theauditor.pipeline.ui import console, err_console
+from theauditor.utils.logging import logger
 
 
-@click.group()
+@click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def graphql():
     """GraphQL schema analysis and resolver-to-field mapping for security and taint analysis.
@@ -23,7 +23,7 @@ def graphql():
       Purpose: Map GraphQL schema to backend resolvers for security analysis
       Input: .pf/repo_index.db (code index with graphql_* tables)
       Output: Resolver mappings, execution edges, findings cache
-      Prerequisites: aud index (extracts SDL schemas + resolver patterns)
+      Prerequisites: aud full (extracts SDL schemas + resolver patterns)
       Integration: Taint analysis, security rules, data flow tracking
       Performance: ~2-10 seconds (schema correlation + graph construction)
 
@@ -46,10 +46,10 @@ def graphql():
       - Argument mapping (GraphQL args → function parameters)
 
     TYPICAL WORKFLOW:
-      aud index                    # Extract SDL + resolvers
+      aud full                     # Extract SDL + resolvers
       aud graphql build            # Correlate and build execution graph
       aud graphql query --type User  # Inspect User type fields
-      aud taint-analyze            # Use GraphQL edges for taint
+      aud taint                    # Use GraphQL edges for taint
 
     EXAMPLES:
       aud graphql build
@@ -62,23 +62,23 @@ def graphql():
       Large (200+ types):   ~5-10 seconds
 
     RELATED COMMANDS:
-      aud index        # Extracts GraphQL schemas and resolvers
-      aud taint-analyze  # Uses GraphQL execution edges
+      aud full         # Extracts GraphQL schemas and resolvers
+      aud taint        # Uses GraphQL execution edges
       aud graph        # Generic call graph (GraphQL adds field layer)
 
     NOTE: GraphQL data stored in repo_index.db (graphql_* tables).
     The build command adds resolver_mappings and execution_edges.
 
     EXAMPLE:
-      aud graphql query --field user --show-path
+      aud graphql query --field user --show-resolvers
 
-    Output:
-      Query.user → UserResolver.resolve_user() → getUserById() → db.query()
+    SEE ALSO:
+      aud manual graphql   Learn about GraphQL schema and resolver analysis
     """
     pass
 
 
-@graphql.command("build")
+@graphql.command("build", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--db", default="./.pf/repo_index.db", help="Repository index database")
 @click.option("--verbose", "-v", is_flag=True, help="Verbose output")
@@ -111,12 +111,14 @@ def graphql_build(root, db, verbose):
       Updates graphql_execution_edges table
       Creates execution graph for taint analysis
     """
-    from theauditor.graphql.builder import GraphQLBuilder
+    from theauditor.graph.graphql.builder import GraphQLBuilder
 
     db_path = Path(root) / db
     if not db_path.exists():
-        click.echo(f"Error: Database not found at {db_path}", err=True)
-        click.echo("Run 'aud full' first to extract GraphQL schemas", err=True)
+        err_console.print(f"[error]Error: Database not found at {db_path}[/error]", highlight=False)
+        err_console.print(
+            "[error]Run 'aud full' first to extract GraphQL schemas[/error]",
+        )
         return 1
 
     logger.info(f"Building GraphQL resolver mappings from {db_path}")
@@ -124,37 +126,33 @@ def graphql_build(root, db, verbose):
     builder = GraphQLBuilder(db_path, verbose=verbose)
 
     try:
-        # Phase 1: Load SDL schemas and fields
-        click.echo("Phase 1: Loading GraphQL schemas...")
+        console.print("Phase 1: Loading GraphQL schemas...")
         schemas_count = builder.load_schemas()
-        click.echo(f"  Loaded {schemas_count} schema files")
+        console.print(f"  Loaded {schemas_count} schema files", highlight=False)
 
-        # Phase 2: Load resolver candidates from symbols
-        click.echo("Phase 2: Loading resolver candidates...")
+        console.print("Phase 2: Loading resolver candidates...")
         resolvers_count = builder.load_resolver_candidates()
-        click.echo(f"  Found {resolvers_count} potential resolvers")
+        console.print(f"  Found {resolvers_count} potential resolvers", highlight=False)
 
-        # Phase 3: Correlate fields with resolvers
-        click.echo("Phase 3: Correlating fields with resolvers...")
+        console.print("Phase 3: Correlating fields with resolvers...")
         mappings_count = builder.correlate_resolvers()
-        click.echo(f"  Created {mappings_count} resolver mappings")
+        console.print(f"  Created {mappings_count} resolver mappings", highlight=False)
 
-        # Phase 4: Build execution graph edges
-        click.echo("Phase 4: Building execution graph...")
+        console.print("Phase 4: Building execution graph...")
         edges_count = builder.build_execution_graph()
-        click.echo(f"  Created {edges_count} execution edges")
+        console.print(f"  Created {edges_count} execution edges", highlight=False)
 
-        # Phase 5: Export courier artifacts
-        click.echo("Phase 5: Exporting courier artifacts...")
+        console.print("Phase 5: Exporting courier artifacts...")
         output_dir = Path(root) / ".pf" / "raw"
         schema_path, execution_path = builder.export_courier_artifacts(output_dir)
-        click.echo(f"  Exported: {schema_path.name}")
-        click.echo(f"  Exported: {execution_path.name}")
+        console.print(f"  Exported: {schema_path.name}", highlight=False)
+        console.print(f"  Exported: {execution_path.name}", highlight=False)
 
-        # Summary
-        click.echo("\nGraphQL build complete!")
-        click.echo(f"  Resolver coverage: {builder.get_coverage_percent():.1f}%")
-        click.echo(f"  Missing resolvers: {builder.get_missing_count()}")
+        console.print("\nGraphQL build complete!")
+        console.print(
+            f"  Resolver coverage: {builder.get_coverage_percent():.1f}%", highlight=False
+        )
+        console.print(f"  Missing resolvers: {builder.get_missing_count()}", highlight=False)
 
         if verbose:
             builder.print_summary()
@@ -163,11 +161,11 @@ def graphql_build(root, db, verbose):
 
     except Exception as e:
         logger.error(f"GraphQL build failed: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         return 1
 
 
-@graphql.command("query")
+@graphql.command("query", cls=RichCommand)
 @click.option("--db", default="./.pf/repo_index.db", help="Repository index database")
 @click.option("--type", "type_name", help="Query specific GraphQL type")
 @click.option("--field", "field_name", help="Query specific field")
@@ -183,25 +181,27 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
       aud graphql query --type Mutation --show-args
       aud graphql query --json > schema.json
     """
-    from theauditor.graphql.querier import GraphQLQuerier
+    from theauditor.graph.graphql.querier import GraphQLQuerier
 
     db_path = Path(db)
     if not db_path.exists():
-        click.echo(f"Error: Database not found at {db_path}", err=True)
+        err_console.print(f"[error]Error: Database not found at {db_path}[/error]", highlight=False)
         return 1
 
     querier = GraphQLQuerier(db_path)
 
     try:
         if type_name:
-            result = querier.query_type(type_name, show_resolvers=show_resolvers, show_args=show_args)
+            result = querier.query_type(
+                type_name, show_resolvers=show_resolvers, show_args=show_args
+            )
         elif field_name:
             result = querier.query_field(field_name, show_resolvers=show_resolvers)
         else:
             result = querier.query_all_types()
 
         if output_json:
-            click.echo(json.dumps(result, indent=2))
+            console.print(json.dumps(result, indent=2), markup=False)
         else:
             querier.print_result(result)
 
@@ -209,11 +209,11 @@ def graphql_query(db, type_name, field_name, show_resolvers, show_args, output_j
 
     except Exception as e:
         logger.error(f"GraphQL query failed: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         return 1
 
 
-@graphql.command("viz")
+@graphql.command("viz", cls=RichCommand)
 @click.option("--db", default="./.pf/repo_index.db", help="Repository index database")
 @click.option("--output", "-o", default="graphql_schema.svg", help="Output file path")
 @click.option("--format", default="svg", help="Output format (svg, png, dot)")
@@ -226,22 +226,22 @@ def graphql_viz(db, output, format, type_filter):
       aud graphql viz --format png -o schema.png
       aud graphql viz --type Query              # Only Query type
     """
-    from theauditor.graphql.visualizer import GraphQLVisualizer
+    from theauditor.graph.graphql.visualizer import GraphQLVisualizer
 
     db_path = Path(db)
     if not db_path.exists():
-        click.echo(f"Error: Database not found at {db_path}", err=True)
+        err_console.print(f"[error]Error: Database not found at {db_path}[/error]", highlight=False)
         return 1
 
     visualizer = GraphQLVisualizer(db_path)
 
     try:
-        click.echo(f"Generating GraphQL visualization...")
+        console.print("Generating GraphQL visualization...")
         visualizer.generate(output_path=output, output_format=format, type_filter=type_filter)
-        click.echo(f"Visualization saved to {output}")
+        console.print(f"Visualization saved to {output}", highlight=False)
         return 0
 
     except Exception as e:
         logger.error(f"GraphQL visualization failed: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
         return 1

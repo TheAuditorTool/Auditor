@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "theauditor"
-version = "1.6.4-dev1"
+version = "2.0.2rc1"
 description = "Offline, air-gapped CLI for repo indexing, evidence checking, and task running"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -13,15 +13,18 @@ authors = [
     {name = "TheAuditor Team"}
 ]
 dependencies = [
-    # BOOTSTRAP ONLY: Minimal CLI to trigger sandbox setup
-    # ALL actual analysis runs in .auditor_venv/ sandbox
+    # Core CLI and output
     "click==8.3.1",
+    "rich>=13.0.0",
+    "loguru==0.7.3",
 ]
 
 [project.optional-dependencies]
 # Runtime dependencies (installed ONLY in sandbox via 'aud setup-ai')
 # These are NOT installed globally to keep user's Python environment clean
 runtime = [
+    # Data validation (FCE schema)
+    "pydantic==2.12.4",
     # Config and rules
     "PyYAML==6.0.3",
     "json5==0.12.1",
@@ -38,8 +41,12 @@ runtime = [
     # Documentation fetching
     "beautifulsoup4>=4.14.2",
     "markdownify>=1.2.2",
+    # Async HTTP client for dependency checking
+    "httpx>=0.28.0",
     # Graph analysis
     "networkx==3.5",
+    # Git object database (shadow snapshots)
+    "pygit2>=1.14.0",
 ]
 
 # Development tools (for developing TheAuditor itself)
@@ -49,9 +56,11 @@ dev = [
     "pytest-xdist>=3.8.0",
     "ruff==0.14.5",
     "black==25.11.0",
-    "mypy==1.18.2",
+    "mypy==1.19.0",
     "bandit==1.9.1",
     "pylint==4.0.3",
+    # Codemod for logging migration
+    "libcst==1.8.6",
 ]
 
 # Complete install (for sandbox)
@@ -86,6 +95,10 @@ ignore = [
     "E501",  # line too long - handled by black
     "SIM105",  # contextlib.suppress - can be less readable
     "SIM117",  # multiple with statements - can be less readable
+    "N811",  # METADATA imported as non-constant - intentional design for rules system
+    "PLR0911",  # too many return statements - informational
+    "PLR0912",  # too many branches - informational
+    "PLR0915",  # too many statements - informational
 ]
 
 [tool.ruff.lint.isort]
@@ -101,6 +114,42 @@ pythonpath = ["."]
 addopts = "-v"
 
 [tool.mypy]
-python_version = "3.12"
-strict = true
+python_version = "3.14"
+packages = ["theauditor"]
+plugins = ["pydantic.mypy"]
+exclude = [
+    "tests/",
+    "scripts/",
+    "theauditor/ast_extractors/javascript/",
+    "theauditor/test_fixtures/",
+    "\\.pf/",
+    "\\.venv/",
+    "\\.auditor_venv/",
+    "dist/",
+    "build/",
+]
+
+# Graduated strictness - enable what's useful, skip the noise
 warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = false
+no_implicit_reexport = false
+
+# These catch real bugs
+check_untyped_defs = true
+disallow_untyped_decorators = true
+
+# Skip these for now (too noisy for untyped codebase)
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_any_generics = false
+
+# Mixin pattern causes 1100+ false positives - ignore until refactored
+disable_error_code = ["attr-defined"]
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+init_typed = true
+warn_required_dynamic_aliases = true

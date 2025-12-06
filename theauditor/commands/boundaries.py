@@ -1,33 +1,49 @@
 """Analyze security boundary enforcement across entry points."""
 
-import sys
 import json
-import click
+import sys
 from pathlib import Path
-from theauditor.utils.error_handler import handle_exceptions
-from theauditor.boundaries.input_validation_analyzer import (
+
+import click
+
+from theauditor.boundaries.boundary_analyzer import (
     analyze_input_validation_boundaries,
-    generate_report
+    generate_report,
 )
+from theauditor.cli import RichCommand
+from theauditor.pipeline.ui import console, err_console
+from theauditor.utils.error_handler import handle_exceptions
 
 
-@click.command("boundaries")
+@click.command("boundaries", cls=RichCommand)
 @handle_exceptions
 @click.option("--db", default=None, help="Path to repo_index.db (default: .pf/repo_index.db)")
-@click.option("--type", "boundary_type",
-              type=click.Choice(["all", "input-validation", "multi-tenant", "authorization", "sanitization"]),
-              default="all",
-              help="Boundary type to analyze")
-@click.option("--format", "output_format",
-              type=click.Choice(["report", "json"]),
-              default="report",
-              help="Output format (report=human-readable, json=machine-parseable)")
-@click.option("--max-entries", default=100, type=int,
-              help="Maximum entry points to analyze (performance limit)")
-@click.option("--severity",
-              type=click.Choice(["all", "critical", "high", "medium", "low"]),
-              default="all",
-              help="Filter findings by severity")
+@click.option(
+    "--type",
+    "boundary_type",
+    type=click.Choice(["all", "input-validation", "multi-tenant", "authorization", "sanitization"]),
+    default="all",
+    help="Boundary type to analyze",
+)
+@click.option(
+    "--format",
+    "output_format",
+    type=click.Choice(["report", "json"]),
+    default="report",
+    help="Output format (report=human-readable, json=machine-parseable)",
+)
+@click.option(
+    "--max-entries",
+    default=100,
+    type=int,
+    help="Maximum entry points to analyze (performance limit)",
+)
+@click.option(
+    "--severity",
+    type=click.Choice(["all", "critical", "high", "medium", "low"]),
+    default="all",
+    help="Filter findings by severity",
+)
 def boundaries(db, boundary_type, output_format, max_entries, severity):
     """Analyze security boundary enforcement and measure distance from entry to control points.
 
@@ -50,7 +66,7 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
       Purpose: Measure boundary enforcement quality via call-chain distance analysis
       Input: .pf/repo_index.db (symbols, call_graph, routes, validators)
       Output: Boundary analysis report with distance measurements (facts only, NO recommendations)
-      Prerequisites: aud index (populates call graph for distance calculation)
+      Prerequisites: aud full (populates call graph for distance calculation)
       Integration: Security audit pipeline, complements taint analysis
       Performance: ~5-30s depending on entry point count and call graph size
 
@@ -118,10 +134,10 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
       Example (WRONG): "Fix: Move validation to entry point"
 
     INTEGRATION WITH OTHER COMMANDS:
-      aud taint-analyze: Detects data flow violations (untrusted->sink)
+      aud taint: Detects data flow violations (untrusted->sink)
       aud boundaries: Detects control placement violations (distance from entry)
       aud blueprint --boundaries: Shows boundary architecture in codebase structure
-      aud context query --boundary "/api/users": Shows boundary details for specific route
+      aud query --api "/api/users": Query API endpoint handlers and relationships
 
     MULTI-TENANT SaaS USE CASE (Critical for Compliance):
       Problem: Missing tenant_id filter = cross-tenant data leak = lawsuit
@@ -175,63 +191,86 @@ def boundaries(db, boundary_type, output_format, max_entries, severity):
         Observation: Entry point accepts external data without validation control
         Fact: No validation control detected within search depth
         Implication: External data flows to downstream functions without validation gate
+
+    EXIT CODES:
+      0 = Success, no critical boundary violations detected
+      1 = Critical boundary violations found (missing controls at entry points)
+
+    RELATED COMMANDS:
+      aud taint      # Track data flow from sources to sinks
+      aud blueprint --boundaries  # Show boundary architecture overview
+      aud full               # Complete analysis including boundaries
+
+    SEE ALSO:
+      aud manual boundaries  # Deep dive into boundary analysis concepts
+      aud manual taint       # Understand taint tracking relationship
+
+    TROUBLESHOOTING:
+      Error: "Database not found":
+        -> Run 'aud full' first to populate repo_index.db
+        -> Check .pf/repo_index.db exists
+
+      No entry points found:
+        -> Ensure routes/endpoints are indexed (Python/JS routes)
+        -> Run 'aud full' with appropriate language support
+
+      Analysis is slow (>60s):
+        -> Reduce --max-entries to limit entry point count
+        -> Large call graphs increase traversal time
     """
-    # Determine database path
-    if db is None:
-        db = Path.cwd() / ".pf" / "repo_index.db"
-    else:
-        db = Path(db)
+
+    db = Path.cwd() / ".pf" / "repo_index.db" if db is None else Path(db)
 
     if not db.exists():
-        click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud full' first to populate the database", err=True)
+        err_console.print(f"[error]Error: Database not found at {db}[/error]", highlight=False)
+        err_console.print(
+            "[error]Run 'aud full' first to populate the database[/error]",
+        )
         sys.exit(1)
 
-    # Analyze boundaries based on type
     results = []
 
     if boundary_type in ["all", "input-validation"]:
-        click.echo("Analyzing input validation boundaries...", err=True)
+        err_console.print(
+            "[error]Analyzing input validation boundaries...[/error]",
+        )
         validation_results = analyze_input_validation_boundaries(
-            db_path=str(db),
-            max_entries=max_entries
+            db_path=str(db), max_entries=max_entries
         )
         results.extend(validation_results)
 
     if boundary_type == "multi-tenant":
-        click.echo("Error: Multi-tenant boundary analysis not yet wired to this command", err=True)
-        click.echo("Use: aud full (includes multi-tenant analysis via rules)", err=True)
+        err_console.print(
+            "[error]Error: Multi-tenant boundary analysis not yet wired to this command[/error]",
+        )
+        err_console.print(
+            "[error]Use: aud full (includes multi-tenant analysis via rules)[/error]",
+        )
         sys.exit(1)
 
-    # Filter by severity if requested
     if severity != "all":
         results = [
-            r for r in results
-            if any(v['severity'].lower() == severity for v in r.get('violations', []))
+            r
+            for r in results
+            if any(v["severity"].lower() == severity for v in r.get("violations", []))
         ]
 
-    # Output results
     if output_format == "json":
-        # Machine-readable JSON output
         output = {
-            'boundary_type': boundary_type,
-            'total_entry_points': len(results),
-            'analysis': results
+            "boundary_type": boundary_type,
+            "total_entry_points": len(results),
+            "analysis": results,
         }
-        click.echo(json.dumps(output, indent=2))
+        console.print(json.dumps(output, indent=2), markup=False)
     else:
-        # Human-readable report
         report = generate_report(results)
-        click.echo(report)
+        console.print(report, markup=False)
 
-    # Exit code based on critical findings
     critical_count = sum(
-        1 for r in results
-        for v in r.get('violations', [])
-        if v['severity'] == 'CRITICAL'
+        1 for r in results for v in r.get("violations", []) if v["severity"] == "CRITICAL"
     )
 
     if critical_count > 0:
-        sys.exit(1)  # Non-zero exit for CI/CD integration
+        sys.exit(1)
     else:
         sys.exit(0)

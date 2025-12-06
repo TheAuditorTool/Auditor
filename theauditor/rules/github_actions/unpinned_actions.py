@@ -1,211 +1,238 @@
 """GitHub Actions Unpinned Actions with Secrets Detection.
 
-Detects supply chain risk where third-party actions are pinned to mutable
-references (main, v1, develop) while having access to repository secrets.
+Detects third-party actions pinned to mutable versions with secret access.
 
-Attack Pattern:
-1. Action pinned to mutable ref like @main or @v1
-2. Step has access to secrets (via env, with, or secrets: inherit)
-3. Upstream maintainer compromise = instant secret theft
+Tables Used:
+- github_steps: Step action usage
+- github_jobs: Job metadata
+- github_step_references: Secret references in steps
 
-CWE-829: Inclusion of Functionality from Untrusted Control Sphere
+Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
 """
 
-
 import json
-import logging
-import sqlite3
-from typing import List, Set
 
 from theauditor.rules.base import (
     RuleMetadata,
+    RuleResult,
+    Severity,
     StandardFinding,
     StandardRuleContext,
-    Severity,
 )
-
-logger = logging.getLogger(__name__)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="github_actions_unpinned_actions",
     category="supply-chain",
-    target_extensions=['.yml', '.yaml'],
-    exclude_patterns=['.pf/', 'test/', '__tests__/', 'node_modules/'],
-    requires_jsx_pass=False,
-    execution_scope='database',
+    target_extensions=[".yml", ".yaml"],
+    exclude_patterns=[".pf/", "test/", "__tests__/", "node_modules/"],
+    execution_scope="database",
+    primary_table="github_steps",
 )
 
-# Mutable version patterns that should be avoided
+
 MUTABLE_VERSIONS: set[str] = {
-    'main', 'master', 'develop', 'dev', 'trunk',
-    'v1', 'v2', 'v3', 'v4', 'v5',  # Mutable major version tags
+    "main",
+    "master",
+    "develop",
+    "dev",
+    "trunk",
+    "v1",
+    "v2",
+    "v3",
+    "v4",
+    "v5",
 }
 
-# First-party GitHub actions (lower risk)
-GITHUB_FIRST_PARTY: set[str] = {
-    'actions/checkout',
-    'actions/setup-node',
-    'actions/setup-python',
-    'actions/setup-java',
-    'actions/setup-go',
-    'actions/cache',
-    'actions/upload-artifact',
-    'actions/download-artifact',
-    'actions/github-script',
-}
+
+GITHUB_FIRST_PARTY: frozenset[str] = frozenset(
+    {
+        "actions/checkout",
+        "actions/cache",
+        "actions/upload-artifact",
+        "actions/download-artifact",
+        "actions/github-script",
+        "actions/labeler",
+        "actions/stale",
+        "actions/first-interaction",
+        "actions/create-release",
+        "actions/setup-node",
+        "actions/setup-python",
+        "actions/setup-java",
+        "actions/setup-go",
+        "actions/setup-dotnet",
+        "actions/setup-ruby",
+        "actions/upload-pages-artifact",
+        "actions/deploy-pages",
+        "actions/configure-pages",
+        "actions/dependency-review-action",
+        "actions/attest-build-provenance",
+        "actions/attest",
+        "github/codeql-action",
+        "github/super-linter",
+        "actions/add-to-project",
+        "actions/delete-package-versions",
+    }
+)
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect unpinned third-party actions with secret access.
+
+    Args:
+        context: Standard rule context with db_path
+
+    Returns:
+        RuleResult with findings and fidelity manifest
+    """
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings = _find_unpinned_actions(db)
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
 def find_unpinned_action_with_secrets(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect unpinned third-party actions with secret access.
+    """Legacy entry point - delegates to analyze()."""
+    result = analyze(context)
+    return result.findings
 
-    Detection Logic:
-    1. Find steps using third-party actions (not github first-party)
-    2. Check if action version is mutable (main, v1, etc.)
-    3. Check if step has access to secrets (env, with, job secrets)
-    4. Report high-severity finding for supply chain risk
+
+def _is_valid_sha(version: str) -> bool:
+    """Check if version is a valid Git SHA (immutable reference).
 
     Args:
-        context: Rule execution context with database path
+        version: The version string to check
 
     Returns:
-        List of security findings
+        True if version is a valid SHA-1 (40 hex) or SHA-256 (64 hex)
     """
+
+    if len(version) not in (40, 64):
+        return False
+
+    return all(c in "0123456789abcdefABCDEF" for c in version)
+
+
+def _find_unpinned_actions(db: RuleDB) -> list[StandardFinding]:
+    """Core detection logic for unpinned actions."""
     findings: list[StandardFinding] = []
 
-    if not context.db_path:
-        return findings
+    step_rows = db.query(
+        Q("github_steps")
+        .alias("s")
+        .select(
+            "s.step_id",
+            "s.step_name",
+            "s.uses_action",
+            "s.uses_version",
+            "s.env",
+            "s.with_args",
+            "github_jobs.workflow_path",
+            "github_jobs.job_key",
+        )
+        .join("github_jobs", on=[("job_id", "job_id")])
+        .where("s.uses_action IS NOT NULL")
+        .where("s.uses_version IS NOT NULL")
+    )
 
-    conn = sqlite3.connect(context.db_path)
-    conn.row_factory = sqlite3.Row
-    cursor = conn.cursor()
+    for (
+        step_id,
+        step_name,
+        uses_action,
+        uses_version,
+        step_env,
+        step_with,
+        workflow_path,
+        job_key,
+    ) in step_rows:
+        if uses_action in GITHUB_FIRST_PARTY:
+            continue
+        if uses_action.startswith("actions/") or uses_action.startswith("github/"):
+            continue
 
-    try:
-        # Find all steps with actions
-        cursor.execute("""
-            SELECT s.step_id, s.job_id, s.step_name, s.uses_action, s.uses_version,
-                   s.env, s.with_args, j.workflow_path, j.job_key
-            FROM github_steps s
-            JOIN github_jobs j ON s.job_id = j.job_id
-            WHERE s.uses_action IS NOT NULL
-            AND s.uses_version IS NOT NULL
-        """)
-
-        for row in cursor.fetchall():
-            uses_action = row['uses_action']
-            uses_version = row['uses_version']
-
-            # Skip first-party GitHub actions (lower risk)
-            if uses_action in GITHUB_FIRST_PARTY:
+        if uses_version not in MUTABLE_VERSIONS:
+            if _is_valid_sha(uses_version):
                 continue
 
-            # Check if version is mutable
-            if uses_version not in MUTABLE_VERSIONS:
-                continue
+        secret_refs = _check_secret_access(db, step_id, step_env, step_with)
 
-            # Check if step has secret access
-            has_secrets = _check_secret_access(
-                step_id=row['step_id'],
-                step_env=row['env'],
-                step_with=row['with_args'],
-                job_id=row['job_id'],
-                cursor=cursor
-            )
-
-            if has_secrets:
-                findings.append(_build_unpinned_action_finding(
-                    workflow_path=row['workflow_path'],
-                    job_key=row['job_key'],
-                    step_name=row['step_name'] or 'Unnamed step',
+        if secret_refs:
+            findings.append(
+                _build_unpinned_action_finding(
+                    workflow_path=workflow_path,
+                    job_key=job_key,
+                    step_name=step_name or "Unnamed step",
                     uses_action=uses_action,
                     uses_version=uses_version,
-                    secret_refs=has_secrets
-                ))
-
-    finally:
-        conn.close()
+                    secret_refs=secret_refs,
+                )
+            )
 
     return findings
 
 
-def _check_secret_access(step_id: str, step_env: str, step_with: str,
-                         job_id: str, cursor) -> list[str]:
-    """Check if step has access to secrets.
+def _check_secret_access(db: RuleDB, step_id: str, step_env: str, step_with: str) -> list[str]:
+    """Check if step has access to secrets."""
+    secret_refs: list[str] = []
 
-    Args:
-        step_id: Step identifier
-        step_env: JSON string of step env vars
-        step_with: JSON string of step with args
-        job_id: Parent job identifier
-        cursor: Database cursor
-
-    Returns:
-        List of secret reference paths found (empty if no secrets)
-    """
-    secret_refs = []
-
-    # Check step-level env variables
     if step_env:
         try:
             env_vars = json.loads(step_env)
             for key, value in env_vars.items():
-                if 'secrets.' in str(value):
+                if "secrets." in str(value):
                     secret_refs.append(f"env.{key}")
         except json.JSONDecodeError:
             pass
 
-    # Check step-level with arguments
     if step_with:
         try:
             with_args = json.loads(step_with)
             for key, value in with_args.items():
-                if 'secrets.' in str(value):
+                if "secrets." in str(value):
                     secret_refs.append(f"with.{key}")
         except json.JSONDecodeError:
             pass
 
-    # Check step references for secrets.*
-    cursor.execute("""
-        SELECT reference_path, reference_location
-        FROM github_step_references
-        WHERE step_id = ?
-        AND reference_type = 'secrets'
-    """, (step_id,))
+    ref_rows = db.query(
+        Q("github_step_references")
+        .select("reference_path", "reference_location")
+        .where("step_id = ?", step_id)
+        .where("reference_type = ?", "secrets")
+    )
 
-    for ref_row in cursor.fetchall():
-        secret_refs.append(f"{ref_row['reference_location']}.{ref_row['reference_path']}")
-
-    # Check job-level permissions (secrets: inherit pattern)
-    # This would require querying job-level reusable workflow usage
-    # For now, we catch the most common patterns above
+    for ref_path, ref_location in ref_rows:
+        secret_refs.append(f"{ref_location}.{ref_path}")
 
     return secret_refs
 
 
-def _build_unpinned_action_finding(workflow_path: str, job_key: str,
-                                   step_name: str, uses_action: str,
-                                   uses_version: str,
-                                   secret_refs: list[str]) -> StandardFinding:
-    """Build finding for unpinned action vulnerability.
+def _build_unpinned_action_finding(
+    workflow_path: str,
+    job_key: str,
+    step_name: str,
+    uses_action: str,
+    uses_version: str,
+    secret_refs: list[str],
+) -> StandardFinding:
+    """Build finding for unpinned action vulnerability."""
 
-    Args:
-        workflow_path: Path to workflow file
-        job_key: Job key
-        step_name: Step display name
-        uses_action: Action reference (org/repo)
-        uses_version: Mutable version tag
-        secret_refs: List of secret reference paths
-
-    Returns:
-        StandardFinding object
-    """
-    # Determine severity based on secret count and action source
-    is_external_org = '/' in uses_action and not uses_action.startswith('actions/')
+    is_external_org = "/" in uses_action and not uses_action.startswith("actions/")
     secret_count = len(secret_refs)
 
-    if is_external_org and secret_count > 0:
+    is_branch_ref = uses_version in MUTABLE_VERSIONS
+
+    if is_external_org and is_branch_ref and secret_count > 0:
+        severity = Severity.CRITICAL
+
+    elif (is_external_org and secret_count > 0) or (is_branch_ref and secret_count > 0):
         severity = Severity.HIGH
+
     elif secret_count > 0:
         severity = Severity.MEDIUM
+
     else:
         severity = Severity.LOW
 
@@ -223,21 +250,21 @@ jobs:
       - name: {step_name}
         uses: {uses_action}@{uses_version}  # VULN: Mutable version
         with:
-          # Secrets exposed: {', '.join(secret_refs)}
+          # Secrets exposed: {", ".join(secret_refs)}
     """
 
     details = {
-        'workflow': workflow_path,
-        'job_key': job_key,
-        'step_name': step_name,
-        'action': uses_action,
-        'mutable_version': uses_version,
-        'secret_references': secret_refs,
-        'is_external': is_external_org,
-        'mitigation': (
+        "workflow": workflow_path,
+        "job_key": job_key,
+        "step_name": step_name,
+        "action": uses_action,
+        "mutable_version": uses_version,
+        "secret_references": secret_refs,
+        "is_external": is_external_org,
+        "mitigation": (
             f"Pin action to immutable SHA: uses: {uses_action}@<full-sha256> "
             f"instead of @{uses_version}"
-        )
+        ),
     }
 
     return StandardFinding(
@@ -250,5 +277,5 @@ jobs:
         confidence="high",
         snippet=code_snippet.strip(),
         cwe_id="CWE-829",
-        additional_info=details
+        additional_info=details,
     )

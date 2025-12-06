@@ -1,348 +1,448 @@
 """TheAuditor CLI - Main entry point and command registration hub."""
-
+# ruff: noqa: E402 - Intentional lazy loading: commands imported after cli group definition
 
 import platform
 import subprocess
 import sys
 
 import click
-from theauditor import __version__
+from rich import box
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
-# Configure UTF-8 console output for Windows
+from theauditor import __version__
+from theauditor.pipeline.ui import console
+
 if platform.system() == "Windows":
     try:
-        # Set console code page to UTF-8
-        # Use cmd /c to run chcp without shell=True (more secure)
-        subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=1)
-        # Also configure Python's stdout/stderr
-        import codecs
-        sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-        sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
-    except Exception:
-        # Silently continue if chcp fails (not critical)
+        subprocess.run(["cmd", "/c", "chcp", "65001"], shell=False, capture_output=True, timeout=2)
+    except (subprocess.TimeoutExpired, OSError):
         pass
+    import codecs
+
+    sys.stdout = codecs.getwriter("utf-8")(sys.stdout.buffer, "strict")
+    sys.stderr = codecs.getwriter("utf-8")(sys.stderr.buffer, "strict")
 
 
-class VerboseGroup(click.Group):
-    """AI-First help system - dynamically generates help from registered commands."""
+class RichGroup(click.Group):
+    """Rich-enabled help formatter that renders the CLI as a dashboard."""
 
-    # Command taxonomy (metadata only - NOT help text)
     COMMAND_CATEGORIES = {
-        'PROJECT_SETUP': {
-            'title': 'PROJECT SETUP',
-            'description': 'Initial configuration and environment setup',
-            'commands': ['setup-ai', 'setup-claude', 'init-js', 'init-config'],  # 'init' deprecated (hidden)
-            'ai_context': 'Run these FIRST in new projects. Creates .pf/ structure, installs tools.',
+        "PROJECT_SETUP": {
+            "title": "PROJECT SETUP",
+            "style": "bold cyan",
+            "description": "Initial configuration and environment setup",
+            "commands": ["setup-ai", "tools"],
         },
-        'CORE_ANALYSIS': {
-            'title': 'CORE ANALYSIS',
-            'description': 'Essential indexing and workset commands',
-            'commands': ['full', 'workset'],  # 'index' deprecated (hidden)
-            'ai_context': 'Foundation commands. full runs complete audit, workset filters scope.',
+        "CORE_ANALYSIS": {
+            "title": "CORE ANALYSIS",
+            "style": "bold green",
+            "description": "Essential indexing and workset commands",
+            "commands": ["full", "workset"],
         },
-        'SECURITY_SCANNING': {
-            'title': 'SECURITY SCANNING',
-            'description': 'Vulnerability detection and taint analysis',
-            'commands': ['detect-patterns', 'taint-analyze', 'boundaries', 'docker-analyze',
-                        'detect-frameworks', 'rules', 'context', 'workflows', 'cdk', 'terraform', 'deadcode'],
-            'ai_context': 'Security-focused analysis. detect-patterns=rules, taint-analyze=data flow, boundaries=control distance.',
+        "SECURITY_SCANNING": {
+            "title": "SECURITY SCANNING",
+            "style": "bold red",
+            "description": "Vulnerability detection and taint analysis",
+            "commands": ["detect-patterns", "taint", "boundaries", "detect-frameworks"],
         },
-        'DEPENDENCIES': {
-            'title': 'DEPENDENCIES',
-            'description': 'Package analysis and documentation',
-            'commands': ['deps', 'docs'],
-            'ai_context': 'deps checks CVEs and versions, docs fetches/summarizes package documentation.',
+        "DEPENDENCIES": {
+            "title": "DEPENDENCIES",
+            "style": "bold yellow",
+            "description": "Package analysis and documentation",
+            "commands": ["deps", "docs"],
         },
-        'CODE_QUALITY': {
-            'title': 'CODE QUALITY',
-            'description': 'Linting and complexity analysis',
-            'commands': ['lint', 'cfg', 'graph', 'graphql'],
-            'ai_context': 'Quality checks. lint=linters, cfg=complexity, graph=architecture, graphql=schema analysis.',
+        "CODE_QUALITY": {
+            "title": "CODE QUALITY",
+            "style": "bold magenta",
+            "description": "Linting and complexity analysis",
+            "commands": ["lint", "cfg", "graph", "graphql"],
         },
-        'DATA_REPORTING': {
-            'title': 'DATA & REPORTING',
-            'description': 'Analysis aggregation and report generation',
-            'commands': ['fce', 'report', 'structure', 'summary', 'metadata', 'tool-versions', 'blueprint'],
-            'ai_context': 'fce correlates findings, report generates AI chunks, structure maps codebase.',
+        "DATA_REPORTING": {
+            "title": "DATA & REPORTING",
+            "style": "bold blue",
+            "description": "Analysis aggregation and report generation",
+            "commands": ["fce", "structure", "summary", "metadata", "blueprint"],
         },
-        'ADVANCED_QUERIES': {
-            'title': 'ADVANCED QUERIES',
-            'description': 'Direct database queries and impact analysis',
-            'commands': ['query', 'impact', 'refactor'],
-            'ai_context': 'query=SQL-like symbol lookup, impact=blast radius, refactor=migration analysis.',
+        "ADVANCED_QUERIES": {
+            "title": "ADVANCED QUERIES",
+            "style": "bold white",
+            "description": "Direct database queries and impact analysis",
+            "commands": ["explain", "query", "impact", "refactor"],
         },
-        'INSIGHTS_ML': {
-            'title': 'INSIGHTS & ML',
-            'description': 'Machine learning and risk predictions',
-            'commands': ['insights', 'learn', 'suggest', 'learn-feedback', 'session'],
-            'ai_context': 'Optional ML layer. learn trains models, suggest predicts risky files, session analyzes AI agent behavior.',
+        "INSIGHTS_ML": {
+            "title": "INSIGHTS & ML",
+            "style": "bold purple",
+            "description": "Machine learning and risk predictions",
+            "commands": ["insights", "learn", "suggest", "session"],
         },
-        'UTILITIES': {
-            'title': 'UTILITIES',
-            'description': 'Educational and helper commands',
-            'commands': ['explain', 'planning'],
-            'ai_context': 'explain teaches concepts (taint, workset, fce), planning tracks work.',
+        "UTILITIES": {
+            "title": "UTILITIES",
+            "style": "dim white",
+            "description": "Educational and helper commands",
+            "commands": ["manual", "planning"],
         },
     }
 
     def format_help(self, ctx, formatter):
-        """Generate AI-first help dynamically from registered commands."""
-        super().format_help(ctx, formatter)
+        """Render help output using Rich components."""
+        console.print()
+        console.rule(f"[bold]TheAuditor Security Platform v{__version__}[/bold]", characters="-")
+        console.print(
+            "[center]Local-first | Air-gapped | Polyglot Static Analysis[/center]", style="dim"
+        )
+        console.print()
 
-        formatter.write_paragraph()
-        formatter.write_text("=" * 80)
-        formatter.write_text("COMMAND REFERENCE (AI-Optimized Categorization)")
-        formatter.write_text("=" * 80)
-        formatter.write_paragraph()
+        registered = {
+            name: cmd
+            for name, cmd in self.commands.items()
+            if not name.startswith("_") and not getattr(cmd, "hidden", False)
+        }
 
-        registered = {name: cmd for name, cmd in self.commands.items()
-                     if not name.startswith('_')}
+        for _cat_id, cat_data in self.COMMAND_CATEGORIES.items():
+            table = Table(box=None, show_header=False, padding=(0, 2), expand=True)
+            table.add_column("Command", style="bold white", width=20)
+            table.add_column("Description", style="dim")
 
-        formatter.write_text("AI ASSISTANT GUIDANCE:")
-        formatter.write_text("  - Commands are grouped by purpose for optimal workflow ordering")
-        formatter.write_text("  - Each category shows WHEN and WHY to use commands")
-        formatter.write_text("  - Run 'aud <command> --help' for detailed AI-consumable documentation")
-        formatter.write_text("  - Use 'aud explain <concept>' to learn about taint, workset, fce, etc.")
-        formatter.write_paragraph()
-
-        for category_id, category_data in self.COMMAND_CATEGORIES.items():
-            formatter.write_text(f"{category_data['title']}:")
-            with formatter.indentation():
-                formatter.write_text(f"# {category_data['description']}")
-                formatter.write_text(f"# AI: {category_data['ai_context']}")
-                formatter.write_paragraph()
-
-                for cmd_name in category_data['commands']:
-                    if cmd_name not in registered:
-                        continue
-
+            has_commands = False
+            for cmd_name in cat_data["commands"]:
+                if cmd_name in registered:
                     cmd = registered[cmd_name]
-                    short_help = (cmd.help or "No description").split('\n')[0].strip()
-                    formatter.write_text(f"aud {cmd_name:20s} # {short_help}")
 
-                    if hasattr(cmd, 'params'):
-                        key_options = [p for p in cmd.params[:3] if hasattr(p, 'help') and p.help]
-                        for param in key_options:
-                            opt_name = f"--{param.name.replace('_', '-')}"
-                            formatter.write_text(f"  {opt_name:22s} # {param.help}")
+                    help_text = (cmd.help or "").split("\n")[0].strip()
+                    if len(help_text) > 60:
+                        help_text = help_text[:57] + "..."
 
-                formatter.write_paragraph()
+                    table.add_row(f"aud {cmd_name}", help_text)
+                    has_commands = True
 
-        all_categorized = set()
-        for cat_data in self.COMMAND_CATEGORIES.values():
-            all_categorized.update(cat_data['commands'])
+            if has_commands:
+                panel = Panel(
+                    table,
+                    title=f"[{cat_data['style']}]{cat_data['title']}[/]",
+                    subtitle=f"[dim]{cat_data['description']}[/dim]",
+                    subtitle_align="right",
+                    border_style=cat_data["style"],
+                    box=box.ASCII,
+                )
+                console.print(panel)
 
-        ungrouped = set(registered.keys()) - all_categorized
-        if ungrouped:
-            formatter.write_text("=" * 80)
-            formatter.write_text("WARNING: The following commands are not categorized:")
-            formatter.write_text("=" * 80)
-            for cmd_name in sorted(ungrouped):
-                formatter.write_text(f"  - {cmd_name}")
-            formatter.write_paragraph()
-            formatter.write_text("^ Report this to maintainers - all commands should be categorized")
-            formatter.write_paragraph()
-
-        formatter.write_text("For detailed help: aud <command> --help")
-        formatter.write_text("For concepts: aud explain --list")
+        console.print()
+        console.print(
+            "[dim]Run [bold]aud <command> --help[/bold] for detailed usage options.[/dim]",
+            justify="center",
+        )
+        console.print(
+            "[dim]Run [bold]aud manual --list[/bold] for concept documentation.[/dim]",
+            justify="center",
+        )
+        console.print()
 
 
-@click.group(cls=VerboseGroup)
+class RichCommand(click.Command):
+    """Rich-enabled help formatter for individual commands."""
+
+    SECTIONS = [
+        "AI ASSISTANT CONTEXT",
+        "DESCRIPTION",
+        "EXAMPLES",
+        "COMMON WORKFLOWS",
+        "OUTPUT FILES",
+        "PERFORMANCE",
+        "EXIT CODES",
+        "RELATED COMMANDS",
+        "SEE ALSO",
+        "TROUBLESHOOTING",
+        "NOTE",
+        "WHAT IT DETECTS",
+        "DATA FLOW ANALYSIS METHOD",
+    ]
+
+    def format_help(self, ctx, formatter):
+        """Render help with Rich components."""
+
+        console.print()
+        console.rule(f"[bold]aud {ctx.info_name}[/bold]", characters="-")
+
+        if self.help:
+            sections = self._parse_docstring(self.help)
+            self._render_sections(console, sections)
+
+        self._render_options(console, ctx)
+
+        console.print()
+
+    def _parse_docstring(self, docstring: str) -> dict[str, str]:
+        """Parse docstring into named sections."""
+        sections = {"summary": ""}
+        current_section = "summary"
+        lines = docstring.strip().split("\n")
+
+        for line in lines:
+            stripped = line.strip()
+
+            section_found = False
+            for section_name in self.SECTIONS:
+                if stripped.upper().startswith(section_name.upper()):
+                    current_section = section_name.lower().replace(" ", "_")
+                    sections[current_section] = ""
+                    section_found = True
+                    break
+
+            if not section_found:
+                if current_section in sections:
+                    sections[current_section] += line + "\n"
+                else:
+                    sections[current_section] = line + "\n"
+
+        return sections
+
+    def _render_sections(self, console: Console, sections: dict):
+        """Render parsed sections with Rich formatting."""
+
+        if sections.get("summary"):
+            summary = sections["summary"].strip()
+            if summary:
+                console.print(f"\n{summary}\n")
+
+        if sections.get("ai_assistant_context"):
+            panel = Panel(
+                sections["ai_assistant_context"].strip(),
+                title="[bold cyan]AI Assistant Context[/bold cyan]",
+                border_style="cyan",
+                box=box.ROUNDED,
+            )
+            console.print(panel)
+
+        if sections.get("what_it_detects"):
+            console.print("\n[bold]What It Detects:[/bold]")
+            for line in sections["what_it_detects"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  {line}")
+
+        if sections.get("data_flow_analysis_method"):
+            console.print("\n[bold]Data Flow Analysis Method:[/bold]")
+            for line in sections["data_flow_analysis_method"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  {line}")
+
+        if sections.get("examples"):
+            console.print("\n[bold]Examples:[/bold]")
+            for line in sections["examples"].strip().split("\n"):
+                stripped = line.strip()
+                if stripped.startswith("aud "):
+                    console.print(f"  [green]{stripped}[/green]")
+                elif stripped.startswith("#"):
+                    console.print(f"  [dim]{stripped}[/dim]")
+                elif stripped:
+                    console.print(f"  {line}")
+
+        if sections.get("common_workflows"):
+            console.print("\n[bold]Common Workflows:[/bold]")
+            for line in sections["common_workflows"].strip().split("\n"):
+                stripped = line.strip()
+                if stripped.endswith(":") and not stripped.startswith("aud"):
+                    console.print(f"\n  [cyan]{stripped}[/cyan]")
+                elif stripped.startswith("aud "):
+                    console.print(f"    [green]{stripped}[/green]")
+                elif stripped:
+                    console.print(f"    {line}")
+
+        if sections.get("output_files"):
+            console.print("\n[bold]Output Files:[/bold]")
+            for line in sections["output_files"].strip().split("\n"):
+                if line.strip():
+                    parts = line.strip().split(None, 1)
+                    if len(parts) == 2 and ("/" in parts[0] or "." in parts[0]):
+                        console.print(f"  [cyan]{parts[0]}[/cyan]  {parts[1]}")
+                    else:
+                        console.print(f"  {line}")
+
+        if sections.get("performance"):
+            console.print("\n[bold]Performance:[/bold]")
+            for line in sections["performance"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  [dim]{line.strip()}[/dim]")
+
+        if sections.get("exit_codes"):
+            console.print("\n[bold]Exit Codes:[/bold]")
+            for line in sections["exit_codes"].strip().split("\n"):
+                stripped = line.strip()
+                if stripped:
+                    if "=" in stripped:
+                        code, desc = stripped.split("=", 1)
+                        console.print(f"  [yellow]{code.strip()}[/yellow] = {desc.strip()}")
+                    else:
+                        console.print(f"  {stripped}")
+
+        if sections.get("related_commands"):
+            console.print("\n[bold]Related Commands:[/bold]")
+            for line in sections["related_commands"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  [dim]{line.strip()}[/dim]")
+
+        if sections.get("see_also"):
+            console.print("\n[bold]See Also:[/bold]")
+            for line in sections["see_also"].strip().split("\n"):
+                if line.strip():
+                    console.print(f"  [cyan]{line.strip()}[/cyan]")
+
+        if sections.get("troubleshooting"):
+            console.print("\n[bold]Troubleshooting:[/bold]")
+            for line in sections["troubleshooting"].strip().split("\n"):
+                stripped = line.strip()
+                if stripped.startswith("->"):
+                    console.print(f"    [green]{stripped}[/green]")
+                elif stripped:
+                    console.print(f"  [yellow]{stripped}[/yellow]")
+
+        if sections.get("note"):
+            console.print()
+            console.print(
+                Panel(
+                    sections["note"].strip(),
+                    title="[bold yellow]Note[/bold yellow]",
+                    border_style="yellow",
+                    box=box.ROUNDED,
+                )
+            )
+
+    def _render_options(self, console: Console, ctx):
+        """Render options in a clean format."""
+        params = self.get_params(ctx)
+        options = [p for p in params if isinstance(p, click.Option)]
+
+        if not options:
+            return
+
+        console.print("\n[bold]Options:[/bold]")
+
+        for param in options:
+            opts = ", ".join(param.opts)
+            help_text = param.help or ""
+
+            console.print(f"  [cyan]{opts}[/cyan]")
+
+            if help_text:
+                console.print(f"      {help_text}")
+
+    def make_context(self, info_name, args, parent=None, **extra):
+        """Override to show --help instead of ugly 'Missing argument' errors."""
+        try:
+            return super().make_context(info_name, args, parent, **extra)
+        except click.MissingParameter as e:
+            ctx = click.Context(self, info_name=info_name, parent=parent)
+            self.format_help(ctx, None)
+            console.print(f"\n[yellow]Required:[/yellow] {e.param.name}")
+            console.print(f"[dim]Run 'aud {info_name} --help' for full details[/dim]\n")
+            ctx.exit(0)
+
+
+@click.group(cls=RichGroup)
 @click.version_option(version=__version__, prog_name="aud")
 @click.help_option("-h", "--help")
 def cli():
-    """TheAuditor - Security & Code Intelligence Platform for AI-Assisted Development
-
-    PURPOSE:
-      Provides ground truth about your codebase through comprehensive security
-      analysis, taint tracking, and quality auditing. Designed for both human
-      developers and AI assistants to detect vulnerabilities, incomplete
-      refactorings, and architectural issues.
-
-    QUICK START:
-      aud full                    # Complete security audit (auto-creates .pf/ directory)
-      aud full --offline          # Air-gapped analysis (no network calls)
-      aud full --quiet            # Minimal output for CI/CD pipelines
-
-    COMMON WORKFLOWS:
-      First time setup:
-        aud full                          # Complete audit (auto-creates .pf/)
-
-      After code changes:
-        aud workset --diff HEAD~1         # Identify changed files
-        aud lint --workset                # Quality check changes
-        aud taint-analyze --workset       # Security check changes
-
-      Pull request review:
-        aud workset --diff main..feature  # What changed in PR
-        aud impact --file api.py --line 1 # Check change impact
-        aud detect-patterns --workset     # Security patterns
-
-      Security audit:
-        aud full --offline                # Complete offline audit
-        aud deps --vuln-scan              # Check for CVEs
-        aud explain severity              # Understand findings
-
-      Performance optimization:
-        aud cfg analyze --threshold 20    # Find complex functions
-        aud graph analyze                 # Find circular dependencies
-        aud structure                     # Understand architecture
-
-      CI/CD pipeline:
-        aud full --quiet || exit $?       # Fail on critical issues
-
-      Understanding results:
-        aud explain taint                 # Learn about concepts
-        aud structure                     # Project overview
-        aud report --print-stats          # Summary statistics
-
-    OUTPUT STRUCTURE:
-      .pf/
-      ├── raw/                    # Immutable tool outputs (ground truth)
-      ├── readthis/              # AI-optimized chunks (<65KB each)
-      │   ├── *_chunk01.json     # Chunked findings for LLM consumption
-      │   └── summary.json       # Executive summary
-      ├── repo_index.db          # SQLite database with all code symbols
-      └── pipeline.log           # Detailed execution trace
-
-    EXIT CODES:
-      0 = Success, no issues found
-      1 = High severity findings detected
-      2 = Critical security vulnerabilities found
-      3 = Analysis incomplete or failed
-
-    ENVIRONMENT VARIABLES:
-      THEAUDITOR_LIMITS_MAX_FILE_SIZE=2097152   # Max file size in bytes (2MB)
-      THEAUDITOR_LIMITS_MAX_CHUNK_SIZE=65536    # Max chunk size (65KB)
-      THEAUDITOR_TIMEOUT_SECONDS=1800           # Default timeout (30 min)
-      THEAUDITOR_DB_BATCH_SIZE=200              # Database batch insert size
-
-    For detailed help on any command: aud <command> --help
-    Full documentation: https://github.com/TheAuditorTool/Auditor"""
+    """TheAuditor - Security & Code Intelligence Platform"""
     pass
 
 
-# Import and register commands
-from theauditor.commands.init import init
-from theauditor.commands.index import index
-from theauditor.commands.workset import workset
-from theauditor.commands.lint import lint
+from theauditor.commands._archive import _archive
+from theauditor.commands.blueprint import blueprint
+from theauditor.commands.boundaries import boundaries
+from theauditor.commands.cdk import cdk
+from theauditor.commands.cfg import cfg
+from theauditor.commands.context import context_command
+from theauditor.commands.deadcode import deadcode
 from theauditor.commands.deps import deps
-from theauditor.commands.report import report
-from theauditor.commands.summary import summary
+from theauditor.commands.detect_frameworks import detect_frameworks
+from theauditor.commands.detect_patterns import detect_patterns
+from theauditor.commands.docker_analyze import docker_analyze
+from theauditor.commands.docs import docs
+from theauditor.commands.explain import explain
+from theauditor.commands.fce import fce
+from theauditor.commands.full import full
 from theauditor.commands.graph import graph
 from theauditor.commands.graphql import graphql
-from theauditor.commands.cfg import cfg
-from theauditor.commands.full import full
-from theauditor.commands.fce import fce
 from theauditor.commands.impact import impact
-from theauditor.commands.taint import taint_analyze
-from theauditor.commands.boundaries import boundaries
-from theauditor.commands.setup import setup_ai
-from theauditor.commands.explain import explain
-
-# Import additional migrated commands
-from theauditor.commands.detect_patterns import detect_patterns
-from theauditor.commands.detect_frameworks import detect_frameworks
-from theauditor.commands.docs import docs
-from theauditor.commands.tool_versions import tool_versions
-from theauditor.commands.init_js import init_js
-from theauditor.commands.init_config import init_config
-from theauditor.commands.planning import planning
-
-# Import ML commands
-from theauditor.commands.ml import learn, suggest, learn_feedback
-
-# Import internal commands (prefixed with _)
-from theauditor.commands._archive import _archive
-
-# Import rules command
-from theauditor.commands.rules import rules_command
-
-# Import refactoring analysis commands
-from theauditor.commands.refactor import refactor_command
-from theauditor.commands.insights import insights_command
-from theauditor.commands.context import context_command
-from theauditor.commands.query import query
-from theauditor.commands.blueprint import blueprint
-
-# Import new commands
-from theauditor.commands.docker_analyze import docker_analyze
-from theauditor.commands.structure import structure
+from theauditor.commands.lint import lint
+from theauditor.commands.manual import manual
 from theauditor.commands.metadata import metadata
-from theauditor.commands.terraform import terraform
-from theauditor.commands.cdk import cdk
-from theauditor.commands.workflows import workflows
-from theauditor.commands.deadcode import deadcode
+from theauditor.commands.ml import learn, learn_feedback, suggest
+from theauditor.commands.planning import planning
+from theauditor.commands.query import query
+from theauditor.commands.refactor import refactor_command
+from theauditor.commands.rules import rules_command
 from theauditor.commands.session import session
+from theauditor.commands.setup import setup_ai
+from theauditor.commands.taint import taint_analyze
+from theauditor.commands.terraform import terraform
+from theauditor.commands.tools import tools
+from theauditor.commands.workflows import workflows
+from theauditor.commands.workset import workset
 
-# Register simple commands
-# DEPRECATED: 'aud init' and 'aud index' now run 'aud full' for backward compatibility
-# Hidden from help but still registered for CI/CD pipelines
-init.hidden = True
-index.hidden = True
-cli.add_command(init)
-cli.add_command(index)
-cli.add_command(workset)
-cli.add_command(lint)
-cli.add_command(deps)
-cli.add_command(report)
-cli.add_command(summary)
-cli.add_command(full)
-cli.add_command(fce)
-cli.add_command(impact)
-cli.add_command(taint_analyze)
-cli.add_command(boundaries)
-cli.add_command(setup_ai)
-cli.add_command(setup_ai, name="setup-claude")  # Hidden legacy alias
-cli.add_command(explain)
-
-# Register additional migrated commands
-cli.add_command(detect_patterns)
-cli.add_command(detect_frameworks)
-cli.add_command(docs)
-cli.add_command(tool_versions)
-cli.add_command(init_js)
-cli.add_command(init_config)
-
-# Register ML commands
-cli.add_command(learn)
-cli.add_command(suggest)
-cli.add_command(learn_feedback)
-
-# Register internal commands (not for direct user use)
 cli.add_command(_archive)
 
-# Register rules command
+
+cli.add_command(setup_ai)
+cli.add_command(tools)
+cli.add_command(full)
+cli.add_command(workset)
+cli.add_command(manual)
+
+
+cli.add_command(detect_patterns)
+cli.add_command(detect_frameworks)
+cli.add_command(taint_analyze)
+cli.add_command(boundaries)
 cli.add_command(rules_command)
-
-# Register refactoring analysis commands
-cli.add_command(refactor_command, name="refactor")
-cli.add_command(insights_command, name="insights")
-cli.add_command(context_command, name="context")
-cli.add_command(query)
-cli.add_command(blueprint)
-
-# Register new commands
 cli.add_command(docker_analyze)
-cli.add_command(structure)
-
-# Register command groups
-cli.add_command(graph)
-cli.add_command(graphql)
-cli.add_command(cfg)
-cli.add_command(metadata)
 cli.add_command(terraform)
 cli.add_command(cdk)
 cli.add_command(workflows)
-cli.add_command(planning)
-cli.add_command(deadcode)
-cli.add_command(session)
 
-# All commands have been migrated to separate modules
+
+cli.add_command(deps)
+cli.add_command(docs)
+
+
+cli.add_command(lint)
+cli.add_command(cfg)
+cli.add_command(graph)
+cli.add_command(graphql)
+cli.add_command(deadcode)
+
+
+cli.add_command(fce)
+cli.add_command(metadata)
+cli.add_command(blueprint)
+
+
+cli.add_command(query)
+cli.add_command(explain)
+cli.add_command(impact)
+cli.add_command(refactor_command, name="refactor")
+cli.add_command(context_command, name="context")
+
+
+cli.add_command(learn)
+cli.add_command(suggest)
+cli.add_command(learn_feedback)
+cli.add_command(session)
+cli.add_command(planning)
+
+
+@click.command("setup-claude", hidden=True)
+@click.pass_context
+def setup_claude_alias(ctx, **kwargs):
+    ctx.invoke(setup_ai, **kwargs)
+
+
+setup_claude_alias.params = setup_ai.params
+cli.add_command(setup_claude_alias)
+
 
 def main():
-    """Main entry point for console script."""
     cli()
 
 

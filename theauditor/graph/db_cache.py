@@ -1,229 +1,211 @@
-"""Graph database cache layer - Solves N+1 query problem.
+"""Graph database cache layer - Lazy loading with LRU cache.
 
-Loads all file paths, imports, and exports into memory ONCE at initialization,
-converting 50,000 database round-trips into 1 bulk query.
+Phase 0.2: Converted from eager loading (500k+ rows at startup) to on-demand
+queries with bounded LRU cache. Memory usage drops from O(all_imports) to O(cache_size).
 
-Architecture:
-- Guardian of Hygiene: Normalizes all paths internally (Windows/Unix compatible)
-- Zero Fallback Policy: Crashes if database missing or malformed
-- Single Responsibility: Data access layer only (no business logic)
-
-2025 Standard: Batch loading for performance.
-
-Example:
-    >>> cache = GraphDatabaseCache(Path(".pf/repo_index.db"))
-    [GraphCache] Loaded 360 files, 1243 import records, 892 export records
-
-    >>> cache.file_exists("theauditor\\cli.py")  # Windows path
-    True
-    >>> cache.file_exists("theauditor/cli.py")   # Unix path
-    True
-
-    >>> imports = cache.get_imports("theauditor/main.py")
-    >>> len(imports)
-    15
+GRAPH FIX G7: Use MappingProxyType for immutable cached dicts.
 """
 
-
 import sqlite3
+from functools import lru_cache
 from pathlib import Path
-from typing import Set, Dict, List, Any
+from types import MappingProxyType
+
+from theauditor.utils.logging import logger
 
 
 class GraphDatabaseCache:
-    """In-memory cache of database tables for graph building.
+    """Lazy-loading cache of database tables for graph building.
 
-    Loads data once at init, provides O(1) lookups during graph construction.
-    Eliminates N+1 query problem where each file triggers separate DB queries.
-
-    Responsibilities:
-    - Bulk load all graph-relevant data (files, imports, exports)
-    - Normalize all paths to forward-slash format internally
-    - Provide O(1) existence checks and lookups
-    - Crash immediately if database missing/malformed (zero fallback policy)
-
-    Performance:
-    - Small project (100 files): ~0.1s load, ~10MB RAM
-    - Medium project (1K files): ~0.5s load, ~50MB RAM
-    - Large project (10K files): ~2s load, ~200MB RAM
+    Uses @lru_cache for O(1) repeated lookups while keeping memory bounded.
+    Only known_files is loaded eagerly (small set, needed for O(1) file_exists).
     """
 
+    IMPORTS_CACHE_SIZE = 2000
+    EXPORTS_CACHE_SIZE = 2000
+    RESOLVE_CACHE_SIZE = 5000
+    RESOLVED_IMPORTS_CACHE_SIZE = 2000
+
     def __init__(self, db_path: Path):
-        """Initialize cache by loading all data once.
-
-        Args:
-            db_path: Path to repo_index.db
-
-        Raises:
-            FileNotFoundError: If database doesn't exist (NO FALLBACK)
-            sqlite3.Error: If schema wrong or query fails (NO FALLBACK)
-        """
+        """Initialize cache - only loads file list, imports/exports are lazy."""
         self.db_path = db_path
 
-        # ZERO FALLBACK POLICY: Crash if DB missing
         if not self.db_path.exists():
             raise FileNotFoundError(
-                f"repo_index.db not found: {self.db_path}\n"
-                f"Run 'aud full' to create it."
+                f"repo_index.db not found: {self.db_path}\nRun 'aud full' to create it."
             )
 
-        # In-memory caches
         self.known_files: set[str] = set()
-        self.imports_by_file: dict[str, list[dict[str, Any]]] = {}
-        self.exports_by_file: dict[str, list[dict[str, Any]]] = {}
-
-        # Load all data in one pass
-        self._load_cache()
+        self._load_file_list()
 
     def _normalize_path(self, path: str) -> str:
-        """Normalize path to forward-slash format.
-
-        Guardian of Hygiene: All paths stored internally use forward slashes.
-        Builder.py never needs to call .replace("\\", "/").
-
-        Args:
-            path: File path (Windows or Unix format)
-
-        Returns:
-            Normalized path with forward slashes
-
-        Examples:
-            >>> self._normalize_path("theauditor\\cli.py")
-            "theauditor/cli.py"
-            >>> self._normalize_path("theauditor/cli.py")
-            "theauditor/cli.py"
-        """
+        """Normalize path to forward-slash format."""
         return path.replace("\\", "/") if path else ""
 
-    def _load_cache(self):
-        """Load all graph-relevant data from database in bulk.
+    def _load_file_list(self):
+        """Load only the file list - small and needed for O(1) file_exists."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
 
-        NO TRY/EXCEPT - Let database errors crash (zero fallback policy).
-        If this fails, database schema is wrong and must be fixed.
+        cursor.execute("SELECT path FROM files")
+        self.known_files = {self._normalize_path(row[0]) for row in cursor.fetchall()}
+
+        conn.close()
+
+        logger.info(f"[GraphCache] Loaded {len(self.known_files)} files (imports/exports: lazy)")
+
+    @lru_cache(maxsize=IMPORTS_CACHE_SIZE)  # noqa: B019 - singleton, lives entire session
+    def get_imports(self, file_path: str) -> tuple[MappingProxyType, ...]:
+        """Get all imports for a file (lazy query with LRU cache).
+
+        Returns tuple of immutable MappingProxyType instead of mutable dicts.
+        GRAPH FIX G7: Prevents cache corruption from consumer modifications.
         """
-        # NO TRY/EXCEPT - Crashes expose schema bugs immediately
+        normalized = self._normalize_path(file_path)
+
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
 
-        # Load all file paths (for existence checks)
-        # NO TABLE CHECK - Schema contract guarantees 'files' exists
-        cursor.execute("SELECT path FROM files")
-        self.known_files = {
-            self._normalize_path(row["path"]) for row in cursor.fetchall()
-        }
-
-        # Load all imports (for build_import_graph)
-        # NO TABLE CHECK - Schema contract guarantees 'refs' exists
-        cursor.execute("""
-            SELECT src, kind, value, line
+        cursor.execute(
+            """
+            SELECT kind, value, line
             FROM refs
-            WHERE kind IN ('import', 'require', 'from', 'import_type', 'export', 'import_dynamic')
-        """)
-        for row in cursor.fetchall():
-            src = self._normalize_path(row["src"])
-            if src not in self.imports_by_file:
-                self.imports_by_file[src] = []
+            WHERE src = ?
+              AND kind IN ('import', 'require', 'from', 'import_type', 'export', 'dynamic_import')
+        """,
+            (normalized,),
+        )
 
-            self.imports_by_file[src].append({
-                "kind": row["kind"],
-                "value": row["value"],  # NOT normalized - may be module name
-                "line": row["line"],
-            })
-
-        # Load all exports (for build_call_graph)
-        # NO TABLE CHECK - Schema contract guarantees 'symbols' exists
-        cursor.execute("""
-            SELECT path, name, type, line
-            FROM symbols
-            WHERE type IN ('function', 'class')
-        """)
-        for row in cursor.fetchall():
-            path = self._normalize_path(row["path"])
-            if path not in self.exports_by_file:
-                self.exports_by_file[path] = []
-
-            self.exports_by_file[path].append({
-                "name": row["name"],
-                "symbol_type": row["type"],
-                "line": row["line"],
-            })
+        results = tuple(
+            MappingProxyType(
+                {
+                    "kind": row["kind"],
+                    "value": row["value"],
+                    "line": row["line"],
+                }
+            )
+            for row in cursor.fetchall()
+        )
 
         conn.close()
+        return results
 
-        # Report cache size
-        print(f"[GraphCache] Loaded {len(self.known_files)} files, "
-              f"{sum(len(v) for v in self.imports_by_file.values())} import records, "
-              f"{sum(len(v) for v in self.exports_by_file.values())} export records")
+    @lru_cache(maxsize=RESOLVED_IMPORTS_CACHE_SIZE)  # noqa: B019 - singleton, lives entire session
+    def get_resolved_imports(self, file_path: str) -> frozenset[str]:
+        """Get pre-resolved import paths for a file from import_styles table.
 
-    def get_imports(self, file_path: str) -> list[dict[str, Any]]:
-        """Get all imports for a file (O(1) lookup).
-
-        Args:
-            file_path: File path (Windows or Unix format - auto-normalized)
-
-        Returns:
-            List of import dicts (kind, value, line) or empty list if none
-
-        Example:
-            >>> cache.get_imports("theauditor\\main.py")  # Windows
-            [{"kind": "from", "value": "theauditor/cli.py", "line": 5}]
-            >>> cache.get_imports("theauditor/main.py")   # Unix
-            [{"kind": "from", "value": "theauditor/cli.py", "line": 5}]
+        Returns frozenset of resolved paths (hashable for lru_cache).
+        Only returns imports where resolved_path IS NOT NULL.
         """
         normalized = self._normalize_path(file_path)
-        return self.imports_by_file.get(normalized, [])
 
-    def get_exports(self, file_path: str) -> list[dict[str, Any]]:
-        """Get all exports for a file (O(1) lookup).
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
 
-        Args:
-            file_path: File path (Windows or Unix format - auto-normalized)
+        cursor.execute(
+            """
+            SELECT resolved_path
+            FROM import_styles
+            WHERE file = ?
+              AND resolved_path IS NOT NULL
+        """,
+            (normalized,),
+        )
 
-        Returns:
-            List of export dicts (name, symbol_type, line) or empty list if none
+        results = frozenset(self._normalize_path(row[0]) for row in cursor.fetchall())
 
-        Example:
-            >>> cache.get_exports("theauditor/cli.py")
-            [{"name": "main", "symbol_type": "function", "line": 42}]
+        conn.close()
+        return results
+
+    @lru_cache(maxsize=EXPORTS_CACHE_SIZE)  # noqa: B019 - singleton, lives entire session
+    def get_exports(self, file_path: str) -> tuple[MappingProxyType, ...]:
+        """Get all exports for a file (lazy query with LRU cache).
+
+        Returns tuple of immutable MappingProxyType instead of mutable dicts.
+        GRAPH FIX G7: Prevents cache corruption from consumer modifications.
         """
         normalized = self._normalize_path(file_path)
-        return self.exports_by_file.get(normalized, [])
+
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        cursor.execute(
+            """
+            SELECT name, type, line
+            FROM symbols
+            WHERE path = ?
+              AND type IN ('function', 'class')
+        """,
+            (normalized,),
+        )
+
+        results = tuple(
+            MappingProxyType(
+                {
+                    "name": row["name"],
+                    "symbol_type": row["type"],
+                    "line": row["line"],
+                }
+            )
+            for row in cursor.fetchall()
+        )
+
+        conn.close()
+        return results
 
     def file_exists(self, file_path: str) -> bool:
-        """Check if file exists in project (O(1) lookup).
-
-        Guardian of Hygiene: Accepts both Windows and Unix paths.
-
-        Args:
-            file_path: File path (Windows or Unix format - auto-normalized)
-
-        Returns:
-            True if file was indexed, False otherwise
-
-        Example:
-            >>> cache.file_exists("theauditor\\cli.py")  # Windows
-            True
-            >>> cache.file_exists("theauditor/cli.py")   # Unix
-            True
-            >>> cache.file_exists("nonexistent.py")
-            False
-        """
+        """Check if file exists in project (O(1) lookup)."""
         normalized = self._normalize_path(file_path)
         return normalized in self.known_files
 
+    @lru_cache(maxsize=RESOLVE_CACHE_SIZE)  # noqa: B019 - singleton, lives entire session
+    def resolve_filename(self, path_guess: str) -> str | None:
+        """Smart-resolve a path to an actual file in the DB, handling extensions."""
+        clean = self._normalize_path(path_guess)
+
+        if clean in self.known_files:
+            return clean
+
+        extensions = [".ts", ".tsx", ".js", ".jsx", ".d.ts", ".py"]
+
+        for ext in extensions:
+            candidate = clean + ext
+            if candidate in self.known_files:
+                return candidate
+
+        for ext in extensions:
+            candidate = f"{clean}/index{ext}"
+            if candidate in self.known_files:
+                return candidate
+
+        return None
+
     def get_stats(self) -> dict[str, int]:
-        """Get cache statistics.
+        """Get cache statistics."""
+        imports_info = self.get_imports.cache_info()
+        exports_info = self.get_exports.cache_info()
+        resolve_info = self.resolve_filename.cache_info()
+        resolved_imports_info = self.get_resolved_imports.cache_info()
 
-        Returns:
-            Dict with file count, import count, export count
-
-        Example:
-            >>> cache.get_stats()
-            {"files": 360, "imports": 1243, "exports": 892}
-        """
         return {
             "files": len(self.known_files),
-            "imports": sum(len(v) for v in self.imports_by_file.values()),
-            "exports": sum(len(v) for v in self.exports_by_file.values()),
+            "imports_cache_hits": imports_info.hits,
+            "imports_cache_misses": imports_info.misses,
+            "imports_cache_size": imports_info.currsize,
+            "exports_cache_hits": exports_info.hits,
+            "exports_cache_misses": exports_info.misses,
+            "exports_cache_size": exports_info.currsize,
+            "resolve_cache_hits": resolve_info.hits,
+            "resolve_cache_misses": resolve_info.misses,
+            "resolved_imports_cache_hits": resolved_imports_info.hits,
+            "resolved_imports_cache_misses": resolved_imports_info.misses,
         }
+
+    def clear_caches(self):
+        """Clear all LRU caches - useful for testing or memory pressure."""
+        self.get_imports.cache_clear()
+        self.get_exports.cache_clear()
+        self.resolve_filename.cache_clear()
+        self.get_resolved_imports.cache_clear()

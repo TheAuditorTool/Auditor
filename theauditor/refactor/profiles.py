@@ -1,24 +1,20 @@
-"""YAML-driven refactor profile evaluation.
-
-This module lets users define business-logic aware refactor checks via YAML.
-The profile describes what *old* schema references must disappear and which
-*new* constructs should exist. We leverage the existing repo_index.db tables
-to find exact files/lines without any AI guesses.
-"""
-
-
+"""YAML-driven refactor profile evaluation."""
 
 import fnmatch
+import functools
+import re
 import sqlite3
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
-from collections.abc import Iterable, Sequence
+from typing import Any
 
 import yaml
 
-
 MAX_RESULTS_PER_QUERY = 500
+
+
+BATCH_SIZE = 50
 
 
 def _coerce_list(value: Iterable[str] | None) -> list[str]:
@@ -59,7 +55,7 @@ class PatternSpec:
     api_routes: list[str] = field(default_factory=list)
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any] | None) -> "PatternSpec":
+    def from_dict(cls, raw: dict[str, Any] | None) -> PatternSpec:
         raw = raw or {}
         return cls(
             identifiers=_coerce_list(raw.get("identifiers")),
@@ -86,7 +82,7 @@ class RefactorRule:
     guidance: str | None = None
 
     @classmethod
-    def from_dict(cls, raw: dict[str, Any]) -> "RefactorRule":
+    def from_dict(cls, raw: dict[str, Any]) -> RefactorRule:
         if "id" not in raw or "description" not in raw:
             raise ValueError("Each refactor rule must include 'id' and 'description'")
         severity = raw.get("severity", "medium").lower()
@@ -115,12 +111,24 @@ class RefactorProfile:
     refactor_name: str
     description: str
     version: str | None
-    rules: list["RefactorRule"]
+    rules: list[RefactorRule]
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
-    def load(cls, path: Path) -> "RefactorProfile":
+    def load(cls, path: Path) -> RefactorProfile:
+        """Load profile from a YAML file path."""
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+        return cls._from_dict(data)
+
+    @classmethod
+    def load_from_string(cls, yaml_text: str) -> RefactorProfile:
+        """Load profile from a YAML string (no temp file needed)."""
+        data = yaml.safe_load(yaml_text)
+        return cls._from_dict(data)
+
+    @classmethod
+    def _from_dict(cls, data: dict | None) -> RefactorProfile:
+        """Internal: Create profile from parsed YAML dict."""
         if not isinstance(data, dict):
             raise ValueError("Refactor profile must be a YAML mapping")
         name = data.get("refactor_name") or data.get("context_name")
@@ -183,7 +191,7 @@ class ProfileEvaluation:
     """Full evaluation summary for a profile."""
 
     profile: RefactorProfile
-    rule_results: list["RuleResult"]
+    rule_results: list[RuleResult]
 
     def total_violations(self) -> int:
         return sum(len(rule.violations) for rule in self.rule_results)
@@ -209,26 +217,40 @@ class _SourceQuery:
     context_field: str | None = None
 
 
-IDENTIFIER_SOURCES: tuple["_SourceQuery", ...] = (
+IDENTIFIER_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("symbols", "name", "path", "line", "symbols", "type"),
     _SourceQuery("symbols_jsx", "name", "path", "line", "symbols_jsx", "type"),
     _SourceQuery("variable_usage", "variable_name", "file", "line", "variable_usage", "usage_type"),
     _SourceQuery("assignments", "target_var", "file", "line", "assignments", "source_expr"),
-    _SourceQuery("function_call_args", "callee_function", "file", "line", "function_call_args", "caller_function"),
+    _SourceQuery(
+        "function_call_args",
+        "callee_function",
+        "file",
+        "line",
+        "function_call_args",
+        "caller_function",
+    ),
 )
 
-EXPRESSION_SOURCES: tuple["_SourceQuery", ...] = (
+EXPRESSION_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("assignments", "source_expr", "file", "line", "assignments"),
-    _SourceQuery("function_call_args", "argument_expr", "file", "line", "function_call_args", "callee_function"),
+    _SourceQuery(
+        "function_call_args",
+        "argument_expr",
+        "file",
+        "line",
+        "function_call_args",
+        "callee_function",
+    ),
     _SourceQuery("sql_queries", "query_text", "file_path", "line_number", "sql_queries", "command"),
     _SourceQuery("api_endpoints", "path", "file", "line", "api_endpoints", "method"),
 )
 
-SQL_TABLE_SOURCES: tuple["_SourceQuery", ...] = (
+SQL_TABLE_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("sql_query_tables", "table_name", "query_file", "query_line", "sql_query_tables"),
 )
 
-API_ROUTE_SOURCES: tuple["_SourceQuery", ...] = (
+API_ROUTE_SOURCES: tuple[_SourceQuery, ...] = (
     _SourceQuery("api_endpoints", "path", "file", "line", "api_endpoints", "method"),
 )
 
@@ -249,18 +271,20 @@ class RefactorRuleEngine:
             self.conn.close()
             self.conn = None
 
-    def __enter__(self) -> "RefactorRuleEngine":
+    def __enter__(self) -> RefactorRuleEngine:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
 
-    def evaluate(self, profile: RefactorProfile) -> "ProfileEvaluation":
-        results: list["RuleResult"] = []
+    def evaluate(self, profile: RefactorProfile) -> ProfileEvaluation:
+        results: list[RuleResult] = []
         for rule in profile.rules:
             violations = self._run_spec(rule.match, rule.scope)
             expected = self._run_spec(rule.expect, rule.scope) if not rule.expect.is_empty() else []
-            results.append(RuleResult(rule=rule, violations=violations, expected_references=expected))
+            results.append(
+                RuleResult(rule=rule, violations=violations, expected_references=expected)
+            )
         return ProfileEvaluation(profile=profile, rule_results=results)
 
     def _run_spec(self, spec: PatternSpec, scope: dict[str, list[str]]) -> list[dict[str, Any]]:
@@ -278,15 +302,42 @@ class RefactorRuleEngine:
     def _query_sources(
         self,
         terms: Sequence[str],
-        sources: tuple["_SourceQuery", ...],
+        sources: tuple[_SourceQuery, ...],
         scope: dict[str, list[str]],
     ) -> list[dict[str, Any]]:
+        """Query sources with batched SQL and regex boundary filtering."""
+        if not terms:
+            return []
+
         cursor = self.conn.cursor()
         results: list[dict[str, Any]] = []
         seen: set = set()
-        for term in terms:
-            like_term = self._prepare_like_term(term)
+
+        unique_terms = list(dict.fromkeys(terms))
+
+        term_patterns = {}
+        for term in unique_terms:
+            if term.startswith("/") and term.endswith("/") and len(term) > 2:
+                raw_pattern = term[1:-1]
+                try:
+                    term_patterns[term] = re.compile(raw_pattern, re.IGNORECASE)
+                except re.error:
+                    term_patterns[term] = re.compile(re.escape(term), re.IGNORECASE)
+            else:
+                term_patterns[term] = re.compile(rf"\b{re.escape(term)}\b", re.IGNORECASE)
+
+        for chunk in self._chunk_list(unique_terms, BATCH_SIZE):
+            like_params = []
+            for t in chunk:
+                if t.startswith("/") and t.endswith("/") and len(t) > 2:
+                    core = t[1:-1].replace(".*", "").replace("\\.", ".")
+                    like_params.append(f"%{core}%")
+                else:
+                    like_params.append(f"%{t}%")
+
             for source in sources:
+                or_clauses = " OR ".join([f"{source.column} LIKE ? COLLATE NOCASE"] * len(chunk))
+
                 query = (
                     f"SELECT {source.file_field} AS file_path, "
                     f"{source.line_field} AS line_number, "
@@ -296,22 +347,37 @@ class RefactorRuleEngine:
                     query += f", {source.context_field} AS context_value"
                 query += (
                     f" FROM {source.table} "
-                    f"WHERE {source.column} LIKE ? COLLATE NOCASE "
+                    f"WHERE ({or_clauses}) "
+                    f"ORDER BY {source.file_field}, {source.line_field} "
                     f"LIMIT {MAX_RESULTS_PER_QUERY}"
                 )
-                cursor.execute(query, (like_term,))
+
+                cursor.execute(query, like_params)
+
                 for row in cursor.fetchall():
                     file_raw = row["file_path"]
                     file_path = _normalize_path(file_raw, self.repo_root)
                     if not file_path or not self._in_scope(file_path, scope):
                         continue
-                    line = row["line_number"] or 0
+
                     match_value = row["match_value"] or ""
+
+                    matched_term = None
+                    for term in chunk:
+                        if term_patterns[term].search(match_value):
+                            matched_term = term
+                            break
+
+                    if not matched_term:
+                        continue
+
+                    line = row["line_number"] or 0
                     context_value = row["context_value"] if source.context_field else None
                     signature = (file_path, line, source.label, match_value)
                     if signature in seen:
                         continue
                     seen.add(signature)
+
                     results.append(
                         {
                             "file": file_path,
@@ -319,20 +385,33 @@ class RefactorRuleEngine:
                             "source": source.label,
                             "match": match_value,
                             "context": context_value,
-                            "term": term,
+                            "term": matched_term,
                         }
                     )
-        return results
+
+        return sorted(results, key=lambda x: (x["file"], x["line"], x["match"]))
+
+    @staticmethod
+    def _chunk_list(data: Sequence, size: int):
+        """Yield successive chunks of data."""
+        for i in range(0, len(data), size):
+            yield data[i : i + size]
 
     @staticmethod
     def _prepare_like_term(term: str) -> str:
         """Prepare LIKE pattern (simple wildcard search)."""
         return f"%{term}%"
 
+    def _in_scope(self, file_path: str, scope: dict[str, list[str]]) -> bool:
+        """Check if file matches scope. Delegates to cached method with hashable args."""
+        includes = tuple(scope.get("include") or [])
+        excludes = tuple(scope.get("exclude") or [])
+        return self._in_scope_cached(file_path, includes, excludes)
+
     @staticmethod
-    def _in_scope(file_path: str, scope: dict[str, list[str]]) -> bool:
-        includes = scope.get("include") or []
-        excludes = scope.get("exclude") or []
+    @functools.lru_cache(maxsize=10000)
+    def _in_scope_cached(file_path: str, includes: tuple, excludes: tuple) -> bool:
+        """Cached scope check with hashable tuple args."""
         if excludes and any(fnmatch.fnmatch(file_path, pattern) for pattern in excludes):
             return False
         if includes:

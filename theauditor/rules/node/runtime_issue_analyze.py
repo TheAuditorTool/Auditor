@@ -1,613 +1,641 @@
-"""Golden Standard Node.js Runtime Security Analyzer.
+"""Node.js runtime security analyzer - detects injection vulnerabilities.
 
-Detects runtime security vulnerabilities in JavaScript/TypeScript via database analysis.
-Demonstrates database-aware rule pattern using finite pattern matching.
+Detects:
+- Command injection (exec/spawn with user input)
+- Prototype pollution (merge/extend with user data)
+- Eval injection (eval/Function with user input)
+- Path traversal (file ops with unsanitized paths)
+- Unsafe regex (ReDoS from user-constructed patterns)
 
-MIGRATION STATUS: Golden Standard Implementation [2024-12-29]
-Signature: context: StandardRuleContext -> List[StandardFinding]
-Schema Contract Compliance: v1.1+ (Fail-Fast, Uses build_query())
+CWE-78: OS Command Injection
+CWE-1321: Improperly Controlled Modification of Object Prototype
+CWE-94: Improper Control of Generation of Code
+CWE-22: Path Traversal
+CWE-1333: Inefficient Regular Expression Complexity
 """
 
-
-import json
-import sqlite3
-from dataclasses import dataclass
-from typing import List, Dict, Any, Optional
-from pathlib import Path
-
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-from theauditor.indexer.schema import build_query
-
-
-# ============================================================================
-# RULE METADATA - SMART FILTERING
-# ============================================================================
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="runtime_issues",
     category="node",
-
-    # Target JavaScript/TypeScript files only (Node.js runtime)
-    target_extensions=['.js', '.ts', '.jsx', '.tsx', '.mjs', '.cjs'],
-
-    # Exclude patterns - skip frontend React/Vue, tests, build, TheAuditor folders
+    target_extensions=[".js", ".ts", ".jsx", ".tsx", ".mjs", ".cjs"],
     exclude_patterns=[
-        '__tests__/',
-        'test/',
-        'tests/',
-        'node_modules/',
-        'dist/',
-        'build/',
-        '.next/',
-        'frontend/',
-        'client/',
-        'migrations/',
-        '.pf/',              # TheAuditor output directory
-        '.auditor_venv/'     # TheAuditor sandboxed tools
+        "__tests__/",
+        "test/",
+        "tests/",
+        "spec/",
+        "node_modules/",
+        "dist/",
+        "build/",
+        ".next/",
+        "frontend/",
+        "client/",
+        "migrations/",
+        ".pf/",
+        ".auditor_venv/",
     ],
-
-    # This is a DATABASE-ONLY rule (no JSX required)
-    requires_jsx_pass=False
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
 
-# ============================================================================
-# PATTERN CONFIGURATION - Finite Pattern Sets
-# ============================================================================
-
-@dataclass(frozen=True)
-class RuntimePatterns:
-    """Configuration for Node.js runtime security patterns."""
-
-    # User input sources that are taint sources
-    USER_INPUT_SOURCES = frozenset([
-        'req.body', 'req.query', 'req.params', 'req.headers', 'req.cookies',
-        'request.body', 'request.query', 'request.params', 'request.headers',
-        'process.argv', 'process.env', 'location.search', 'location.hash',
-        'window.location', 'document.location', 'URLSearchParams'
-    ])
-
-    # Command execution functions
-    EXEC_FUNCTIONS = frozenset([
-        'exec', 'execSync', 'execFile', 'execFileSync',
-        'spawn', 'spawnSync', 'fork', 'execCommand',
-        'child_process.exec', 'child_process.spawn'
-    ])
-
-    # Object manipulation functions prone to pollution
-    MERGE_FUNCTIONS = frozenset([
-        'Object.assign', 'merge', 'extend', 'deepMerge',
-        'mergeDeep', 'mergeRecursive', '_.merge', '_.extend',
-        'lodash.merge', 'jQuery.extend', '$.extend'
-    ])
-
-    # Dangerous evaluation functions
-    EVAL_FUNCTIONS = frozenset([
-        'eval', 'Function', 'setTimeout', 'setInterval',
-        'setImmediate', 'execScript', 'scriptElement.text',
-        'scriptElement.textContent', 'scriptElement.innerText'
-    ])
-
-    # File system operations
-    FILE_OPERATIONS = frozenset([
-        'readFile', 'readFileSync', 'writeFile', 'writeFileSync',
-        'createReadStream', 'createWriteStream', 'open', 'openSync',
-        'access', 'accessSync', 'stat', 'statSync', 'unlink', 'unlinkSync',
-        'mkdir', 'mkdirSync', 'rmdir', 'rmdirSync', 'readdir', 'readdirSync'
-    ])
-
-    # Path manipulation functions (safe)
-    PATH_SAFE_FUNCTIONS = frozenset([
-        'path.join', 'path.resolve', 'path.normalize',
-        'path.basename', 'path.dirname', 'path.relative'
-    ])
-
-    # Prototype pollution dangerous keys
-    DANGEROUS_KEYS = frozenset([
-        '__proto__', 'constructor', 'prototype',
-        '__defineGetter__', '__defineSetter__',
-        '__lookupGetter__', '__lookupSetter__'
-    ])
-
-    # Validation functions for prototype pollution
-    VALIDATION_FUNCTIONS = frozenset([
-        'hasOwnProperty', 'hasOwn', 'Object.hasOwn',
-        'Object.prototype.hasOwnProperty', 'propertyIsEnumerable'
-    ])
-
-    # Template literal indicators
-    TEMPLATE_INDICATORS = frozenset([
-        '${', '`', 'template', 'interpolation'
-    ])
+USER_INPUT_SOURCES: frozenset[str] = frozenset(
+    [
+        "req.body",
+        "req.query",
+        "req.params",
+        "req.headers",
+        "req.cookies",
+        "req.files",
+        "request.body",
+        "request.query",
+        "request.params",
+        "request.headers",
+        "ctx.request.body",
+        "ctx.query",
+        "ctx.params",
+        "ctx.request.query",
+        "request.body",
+        "request.query",
+        "request.params",
+        "socket.handshake.query",
+        "socket.handshake.auth",
+        "message.data",
+        "event.body",
+        "event.queryStringParameters",
+        "event.pathParameters",
+        "event.headers",
+        "process.argv",
+        "process.env",
+        "location.search",
+        "location.hash",
+        "location.pathname",
+        "window.location",
+        "document.location",
+        "URLSearchParams",
+        "document.referrer",
+    ]
+)
 
 
-# ============================================================================
-# MAIN ENTRY POINT (Orchestrator Pattern)
-# ============================================================================
+EXEC_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "exec",
+        "execSync",
+        "execFile",
+        "execFileSync",
+        "spawn",
+        "spawnSync",
+        "fork",
+        "execCommand",
+        "child_process.exec",
+        "child_process.spawn",
+        "child_process.execSync",
+        "child_process.spawnSync",
+        "shelljs.exec",
+        "execa",
+    ]
+)
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
+
+MERGE_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "Object.assign",
+        "merge",
+        "extend",
+        "deepMerge",
+        "mergeDeep",
+        "mergeRecursive",
+        "_.merge",
+        "_.extend",
+        "_.defaultsDeep",
+        "lodash.merge",
+        "jQuery.extend",
+        "$.extend",
+    ]
+)
+
+
+EVAL_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "eval",
+        "Function",
+        "setTimeout",
+        "setInterval",
+        "setImmediate",
+        "execScript",
+        "vm.runInContext",
+        "vm.runInNewContext",
+        "vm.runInThisContext",
+        "new Function",
+    ]
+)
+
+
+FILE_OPERATIONS: frozenset[str] = frozenset(
+    [
+        "readFile",
+        "readFileSync",
+        "writeFile",
+        "writeFileSync",
+        "createReadStream",
+        "createWriteStream",
+        "open",
+        "openSync",
+        "access",
+        "accessSync",
+        "stat",
+        "statSync",
+        "unlink",
+        "unlinkSync",
+        "mkdir",
+        "mkdirSync",
+        "rmdir",
+        "rmdirSync",
+        "readdir",
+        "readdirSync",
+        "fs.readFile",
+        "fs.writeFile",
+        "fs.unlink",
+    ]
+)
+
+
+PATH_SAFE_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "path.join",
+        "path.normalize",
+        "path.basename",
+    ]
+)
+
+
+DANGEROUS_KEYS: frozenset[str] = frozenset(
+    [
+        "__proto__",
+        "constructor",
+        "prototype",
+        "__defineGetter__",
+        "__defineSetter__",
+        "__lookupGetter__",
+        "__lookupSetter__",
+    ]
+)
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Node.js runtime security issues.
 
-    This is the main entry point called by the orchestrator.
-
     Args:
-        context: Standardized rule context with project metadata
+        context: Standard rule context with db_path
 
     Returns:
-        List of runtime security findings
+        RuleResult with findings and fidelity manifest
     """
-    analyzer = RuntimeAnalyzer(context)
-    return analyzer.analyze()
+    findings: list[StandardFinding] = []
+
+    if not context.db_path:
+        return RuleResult(findings=findings, manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        tainted_vars = _identify_tainted_variables(db)
+
+        findings.extend(_detect_command_injection(db, tainted_vars))
+        findings.extend(_detect_spawn_shell_true(db))
+        findings.extend(_detect_prototype_pollution(db))
+        findings.extend(_detect_eval_injection(db, tainted_vars))
+        findings.extend(_detect_unsafe_regex(db))
+        findings.extend(_detect_path_traversal(db))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-# ============================================================================
-# ANALYZER CLASS
-# ============================================================================
+def _identify_tainted_variables(db: RuleDB) -> dict[str, tuple[str, int, str]]:
+    """Identify variables assigned from user input sources.
 
-class RuntimeAnalyzer:
-    """Main analyzer for Node.js runtime security issues."""
+    Args:
+        db: RuleDB instance
 
-    def __init__(self, context: StandardRuleContext):
-        """Initialize analyzer with context."""
-        self.context = context
-        self.patterns = RuntimePatterns()
-        self.findings: list[StandardFinding] = []
-        self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
-        self.tainted_vars: dict[str, tuple] = {}  # var_name -> (file, line, source)
+    Returns:
+        Dict mapping var_name -> (file, line, source)
+    """
+    tainted: dict[str, tuple[str, int, str]] = {}
 
-    def analyze(self) -> list[StandardFinding]:
-        """Run complete runtime security analysis."""
-        if not self._is_javascript_project():
-            return self.findings
+    rows = db.query(
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
+    )
 
-        # Run all security checks
-        self._detect_command_injection()
-        self._detect_spawn_shell_true()
-        self._detect_prototype_pollution()
-        self._detect_eval_injection()
-        self._detect_unsafe_regex()
-        self._detect_path_traversal()
+    for file, line, var, source in rows:
+        if not source:
+            continue
+        for input_source in USER_INPUT_SOURCES:
+            if input_source in source:
+                tainted[var] = (file, line, input_source)
+                break
 
-        return self.findings
+    return tainted
 
-    def _is_javascript_project(self) -> bool:
-        """Check if this is a JavaScript/TypeScript project."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
 
-            query = build_query('files', ['path'],
-                               where="ext IN ('.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs')")
-            cursor.execute(query)
+def _detect_command_injection(
+    db: RuleDB, tainted_vars: dict[str, tuple[str, int, str]]
+) -> list[StandardFinding]:
+    """Detect command injection vulnerabilities.
 
-            count = len(cursor.fetchall())
-            conn.close()
-            return count > 0
+    Checks for:
+    1. Direct user input in exec/spawn calls
+    2. Tainted variables passed to exec/spawn
+    3. Template literals with user input near exec calls
 
-        except (sqlite3.Error, Exception):
-            return False
+    Args:
+        db: RuleDB instance
+        tainted_vars: Map of tainted variable names
 
-    def _detect_command_injection(self) -> None:
-        """Detect command injection vulnerabilities."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+    Returns:
+        List of command injection findings
+    """
+    findings: list[StandardFinding] = []
 
-            # First, identify tainted variables
-            self._identify_tainted_variables(cursor)
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-            # Check direct exec calls with user input (file filtering handled by METADATA)
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               order_by="file, line")
-            cursor.execute(query)
+    for file, line, func, args in rows:
+        if not args:
+            continue
 
-            for file, line, func, args in cursor.fetchall():
-                # Check if it's an exec function
-                is_exec = False
-                for exec_func in self.patterns.EXEC_FUNCTIONS:
-                    if exec_func in func:
-                        is_exec = True
-                        break
+        is_exec = any(exec_func in func for exec_func in EXEC_FUNCTIONS)
+        if not is_exec:
+            continue
 
-                if is_exec and args:
-                    # Check for user input in arguments
-                    has_user_input = False
-                    found_source = None
+        found_source = None
+        for source in USER_INPUT_SOURCES:
+            if source in args:
+                found_source = source
+                break
 
-                    for source in self.patterns.USER_INPUT_SOURCES:
-                        if source in args:
-                            has_user_input = True
-                            found_source = source
-                            break
+        if not found_source:
+            for var_name in tainted_vars:
+                if var_name in args:
+                    found_source = f"tainted variable '{var_name}'"
+                    break
 
-                    # Check for tainted variables
-                    if not has_user_input:
-                        for var_name in self.tainted_vars:
-                            if var_name in args:
-                                has_user_input = True
-                                found_source = f"tainted variable '{var_name}'"
-                                break
+        if found_source:
+            findings.append(
+                StandardFinding(
+                    rule_name="command-injection",
+                    message=f"Command injection: {func} called with {found_source}",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    snippet=f"{func}({args[:50]}...)" if len(args) > 50 else f"{func}({args})",
+                    cwe_id="CWE-78",
+                )
+            )
 
-                    if has_user_input:
-                        self.findings.append(StandardFinding(
-                            rule_name='command-injection-direct',
-                            message=f'Command injection: {func} with {found_source}',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.CRITICAL,
-                            category='runtime-security',
-                            confidence=Confidence.HIGH,
-                            snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                        ))
+    assignment_rows = db.query(
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
+    )
 
-            # Check for template literals with user input (file filtering handled by METADATA)
-            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                               order_by="file, line")
-            cursor.execute(query)
+    for file, line, _target, expr in assignment_rows:
+        if not ("`" in expr and "$" in expr):
+            continue
 
-            for file, line, target, expr in cursor.fetchall():
-                # Check for template literal patterns in Python
-                if not ('`' in expr and '$' in expr):
-                    continue
+        has_user_input = any(source in expr for source in USER_INPUT_SOURCES)
+        if not has_user_input:
+            continue
 
-                # Check if template contains user input
-                has_user_input = False
-                for source in self.patterns.USER_INPUT_SOURCES:
-                    if source in expr:
-                        has_user_input = True
-                        break
+        nearby_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("file = ?", file)
+            .where("line BETWEEN ? AND ?", line - 5, line + 5)
+        )
 
-                if has_user_input:
-                    # Check if used near exec functions, filter in Python
-                    exec_query = build_query('function_call_args', ['callee_function'],
-                                            where="file = ? AND line BETWEEN ? AND ?")
-                    cursor.execute(exec_query, (file, line - 5, line + 5))
+        near_exec = any(
+            any(exec_func in callee for exec_func in EXEC_FUNCTIONS) for (callee,) in nearby_rows
+        )
 
-                    near_exec = False
-                    for (callee,) in cursor.fetchall():
-                        if 'exec' in callee or 'spawn' in callee:
-                            near_exec = True
-                            break
+        if near_exec:
+            findings.append(
+                StandardFinding(
+                    rule_name="command-injection-template",
+                    message="Template literal with user input near exec function",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="injection",
+                    confidence=Confidence.MEDIUM,
+                    snippet=expr[:80] + "..." if len(expr) > 80 else expr,
+                    cwe_id="CWE-78",
+                )
+            )
 
-                    if near_exec:
-                        self.findings.append(StandardFinding(
-                            rule_name='command-injection-template',
-                            message='Template literal with user input near exec function',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.HIGH,
-                            category='runtime-security',
-                            confidence=Confidence.MEDIUM,
-                            snippet=expr[:80] + '...' if len(expr) > 80 else expr,
-                        ))
+    return findings
 
-            conn.close()
 
-        except (sqlite3.Error, Exception):
-            pass
+def _detect_spawn_shell_true(db: RuleDB) -> list[StandardFinding]:
+    """Detect spawn() with shell:true - command injection vector.
 
-    def _detect_spawn_shell_true(self) -> None:
-        """Detect spawn with shell:true vulnerability."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+    Args:
+        db: RuleDB instance
 
-            # Fetch all function calls, filter in Python
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               order_by="file, line")
-            cursor.execute(query)
+    Returns:
+        List of spawn shell:true findings
+    """
+    findings: list[StandardFinding] = []
 
-            for file, line, callee, args in cursor.fetchall():
-                # Check for spawn functions in Python
-                if 'spawn' not in callee:
-                    continue
-                # Check for shell argument
-                if 'shell' not in args:
-                    continue
-                # Check if shell:true is present
-                if 'shell' in args and 'true' in args:
-                    # Check for user input
-                    has_user_input = False
-                    for source in self.patterns.USER_INPUT_SOURCES:
-                        if source in args:
-                            has_user_input = True
-                            break
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-                    if has_user_input:
-                        self.findings.append(StandardFinding(
-                            rule_name='spawn-shell-true',
-                            message='spawn() with shell:true and user input',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.CRITICAL,
-                            category='runtime-security',
-                            confidence=Confidence.HIGH,
-                            snippet='spawn(..., {shell: true})',
-                        ))
+    for file, line, callee, args in rows:
+        if "spawn" not in callee:
+            continue
+        if not args or "shell" not in args or "true" not in args:
+            continue
 
-            conn.close()
+        has_user_input = any(source in args for source in USER_INPUT_SOURCES)
 
-        except (sqlite3.Error, Exception):
-            pass
+        if has_user_input:
+            findings.append(
+                StandardFinding(
+                    rule_name="spawn-shell-true",
+                    message="spawn() with shell:true and user input enables command injection",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    snippet="spawn(..., {shell: true})",
+                    cwe_id="CWE-78",
+                )
+            )
 
-    def _detect_prototype_pollution(self) -> None:
-        """Detect prototype pollution vulnerabilities."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+    return findings
 
-            # Check Object.assign with spread (file filtering handled by METADATA)
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               order_by="file, line")
-            cursor.execute(query)
 
-            for file, line, func, args in cursor.fetchall():
-                # Check if it's a merge function
-                is_merge = False
-                for merge_func in self.patterns.MERGE_FUNCTIONS:
-                    if merge_func in func:
-                        is_merge = True
-                        break
+def _detect_prototype_pollution(db: RuleDB) -> list[StandardFinding]:
+    """Detect prototype pollution vulnerabilities.
 
-                if is_merge and args:
-                    # Check for spread of user input
-                    if '...' in args:
-                        for source in self.patterns.USER_INPUT_SOURCES:
-                            if source in args:
-                                self.findings.append(StandardFinding(
-                                    rule_name='prototype-pollution-spread',
-                                    message=f'Prototype pollution: {func} with spread of user input',
-                                    file_path=file,
-                                    line=line,
-                                    severity=Severity.HIGH,
-                                    category='runtime-security',
-                                    confidence=Confidence.HIGH,
-                                    snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                                ))
-                                break
+    Checks for:
+    1. Merge/extend functions with spread of user input
+    2. for...in loops without hasOwnProperty validation
+    3. Recursive merge functions without key validation
 
-            # Check for for...in loops without validation (file filtering handled by METADATA)
-            query = build_query('symbols', ['path', 'line', 'name'],
-                               where="name IN ('for', 'in')",
-                               order_by="path, line")
-            cursor.execute(query)
+    Args:
+        db: RuleDB instance
 
-            for file, line, _ in cursor.fetchall():
-                # Check if there's validation nearby
-                val_query = build_query('symbols', ['name'],
-                                       where="path = ? AND line BETWEEN ? AND ? AND name IN ('hasOwnProperty', 'hasOwn', '__proto__', 'constructor')",
-                                       limit=1)
-                cursor.execute(val_query, (file, line, line + 10))
+    Returns:
+        List of prototype pollution findings
+    """
+    findings: list[StandardFinding] = []
 
-                has_validation = cursor.fetchone() is not None
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-                if not has_validation:
-                    self.findings.append(StandardFinding(
-                        rule_name='prototype-pollution-forin',
-                        message='for...in loop without key validation',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.MEDIUM,
-                        category='runtime-security',
-                        confidence=Confidence.LOW,
-                        snippet='for...in without hasOwnProperty check',
-                    ))
+    for file, line, func, args in rows:
+        if not args:
+            continue
 
-            # Check recursive merge patterns (file filtering handled by METADATA)
-            query = build_query('symbols', ['path', 'line', 'name', 'type'],
-                               where="type = 'function'",
-                               order_by="path, line")
-            cursor.execute(query)
+        is_merge = any(merge_func in func for merge_func in MERGE_FUNCTIONS)
+        if not is_merge:
+            continue
 
-            for file, line, func_name, func_type in cursor.fetchall():
-                # Filter for merge/extend functions in Python
-                func_name_lower = func_name.lower()
-                if 'merge' not in func_name_lower and 'extend' not in func_name_lower:
-                    continue
-                # Check if function has recursive calls
-                rec_query = build_query('function_call_args', ['callee_function'],
-                                       where="file = ? AND line > ? AND line < ? AND callee_function = ?",
-                                       limit=1)
-                cursor.execute(rec_query, (file, line, line + 50, func_name))
-
-                has_recursion = cursor.fetchone() is not None
-
-                if has_recursion:
-                    # Check for validation
-                    val_query = build_query('symbols', ['name'],
-                                           where="path = ? AND line BETWEEN ? AND ? AND name IN ('hasOwnProperty', 'hasOwn', '__proto__')",
-                                           limit=1)
-                    cursor.execute(val_query, (file, line, line + 50))
-
-                    has_validation = cursor.fetchone() is not None
-
-                    if not has_validation:
-                        self.findings.append(StandardFinding(
-                            rule_name='prototype-pollution-recursive',
-                            message=f'Recursive {func_name} without key validation',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.MEDIUM,
-                            category='runtime-security',
-                            confidence=Confidence.MEDIUM,
-                            snippet=f'function {func_name}(...) with recursion',
-                        ))
-
-            conn.close()
-
-        except (sqlite3.Error, Exception):
-            pass
-
-    def _detect_eval_injection(self) -> None:
-        """Detect dangerous eval() usage with user input."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            # Fetch all function calls (file filtering handled by METADATA)
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               order_by="file, line")
-            cursor.execute(query)
-
-            for file, line, func, args in cursor.fetchall():
-                # Check if it's an eval function
-                is_eval = False
-                for eval_func in self.patterns.EVAL_FUNCTIONS:
-                    if eval_func in func:
-                        is_eval = True
-                        break
-
-                if is_eval and args:
-                    # Check for user input
-                    has_user_input = False
-                    found_source = None
-
-                    for source in self.patterns.USER_INPUT_SOURCES:
-                        if source in args:
-                            has_user_input = True
-                            found_source = source
-                            break
-
-                    # Also check for generic suspicious patterns
-                    if not has_user_input:
-                        suspicious = ['input', 'data', 'user', 'param', 'query']
-                        for pattern in suspicious:
-                            if pattern in args.lower():
-                                has_user_input = True
-                                found_source = pattern
-                                break
-
-                    if has_user_input:
-                        self.findings.append(StandardFinding(
-                            rule_name='eval-injection',
-                            message=f'Code injection: {func} with {found_source}',
-                            file_path=file,
-                            line=line,
-                            severity=Severity.CRITICAL,
-                            category='runtime-security',
-                            confidence=Confidence.HIGH if found_source in str(self.patterns.USER_INPUT_SOURCES) else Confidence.MEDIUM,
-                            snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                        ))
-
-            conn.close()
-
-        except (sqlite3.Error, Exception):
-            pass
-
-    def _detect_unsafe_regex(self) -> None:
-        """Detect ReDoS vulnerabilities from unsafe regex patterns."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            # Fetch all function calls, filter in Python (file filtering handled by METADATA)
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               order_by="file, line")
-            cursor.execute(query)
-
-            for file, line, func, args in cursor.fetchall():
-                # Check for RegExp functions in Python
-                if func not in ('RegExp', 'new RegExp') and 'RegExp' not in func:
-                    continue
-                if args:
-                    # Check for user input
-                    has_user_input = False
-                    for source in self.patterns.USER_INPUT_SOURCES:
-                        if source in args:
-                            has_user_input = True
-                            break
-
-                    # Check for variable names suggesting user input
-                    if not has_user_input:
-                        suspicious = ['input', 'user', 'search', 'pattern', 'query']
-                        for pattern in suspicious:
-                            if pattern in args.lower():
-                                has_user_input = True
-                                break
-
-                    if has_user_input:
-                        self.findings.append(StandardFinding(
-                            rule_name='unsafe-regex',
-                            message='ReDoS: RegExp constructed from user input',
+        if "..." in args:
+            for source in USER_INPUT_SOURCES:
+                if source in args:
+                    findings.append(
+                        StandardFinding(
+                            rule_name="prototype-pollution-merge",
+                            message=f"Prototype pollution: {func} with spread of user input",
                             file_path=file,
                             line=line,
                             severity=Severity.HIGH,
-                            category='runtime-security',
-                            confidence=Confidence.MEDIUM,
-                            snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                        ))
+                            category="injection",
+                            confidence=Confidence.HIGH,
+                            snippet=f"{func}({args[:50]}...)"
+                            if len(args) > 50
+                            else f"{func}({args})",
+                            cwe_id="CWE-1321",
+                        )
+                    )
+                    break
 
-            conn.close()
+    symbol_rows = db.query(
+        Q("symbols")
+        .select("path", "line", "name")
+        .where("name IN (?, ?)", "for", "in")
+        .order_by("path, line")
+    )
 
-        except (sqlite3.Error, Exception):
-            pass
+    for file, line, _ in symbol_rows:
+        validation_rows = db.query(
+            Q("symbols")
+            .select("name")
+            .where("path = ?", file)
+            .where("line BETWEEN ? AND ?", line, line + 10)
+            .where("name IN (?, ?, ?, ?)", "hasOwnProperty", "hasOwn", "__proto__", "constructor")
+            .limit(1)
+        )
 
-    def _detect_path_traversal(self) -> None:
-        """Detect path traversal vulnerabilities."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+        has_validation = len(validation_rows) > 0
 
-            # Fetch all function calls (file filtering handled by METADATA)
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               order_by="file, line")
-            cursor.execute(query)
+        if not has_validation:
+            findings.append(
+                StandardFinding(
+                    rule_name="prototype-pollution-forin",
+                    message="for...in loop without hasOwnProperty check may enable prototype pollution",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.LOW,
+                    category="injection",
+                    confidence=Confidence.LOW,
+                    snippet="for...in without hasOwnProperty check",
+                    cwe_id="CWE-1321",
+                )
+            )
 
-            for file, line, func, args in cursor.fetchall():
-                # Check if it's a file operation
-                is_file_op = False
-                for file_op in self.patterns.FILE_OPERATIONS:
-                    if file_op in func:
-                        is_file_op = True
-                        break
+    return findings
 
-                if is_file_op and args:
-                    # Check for user input
-                    has_user_input = False
-                    for source in self.patterns.USER_INPUT_SOURCES:
-                        if source in args:
-                            has_user_input = True
-                            break
 
-                    if has_user_input:
-                        # Check if path is properly sanitized
-                        has_sanitization = False
-                        for safe_func in self.patterns.PATH_SAFE_FUNCTIONS:
-                            if safe_func in args:
-                                has_sanitization = True
-                                break
+def _detect_eval_injection(
+    db: RuleDB, tainted_vars: dict[str, tuple[str, int, str]]
+) -> list[StandardFinding]:
+    """Detect dangerous eval() usage with user input.
 
-                        if not has_sanitization:
-                            self.findings.append(StandardFinding(
-                                rule_name='path-traversal',
-                                message=f'Path traversal: {func} with user input',
-                                file_path=file,
-                                line=line,
-                                severity=Severity.HIGH,
-                                category='runtime-security',
-                                confidence=Confidence.HIGH,
-                                snippet=f'{func}({args[:50]}...)' if len(args) > 50 else f'{func}({args})',
-                            ))
+    Args:
+        db: RuleDB instance
+        tainted_vars: Map of tainted variable names
 
-            conn.close()
+    Returns:
+        List of eval injection findings
+    """
+    findings: list[StandardFinding] = []
 
-        except (sqlite3.Error, Exception):
-            pass
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-    def _identify_tainted_variables(self, cursor) -> None:
-        """Identify variables assigned from user input sources."""
-        try:
-            # Find assignments from user input (file filtering handled by METADATA)
-            query = build_query('assignments', ['file', 'line', 'target_var', 'source_expr'],
-                               order_by="file, line")
-            cursor.execute(query)
+    for file, line, func, args in rows:
+        if not args:
+            continue
 
-            for file, line, var, source in cursor.fetchall():
-                # Check if source contains user input
-                for input_source in self.patterns.USER_INPUT_SOURCES:
-                    if input_source in source:
-                        self.tainted_vars[var] = (file, line, input_source)
-                        break
+        is_eval = any(eval_func in func for eval_func in EVAL_FUNCTIONS)
+        if not is_eval:
+            continue
 
-        except (sqlite3.Error, Exception):
-            pass
+        found_source = None
+        confidence = Confidence.HIGH
+
+        for source in USER_INPUT_SOURCES:
+            if source in args:
+                found_source = source
+                break
+
+        if not found_source:
+            for var_name in tainted_vars:
+                if var_name in args:
+                    found_source = f"tainted variable '{var_name}'"
+                    break
+
+        if not found_source:
+            suspicious = ["input", "data", "user", "param", "query", "code", "script"]
+            for pattern in suspicious:
+                if pattern in args.lower():
+                    found_source = f"suspicious parameter '{pattern}'"
+                    confidence = Confidence.MEDIUM
+                    break
+
+        if found_source:
+            findings.append(
+                StandardFinding(
+                    rule_name="eval-injection",
+                    message=f"Code injection: {func} called with {found_source}",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    confidence=confidence,
+                    snippet=f"{func}({args[:50]}...)" if len(args) > 50 else f"{func}({args})",
+                    cwe_id="CWE-94",
+                )
+            )
+
+    return findings
+
+
+def _detect_unsafe_regex(db: RuleDB) -> list[StandardFinding]:
+    """Detect ReDoS vulnerabilities from user-constructed regex.
+
+    Args:
+        db: RuleDB instance
+
+    Returns:
+        List of unsafe regex findings
+    """
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        if "RegExp" not in func:
+            continue
+        if not args:
+            continue
+
+        has_user_input = any(source in args for source in USER_INPUT_SOURCES)
+
+        if not has_user_input:
+            suspicious = ["input", "user", "search", "pattern", "query", "filter"]
+            has_user_input = any(pattern in args.lower() for pattern in suspicious)
+
+        if has_user_input:
+            findings.append(
+                StandardFinding(
+                    rule_name="unsafe-regex",
+                    message="ReDoS risk: RegExp constructed from user input",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="denial-of-service",
+                    confidence=Confidence.MEDIUM,
+                    snippet=f"{func}({args[:50]}...)" if len(args) > 50 else f"{func}({args})",
+                    cwe_id="CWE-1333",
+                )
+            )
+
+    return findings
+
+
+def _detect_path_traversal(db: RuleDB) -> list[StandardFinding]:
+    """Detect path traversal vulnerabilities.
+
+    Args:
+        db: RuleDB instance
+
+    Returns:
+        List of path traversal findings
+    """
+    findings: list[StandardFinding] = []
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        if not args:
+            continue
+
+        is_file_op = any(file_op in func for file_op in FILE_OPERATIONS)
+        if not is_file_op:
+            continue
+
+        has_user_input = any(source in args for source in USER_INPUT_SOURCES)
+        if not has_user_input:
+            continue
+
+        has_sanitization = any(safe_func in args for safe_func in PATH_SAFE_FUNCTIONS)
+
+        if not has_sanitization:
+            findings.append(
+                StandardFinding(
+                    rule_name="path-traversal",
+                    message=f"Path traversal: {func} with unsanitized user input",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    snippet=f"{func}({args[:50]}...)" if len(args) > 50 else f"{func}({args})",
+                    cwe_id="CWE-22",
+                )
+            )
+
+    return findings

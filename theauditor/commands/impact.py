@@ -1,22 +1,38 @@
 """Analyze the impact radius of code changes using the AST symbol graph."""
 
 import platform
-import click
 from pathlib import Path
 
-# Detect if running on Windows for character encoding
+import click
+
+from theauditor.cli import RichCommand
+from theauditor.pipeline.ui import console, err_console
+
 IS_WINDOWS = platform.system() == "Windows"
 
 
-@click.command()
-@click.option("--file", required=True, help="Path to the file containing the code to analyze")
-@click.option("--line", required=True, type=int, help="Line number of the code to analyze")
+@click.command(cls=RichCommand)
+@click.option("--file", default=None, help="Path to the file containing the code to analyze")
+@click.option("--line", default=None, type=int, help="Line number of the code to analyze")
+@click.option(
+    "--symbol", default=None, help="Symbol name to analyze (alternative to --file --line)"
+)
 @click.option("--db", default=None, help="Path to the SQLite database (default: repo_index.db)")
 @click.option("--json", is_flag=True, help="Output results as JSON")
+@click.option(
+    "--planning-context",
+    "planning_context",
+    is_flag=True,
+    help="Output in planning-friendly format with risk categories",
+)
 @click.option("--max-depth", default=2, type=int, help="Maximum depth for transitive dependencies")
 @click.option("--verbose", is_flag=True, help="Show detailed dependency information")
-@click.option("--trace-to-backend", is_flag=True, help="Trace frontend API calls to backend endpoints (cross-stack analysis)")
-def impact(file, line, db, json, max_depth, verbose, trace_to_backend):
+@click.option(
+    "--trace-to-backend",
+    is_flag=True,
+    help="Trace frontend API calls to backend endpoints (cross-stack analysis)",
+)
+def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, trace_to_backend):
     """Analyze the blast radius of code changes.
 
     Maps the complete impact of changing a specific function or class by
@@ -24,44 +40,67 @@ def impact(file, line, db, json, max_depth, verbose, trace_to_backend):
     depends on) dependencies. Essential for understanding risk before
     refactoring or making changes.
 
+    INPUT OPTIONS (choose one):
+      --symbol NAME     Query by symbol name (recommended for planning)
+      --file PATH       Query by file path
+      --file + --line   Query exact location
+
     Impact Analysis Reveals:
       - Upstream: All code that calls or imports this function/class
       - Downstream: All code that this function/class depends on
-      - Transitive: Multi-hop dependencies (A→B→C)
+      - Transitive: Multi-hop dependencies (A->B->C)
       - Cross-stack: Frontend API calls traced to backend endpoints
+      - Coupling Score: 0-100 metric for entanglement (--planning-context)
 
     Risk Levels:
-      Low Impact:    < 5 affected files
-      Medium Impact: 5-20 affected files
-      High Impact:   > 20 affected files (exit code 1)
+      Low Impact:    <10 affected files, coupling <30
+      Medium Impact: 10-30 affected files, coupling 30-70
+      High Impact:   >30 affected files, coupling >70 (exit code 1)
 
     Examples:
+      # By symbol name (recommended)
+      aud impact --symbol AuthManager
+      aud impact --symbol "process_*" --planning-context
+
+      # By file (analyzes first symbol)
+      aud impact --file auth.py
+
+      # By exact location
       aud impact --file src/auth.py --line 42
       aud impact --file api/user.py --line 100 --verbose
+
+      # Cross-stack tracing
       aud impact --file src/utils.js --line 50 --trace-to-backend
-      aud impact --file database.py --line 200 --max-depth 3
 
-    Common Use Cases:
-      Before refactoring:
-        aud impact --file old_module.py --line 1
+    PLANNING WORKFLOW INTEGRATION:
 
-      Evaluating API changes:
-        aud impact --file api/endpoints.py --line 150 --trace-to-backend
+      Before creating a plan:
+        aud impact --symbol TargetClass --planning-context
+        aud planning init --name "Refactor TargetClass"
 
-      Finding dead code:
-        aud impact --file utils.py --line 300
-        # If upstream is empty, code might be unused
+      Pre-refactor checklist:
+        aud deadcode | grep target.py
+        aud impact --file target.py --planning-context
 
-    Output:
-      Default: Human-readable impact report
-      --json:  Machine-readable JSON for CI/CD integration
+      Coupling score interpretation:
+        <30  LOW    - Safe to refactor with minimal coordination
+        30-70 MEDIUM - Review callers, consider phased rollout
+        >70  HIGH   - Extract interface before refactoring
 
-    Report Includes:
-      - Direct callers and callees
-      - Affected test files
-      - Total impact radius
-      - Risk assessment
-      - File-level summary
+    SLASH COMMAND INTEGRATION:
+
+      This command is used by:
+        /theauditor:planning - Step 3 (impact assessment)
+        /theauditor:refactor - Step 5 (blast radius check)
+
+    Output Modes:
+      Default:            Human-readable impact report
+      --json:             Machine-readable JSON for CI/CD
+      --planning-context: Planning-friendly format with:
+                          - Coupling score (0-100)
+                          - Dependency categories (prod/test/config)
+                          - Suggested phases for incremental changes
+                          - Risk recommendations
 
     Exit Codes:
       0 = Low impact change
@@ -69,124 +108,273 @@ def impact(file, line, db, json, max_depth, verbose, trace_to_backend):
       3 = Analysis error
 
     AI ASSISTANT CONTEXT:
-      Purpose: Measure blast radius of code changes
+      Purpose: Measure blast radius + coupling for change planning
       Input: .pf/repo_index.db (symbol table and call graph)
-      Output: Impact report (stdout) or JSON (with --json flag)
-      Prerequisites: aud index (populates symbol table and refs)
-      Integration: Pre-refactoring risk assessment, change planning
+      Output: Impact report, planning context, or JSON
+      Prerequisites: aud full (populates symbol table and refs)
+      Integration: Pre-refactoring risk assessment, planning agent
       Performance: ~1-5 seconds (graph traversal)
 
     FLAG INTERACTIONS:
+      --symbol: Resolves to file:line automatically from database
+      --planning-context: Outputs coupling score, categories, phases
       --json + --verbose: Detailed JSON with transitive dependencies
-      --trace-to-backend: Enables full-stack tracing (frontend→backend API calls)
-      --max-depth: Controls transitive depth (higher = slower but more complete)
+      --trace-to-backend: Full-stack tracing (frontend->backend API calls)
+      --max-depth: Controls transitive depth (higher = slower)
 
     TROUBLESHOOTING:
-      "Database not found" error:
-        Solution: Run 'aud index' first to build repo_index.db
+      "Must provide either --symbol or --file":
+        Solution: Use --symbol NAME or --file PATH
 
-      "Symbol not found" at line:
-        Cause: Line number doesn't contain a function/class definition
-        Solution: Provide line number of def/class statement
+      "Symbol not found":
+        Solution: Run 'aud query --pattern "name%"' to find similar
 
-      Empty upstream (no callers):
-        Meaning: Code might be dead/unused
-        Action: Consider removing if truly unused
+      "Ambiguous symbol - multiple matches":
+        Solution: Use --file and --line to specify exact location
 
-      Very high impact (>100 files):
-        Cause: Utility function used everywhere
-        Action: Be very careful with changes, add tests
+      Very high coupling (>70):
+        Meaning: Tightly coupled, risky to change
+        Action: Extract interface first, then refactor
 
-      Slow analysis (>30 seconds):
-        Cause: Very high --max-depth on large codebase
-        Solution: Reduce --max-depth to 2 or 3
+    SEE ALSO:
+      aud manual impact       Learn about blast radius analysis
+      aud manual refactor     Detect incomplete refactorings
 
-    Note: Requires 'aud index' to be run first."""
-    from theauditor.impact_analyzer import analyze_impact, format_impact_report
-    from theauditor.config_runtime import load_runtime_config
+    Note: Requires 'aud full' to be run first."""
+
     import json as json_lib
-    
-    # Load configuration for default paths
-    config = load_runtime_config(".")
-    
-    # Use default database path if not provided
+    import sqlite3
+
+    from theauditor.commands.config import DB_PATH
+    from theauditor.MachineL.impact_analyzer import (
+        analyze_impact,
+        format_impact_report,
+        format_planning_context,
+    )
+
     if db is None:
-        db = config["paths"]["db"]
-    
-    # Verify database exists
+        db = DB_PATH
+
     db_path = Path(db)
     if not db_path.exists():
-        click.echo(f"Error: Database not found at {db}", err=True)
-        click.echo("Run 'aud full' first to build the repository index", err=True)
+        err_console.print(f"[error]Error: Database not found at {db}[/error]", highlight=False)
+        err_console.print(
+            "[error]Run 'aud full' first to build the repository index[/error]",
+        )
         raise click.ClickException(f"Database not found: {db}")
-    
-    # Verify file exists (helpful for user)
-    file = Path(file)
+
+    if symbol is None and file is None:
+        raise click.ClickException(
+            "Must provide either --symbol or --file.\n"
+            "Examples:\n"
+            "  aud impact --symbol AuthManager\n"
+            "  aud impact --file auth.py --line 42\n"
+            "  aud impact --file auth.py  (analyzes all symbols in file)"
+        )
+
+    if symbol:
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.cursor()
+
+            if "%" in symbol or "*" in symbol:
+                pattern = symbol.replace("*", "%")
+                cursor.execute(
+                    """
+                    SELECT name, path, line, type
+                    FROM symbols
+                    WHERE name LIKE ? AND type IN ('function', 'class')
+                    ORDER BY path, line
+                """,
+                    (pattern,),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT name, path, line, type
+                    FROM symbols
+                    WHERE name = ? AND type IN ('function', 'class')
+                    ORDER BY path, line
+                """,
+                    (symbol,),
+                )
+
+            results = cursor.fetchall()
+
+            if not results:
+                raise click.ClickException(
+                    f"Symbol '{symbol}' not found in database.\n"
+                    "Hints:\n"
+                    "  - Run 'aud full' to rebuild the index\n"
+                    "  - Use 'aud query --pattern \"{symbol}%\"' to find similar symbols\n"
+                    "  - Class methods are indexed as ClassName.methodName"
+                )
+
+            if len(results) == 1:
+                sym_name, sym_path, sym_line, sym_type = results[0]
+                file = sym_path
+                line = sym_line
+                err_console.print(
+                    f"[error]Resolved: {sym_name} ({sym_type}) at {sym_path}:{sym_line}[/error]",
+                    highlight=False,
+                )
+            else:
+                err_console.print(
+                    f"[error]Found {len(results)} symbols matching '{symbol}':[/error]",
+                    highlight=False,
+                )
+                for i, (name, path, ln, typ) in enumerate(results[:10], 1):
+                    err_console.print(
+                        f"[error]  {i}. {name} ({typ}) at {path}:{ln}[/error]",
+                        highlight=False,
+                    )
+                if len(results) > 10:
+                    err_console.print(
+                        f"[error]  ... and {len(results) - 10} more[/error]",
+                        highlight=False,
+                    )
+                err_console.print(
+                    "[error][/error]",
+                )
+                err_console.print(
+                    "[error]Use --file and --line to specify exact location, or refine pattern.[/error]",
+                )
+                raise click.ClickException("Ambiguous symbol - multiple matches found")
+
+    if file and line is None:
+        file_path = Path(file).as_posix()
+        if file_path.startswith("./"):
+            file_path = file_path[2:]
+
+        with sqlite3.connect(str(db_path)) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT name, line, type
+                FROM symbols
+                WHERE path = ? AND type IN ('function', 'class')
+                ORDER BY line
+            """,
+                (file_path,),
+            )
+            file_symbols = cursor.fetchall()
+
+            if not file_symbols:
+                cursor.execute(
+                    """
+                    SELECT name, line, type
+                    FROM symbols
+                    WHERE path LIKE ? AND type IN ('function', 'class')
+                    ORDER BY line
+                """,
+                    (f"%{file_path}",),
+                )
+                file_symbols = cursor.fetchall()
+
+            if not file_symbols:
+                raise click.ClickException(
+                    f"No functions or classes found in '{file}'.\n"
+                    "Ensure the file has been indexed with 'aud full'."
+                )
+
+            sym_name, sym_line, sym_type = file_symbols[0]
+            line = sym_line
+            err_console.print(
+                f"[error]Analyzing file from first symbol: {sym_name} ({sym_type}) at line {sym_line}[/error]",
+                highlight=False,
+            )
+            err_console.print(
+                f"[error]File contains {len(file_symbols)} symbols total[/error]",
+                highlight=False,
+            )
+
+    if isinstance(file, str):
+        file = Path(file)
+
     if not file.exists():
-        click.echo(f"Warning: File {file} not found in filesystem", err=True)
-        click.echo("Proceeding with analysis using indexed data...", err=True)
-    
-    # Perform impact analysis
+        err_console.print(
+            f"[error]Warning: File {file} not found in filesystem[/error]",
+            highlight=False,
+        )
+        err_console.print(
+            "[error]Proceeding with analysis using indexed data...[/error]",
+        )
+
     try:
         result = analyze_impact(
             db_path=str(db_path),
             target_file=str(file),
             target_line=line,
-            trace_to_backend=trace_to_backend
+            trace_to_backend=trace_to_backend,
         )
-        
-        # Output results
+
         if json:
-            # JSON output for programmatic use
-            click.echo(json_lib.dumps(result, indent=2, sort_keys=True))
+            console.print(json_lib.dumps(result, indent=2, sort_keys=True), markup=False)
+        elif planning_context:
+            report = format_planning_context(result)
+            console.print(report, markup=False)
         else:
-            # Human-readable report
             report = format_impact_report(result)
-            click.echo(report)
-            
-            # Additional verbose output
+            console.print(report, markup=False)
+
             if verbose and not result.get("error"):
-                click.echo("\n" + "=" * 60)
-                click.echo("DETAILED DEPENDENCY INFORMATION")
-                click.echo("=" * 60)
-                
-                # Show transitive upstream
+                console.print("\n" + "=" * 60, markup=False)
+                console.print("DETAILED DEPENDENCY INFORMATION")
+                console.rule()
+
                 if result.get("upstream_transitive"):
-                    click.echo(f"\nTransitive Upstream Dependencies ({len(result['upstream_transitive'])} total):")
+                    console.print(
+                        f"\nTransitive Upstream Dependencies ({len(result['upstream_transitive'])} total):",
+                        highlight=False,
+                    )
                     for dep in result["upstream_transitive"][:20]:
                         depth_indicator = "  " * (3 - dep.get("depth", 1))
                         tree_char = "+-" if IS_WINDOWS else "└─"
-                        click.echo(f"{depth_indicator}{tree_char} {dep['symbol']} in {dep['file']}:{dep['line']}")
+                        console.print(
+                            f"{depth_indicator}{tree_char} {dep['symbol']} in {dep['file']}:{dep['line']}",
+                            highlight=False,
+                        )
                     if len(result["upstream_transitive"]) > 20:
-                        click.echo(f"  ... and {len(result['upstream_transitive']) - 20} more")
-                
-                # Show transitive downstream
+                        console.print(
+                            f"  ... and {len(result['upstream_transitive']) - 20} more",
+                            highlight=False,
+                        )
+
                 if result.get("downstream_transitive"):
-                    click.echo(f"\nTransitive Downstream Dependencies ({len(result['downstream_transitive'])} total):")
+                    console.print(
+                        f"\nTransitive Downstream Dependencies ({len(result['downstream_transitive'])} total):",
+                        highlight=False,
+                    )
                     for dep in result["downstream_transitive"][:20]:
                         depth_indicator = "  " * (3 - dep.get("depth", 1))
                         if dep["file"] != "external":
                             tree_char = "+-" if IS_WINDOWS else "└─"
-                            click.echo(f"{depth_indicator}{tree_char} {dep['symbol']} in {dep['file']}:{dep['line']}")
+                            console.print(
+                                f"{depth_indicator}{tree_char} {dep['symbol']} in {dep['file']}:{dep['line']}",
+                                highlight=False,
+                            )
                         else:
                             tree_char = "+-" if IS_WINDOWS else "└─"
-                            click.echo(f"{depth_indicator}{tree_char} {dep['symbol']} (external)")
+                            console.print(
+                                f"{depth_indicator}{tree_char} {dep['symbol']} (external)",
+                                highlight=False,
+                            )
                     if len(result["downstream_transitive"]) > 20:
-                        click.echo(f"  ... and {len(result['downstream_transitive']) - 20} more")
-        
-        # Exit with appropriate code
+                        console.print(
+                            f"  ... and {len(result['downstream_transitive']) - 20} more",
+                            highlight=False,
+                        )
+
         if result.get("error"):
-            # Error already displayed in the report, just exit with code
-            exit(3)  # Exit code 3 for analysis errors
-        
-        # Warn if high impact
+            exit(3)
+
         summary = result.get("impact_summary", {})
         if summary.get("total_impact", 0) > 20:
-            click.echo("\n⚠ WARNING: High impact change detected!", err=True)
-            exit(1)  # Non-zero exit for CI/CD integration
-            
+            err_console.print(
+                "[error]\n\\[!] WARNING: High impact change detected![/error]",
+            )
+            exit(1)
+
     except Exception as e:
-        # Only show this for unexpected exceptions, not for already-handled errors
         if "No function or class found at" not in str(e):
-            click.echo(f"Error during impact analysis: {e}", err=True)
-        raise click.ClickException(str(e))
+            err_console.print(f"[error]Error during impact analysis: {e}[/error]", highlight=False)
+        raise click.ClickException(str(e)) from e

@@ -1,665 +1,1051 @@
-"""Express.js Framework Security Analyzer - Database-First Approach.
+"""Express.js Framework Security Analyzer.
 
-Analyzes Express.js applications for security vulnerabilities using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
-
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
+Detects security misconfigurations and vulnerabilities in Express.js applications:
+- Missing security middleware (Helmet, CSRF, rate limiting)
+- XSS vulnerabilities (unsanitized user input in responses)
+- CORS misconfigurations
+- Insecure session configuration
+- Sync operations blocking event loop
+- Database queries directly in route handlers
 """
 
-
-import json
-import sqlite3
-from typing import List, Dict, Any, Set, Optional
-from dataclasses import dataclass
-from pathlib import Path
-
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-from theauditor.indexer.schema import build_query
-
-
-# ============================================================================
-# METADATA
-# ============================================================================
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="express_security",
     category="frameworks",
-    target_extensions=['.js', '.ts', '.mjs', '.cjs'],
-    exclude_patterns=['frontend/', 'client/', 'test/', 'spec.', '__tests__'],
-    requires_jsx_pass=False
+    target_extensions=[".js", ".ts", ".mjs", ".cjs"],
+    exclude_patterns=["frontend/", "client/", "test/", "spec.", "__tests__/", "node_modules/"],
+    execution_scope="database",
+    primary_table="api_endpoints",
 )
 
 
-# ============================================================================
-# CONSTANTS & CONFIGURATION
-# ============================================================================
-
-@dataclass(frozen=True)
-class ExpressPatterns:
-    """Configuration for Express.js security patterns."""
-
-    # User input sources that need sanitization
-    USER_INPUT_SOURCES = frozenset([
-        'req.body', 'req.query', 'req.params', 'req.cookies',
-        'req.headers', 'req.ip', 'req.hostname', 'req.path',
-        'request.body', 'request.query', 'request.params'
-    ])
-
-    # Response methods that could lead to XSS
-    RESPONSE_SINKS = frozenset([
-        'res.send', 'res.json', 'res.jsonp', 'res.render',
-        'res.write', 'res.end', 'response.send', 'response.json'
-    ])
-
-    # Synchronous operations that block event loop
-    SYNC_OPERATIONS = frozenset([
-        'readFileSync', 'writeFileSync', 'appendFileSync',
-        'unlinkSync', 'mkdirSync', 'rmdirSync', 'readdirSync',
-        'statSync', 'lstatSync', 'existsSync', 'accessSync'
-    ])
-
-    # Database operation methods
-    DB_OPERATIONS = frozenset([
-        'query', 'find', 'findOne', 'findById', 'create',
-        'update', 'updateOne', 'updateMany', 'delete',
-        'deleteOne', 'deleteMany', 'save', 'exec',
-        'insert', 'remove', 'aggregate', 'count'
-    ])
-
-    # Rate limiting libraries
-    RATE_LIMIT_LIBS = frozenset([
-        'express-rate-limit', 'rate-limiter-flexible', 'express-slow-down',
-        'express-brute', 'rate-limiter'
-    ])
-
-    # Sanitization functions
-    SANITIZATION_FUNCS = frozenset([
-        'sanitize', 'escape', 'encode', 'DOMPurify',
-        'xss', 'validator', 'clean', 'strip'
-    ])
-
-    # Security middleware
-    SECURITY_MIDDLEWARE = frozenset([
-        'helmet', 'cors', 'csurf', 'csrf',
-        'express-session', 'cookie-parser'
-    ])
+USER_INPUT_SOURCES = frozenset(
+    [
+        "req.body",
+        "req.query",
+        "req.params",
+        "req.cookies",
+        "req.headers",
+        "req.ip",
+        "req.hostname",
+        "req.path",
+        "request.body",
+        "request.query",
+        "request.params",
+        "request.headers",
+        "request.cookies",
+    ]
+)
 
 
-# ============================================================================
-# MAIN RULE FUNCTION (Standardized Interface)
-# ============================================================================
+RESPONSE_SINKS = frozenset(
+    [
+        "res.send",
+        "res.json",
+        "res.jsonp",
+        "res.render",
+        "res.write",
+        "res.end",
+        "response.send",
+        "response.json",
+        "response.render",
+        "response.write",
+    ]
+)
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
+
+REDIRECT_SINKS = frozenset(
+    [
+        "res.redirect",
+        "response.redirect",
+        "res.location",
+    ]
+)
+
+
+SYNC_OPERATIONS = frozenset(
+    [
+        "fs.readFileSync",
+        "fs.writeFileSync",
+        "fs.appendFileSync",
+        "fs.unlinkSync",
+        "fs.mkdirSync",
+        "fs.rmdirSync",
+        "fs.readdirSync",
+        "fs.statSync",
+        "fs.lstatSync",
+        "fs.existsSync",
+        "fs.accessSync",
+        "child_process.execSync",
+        "child_process.spawnSync",
+        "crypto.pbkdf2Sync",
+        "crypto.scryptSync",
+        "crypto.randomFillSync",
+        "crypto.generateKeyPairSync",
+        "crypto.generateKeySync",
+        "bcrypt.hashSync",
+        "bcrypt.compareSync",
+        "bcryptjs.hashSync",
+        "bcryptjs.compareSync",
+    ]
+)
+
+
+RATE_LIMIT_LIBS = frozenset(
+    [
+        "express-rate-limit",
+        "rate-limiter-flexible",
+        "express-slow-down",
+        "express-brute",
+        "rate-limiter",
+    ]
+)
+
+
+SANITIZATION_FUNCS = frozenset(
+    [
+        "sanitize",
+        "escape",
+        "encode",
+        "DOMPurify",
+        "xss",
+        "validator",
+        "clean",
+        "strip",
+    ]
+)
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect Express.js security misconfigurations.
 
-    Analyzes database for:
-    - Missing Helmet security middleware
-    - Missing error handler (try/catch) in routes
-    - XSS vulnerabilities (direct output of user input)
-    - Synchronous operations blocking event loop
-    - Missing rate limiting on API endpoints
-    - Body parser without size limit
-    - Database queries directly in route handlers
-
     Args:
-        context: Standardized rule context with database path
+        context: Provides db_path, file_path, content, language, project_path
 
     Returns:
-        List of StandardFinding objects for detected issues
+        RuleResult with findings list and fidelity manifest
     """
-    analyzer = ExpressAnalyzer(context)
-    return analyzer.analyze()
+    if not context.db_path:
+        return RuleResult(findings=[], manifest={})
+
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
+
+        express_files = _get_express_files(db)
+        if not express_files:
+            return RuleResult(findings=findings, manifest=db.get_manifest())
+
+        imports = _get_imports(db)
+        endpoints = _get_api_endpoints(db)
+
+        findings.extend(_check_missing_helmet(db, express_files, imports))
+        findings.extend(_check_missing_error_handler(db, endpoints))
+        findings.extend(_check_sync_operations(db))
+        findings.extend(_check_xss_vulnerabilities(db))
+        findings.extend(_check_open_redirect(db))
+        findings.extend(_check_missing_rate_limiting(db, imports, endpoints))
+        findings.extend(_check_body_parser_limits(db))
+        findings.extend(_check_db_in_routes(db, endpoints))
+        findings.extend(_check_cors_wildcard(db))
+        findings.extend(_check_missing_csrf(db, imports, endpoints))
+        findings.extend(_check_session_security(db))
+        findings.extend(_check_prototype_pollution(db))
+        findings.extend(_check_nosql_injection(db))
+        findings.extend(_check_path_traversal(db))
+        findings.extend(_check_header_injection(db))
+        findings.extend(_check_ssrf(db))
+        findings.extend(_check_trust_proxy(db, express_files))
+
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-# ============================================================================
-# EXPRESS ANALYZER CLASS
-# ============================================================================
+def _get_express_files(db: RuleDB) -> list[str]:
+    """Get files that import Express."""
+    rows = db.query(Q("refs").select("src").where("value = ?", "express"))
+    return [row[0] for row in rows]
 
-class ExpressAnalyzer:
-    """Main analyzer for Express.js applications."""
 
-    def __init__(self, context: StandardRuleContext):
-        self.context = context
-        self.patterns = ExpressPatterns()
-        self.findings: list[StandardFinding] = []
-        self.db_path = context.db_path or str(context.project_path / ".pf" / "repo_index.db")
+def _get_imports(db: RuleDB) -> dict[str, set[str]]:
+    """Get all imports grouped by file."""
+    rows = db.query(Q("refs").select("src", "value").where("kind = ?", "import"))
+    imports: dict[str, set[str]] = {}
+    for file, import_val in rows:
+        if file not in imports:
+            imports[file] = set()
+        imports[file].add(import_val)
+    return imports
 
-        # Track Express.js specific data
-        self.express_files: list[str] = []
-        self.api_endpoints: list[dict[str, Any]] = []
-        self.function_calls: list[dict[str, Any]] = []
-        self.imports: dict[str, set[str]] = {}
 
-    def analyze(self) -> list[StandardFinding]:
-        """Run complete Express.js analysis."""
-        # Load data from database
-        if not self._load_express_data():
-            return self.findings  # Not an Express project
+def _get_api_endpoints(db: RuleDB) -> list[dict]:
+    """Get all API endpoints."""
+    rows = db.query(
+        Q("api_endpoints")
+        .select("file", "line", "method", "pattern", "handler_function")
+        .order_by("file, line")
+    )
+    return [
+        {"file": row[0], "line": row[1], "method": row[2], "pattern": row[3], "handler": row[4]}
+        for row in rows
+    ]
 
-        # Run security checks (all original 7 patterns + 3 new)
-        self._check_missing_helmet()
-        self._check_missing_error_handler()  # Now possible with CFG data!
-        self._check_sync_operations()
-        self._check_xss_vulnerabilities()
-        self._check_missing_rate_limiting()
-        self._check_body_parser_limits()
-        self._check_db_in_routes()
 
-        # Additional security checks using available data
-        self._check_cors_wildcard()
-        self._check_missing_csrf()
-        self._check_session_security()
+def _check_missing_helmet(
+    db: RuleDB, express_files: list[str], imports: dict[str, set[str]]
+) -> list[StandardFinding]:
+    """Check for missing Helmet security middleware."""
+    findings = []
 
-        return self.findings
+    has_helmet = any("helmet" in file_imports for file_imports in imports.values())
+    if has_helmet:
+        return findings
 
-    def _load_express_data(self) -> bool:
-        """Load Express.js related data from database."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+    rows = db.query(
+        Q("function_call_args")
+        .select("callee_function", "argument_expr")
+        .where("callee_function LIKE ? OR argument_expr LIKE ?", "%helmet%", "%helmet%")
+        .limit(1)
+    )
+    if list(rows):
+        return findings
 
-            # Check if this is an Express project - use schema-compliant query
-            query = build_query('refs', ['src'],
-                               where="value = 'express'")
-            cursor.execute(query)
-            express_refs = cursor.fetchall()
+    if express_files:
+        findings.append(
+            StandardFinding(
+                rule_name="express-missing-helmet",
+                message="Express app without Helmet security middleware - missing critical security headers",
+                file_path=express_files[0],
+                line=1,
+                severity=Severity.HIGH,
+                category="security",
+                confidence=Confidence.HIGH,
+                snippet="Missing: app.use(helmet())",
+                cwe_id="CWE-693",
+            )
+        )
 
-            if not express_refs:
-                conn.close()
-                return False  # Not an Express project
+    return findings
 
-            self.express_files = [ref[0] for ref in express_refs]
 
-            # Load API endpoints
-            query2 = build_query('api_endpoints', ['file', 'line', 'method', 'pattern', 'handler_function'],
-                                order_by="file, line")
-            cursor.execute(query2)
-            for row in cursor.fetchall():
-                self.api_endpoints.append({
-                    'file': row[0],
-                    'line': row[1],
-                    'method': row[2],
-                    'pattern': row[3],
-                    'handler': row[4]
-                })
+def _check_missing_error_handler(db: RuleDB, endpoints: list[dict]) -> list[StandardFinding]:
+    """Check for routes without error handling using CFG data."""
+    findings = []
 
-            # Load imports/refs
-            query3 = build_query('refs', ['src', 'value'],
-                                where="kind = 'import'")
-            cursor.execute(query3)
-            for file, import_val in cursor.fetchall():
-                if file not in self.imports:
-                    self.imports[file] = set()
-                self.imports[file].add(import_val)
+    for endpoint in endpoints:
+        handler = endpoint.get("handler", "")
+        if not handler:
+            continue
 
-            conn.close()
-            return True
+        rows = db.query(
+            Q("cfg_blocks")
+            .select("block_type")
+            .where(
+                "file = ? AND function_name = ? AND block_type IN (?, ?, ?)",
+                endpoint["file"],
+                handler,
+                "try",
+                "except",
+                "catch",
+            )
+            .limit(1)
+        )
 
-        except (sqlite3.Error, Exception):
-            return False
+        if not list(rows):
+            findings.append(
+                StandardFinding(
+                    rule_name="express-missing-error-handler",
+                    message="Express route without error handling",
+                    file_path=endpoint["file"],
+                    line=endpoint["line"],
+                    severity=Severity.HIGH,
+                    category="error-handling",
+                    confidence=Confidence.MEDIUM,
+                    snippet=f"Route handler '{handler}' missing try/catch",
+                    cwe_id="CWE-755",
+                )
+            )
 
-    def _check_missing_error_handler(self) -> None:
-        """Check for routes without error handling using CFG data."""
-        if not self.api_endpoints:
-            return
+    return findings
 
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
 
-            # Check each route handler for try/catch blocks - trust schema contract
-            for endpoint in self.api_endpoints:
-                # Get the handler function name (might be in handler field)
-                handler = endpoint.get('handler', '')
-                if not handler:
-                    continue
+def _check_sync_operations(db: RuleDB) -> list[StandardFinding]:
+    """Check for synchronous file operations in route handlers."""
+    findings = []
 
-                # Check if this function has try/catch blocks
-                query = build_query('cfg_blocks', ['block_type'],
-                                   where="file = ? AND function_name = ? AND block_type IN ('try', 'except', 'catch')",
-                                   limit=1)
-                cursor.execute(query, (endpoint['file'], handler))
+    sync_ops_list = list(SYNC_OPERATIONS)[:10]
+    placeholders = ",".join("?" * len(sync_ops_list))
 
-                has_error_handling = cursor.fetchone() is not None
+    sql, params = Q.raw(
+        f"""
+        SELECT DISTINCT file, line, callee_function, caller_function
+        FROM function_call_args
+        WHERE callee_function IN ({placeholders})
+        AND EXISTS (
+            SELECT 1 FROM api_endpoints e
+            WHERE e.file = function_call_args.file
+        )
+        ORDER BY file, line
+        """,
+        sync_ops_list,
+    )
+    rows = db.execute(sql, params)
 
-                if not has_error_handling:
-                    self.findings.append(StandardFinding(
-                        rule_name='express-missing-error-handler',
-                        message='Express route without error handling',
-                        file_path=endpoint['file'],
-                        line=endpoint['line'],
-                        severity=Severity.HIGH,
-                        category='error-handling',
-                        confidence=Confidence.MEDIUM,
-                        snippet='Route handler missing try/catch',
-                        cwe_id='CWE-755'  # Improper Handling of Exceptional Conditions
-                    ))
+    for file, line, sync_op, caller in rows:
+        findings.append(
+            StandardFinding(
+                rule_name="express-sync-in-async",
+                message=f"Synchronous operation {sync_op} blocking event loop in route",
+                file_path=file,
+                line=line,
+                severity=Severity.HIGH,
+                category="performance",
+                confidence=Confidence.HIGH,
+                snippet=f"{sync_op}(...) in {caller or 'route handler'}",
+                cwe_id="CWE-400",
+            )
+        )
 
-            conn.close()
+    return findings
 
-        except (sqlite3.Error, Exception):
-            pass
 
-    def _check_missing_helmet(self) -> None:
-        """Check for missing Helmet security middleware."""
-        # Check if helmet is imported
-        has_helmet = False
-        for file_imports in self.imports.values():
-            if 'helmet' in file_imports:
-                has_helmet = True
+def _check_xss_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
+    """Check for direct output of user input (XSS)."""
+    findings = []
+
+    response_methods = ("res.send", "res.json", "res.write", "res.render")
+    placeholders = ",".join("?" * len(response_methods))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *response_methods)
+        .order_by("file, line")
+    )
+
+    for file, line, _method, arg_expr in rows:
+        if not arg_expr:
+            continue
+
+        input_source = None
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                input_source = source
                 break
 
-        if not has_helmet and self.express_files:
-            # Check function calls for helmet usage
-            try:
-                conn = sqlite3.connect(self.db_path)
-                cursor = conn.cursor()
+        if not input_source:
+            continue
 
-                # Fetch all function calls, filter in Python
-                query = build_query('function_call_args', ['callee_function', 'argument_expr'])
-                cursor.execute(query)
+        sanitization_funcs = ("sanitize", "escape", "encode", "DOMPurify", "xss")
+        sanitization_placeholders = ",".join("?" * len(sanitization_funcs))
 
-                helmet_calls = 0
-                for callee, arg_expr in cursor.fetchall():
-                    if 'helmet' in callee or ('use' in callee and 'helmet' in arg_expr):
-                        helmet_calls += 1
+        sanitize_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where(
+                f"file = ? AND line BETWEEN ? AND ? AND callee_function IN ({sanitization_placeholders})",
+                file,
+                line - 5,
+                line + 5,
+                *sanitization_funcs,
+            )
+            .limit(1)
+        )
 
-                conn.close()
+        if not list(sanitize_rows):
+            findings.append(
+                StandardFinding(
+                    rule_name="express-xss-direct-send",
+                    message=f"Potential XSS - {input_source} directly in response without sanitization",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="xss",
+                    confidence=Confidence.HIGH,
+                    snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                    cwe_id="CWE-79",
+                )
+            )
 
-                if helmet_calls == 0:
-                    self.findings.append(StandardFinding(
-                        rule_name='express-missing-helmet',
-                        message='Express app without Helmet security middleware - missing critical security headers',
-                        file_path=self.express_files[0],
-                        line=1,
+    return findings
+
+
+def _check_open_redirect(db: RuleDB) -> list[StandardFinding]:
+    """Check for open redirect vulnerabilities."""
+    findings = []
+
+    redirect_methods = tuple(REDIRECT_SINKS)
+    placeholders = ",".join("?" * len(redirect_methods))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *redirect_methods)
+        .order_by("file, line")
+    )
+
+    for file, line, _method, arg_expr in rows:
+        if not arg_expr:
+            continue
+
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                findings.append(
+                    StandardFinding(
+                        rule_name="express-open-redirect",
+                        message=f"Potential open redirect - {source} used in redirect target",
+                        file_path=file,
+                        line=line,
                         severity=Severity.HIGH,
-                        category='security',
+                        category="security",
                         confidence=Confidence.HIGH,
-                        snippet='Missing: app.use(helmet())',
-                        cwe_id='CWE-693'  # Protection Mechanism Failure
-                    ))
+                        snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                        cwe_id="CWE-601",
+                    )
+                )
+                break
 
-            except (sqlite3.Error, Exception):
-                pass
+    return findings
 
-    def _check_sync_operations(self) -> None:
-        """Check for synchronous file operations in routes."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
 
-            # EXISTS subquery works with build_query()
-            sync_ops_list = ['fs.readFileSync', 'fs.writeFileSync', 'child_process.execSync']
-            placeholders = ','.join('?' * len(sync_ops_list))
+def _check_missing_rate_limiting(
+    db: RuleDB, imports: dict[str, set[str]], endpoints: list[dict]
+) -> list[StandardFinding]:
+    """Check for missing rate limiting on API endpoints.
 
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'caller_function'],
-                               where=f"""callee_function IN ({placeholders})
-                                 AND EXISTS (
-                                     SELECT 1 FROM api_endpoints e
-                                     WHERE e.file = function_call_args.file
-                                 )""",
-                               order_by="file, line")
-            cursor.execute(query, sync_ops_list)
+    Improved to verify rate limiter is actually applied via app.use(), not just imported.
+    """
+    findings = []
 
-            # ✅ Deduplicate results in Python (schema contract compliant)
-            seen = set()
-            results = []
-            for row in cursor.fetchall():
-                key = (row[0], row[1], row[2], row[3])  # (file, line, callee_function, caller_function)
-                if key not in seen:
-                    seen.add(key)
-                    results.append(row)
+    api_routes = [ep for ep in endpoints if "/api" in ep.get("pattern", "")]
+    if not api_routes:
+        return findings
 
-            for file, line, sync_op, caller in results:
-                self.findings.append(StandardFinding(
-                    rule_name='express-sync-in-async',
-                    message=f'Synchronous operation {sync_op} blocking event loop in route',
+    has_rate_limit_import = any(
+        any(lib in file_imports for lib in RATE_LIMIT_LIBS) for file_imports in imports.values()
+    )
+
+    if not has_rate_limit_import:
+        findings.append(
+            StandardFinding(
+                rule_name="express-missing-rate-limit",
+                message="API endpoints without rate limiting - vulnerable to DoS/brute force",
+                file_path=api_routes[0]["file"],
+                line=api_routes[0]["line"],
+                severity=Severity.HIGH,
+                category="security",
+                confidence=Confidence.MEDIUM,
+                snippet="Add express-rate-limit middleware",
+                cwe_id="CWE-400",
+            )
+        )
+        return findings
+
+    rate_limit_patterns = ("limiter", "rateLimit", "rateLimiter", "slowDown", "brute")
+    applied = False
+
+    for pattern in rate_limit_patterns:
+        rows = db.query(
+            Q("function_call_args")
+            .select("callee_function", "argument_expr")
+            .where("callee_function LIKE ? AND argument_expr LIKE ?", "%use%", f"%{pattern}%")
+            .limit(1)
+        )
+        if list(rows):
+            applied = True
+            break
+
+    if not applied:
+        rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where(
+                "callee_function LIKE ? OR callee_function LIKE ?", "%rateLimit%", "%rateLimiter%"
+            )
+            .limit(1)
+        )
+        if list(rows):
+            applied = True
+
+    if not applied:
+        findings.append(
+            StandardFinding(
+                rule_name="express-rate-limit-not-applied",
+                message="Rate limiter imported but not applied via app.use()",
+                file_path=api_routes[0]["file"],
+                line=api_routes[0]["line"],
+                severity=Severity.HIGH,
+                category="security",
+                confidence=Confidence.MEDIUM,
+                snippet="Call app.use(limiter) to apply rate limiting",
+                cwe_id="CWE-400",
+            )
+        )
+
+    return findings
+
+
+def _check_body_parser_limits(db: RuleDB) -> list[StandardFinding]:
+    """Check for body parser without size limit."""
+    findings = []
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(
+            "callee_function IN (?, ?, ?, ?)",
+            "bodyParser.json",
+            "bodyParser.urlencoded",
+            "json",
+            "urlencoded",
+        )
+        .order_by("file, line")
+    )
+
+    for file, line, callee, config in rows:
+        config_str = config or ""
+        if "limit" not in config_str:
+            findings.append(
+                StandardFinding(
+                    rule_name="express-body-parser-limit",
+                    message="Body parser without size limit - vulnerable to DoS",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.LOW,
+                    category="security",
+                    confidence=Confidence.MEDIUM,
+                    snippet=f"{callee}() - add {{ limit: '100kb' }}",
+                    cwe_id="CWE-400",
+                )
+            )
+
+    return findings
+
+
+def _check_db_in_routes(db: RuleDB, endpoints: list[dict]) -> list[StandardFinding]:
+    """Check for database queries directly in route handlers."""
+    findings = []
+
+    if not endpoints:
+        return findings
+
+    route_files = {ep["file"] for ep in endpoints}
+    db_methods = (
+        "query",
+        "find",
+        "findOne",
+        "findById",
+        "create",
+        "update",
+        "updateOne",
+        "updateMany",
+        "delete",
+        "deleteOne",
+        "deleteMany",
+        "save",
+        "exec",
+    )
+    placeholders = ",".join("?" * len(db_methods))
+
+    for route_file in route_files:
+        rows = db.query(
+            Q("function_call_args")
+            .select("line", "callee_function", "caller_function")
+            .where(f"file = ? AND callee_function IN ({placeholders})", route_file, *db_methods)
+            .order_by("line")
+        )
+
+        for line, db_method, caller in rows:
+            caller_lower = (caller or "").lower()
+
+            if any(
+                pattern in caller_lower for pattern in ("service", "repository", "model", "dao")
+            ):
+                continue
+
+            findings.append(
+                StandardFinding(
+                    rule_name="express-direct-db-query",
+                    message=f"Database {db_method} directly in route handler - consider service layer",
+                    file_path=route_file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="architecture",
+                    confidence=Confidence.MEDIUM,
+                    snippet=f"Move {db_method} to service/repository layer",
+                    cwe_id="CWE-1061",
+                )
+            )
+
+    return findings
+
+
+def _check_cors_wildcard(db: RuleDB) -> list[StandardFinding]:
+    """Check for CORS wildcard configuration."""
+    findings = []
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function = ?", "cors")
+        .order_by("file, line")
+    )
+
+    for file, line, _callee, config in rows:
+        config_str = config or ""
+
+        dangerous_patterns = (
+            "origin:*",
+            "origin: *",
+            "origin:true",
+            "origin: true",
+            "'*'",
+            '"*"',
+        )
+        if any(pattern in config_str for pattern in dangerous_patterns):
+            findings.append(
+                StandardFinding(
+                    rule_name="express-cors-wildcard",
+                    message="CORS configured with wildcard origin - allows any domain",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
-                    category='performance',
+                    category="security",
                     confidence=Confidence.HIGH,
-                    snippet=f'{sync_op}(...) in {caller}',
-                    cwe_id='CWE-407'  # Inefficient Algorithmic Complexity
-                ))
+                    snippet="CORS with origin: * or origin: true",
+                    cwe_id="CWE-346",
+                )
+            )
 
-            conn.close()
+    return findings
 
-        except (sqlite3.Error, Exception):
-            pass
 
-    def _check_xss_vulnerabilities(self) -> None:
-        """Check for direct output of user input (XSS)."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+def _check_missing_csrf(
+    db: RuleDB, imports: dict[str, set[str]], endpoints: list[dict]
+) -> list[StandardFinding]:
+    """Check for missing CSRF protection."""
+    findings = []
 
-            # Get all response outputs
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               where="callee_function IN ('res.send', 'res.json', 'res.write', 'res.render')",
-                               order_by="file, line")
-            cursor.execute(query)
-            # ✅ FIX: Store results before loop to avoid cursor state bug
-            response_outputs = cursor.fetchall()
+    modifying_endpoints = [
+        ep for ep in endpoints if ep.get("method", "").upper() in ("POST", "PUT", "DELETE", "PATCH")
+    ]
 
-            for file, line, method, arg_expr in response_outputs:
-                # Check if argument contains user input
-                has_user_input = False
-                input_source = None
+    if not modifying_endpoints:
+        return findings
 
-                for source in self.patterns.USER_INPUT_SOURCES:
-                    if source in arg_expr:
-                        has_user_input = True
-                        input_source = source
-                        break
+    has_csrf = any(
+        "csurf" in file_imports or "csrf" in file_imports for file_imports in imports.values()
+    )
 
-                if has_user_input:
-                    # Check for sanitization nearby
-                    query2 = build_query('function_call_args', ['callee_function'],
-                                        where="file = ? AND line BETWEEN ? AND ? AND callee_function IN ('sanitize', 'escape', 'encode', 'DOMPurify', 'xss')",
-                                        limit=1)
-                    cursor.execute(query2, (file, line - 5, line + 5))
+    if has_csrf:
+        return findings
 
-                    has_sanitization = cursor.fetchone() is not None
+    rows = db.query(
+        Q("function_call_args")
+        .select("callee_function", "argument_expr")
+        .where("callee_function IN (?, ?) OR argument_expr LIKE ?", "csurf", "csrf", "%csrf%")
+        .limit(1)
+    )
 
-                    if not has_sanitization:
-                        self.findings.append(StandardFinding(
-                            rule_name='express-xss-direct-send',
-                            message=f'Potential XSS - {input_source} directly in response without sanitization',
+    if not list(rows):
+        findings.append(
+            StandardFinding(
+                rule_name="express-missing-csrf",
+                message="State-changing endpoints without CSRF protection",
+                file_path=modifying_endpoints[0]["file"],
+                line=modifying_endpoints[0]["line"],
+                severity=Severity.HIGH,
+                category="csrf",
+                confidence=Confidence.MEDIUM,
+                snippet="POST/PUT/DELETE endpoints need CSRF tokens",
+                cwe_id="CWE-352",
+            )
+        )
+
+    return findings
+
+
+def _check_session_security(db: RuleDB) -> list[StandardFinding]:
+    """Check for insecure session configuration."""
+    findings = []
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function LIKE ? OR argument_expr LIKE ?", "%session%", "%session%")
+        .order_by("file, line")
+    )
+
+    for file, line, callee, config in rows:
+        if not config:
+            continue
+
+        config_lower = config.lower()
+
+        if "session" not in callee.lower() and "session" not in config_lower:
+            continue
+
+        issues = []
+
+        if "secret" in config_lower:
+            weak_secrets = ("secret", "keyboard cat", "default", "changeme", "password")
+            if any(weak in config_lower for weak in weak_secrets):
+                issues.append("weak secret")
+
+        if "cookie" in config_lower:
+            if "httponly" not in config_lower:
+                issues.append("missing httpOnly")
+            if "secure" not in config_lower:
+                issues.append("missing secure flag")
+            if "samesite" not in config_lower:
+                issues.append("missing sameSite")
+
+        if issues:
+            findings.append(
+                StandardFinding(
+                    rule_name="express-session-insecure",
+                    message=f"Insecure session configuration: {', '.join(issues)}",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.MEDIUM,
+                    category="security",
+                    confidence=Confidence.HIGH,
+                    snippet="Session configuration issues",
+                    cwe_id="CWE-614",
+                )
+            )
+
+    return findings
+
+
+def _check_prototype_pollution(db: RuleDB) -> list[StandardFinding]:
+    """Check for prototype pollution vulnerabilities via object merge/extend."""
+    findings = []
+
+    merge_funcs = (
+        "Object.assign",
+        "_.merge",
+        "_.extend",
+        "_.defaultsDeep",
+        "merge",
+        "extend",
+        "deepMerge",
+        "deepExtend",
+        "$.extend",
+    )
+    placeholders = ",".join("?" * len(merge_funcs))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *merge_funcs)
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+
+        if any(source in arg_expr for source in USER_INPUT_SOURCES):
+            findings.append(
+                StandardFinding(
+                    rule_name="express-prototype-pollution",
+                    message=f"Prototype pollution risk - {callee} with user input",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="injection",
+                    confidence=Confidence.HIGH,
+                    snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                    cwe_id="CWE-1321",
+                )
+            )
+
+    return findings
+
+
+def _check_nosql_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for NoSQL injection vulnerabilities in MongoDB queries."""
+    findings = []
+
+    mongo_methods = (
+        "find",
+        "findOne",
+        "findById",
+        "findOneAndUpdate",
+        "findOneAndDelete",
+        "updateOne",
+        "updateMany",
+        "deleteOne",
+        "deleteMany",
+        "aggregate",
+        "where",
+        "elemMatch",
+    )
+    placeholders = ",".join("?" * len(mongo_methods))
+
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(
+            f"callee_function IN ({placeholders}) OR callee_function LIKE ?",
+            *mongo_methods,
+            "%.find%",
+        )
+        .order_by("file, line")
+    )
+
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                if "$" in arg_expr or "where" in callee.lower():
+                    findings.append(
+                        StandardFinding(
+                            rule_name="express-nosql-injection",
+                            message=f"NoSQL injection risk - {source} in MongoDB query",
                             file_path=file,
                             line=line,
                             severity=Severity.CRITICAL,
-                            category='xss',
+                            category="injection",
                             confidence=Confidence.HIGH,
                             snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
-                            cwe_id='CWE-79'  # Cross-site Scripting
-                        ))
-
-            conn.close()
-
-        except (sqlite3.Error, Exception):
-            pass
-
-    def _check_missing_rate_limiting(self) -> None:
-        """Check for missing rate limiting on API endpoints."""
-        # Check if we have API endpoints
-        api_routes = [ep for ep in self.api_endpoints if '/api' in ep['pattern']]
-
-        if not api_routes:
-            return
-
-        # Check for rate limiting libraries
-        has_rate_limit = False
-        for file_imports in self.imports.values():
-            if any(lib in file_imports for lib in self.patterns.RATE_LIMIT_LIBS):
-                has_rate_limit = True
+                            cwe_id="CWE-943",
+                        )
+                    )
+                else:
+                    findings.append(
+                        StandardFinding(
+                            rule_name="express-nosql-injection-risk",
+                            message=f"Potential NoSQL injection - {source} in query without sanitization",
+                            file_path=file,
+                            line=line,
+                            severity=Severity.HIGH,
+                            category="injection",
+                            confidence=Confidence.MEDIUM,
+                            snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                            cwe_id="CWE-943",
+                        )
+                    )
                 break
 
-        if not has_rate_limit:
-            self.findings.append(StandardFinding(
-                rule_name='express-missing-rate-limit',
-                message='API endpoints without rate limiting - vulnerable to DoS/brute force',
-                file_path=api_routes[0]['file'],
-                line=api_routes[0]['line'],
-                severity=Severity.HIGH,
-                category='security',
-                confidence=Confidence.MEDIUM,
-                snippet='Add express-rate-limit middleware',
-                cwe_id='CWE-307'  # Improper Restriction of Excessive Authentication Attempts
-            ))
+    return findings
 
-    def _check_body_parser_limits(self) -> None:
-        """Check for body parser without size limit."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
 
-            # Fetch all function calls, filter in Python
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               order_by="file, line")
-            cursor.execute(query)
+def _check_path_traversal(db: RuleDB) -> list[StandardFinding]:
+    """Check for path traversal in express.static and file operations."""
+    findings = []
 
-            for file, line, callee, config in cursor.fetchall():
-                # Filter for bodyParser functions in Python
-                if 'bodyParser' not in callee and callee not in ('json', 'urlencoded'):
-                    continue
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(
+            "callee_function IN (?, ?, ?, ?, ?)",
+            "express.static",
+            "res.sendFile",
+            "res.download",
+            "path.join",
+            "path.resolve",
+        )
+        .order_by("file, line")
+    )
 
-                # Check if limit is specified
-                if 'limit' not in config:
-                    self.findings.append(StandardFinding(
-                        rule_name='express-body-parser-limit',
-                        message='Body parser without size limit - vulnerable to DoS',
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                findings.append(
+                    StandardFinding(
+                        rule_name="express-path-traversal",
+                        message=f"Path traversal risk - {source} in {callee}",
                         file_path=file,
                         line=line,
-                        severity=Severity.LOW,
-                        category='security',
-                        confidence=Confidence.MEDIUM,
-                        snippet='Add limit option to bodyParser',
-                        cwe_id='CWE-400'  # Uncontrolled Resource Consumption
-                    ))
+                        severity=Severity.CRITICAL,
+                        category="injection",
+                        confidence=Confidence.HIGH,
+                        snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                        cwe_id="CWE-22",
+                    )
+                )
+                break
 
-            conn.close()
+    return findings
 
-        except (sqlite3.Error, Exception):
-            pass
 
-    def _check_db_in_routes(self) -> None:
-        """Check for database queries directly in route handlers."""
-        if not self.api_endpoints:
-            return
+def _check_header_injection(db: RuleDB) -> list[StandardFinding]:
+    """Check for HTTP header injection vulnerabilities."""
+    findings = []
 
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
+    header_methods = ("res.set", "res.header", "res.setHeader", "response.set", "response.header")
+    placeholders = ",".join("?" * len(header_methods))
 
-            # Get all DB operations in files with routes
-            route_files = {ep['file'] for ep in self.api_endpoints}
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *header_methods)
+        .order_by("file, line")
+    )
 
-            for route_file in route_files:
-                # Fetch DB operations, filter caller in Python
-                query = build_query('function_call_args', ['line', 'callee_function', 'caller_function'],
-                                   where="""file = ?
-                                            AND callee_function IN ('query', 'find', 'findOne', 'findById', 'create',
-                                                                    'update', 'updateOne', 'updateMany', 'delete',
-                                                                    'deleteOne', 'deleteMany', 'save', 'exec')""",
-                                   order_by="line")
-                cursor.execute(query, (route_file,))
-
-                for line, db_method, caller in cursor.fetchall():
-                    # Filter out service/repository/model layers in Python
-                    caller_lower = caller.lower() if caller else ''
-                    if 'service' in caller_lower or 'repository' in caller_lower or 'model' in caller_lower:
-                        continue
-                    self.findings.append(StandardFinding(
-                        rule_name='express-direct-db-query',
-                        message=f'Database {db_method} directly in route handler - consider using service layer',
-                        file_path=route_file,
-                        line=line,
-                        severity=Severity.MEDIUM,
-                        category='architecture',
-                        confidence=Confidence.MEDIUM,
-                        snippet=f'Move {db_method} to service/repository layer',
-                        cwe_id='CWE-1061'  # Insufficient Encapsulation
-                    ))
-
-            conn.close()
-
-        except (sqlite3.Error, Exception):
-            pass
-
-    def _check_cors_wildcard(self) -> None:
-        """Check for CORS wildcard configuration."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            # Fetch CORS calls, filter in Python
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               where="callee_function = 'cors'",
-                               order_by="file, line")
-            cursor.execute(query)
-
-            for file, line, callee, config in cursor.fetchall():
-                # Check for wildcard patterns in Python
-                if ('origin:*' in config or 'origin: *' in config or
-                    'origin:true' in config or 'origin: true' in config or
-                    config == ''):
-                    self.findings.append(StandardFinding(
-                        rule_name='express-cors-wildcard',
-                        message='CORS configured with wildcard origin - allows any domain',
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                findings.append(
+                    StandardFinding(
+                        rule_name="express-header-injection",
+                        message=f"HTTP header injection - {source} in {callee}",
                         file_path=file,
                         line=line,
                         severity=Severity.HIGH,
-                        category='security',
+                        category="injection",
                         confidence=Confidence.HIGH,
-                        snippet='CORS with origin: * or origin: true',
-                        cwe_id='CWE-346'  # Origin Validation Error
-                    ))
-
-            conn.close()
-
-        except (sqlite3.Error, Exception):
-            pass
-
-    def _check_missing_csrf(self) -> None:
-        """Check for missing CSRF protection."""
-        # Check if we have POST/PUT/DELETE endpoints
-        modifying_endpoints = [
-            ep for ep in self.api_endpoints
-            if ep.get('method', '').upper() in ['POST', 'PUT', 'DELETE', 'PATCH']
-        ]
-
-        if not modifying_endpoints:
-            return
-
-        # Check for CSRF middleware
-        has_csrf = False
-        for file_imports in self.imports.values():
-            if 'csurf' in file_imports or 'csrf' in file_imports:
-                has_csrf = True
+                        snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                        cwe_id="CWE-113",
+                    )
+                )
                 break
 
-        if not has_csrf:
-            try:
-                conn = sqlite3.connect(self.db_path)
-                cursor = conn.cursor()
+    return findings
 
-                # Fetch function calls, filter in Python
-                query = build_query('function_call_args', ['callee_function', 'argument_expr'])
-                cursor.execute(query)
 
-                csrf_calls = 0
-                for callee, arg_expr in cursor.fetchall():
-                    if callee in ('csurf', 'csrf') or ('use' in callee and 'csrf' in arg_expr):
-                        csrf_calls += 1
+def _check_ssrf(db: RuleDB) -> list[StandardFinding]:
+    """Check for Server-Side Request Forgery vulnerabilities."""
+    findings = []
 
-                conn.close()
+    http_funcs = (
+        "axios",
+        "axios.get",
+        "axios.post",
+        "axios.put",
+        "axios.delete",
+        "fetch",
+        "request",
+        "request.get",
+        "request.post",
+        "http.get",
+        "http.request",
+        "https.get",
+        "https.request",
+        "got",
+        "got.get",
+        "got.post",
+        "superagent",
+        "needle",
+    )
+    placeholders = ",".join("?" * len(http_funcs))
 
-                if csrf_calls == 0:
-                    self.findings.append(StandardFinding(
-                        rule_name='express-missing-csrf',
-                        message='State-changing endpoints without CSRF protection',
-                        file_path=modifying_endpoints[0]['file'],
-                        line=modifying_endpoints[0]['line'],
-                        severity=Severity.HIGH,
-                        category='csrf',
-                        confidence=Confidence.MEDIUM,
-                        snippet='POST/PUT/DELETE endpoints need CSRF tokens',
-                        cwe_id='CWE-352'  # Cross-Site Request Forgery
-                    ))
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where(f"callee_function IN ({placeholders})", *http_funcs)
+        .order_by("file, line")
+    )
 
-            except (sqlite3.Error, Exception):
-                pass
-
-    def _check_session_security(self) -> None:
-        """Check for insecure session configuration."""
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-
-            # Fetch all function calls, filter in Python
-            query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                               order_by="file, line")
-            cursor.execute(query)
-
-            for file, line, callee, config in cursor.fetchall():
-                # Filter for session calls in Python
-                if not ('session' in callee or ('use' in callee and 'session' in config)):
-                    continue
-
-                config_lower = config.lower()
-
-                # Check for weak session configuration
-                issues = []
-                if 'secret' in config_lower:
-                    if any(weak in config_lower for weak in ['secret', 'keyboard cat', 'default']):
-                        issues.append('weak secret')
-
-                if 'cookie' in config_lower:
-                    if 'httponly' not in config_lower:
-                        issues.append('missing httpOnly')
-                    if 'secure' not in config_lower:
-                        issues.append('missing secure flag')
-                    if 'samesite' not in config_lower:
-                        issues.append('missing sameSite')
-
-                if issues:
-                    self.findings.append(StandardFinding(
-                        rule_name='express-session-insecure',
-                        message=f'Insecure session configuration: {", ".join(issues)}',
+    for file, line, callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+        for source in USER_INPUT_SOURCES:
+            if source in arg_expr:
+                findings.append(
+                    StandardFinding(
+                        rule_name="express-ssrf",
+                        message=f"SSRF vulnerability - {source} controls URL in {callee}",
                         file_path=file,
                         line=line,
-                        severity=Severity.MEDIUM,
-                        category='security',
+                        severity=Severity.CRITICAL,
+                        category="injection",
                         confidence=Confidence.HIGH,
-                        snippet='Session configuration issues',
-                        cwe_id='CWE-614'  # Sensitive Cookie Without Secure Attribute
-                    ))
+                        snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                        cwe_id="CWE-918",
+                    )
+                )
+                break
 
-            conn.close()
-
-        except (sqlite3.Error, Exception):
-            pass
+    return findings
 
 
-def register_taint_patterns(taint_registry):
-    """Register Express.js-specific taint patterns.
+def _check_trust_proxy(db: RuleDB, express_files: list[str]) -> list[StandardFinding]:
+    """Check for trust proxy misconfiguration allowing IP spoofing."""
+    findings = []
 
-    This function is called by the orchestrator to register
-    framework-specific sources and sinks for taint analysis.
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .where("callee_function LIKE ? AND argument_expr LIKE ?", "%set%", "%trust proxy%")
+        .order_by("file, line")
+    )
+
+    for file, line, _callee, arg_expr in rows:
+        arg_expr = arg_expr or ""
+
+        if "true" in arg_expr.lower() or "'*'" in arg_expr or '"*"' in arg_expr:
+            findings.append(
+                StandardFinding(
+                    rule_name="express-trust-proxy-all",
+                    message="trust proxy set to true - trusts all proxies, enables IP spoofing",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.HIGH,
+                    category="security",
+                    confidence=Confidence.HIGH,
+                    snippet=arg_expr[:100] if len(arg_expr) > 100 else arg_expr,
+                    cwe_id="CWE-348",
+                )
+            )
+
+    ip_rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "argument_expr")
+        .where("argument_expr LIKE ?", "%req.ip%")
+        .order_by("file, line")
+    )
+
+    files_using_req_ip = {row[0] for row in ip_rows}
+
+    for ip_file in files_using_req_ip:
+        proxy_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("file = ? AND argument_expr LIKE ?", ip_file, "%trust proxy%")
+            .limit(1)
+        )
+        if not list(proxy_rows):
+            findings.append(
+                StandardFinding(
+                    rule_name="express-req-ip-no-trust-proxy",
+                    message="req.ip used without trust proxy configuration - may return wrong IP behind proxy",
+                    file_path=ip_file,
+                    line=1,
+                    severity=Severity.MEDIUM,
+                    category="security",
+                    confidence=Confidence.MEDIUM,
+                    snippet="Configure trust proxy if behind reverse proxy",
+                    cwe_id="CWE-348",
+                )
+            )
+
+    return findings
+
+
+def register_taint_patterns(taint_registry) -> None:
+    """Register Express.js-specific taint patterns for taint tracking engine.
 
     Args:
-        taint_registry: TaintRegistry instance
+        taint_registry: The taint pattern registry to register patterns with
     """
-    # Express.js user input sources (taint sources)
-    EXPRESS_INPUT_SOURCES = frozenset([
-        'req.body', 'req.query', 'req.params', 'req.cookies',
-        'req.headers', 'req.ip', 'req.hostname', 'req.path',
-        'request.body', 'request.query', 'request.params',
-        'request.headers', 'request.cookies'
-    ])
+    for pattern in USER_INPUT_SOURCES:
+        taint_registry.register_source(pattern, "http_request", "javascript")
 
-    for pattern in EXPRESS_INPUT_SOURCES:
-        taint_registry.register_source(pattern, 'http_request', 'javascript')
+    for pattern in RESPONSE_SINKS:
+        taint_registry.register_sink(pattern, "response", "javascript")
 
-    # Express.js response sinks (XSS/injection targets)
-    EXPRESS_RESPONSE_SINKS = frozenset([
-        'res.send', 'res.json', 'res.jsonp', 'res.render',
-        'res.write', 'res.end', 'response.send', 'response.json',
-        'response.render', 'response.write'
-    ])
-
-    for pattern in EXPRESS_RESPONSE_SINKS:
-        taint_registry.register_sink(pattern, 'response', 'javascript')
-
-    # Express.js redirect sinks (open redirect targets)
-    EXPRESS_REDIRECT_SINKS = frozenset([
-        'res.redirect', 'response.redirect', 'res.location'
-    ])
-
-    for pattern in EXPRESS_REDIRECT_SINKS:
-        taint_registry.register_sink(pattern, 'redirect', 'javascript')
+    for pattern in REDIRECT_SINKS:
+        taint_registry.register_sink(pattern, "redirect", "javascript")

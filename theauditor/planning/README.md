@@ -16,7 +16,7 @@ aud planning init --name "My Migration Plan"
 aud planning add-task 1 --title "Migrate auth" --spec examples/auth_migration.yaml
 
 # Make code changes, then verify
-aud index && aud planning verify-task 1 1 --verbose
+aud full --index && aud planning verify-task 1 1 --verbose
 
 # Archive when complete
 aud planning archive 1 --notes "Migration deployed to production"
@@ -117,7 +117,7 @@ aud planning add-task 2 --title "Add CRUD endpoints"
 aud planning add-task 3 --title "Verify implementation" --spec product_verification.yaml
 
 # 6. Verify
-aud index && aud planning verify-task 1 3 --verbose
+aud full --index && aud planning verify-task 1 3 --verbose
 ```
 
 ### Refactoring Migration
@@ -135,21 +135,21 @@ aud planning init --name "Modernize Authentication"
 aud planning add-task 1 --title "Migrate to OAuth2" --spec auth_spec.yaml
 
 # 4. Baseline verification (expect violations)
-aud index && aud planning verify-task 1 1 --verbose
+aud full --index && aud planning verify-task 1 1 --verbose
 # Output: 47 violations (all places needing migration)
 
 # 5. Make incremental changes
 # [Update some files]
 
 # 6. Re-verify (track progress)
-aud index && aud planning verify-task 1 1 --verbose
+aud full --index && aud planning verify-task 1 1 --verbose
 # Output: 31 violations (16 fixed, 31 remaining)
 
 # 7. Repeat until 0 violations
 # [Continue fixing]
 
 # 8. Final verification
-aud index && aud planning verify-task 1 1 --auto-update
+aud full --index && aud planning verify-task 1 1 --auto-update
 # Output: 0 violations, task marked completed
 
 # 9. Archive
@@ -310,7 +310,7 @@ Options:
 - `--verbose`: Show detailed violation list
 - `--auto-update`: Auto-mark completed if 0 violations
 
-**Prerequisites**: Must run `aud index` after code changes.
+**Prerequisites**: Must run `aud full --index` after code changes.
 
 ### archive
 
@@ -403,14 +403,14 @@ aud planning show-diff 1 1 --sequence 2 --file auth.ts
 
 ## Integration with Other Commands
 
-### With `aud index`
+### With `aud full`
 
 Verification requires indexed code:
 
 ```bash
 # Pattern: modify → index → verify
 [Make code changes]
-aud index                              # Update repo_index.db
+aud full --index                       # Update repo_index.db
 aud planning verify-task 1 1 --verbose # Query indexed code
 ```
 
@@ -434,7 +434,7 @@ Planning specs use the same RefactorProfile format:
 
 ```bash
 # Test spec outside of planning
-aud refactor --profile my_spec.yaml --print-violations
+aud refactor --file my_spec.yaml
 
 # If spec works, attach to task
 aud planning add-task 1 --title "Task" --spec my_spec.yaml
@@ -457,7 +457,7 @@ aud planning init --name "Refactor based on blueprint findings"
 ### Writing Good Specs
 
 1. **Start broad, refine narrow**: Begin with high-level patterns, add specific rules iteratively
-2. **Test specs independently**: Use `aud refactor --profile spec.yaml` before attaching to tasks
+2. **Test specs independently**: Use `aud refactor --file spec.yaml` before attaching to tasks
 3. **Use severity correctly**: `critical` for breaking changes, `high` for important patterns, `medium` for style
 4. **Expect empty for removal**: Use `expect: {identifiers: []}` to verify complete removal
 5. **Combine multiple rules**: One spec can check multiple aspects (imports, API routes, configs)
@@ -487,7 +487,7 @@ Create snapshots at logical boundaries:
 ### "Error: repo_index.db not found"
 
 **Cause**: Verification requires indexed code.
-**Solution**: Run `aud index` or `aud full` first.
+**Solution**: Run `aud full --index` or `aud full` first.
 
 ### "Error: No verification spec for task"
 

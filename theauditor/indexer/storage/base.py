@@ -1,16 +1,6 @@
-"""Base class for domain-specific storage modules.
+"""Base class for domain-specific storage modules."""
 
-Provides shared infrastructure:
-- db_manager: DatabaseManager instance for database operations
-- counts: Statistics tracking dict (mutated across all handlers)
-- _current_extracted: Cross-cutting data access (e.g., resolved_imports)
-
-All domain storage modules (CoreStorage, PythonStorage, etc.) inherit from
-this base class to access shared dependencies without duplication.
-"""
-
-
-from typing import Dict, Any
+from theauditor.utils.logging import logger
 
 
 class BaseStorage:
@@ -19,10 +9,16 @@ class BaseStorage:
     def __init__(self, db_manager, counts: dict[str, int]):
         self.db_manager = db_manager
         self.counts = counts
-        self._current_extracted = {}  # Set by DataStorer.store()
+        self._current_extracted = {}
+
+    def begin_file_processing(self) -> None:
+        """Reset per-file state before processing a new file.
+
+        Override in subclasses to clear gatekeeper tracking sets.
+        Called by DataStorer.store() at the start of each file.
+        """
+        pass
 
     def _debug(self, message: str):
         """Debug logging helper."""
-        import os
-        if os.environ.get("THEAUDITOR_DEBUG"):
-            print(f"[DEBUG STORAGE] {message}")
+        logger.debug(f"[DEBUG STORAGE] {message}")

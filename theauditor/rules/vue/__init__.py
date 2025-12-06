@@ -1,22 +1,29 @@
-"""Vue.js-specific rule detectors for TheAuditor.
+"""Vue.js-specific rule detectors for TheAuditor."""
 
-This package contains database-first rules for detecting Vue.js
-anti-patterns, performance issues, and security vulnerabilities
-across Options API, Composition API, Vuex, and Pinia.
-"""
-
-from .reactivity_analyze import find_vue_reactivity_issues
-from .component_analyze import find_vue_component_issues
-from .hooks_analyze import find_vue_hooks_issues
-from .render_analyze import find_vue_render_issues
-from .state_analyze import find_vue_state_issues
-from .lifecycle_analyze import find_vue_lifecycle_issues
+from .component_analyze import METADATA as component_metadata
+from .component_analyze import analyze as component_analyze
+from .hooks_analyze import METADATA as hooks_metadata
+from .hooks_analyze import analyze as hooks_analyze
+from .lifecycle_analyze import METADATA as lifecycle_metadata
+from .lifecycle_analyze import analyze as lifecycle_analyze
+from .reactivity_analyze import METADATA as reactivity_metadata
+from .reactivity_analyze import analyze as reactivity_analyze
+from .render_analyze import METADATA as render_metadata
+from .render_analyze import analyze as render_analyze
+from .state_analyze import METADATA as state_metadata
+from .state_analyze import analyze as state_analyze
 
 __all__ = [
-    'find_vue_reactivity_issues',
-    'find_vue_component_issues',
-    'find_vue_hooks_issues',
-    'find_vue_render_issues',
-    'find_vue_state_issues',
-    'find_vue_lifecycle_issues'
+    "component_analyze",
+    "component_metadata",
+    "hooks_analyze",
+    "hooks_metadata",
+    "lifecycle_analyze",
+    "lifecycle_metadata",
+    "reactivity_analyze",
+    "reactivity_metadata",
+    "render_analyze",
+    "render_metadata",
+    "state_analyze",
+    "state_metadata",
 ]

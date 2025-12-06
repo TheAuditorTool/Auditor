@@ -6,14 +6,15 @@ graphs, and detecting infrastructure security issues.
 
 import json
 from pathlib import Path
+
 import click
 
-from ..utils.logger import setup_logger
+from theauditor.cli import RichCommand, RichGroup
+from theauditor.pipeline.ui import console, err_console
+from theauditor.utils.logging import logger
 
-logger = setup_logger(__name__)
 
-
-@click.group()
+@click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def terraform():
     """Infrastructure-as-Code security analysis for Terraform configurations and provisioning flows.
@@ -24,9 +25,9 @@ def terraform():
 
     AI ASSISTANT CONTEXT:
       Purpose: Detect infrastructure security issues in Terraform code
-      Input: *.tf files (indexed by 'aud index')
+      Input: *.tf files (extracted by 'aud full')
       Output: .pf/raw/terraform_findings.json (security issues)
-      Prerequisites: aud index (extracts Terraform resources)
+      Prerequisites: aud full (extracts Terraform resources)
       Integration: Pre-deployment security validation, IaC auditing
       Performance: ~5-15 seconds (HCL parsing + security rules)
 
@@ -48,7 +49,7 @@ def terraform():
       - Hard-coded secrets in configurations
 
     TYPICAL WORKFLOW:
-      aud index
+      aud full
       aud terraform provision
       aud terraform analyze
 
@@ -62,11 +63,14 @@ def terraform():
 
     NOTE: Terraform analysis requires .tf files in project. For AWS CDK
     (Python/TypeScript), use 'aud cdk' instead.
+
+    SEE ALSO:
+      aud manual terraform   Learn about IaC security analysis
     """
     pass
 
 
-@terraform.command("provision")
+@terraform.command("provision", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--workset", is_flag=True, help="Build graph for workset files only")
 @click.option("--output", default="./.pf/raw/terraform_graph.json", help="Output JSON path")
@@ -90,7 +94,7 @@ def provision(root, workset, output, db, graphs_db):
       aud terraform provision --output graph.json # Custom output path
 
     Prerequisites:
-      - Must run 'aud index' first to extract Terraform resources
+      - Must run 'aud full' first to extract Terraform resources
       - Terraform files must be in project (.tf, .tfvars)
 
     Output:
@@ -111,95 +115,103 @@ def provision(root, workset, output, db, graphs_db):
     from ..terraform.graph import TerraformGraphBuilder
 
     try:
-        # Verify database exists
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Error: Database not found: {db}", err=True)
-            click.echo("Run 'aud full' first to extract Terraform resources.", err=True)
+            err_console.print(f"[error]Error: Database not found: {db}[/error]", highlight=False)
+            err_console.print(
+                "[error]Run 'aud full' first to extract Terraform resources.[/error]",
+            )
             raise click.Abort()
 
-        # Load workset if requested
         file_filter = None
         if workset:
             workset_path = Path(".pf/workset.json")
             if not workset_path.exists():
-                click.echo("Error: Workset file not found. Run 'aud workset' first.", err=True)
+                err_console.print(
+                    "[error]Error: Workset file not found. Run 'aud workset' first.[/error]",
+                )
                 raise click.Abort()
 
             with open(workset_path) as f:
                 workset_data = json.load(f)
                 workset_files = {p["path"] for p in workset_data.get("paths", [])}
                 file_filter = workset_files
-                click.echo(f"Building graph for {len(workset_files)} workset files...")
+                console.print(
+                    f"Building graph for {len(workset_files)} workset files...", highlight=False
+                )
 
-        # Build provisioning flow graph
-        click.echo("Building Terraform provisioning flow graph...")
+        console.print("Building Terraform provisioning flow graph...")
         builder = TerraformGraphBuilder(db_path=str(db_path))
         graph = builder.build_provisioning_flow_graph(root=root)
 
-        # Filter by workset if requested
         if file_filter:
-            # Filter nodes to only those from workset files
-            filtered_nodes = [n for n in graph['nodes'] if n['file'] in file_filter]
-            node_ids = {n['id'] for n in filtered_nodes}
+            filtered_nodes = [n for n in graph["nodes"] if n["file"] in file_filter]
+            node_ids = {n["id"] for n in filtered_nodes}
 
-            # Filter edges to only those connecting filtered nodes
             filtered_edges = [
-                e for e in graph['edges']
-                if e['source'] in node_ids and e['target'] in node_ids
+                e for e in graph["edges"] if e["source"] in node_ids and e["target"] in node_ids
             ]
 
-            graph['nodes'] = filtered_nodes
-            graph['edges'] = filtered_edges
-            graph['metadata']['stats']['workset_filtered'] = True
+            graph["nodes"] = filtered_nodes
+            graph["edges"] = filtered_edges
+            graph["metadata"]["stats"]["workset_filtered"] = True
 
-        # Write output
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(graph, f, indent=2)
 
-        # Display summary
-        stats = graph['metadata']['stats']
+        stats = graph["metadata"]["stats"]
 
-        click.echo(f"\nProvisioning Graph Built:")
-        click.echo(f"  Variables: {stats['total_variables']}")
-        click.echo(f"  Resources: {stats['total_resources']}")
-        click.echo(f"  Outputs: {stats['total_outputs']}")
-        click.echo(f"  Edges: {stats['edges_created']}")
-        click.echo(f"  Files: {stats['files_processed']}")
-        click.echo(f"\nGraph stored in: {graphs_db}")
-        click.echo(f"JSON export: {output_path}")
+        console.print("\nProvisioning Graph Built:")
+        console.print(f"  Variables: {stats['total_variables']}", highlight=False)
+        console.print(f"  Resources: {stats['total_resources']}", highlight=False)
+        console.print(f"  Outputs: {stats['total_outputs']}", highlight=False)
+        console.print(f"  Edges: {stats['edges_created']}", highlight=False)
+        console.print(f"  Files: {stats['files_processed']}", highlight=False)
+        console.print(f"\nGraph stored in: {graphs_db}", highlight=False)
+        console.print(f"JSON export: {output_path}", highlight=False)
 
-        # Check for sensitive data flows
-        sensitive_nodes = [n for n in graph['nodes'] if n.get('is_sensitive')]
+        sensitive_nodes = [n for n in graph["nodes"] if n.get("is_sensitive")]
         if sensitive_nodes:
-            click.echo(f"\nSensitive Data Nodes Detected: {len(sensitive_nodes)}")
-            for node in sensitive_nodes[:3]:  # Show first 3
-                click.echo(f"  - {node['name']} ({node['node_type']})")
+            console.print(
+                f"\nSensitive Data Nodes Detected: {len(sensitive_nodes)}", highlight=False
+            )
+            for node in sensitive_nodes[:3]:
+                console.print(f"  - {node['name']} ({node['node_type']})", highlight=False)
             if len(sensitive_nodes) > 3:
-                click.echo(f"  ... and {len(sensitive_nodes) - 3} more")
+                console.print(f"  ... and {len(sensitive_nodes) - 3} more", highlight=False)
 
-        # Check for public exposure
-        public_nodes = [n for n in graph['nodes'] if n.get('has_public_exposure')]
+        public_nodes = [n for n in graph["nodes"] if n.get("has_public_exposure")]
         if public_nodes:
-            click.echo(f"\nPublic Exposure Detected: {len(public_nodes)} resources")
+            console.print(
+                f"\nPublic Exposure Detected: {len(public_nodes)} resources", highlight=False
+            )
             for node in public_nodes[:3]:
-                click.echo(f"  - {node['name']} ({node['terraform_type']})")
+                console.print(f"  - {node['name']} ({node['terraform_type']})", highlight=False)
 
     except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
-        raise click.Abort()
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
+        raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to build provisioning graph: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
-        raise click.Abort()
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
+        raise click.Abort() from e
 
 
-@terraform.command("analyze")
+@terraform.command("analyze", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
-@click.option("--severity", type=click.Choice(['critical', 'high', 'medium', 'low', 'all']), default="all", help="Minimum severity to report")
-@click.option("--categories", multiple=True, help="Specific categories to check (e.g., public_exposure, iam_wildcard)")
+@click.option(
+    "--severity",
+    type=click.Choice(["critical", "high", "medium", "low", "all"]),
+    default="all",
+    help="Minimum severity to report",
+)
+@click.option(
+    "--categories",
+    multiple=True,
+    help="Specific categories to check (e.g., public_exposure, iam_wildcard)",
+)
 @click.option("--output", default="./.pf/raw/terraform_findings.json", help="Output JSON path")
 @click.option("--db", default="./.pf/repo_index.db", help="Database path")
 def analyze(root, severity, categories, output, db):
@@ -218,7 +230,7 @@ def analyze(root, severity, categories, output, db):
       aud terraform analyze --categories public_exposure
 
     Prerequisites:
-      - Run 'aud index' first to extract Terraform resources
+      - Run 'aud full' first to extract Terraform resources
       - Optionally run 'aud terraform provision' for graph-based analysis
 
     Output:
@@ -228,86 +240,93 @@ def analyze(root, severity, categories, output, db):
     from ..terraform.analyzer import TerraformAnalyzer
 
     try:
-        # Verify database exists
         db_path = Path(db)
         if not db_path.exists():
-            click.echo(f"Error: Database not found: {db}", err=True)
-            click.echo("Run 'aud full' first to extract Terraform resources.", err=True)
+            err_console.print(f"[error]Error: Database not found: {db}[/error]", highlight=False)
+            err_console.print(
+                "[error]Run 'aud full' first to extract Terraform resources.[/error]",
+            )
             raise click.Abort()
 
-        # Run analyzer
-        click.echo("Analyzing Terraform configurations for security issues...")
+        console.print("Analyzing Terraform configurations for security issues...")
         analyzer = TerraformAnalyzer(db_path=str(db_path), severity_filter=severity)
         findings = analyzer.analyze()
 
-        # Filter by categories if specified
         if categories:
             findings = [f for f in findings if f.category in categories]
-            click.echo(f"Filtered to categories: {', '.join(categories)}")
+            console.print(f"Filtered to categories: {', '.join(categories)}", highlight=False)
 
-        # Export to JSON
         output_path = Path(output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         findings_json = [
             {
-                'finding_id': f.finding_id,
-                'file_path': f.file_path,
-                'resource_id': f.resource_id,
-                'category': f.category,
-                'severity': f.severity,
-                'title': f.title,
-                'description': f.description,
-                'line': f.line,
-                'remediation': f.remediation
+                "finding_id": f.finding_id,
+                "file_path": f.file_path,
+                "resource_id": f.resource_id,
+                "category": f.category,
+                "severity": f.severity,
+                "title": f.title,
+                "description": f.description,
+                "line": f.line,
+                "remediation": f.remediation,
             }
             for f in findings
         ]
 
-        with open(output_path, 'w', encoding='utf-8') as f:
+        with open(output_path, "w", encoding="utf-8") as f:
             json.dump(findings_json, f, indent=2)
 
-        # Display summary
-        click.echo(f"\nTerraform Security Analysis Complete:")
-        click.echo(f"  Total findings: {len(findings)}")
+        console.print("\nTerraform Security Analysis Complete:")
+        console.print(f"  Total findings: {len(findings)}", highlight=False)
 
-        # Count by severity
         from collections import Counter
+
         severity_counts = Counter(f.severity for f in findings)
-        for sev in ['critical', 'high', 'medium', 'low', 'info']:
+        for sev in ["critical", "high", "medium", "low", "info"]:
             if severity_counts[sev] > 0:
-                click.echo(f"  {sev.capitalize()}: {severity_counts[sev]}")
+                console.print(f"  {sev.capitalize()}: {severity_counts[sev]}", highlight=False)
 
-        # Count by category
         category_counts = Counter(f.category for f in findings)
-        click.echo(f"\nFindings by category:")
+        console.print("\nFindings by category:")
         for cat, count in category_counts.most_common():
-            click.echo(f"  {cat}: {count}")
+            console.print(f"  {cat}: {count}", highlight=False)
 
-        click.echo(f"\nFindings exported to: {output_path}")
-        click.echo(f"Findings stored in terraform_findings table for FCE correlation")
+        console.print(f"\nFindings exported to: {output_path}", highlight=False)
+        console.print("Findings stored in terraform_findings table for FCE correlation")
 
-        # Show sample findings
         if findings:
-            click.echo(f"\nSample findings (first 3):")
+            console.print("\nSample findings (first 3):")
             for finding in findings[:3]:
-                click.echo(f"\n  [{finding.severity.upper()}] {finding.title}")
-                click.echo(f"  File: {finding.file_path}:{finding.line}")
-                click.echo(f"  {finding.description}")
+                console.print(
+                    f"\n  \\[{finding.severity.upper()}] {finding.title}", highlight=False
+                )
+                console.print(f"  File: {finding.file_path}:{finding.line}", highlight=False)
+                console.print(f"  {finding.description}", highlight=False)
 
     except FileNotFoundError as e:
-        click.echo(f"Error: {e}", err=True)
-        raise click.Abort()
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
+        raise click.Abort() from e
     except Exception as e:
         logger.error(f"Failed to analyze Terraform: {e}", exc_info=True)
-        click.echo(f"Error: {e}", err=True)
-        raise click.Abort()
+        err_console.print(f"[error]Error: {e}[/error]", highlight=False)
+        raise click.Abort() from e
 
 
-@terraform.command("report")
-@click.option("--format", type=click.Choice(['text', 'json', 'markdown']), default="text", help="Output format")
+@terraform.command("report", cls=RichCommand)
+@click.option(
+    "--format",
+    type=click.Choice(["text", "json", "markdown"]),
+    default="text",
+    help="Output format",
+)
 @click.option("--output", help="Output file path (stdout if not specified)")
-@click.option("--severity", type=click.Choice(['critical', 'high', 'medium', 'low', 'all']), default="all", help="Minimum severity to report")
+@click.option(
+    "--severity",
+    type=click.Choice(["critical", "high", "medium", "low", "all"]),
+    default="all",
+    help="Minimum severity to report",
+)
 def report(format, output, severity):
     """Generate Terraform security report.
 
@@ -326,6 +345,10 @@ def report(format, output, severity):
 
     This command will be implemented in Phase 7.
     """
-    click.echo("Error: 'terraform report' not yet implemented (Phase 7)", err=True)
-    click.echo("Run 'aud terraform provision' to build provisioning graph.", err=True)
+    err_console.print(
+        "[error]Error: 'terraform report' not yet implemented (Phase 7)[/error]",
+    )
+    err_console.print(
+        "[error]Run 'aud terraform provision' to build provisioning graph.[/error]",
+    )
     raise click.Abort()

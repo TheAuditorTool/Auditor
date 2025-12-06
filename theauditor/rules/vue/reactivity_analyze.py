@@ -1,273 +1,176 @@
-"""Vue.js reactivity and props mutation analyzer - Database-First Implementation.
+"""Vue.js reactivity and props mutation analyzer - Database-First Implementation."""
 
-This module detects Vue-specific anti-patterns using database queries:
-1. Direct props mutation (violates one-way data flow)
-2. Non-reactive data initialization (shared state bug)
-
-Database-First Architecture (v1.1+):
-- vue_components table stores props_definition (from indexer)
-- assignments table tracks all variable assignments
-- Join tables to detect props mutations
-- NO manual AST traversal (indexer already extracted this data)
-"""
-
-
-import sqlite3
-import json
-from typing import List, Set
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-
-
-# ============================================================================
-# RULE METADATA (Phase 3B - Smart Filtering)
-# ============================================================================
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="vue_reactivity",
     category="vue",
-    target_extensions=['.vue', '.js', '.ts'],
-    target_file_patterns=['frontend/', 'client/', 'src/components/', 'src/views/'],
-    exclude_patterns=['backend/', 'server/', 'api/', '__tests__/', '*.test.*', '*.spec.*'],
-    requires_jsx_pass=False,
-    execution_scope='database'  # Database-scoped, run once per analysis
+    target_extensions=[".vue", ".js", ".ts"],
+    target_file_patterns=["frontend/", "client/", "src/components/", "src/views/"],
+    exclude_patterns=["backend/", "server/", "api/", "__tests__/", "*.test.*", "*.spec.*"],
+    execution_scope="database",
+    primary_table="files",
 )
 
 
-# ============================================================================
-# PATTERN DEFINITIONS (Gold Standard: Use Frozensets)
-# ============================================================================
-
-# Props access patterns for mutation detection
-PROP_ACCESS_PATTERNS = frozenset([
-    'this.',
-    'props.',
-    '$props.',
-    'this.$props.'
-])
-
-# Data initialization patterns that should be reactive
-NON_REACTIVE_INITIALIZERS = frozenset([
-    '{}',
-    '[]',
-    '{ }',
-    '[ ]',
-    'new Object()',
-    'new Array()',
-    'Object.create(null)'
-])
+NON_REACTIVE_INITIALIZERS = frozenset(
+    ["{}", "[]", "{ }", "[ ]", "new Object()", "new Array()", "Object.create(null)"]
+)
 
 
-# ============================================================================
-# NO FALLBACKS. NO TABLE EXISTENCE CHECKS. SCHEMA CONTRACT GUARANTEES ALL TABLES EXIST.
-# ============================================================================
-
-
-def find_vue_reactivity_issues(context: StandardRuleContext) -> list[StandardFinding]:
-    """
-    Detect Vue.js reactivity and props mutation issues using database queries.
-
-    Database-First Approach:
-    - Query vue_components table for props definitions (indexer extracted this)
-    - Join with assignments table to find props mutations
-    - NO manual AST traversal (violates gold standard)
-
-    Args:
-        context: StandardRuleContext with database path
-
-    Returns:
-        List of Vue reactivity findings
-    """
-    findings = []
-
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect Vue.js reactivity and props mutation issues using database queries."""
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
-
-    try:
-        # Run all database-first checks
-        findings.extend(_find_props_mutations(cursor))
-        findings.extend(_find_non_reactive_data(cursor))
-
-    finally:
-        conn.close()
-
-    return findings
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
+        findings.extend(_find_props_mutations(db))
+        findings.extend(_find_non_reactive_data(db))
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-# ============================================================================
-# DETECTION FUNCTIONS (Database-First)
-# ============================================================================
-
-def _find_props_mutations(cursor) -> list[StandardFinding]:
+def _find_props_mutations(db: RuleDB) -> list[StandardFinding]:
     """Find direct props mutations using database queries.
 
-    Schema contract guarantees:
-    - vue_components table exists with props_definition column
-    - assignments table exists with file, line, target_var columns
-
-    Strategy:
-    1. Query vue_components for files with props
-    2. Parse props_definition JSON to get prop names
-    3. Join with assignments to find mutations
+    Detects assignments to props.X, this.propName, $props.X patterns
+    which violate Vue's one-way data flow principle.
     """
-    findings = []
+    findings: list[StandardFinding] = []
 
-    # Get all Vue components with props
-    cursor.execute("""
-        SELECT file, props_definition, composition_api_used
-        FROM vue_components
-        WHERE props_definition IS NOT NULL
-          AND props_definition != ''
-          AND props_definition != 'null'
-    """)
+    vue_files: set[str] = set()
 
-    for file, props_json, is_composition in cursor.fetchall():
-        try:
-            # Parse props from indexer-extracted JSON
-            props_data = json.loads(props_json) if props_json else {}
+    file_rows = db.query(Q("files").select("path", "ext").where("ext = ?", ".vue"))
+    for path, _ext in file_rows:
+        vue_files.add(path)
 
-            # Extract prop names (handle both array and object syntax)
-            if isinstance(props_data, list):
-                # Array syntax: props: ['prop1', 'prop2']
-                prop_names = set(props_data)
-            elif isinstance(props_data, dict):
-                # Object syntax: props: { prop1: Type, prop2: {...} }
-                prop_names = set(props_data.keys())
-            else:
+    symbol_rows = db.query(
+        Q("symbols")
+        .select("path", "name")
+        .where("name IN (?, ?, ?)", "defineComponent", "defineProps", "props")
+    )
+    for path, _name in symbol_rows:
+        vue_files.add(path)
+
+    if not vue_files:
+        return findings
+
+    for file in vue_files:
+        assignment_rows = db.query(
+            Q("assignments")
+            .select("file", "line", "target_var", "source_expr")
+            .where("file = ?", file)
+            .where("target_var IS NOT NULL")
+            .order_by("line")
+        )
+
+        for file_path, line, target, source in assignment_rows:
+            is_props_mutation = False
+            prop_name = None
+
+            if target.startswith("props.") and "." in target[6:] is False:
+                is_props_mutation = True
+                prop_name = target[6:].split(".")[0] if "." in target[6:] else target[6:]
+
+            elif ".$props." in target or target.startswith("$props."):
+                is_props_mutation = True
+                if target.startswith("$props."):
+                    prop_name = target[7:].split(".")[0]
+                else:
+                    idx = target.find(".$props.")
+                    prop_name = target[idx + 8 :].split(".")[0]
+
+            if not is_props_mutation:
                 continue
 
-            if not prop_names:
-                continue
+            source_str = source or ""
+            snippet = (
+                f"{target} = {source_str[:50]}..."
+                if len(source_str) > 50
+                else f"{target} = {source_str}"
+            )
 
-            # Check for mutations using assignments table
-            cursor.execute("""
-                SELECT line, target_var, source_expr
-                FROM assignments
-                WHERE file = ?
-                  AND target_var IS NOT NULL
-            """, (file,))
-
-            # Filter in Python for prop mutations
-            for line, target, source in cursor.fetchall():
-                # Check if target matches any prop pattern
-                matched_prop = None
-                for prop_name in prop_names:
-                    patterns = [
-                        f'this.{prop_name}',
-                        f'props.{prop_name}',
-                        f'this.$props.{prop_name}',
-                        f'this.props.{prop_name}'
-                    ]
-                    if any(pattern in target for pattern in patterns):
-                        matched_prop = prop_name
-                        break
-
-                if not matched_prop:
-                    continue
-
-                api_type = 'Composition API' if is_composition else 'Options API'
-
-                findings.append(StandardFinding(
-                    rule_name='vue-props-mutation',
-                    message=f'Direct mutation of prop "{matched_prop}" violates one-way data flow ({api_type})',
-                    file_path=file,
+            findings.append(
+                StandardFinding(
+                    rule_name="vue-props-mutation",
+                    message=f'Direct mutation of prop "{prop_name}" violates one-way data flow',
+                    file_path=file_path,
                     line=line,
                     severity=Severity.HIGH,
-                    category='vue',
+                    category="vue",
                     confidence=Confidence.HIGH,
-                    snippet=f'{target} = {source[:50]}...' if len(source) > 50 else f'{target} = {source}',
-                    cwe_id='CWE-915'
-                ))
-
-        except (json.JSONDecodeError, TypeError):
-            # Skip malformed JSON - indexer bug, not rule's problem
-            continue
+                    snippet=snippet,
+                    cwe_id="CWE-915",
+                )
+            )
 
     return findings
 
 
-def _find_non_reactive_data(cursor) -> list[StandardFinding]:
-    """Find non-reactive data initialization in Options API.
+def _find_non_reactive_data(db: RuleDB) -> list[StandardFinding]:
+    """Find non-reactive data initialization in Options API."""
+    findings: list[StandardFinding] = []
 
-    Strategy:
-    1. Query vue_components for Options API components (composition_api_used = 0)
-    2. Look for data() methods in symbols table
-    3. Check assignments within data() for object/array literals
+    vue_files: set[str] = set()
 
-    Note: This detection is limited without full AST context.
-    We can detect obvious cases via assignments table.
-    """
-    findings = []
+    file_rows = db.query(Q("files").select("path", "ext").where("ext = ?", ".vue"))
+    for path, _ext in file_rows:
+        vue_files.add(path)
 
-    # Get Options API components
-    cursor.execute("""
-        SELECT file, name
-        FROM vue_components
-        WHERE composition_api_used = 0
-    """)
+    for file in vue_files:
+        data_method_rows = db.query(
+            Q("symbols")
+            .select("line", "name")
+            .where("path = ?", file)
+            .where("name = ?", "data")
+            .where("type IN (?, ?)", "function", "method")
+        )
 
-    for file, component_name in cursor.fetchall():
-        # Look for data() method symbols
-        cursor.execute("""
-            SELECT line, name
-            FROM symbols
-            WHERE path = ?
-              AND name = 'data'
-              AND type IN ('function', 'method')
-        """, (file,))
-
-        data_methods = cursor.fetchall()
+        data_methods = list(data_method_rows)
         if not data_methods:
             continue
 
         for data_line, _ in data_methods:
-            # Find assignments within ~20 lines of data() (heuristic for data() body)
-            cursor.execute("""
-                SELECT line, target_var, source_expr, in_function
-                FROM assignments
-                WHERE file = ?
-                  AND line BETWEEN ? AND ?
-                  AND in_function IS NOT NULL
-            """, (file, data_line, data_line + 20))
+            assignment_rows = db.query(
+                Q("assignments")
+                .select("line", "target_var", "source_expr", "in_function")
+                .where("file = ?", file)
+                .where("line BETWEEN ? AND ?", data_line, data_line + 20)
+                .where("in_function IS NOT NULL")
+            )
 
-            # Filter in Python for assignments in data function
-            for line, target, source, in_function in cursor.fetchall():
-                if 'data' not in in_function.lower():
+            for line, target, source, in_function in assignment_rows:
+                if "data" not in in_function.lower():
                     continue
-                # Check if source is a non-reactive initializer
-                source_stripped = source.strip()
-                if source_stripped in NON_REACTIVE_INITIALIZERS:
-                    # Determine type
-                    if source_stripped in ('{}', '{ }', 'new Object()', 'Object.create(null)'):
-                        init_type = 'object'
-                    else:
-                        init_type = 'array'
 
-                    findings.append(StandardFinding(
-                        rule_name='vue-non-reactive-data',
-                        message=f'Non-reactive {init_type} literal in data() will be shared across component instances',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.HIGH,
-                        category='vue',
-                        confidence=Confidence.MEDIUM,  # Medium since heuristic-based
-                        snippet=f'{target}: {source}',
-                        cwe_id='CWE-1323'
-                    ))
+                source_stripped = (source or "").strip()
+                if source_stripped in NON_REACTIVE_INITIALIZERS:
+                    if source_stripped in ("{}", "{ }", "new Object()", "Object.create(null)"):
+                        init_type = "object"
+                    else:
+                        init_type = "array"
+
+                    findings.append(
+                        StandardFinding(
+                            rule_name="vue-non-reactive-data",
+                            message=f"Non-reactive {init_type} literal in data() will be shared across component instances",
+                            file_path=file,
+                            line=line,
+                            severity=Severity.MEDIUM,
+                            category="vue",
+                            confidence=Confidence.MEDIUM,
+                            snippet=f"{target}: {source}",
+                            cwe_id="CWE-1188",
+                        )
+                    )
 
     return findings
-
-
-# ============================================================================
-# ORCHESTRATOR ENTRY POINT
-# ============================================================================
-
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Orchestrator-compatible entry point.
-
-    This is the standardized interface that the orchestrator expects.
-    Delegates to the main implementation function for backward compatibility.
-    """
-    return find_vue_reactivity_issues(context)

@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 AST Fixer V3: Production-Ready Context-Aware Transformation
 ============================================================
@@ -15,35 +14,31 @@ Author: TheAuditor Team (V2 by Lead Auditor, V3 refinements)
 Date: November 2025
 """
 
-import sys
-import shutil
 import argparse
-from pathlib import Path
-from typing import List, Optional
+import shutil
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 import libcst as cst
 from libcst import matchers as m
 from libcst.codemod import CodemodContext
 from libcst.codemod.visitors import AddImportsVisitor
 
-# ============================================================================
-# Statistics
-# ============================================================================
 
 @dataclass
 class FixStats:
     files_processed: int = 0
     files_modified: int = 0
-    recursion_bombs_defused: int = 0  # Reverted context.walk_tree -> ast.walk
-    missed_optimizations_fixed: int = 0  # ast.walk(tree) -> context.find_nodes
+    recursion_bombs_defused: int = 0
+    missed_optimizations_fixed: int = 0
     imports_added: int = 0
     errors: int = 0
 
     def print_summary(self):
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("V3 FIXER SUMMARY")
-        print("="*60)
+        print("=" * 60)
         print(f"Files processed: {self.files_processed}")
         print(f"Files modified: {self.files_modified}")
         print(f"Recursion Bombs Defused (Critical): {self.recursion_bombs_defused}")
@@ -51,11 +46,8 @@ class FixStats:
         print(f"AST Imports Added: {self.imports_added}")
         if self.errors > 0:
             print(f"Errors: {self.errors}")
-        print("="*60)
+        print("=" * 60)
 
-# ============================================================================
-# V3 Transformer - Production Ready
-# ============================================================================
 
 class ContextAwareTransformer(m.MatcherDecoratableTransformer):
     """
@@ -72,21 +64,17 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         self.context = context
         self.stats = stats
 
-        # Scope Stack: Tracks [FuncDef, FuncDef, ...] to handle nesting
-        self.function_stack: List[cst.FunctionDef] = []
+        self.function_stack: list[cst.FunctionDef] = []
 
-        # Track if we need ast import
         self.needs_ast_import = False
-
-    # ------------------------------------------------------------------------
-    # Scope Tracking
-    # ------------------------------------------------------------------------
 
     def visit_FunctionDef(self, node: cst.FunctionDef) -> None:
         """Push function to stack to track nesting level."""
         self.function_stack.append(node)
 
-    def leave_FunctionDef(self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef) -> cst.FunctionDef:
+    def leave_FunctionDef(
+        self, original_node: cst.FunctionDef, updated_node: cst.FunctionDef
+    ) -> cst.FunctionDef:
         """Pop function from stack."""
         if self.function_stack:
             self.function_stack.pop()
@@ -96,10 +84,10 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         """Check if we are inside an extractor or a helper of an extractor."""
         if not self.function_stack:
             return False
-        # Check if any parent in the stack starts with 'extract_'
+
         return any(f.name.value.startswith("extract_") for f in self.function_stack)
 
-    def _get_current_func_params(self) -> List[str]:
+    def _get_current_func_params(self) -> list[str]:
         """Get list of parameter names for current function."""
         if not self.function_stack:
             return []
@@ -108,7 +96,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
             params.append(param.name.value)
         return params
 
-    def _get_best_node_param(self) -> Optional[str]:
+    def _get_best_node_param(self) -> str | None:
         """
         Get the most likely parameter representing a node/subtree.
 
@@ -120,37 +108,21 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         """
         params = self._get_current_func_params()
 
-        # Priority 1: Exact common names
         for p in params:
-            if p in ['node', 'current_node', 'ast_node', 'tree_node']:
+            if p in ["node", "current_node", "ast_node", "tree_node"]:
                 return p
 
-        # Priority 2: Contains 'node'
         for p in params:
-            if 'node' in p.lower() and p not in ['self', 'cls', 'context']:
+            if "node" in p.lower() and p not in ["self", "cls", "context"]:
                 return p
 
-        # Priority 3: First non-special param
         for p in params:
-            if p not in ['self', 'cls', 'context']:
+            if p not in ["self", "cls", "context"]:
                 return p
 
         return None
 
-    # ------------------------------------------------------------------------
-    # FIX 1: Recursion Bomb Disposal
-    # Detect context.walk_tree() usage inside recursive/helper functions
-    # and revert it to ast.walk(node).
-    # ------------------------------------------------------------------------
-
-    @m.leave(
-        m.Call(
-            func=m.Attribute(
-                value=m.Name("context"),
-                attr=m.Name("walk_tree")
-            )
-        )
-    )
+    @m.leave(m.Call(func=m.Attribute(value=m.Name("context"), attr=m.Name("walk_tree"))))
     def fix_recursion_bomb(self, original_node: cst.Call, updated_node: cst.Call) -> cst.Call:
         """
         Fix context.walk_tree() calls in helper functions that should use ast.walk().
@@ -158,53 +130,32 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         Identifies "recursion bombs" where a helper function walks the entire tree
         instead of its local subtree, causing O(N^k) complexity explosion.
         """
-        # Only applies if we are in a function
+
         if not self.function_stack:
             return updated_node
 
         current_func = self.function_stack[-1]
         func_name = current_func.name.value
 
-        # Condition for a "Bomb":
-        # 1. We are inside a nested function (stack > 1) OR a helper not named extract_
-        # 2. The function has parameters (implies it operates on a specific node/subtree)
-        # 3. It's calling the global context.walk_tree() instead of using its parameters
-
         is_nested_helper = len(self.function_stack) > 1
         is_helper_func = not func_name.startswith("extract_")
 
-        # Get best node parameter
         target_param = self._get_best_node_param()
 
         if (is_nested_helper or is_helper_func) and target_param:
             self.stats.recursion_bombs_defused += 1
             self.needs_ast_import = True
 
-            # Revert to: ast.walk(target_param)
             return cst.Call(
-                func=cst.Attribute(
-                    value=cst.Name("ast"),
-                    attr=cst.Name("walk")
-                ),
-                args=[cst.Arg(cst.Name(target_param))]
+                func=cst.Attribute(value=cst.Name("ast"), attr=cst.Name("walk")),
+                args=[cst.Arg(cst.Name(target_param))],
             )
 
         return updated_node
 
-    # ------------------------------------------------------------------------
-    # FIX 2: Missed Optimizations
-    # Catch ast.walk(tree) in helpers that V1 missed
-    # ------------------------------------------------------------------------
-
     @m.leave(
         m.For(
-            iter=m.Call(
-                func=m.Attribute(
-                    value=m.Name("ast"),
-                    attr=m.Name("walk")
-                ),
-                args=[m.Arg()]
-            )
+            iter=m.Call(func=m.Attribute(value=m.Name("ast"), attr=m.Name("walk")), args=[m.Arg()])
         )
     )
     def optimize_ast_walk(self, original_node: cst.For, updated_node: cst.For) -> cst.For:
@@ -214,29 +165,27 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         Only optimizes GLOBAL tree walks, preserves LOCAL subtree walks.
         """
 
-        # Extract the argument being walked
         if not updated_node.iter.args:
             return updated_node
 
         walk_arg = updated_node.iter.args[0].value
 
-        # We only optimize if we are walking the GLOBAL tree.
-        # If walking a local node, we leave it alone (it's a subtree walk).
         is_global_tree = False
 
         if isinstance(walk_arg, cst.Attribute):
-            # context.tree
             if m.matches(walk_arg, m.Attribute(value=m.Name("context"), attr=m.Name("tree"))):
                 is_global_tree = True
-        elif isinstance(walk_arg, cst.Name):
-            # variables named 'tree', 'actual_tree'
-            if walk_arg.value in ['tree', 'actual_tree', 'ast_tree', 'source_tree']:
-                is_global_tree = True
+        elif isinstance(walk_arg, cst.Name) and walk_arg.value in [
+            "tree",
+            "actual_tree",
+            "ast_tree",
+            "source_tree",
+        ]:
+            is_global_tree = True
 
         if not is_global_tree:
             return updated_node
 
-        # Check for isinstance check inside the loop (check first 3 statements)
         node_type = self._extract_isinstance_node_type(updated_node.body)
 
         if node_type:
@@ -244,23 +193,17 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
             self.needs_ast_import = True
 
             new_iter = cst.Call(
-                func=cst.Attribute(
-                    value=cst.Name("context"),
-                    attr=cst.Name("find_nodes")
-                ),
-                args=[cst.Arg(node_type)]
+                func=cst.Attribute(value=cst.Name("context"), attr=cst.Name("find_nodes")),
+                args=[cst.Arg(node_type)],
             )
 
             new_body = self._remove_isinstance_check(updated_node.body)
 
-            return updated_node.with_changes(
-                iter=new_iter,
-                body=new_body
-            )
+            return updated_node.with_changes(iter=new_iter, body=new_body)
 
         return updated_node
 
-    def _extract_isinstance_node_type(self, body: cst.IndentedBlock) -> Optional[cst.BaseExpression]:
+    def _extract_isinstance_node_type(self, body: cst.IndentedBlock) -> cst.BaseExpression | None:
         """
         Extract node type from isinstance check in loop body.
 
@@ -269,8 +212,7 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         if not body.body:
             return None
 
-        # Check first 3 statements (handles comments, debug prints, etc.)
-        for i, stmt in enumerate(body.body[:3]):
+        for _i, stmt in enumerate(body.body[:3]):
             if m.matches(stmt, m.If(test=m.Call(func=m.Name("isinstance")))):
                 isinstance_call = stmt.test
                 if len(isinstance_call.args) >= 2:
@@ -287,37 +229,27 @@ class ContextAwareTransformer(m.MatcherDecoratableTransformer):
         if not body.body:
             return body
 
-        # Find and remove isinstance check from first 3 statements
         for i, stmt in enumerate(body.body[:3]):
             if m.matches(stmt, m.If(test=m.Call(func=m.Name("isinstance")))):
-                # Extract if body
                 if_body = stmt.body.body
-                # Combine: [before isinstance] + [isinstance body] + [after isinstance]
-                # Use tuple concatenation (body.body is a tuple, not a list)
-                new_body = body.body[:i] + tuple(if_body) + body.body[i+1:]
+
+                new_body = body.body[:i] + tuple(if_body) + body.body[i + 1 :]
                 return body.with_changes(body=new_body)
 
         return body
 
-    # ------------------------------------------------------------------------
-    # Import Management (Using FAQ Best Practice)
-    # ------------------------------------------------------------------------
-
     def leave_Module(self, original_node: cst.Module, updated_node: cst.Module) -> cst.Module:
         """Add 'import ast' if needed using AddImportsVisitor (FAQ recommended)."""
         if self.needs_ast_import:
-            # Use LibCST's AddImportsVisitor helper (handles all edge cases)
             AddImportsVisitor.add_needed_import(self.context, "ast")
             self.stats.imports_added += 1
 
-        # Apply import changes
         return updated_node
 
-# ============================================================================
-# Processing Logic
-# ============================================================================
 
-def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose: bool = False) -> bool:
+def process_file(
+    filepath: Path, stats: FixStats, dry_run: bool = False, verbose: bool = False
+) -> bool:
     """
     Process a single Python file.
 
@@ -330,14 +262,13 @@ def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose
     stats.files_processed += 1
 
     try:
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding="utf-8") as f:
             source = f.read()
     except Exception as e:
         print(f"  ERROR reading {filepath.name}: {e}")
         stats.errors += 1
         return False
 
-    # Parse with LibCST
     try:
         tree = cst.parse_module(source)
     except cst.ParserSyntaxError as e:
@@ -345,7 +276,6 @@ def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose
         stats.errors += 1
         return False
 
-    # Transform
     context = CodemodContext()
     transformer = ContextAwareTransformer(context, stats)
 
@@ -356,7 +286,6 @@ def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose
         stats.errors += 1
         return False
 
-    # Check if modified
     if not modified_tree.deep_equals(tree):
         stats.files_modified += 1
 
@@ -367,8 +296,7 @@ def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose
                 print(f"    - Optimizations: {stats.missed_optimizations_fixed}")
             return True
 
-        # Create backup (FIXED: use string concat, not .with_suffix)
-        backup_path = Path(str(filepath) + '.v2_backup')
+        backup_path = Path(str(filepath) + ".v2_backup")
         try:
             shutil.copy2(filepath, backup_path)
         except Exception as e:
@@ -376,13 +304,11 @@ def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose
             stats.errors += 1
             return False
 
-        # Write modified code
         try:
-            # Apply import changes
             import_visitor = AddImportsVisitor(context)
             final_tree = modified_tree.visit(import_visitor)
 
-            with open(filepath, 'w', encoding='utf-8') as f:
+            with open(filepath, "w", encoding="utf-8") as f:
                 f.write(final_tree.code)
 
             print(f"  [FIXED] {filepath.name} (backup: {backup_path.name})")
@@ -393,18 +319,15 @@ def process_file(filepath: Path, stats: FixStats, dry_run: bool = False, verbose
 
         except Exception as e:
             print(f"  ERROR writing {filepath.name}: {e}")
-            # Restore from backup
+
             shutil.copy2(backup_path, filepath)
             stats.errors += 1
             return False
 
     if verbose:
-        print(f"  No changes needed")
+        print("  No changes needed")
     return False
 
-# ============================================================================
-# Main Entry Point
-# ============================================================================
 
 def main():
     parser = argparse.ArgumentParser(
@@ -432,56 +355,45 @@ Examples:
 
   # Single file
   python fix_ast_v3.py --target-dir theauditor/ast_extractors/python/performance_extractors.py
-        """
+        """,
     )
 
     parser.add_argument(
-        '--target-dir',
-        type=Path,
-        required=True,
-        help='Directory or file to process'
+        "--target-dir", type=Path, required=True, help="Directory or file to process"
     )
     parser.add_argument(
-        '--dry-run',
-        action='store_true',
-        help="Show what would be changed without modifying files"
+        "--dry-run", action="store_true", help="Show what would be changed without modifying files"
     )
-    parser.add_argument(
-        '--verbose',
-        action='store_true',
-        help='Show detailed progress information'
-    )
+    parser.add_argument("--verbose", action="store_true", help="Show detailed progress information")
 
     args = parser.parse_args()
 
-    # Validate target exists
     if not args.target_dir.exists():
         print(f"ERROR: Target does not exist: {args.target_dir}")
         sys.exit(1)
 
-    # Print header
-    print("="*60)
+    print("=" * 60)
     print("AST FIXER V3 - PRODUCTION READY")
-    print("="*60)
+    print("=" * 60)
     print(f"Target: {args.target_dir}")
     print(f"Mode: {'DRY RUN' if args.dry_run else 'LIVE'}")
     print(f"Verbose: {args.verbose}")
-    print("="*60)
+    print("=" * 60)
     print()
 
-    # Collect files
     if args.target_dir.is_file():
         files = [args.target_dir]
     else:
-        files = sorted(list(args.target_dir.rglob("*.py")))
-        # Filter out tests, backups, utils
+        files = sorted(args.target_dir.rglob("*.py"))
+
         files = [
-            f for f in files
-            if 'test' not in f.name.lower()
-            and not f.name.endswith('.bak')
-            and not f.name.endswith('.backup')
-            and not f.name.endswith('_backup')
-            and 'utils' not in str(f.parent)
+            f
+            for f in files
+            if "test" not in f.name.lower()
+            and not f.name.endswith(".bak")
+            and not f.name.endswith(".backup")
+            and not f.name.endswith("_backup")
+            and "utils" not in str(f.parent)
         ]
 
     if not files:
@@ -490,15 +402,12 @@ Examples:
 
     print(f"Found {len(files)} Python files to process\n")
 
-    # Process all files
     stats = FixStats()
     for filepath in files:
         process_file(filepath, stats, dry_run=args.dry_run, verbose=args.verbose)
 
-    # Print summary
     stats.print_summary()
 
-    # Print next steps
     if args.dry_run:
         print("\nThis was a DRY RUN - no files were modified")
         print("Run without --dry-run to apply changes")
@@ -506,18 +415,18 @@ Examples:
         print("\nBackup files created with .v2_backup extension")
         print("\nTo restore from backups:")
         print("  for f in theauditor/ast_extractors/python/*.v2_backup; do")
-        print("    mv \"$f\" \"${f%.v2_backup}\"")
+        print('    mv "$f" "${f%.v2_backup}"')
         print("  done")
         print("\nNEXT STEPS:")
         print("1. Run 'aud full' to test extraction")
         print("2. Check symbols extracted from complex files (async_app.py)")
         print("3. Verify no infinite recursion or performance issues")
 
-    # Exit with appropriate code
     if stats.errors > 0:
         sys.exit(1)
     else:
         sys.exit(0)
+
 
 if __name__ == "__main__":
     main()

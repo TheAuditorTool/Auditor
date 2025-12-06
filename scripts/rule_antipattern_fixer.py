@@ -21,9 +21,9 @@ WARNING: Review diff carefully before applying. Some fixes may need manual adjus
 """
 
 import re
+
 import libcst as cst
-from libcst.codemod import CodemodContext, VisitorBasedCodemodCommand, SkipFile
-from typing import Union
+from libcst.codemod import CodemodContext, SkipFile, VisitorBasedCodemodCommand
 
 
 class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
@@ -31,11 +31,16 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
 
     DESCRIPTION = "Fix checked_count breaks, LIMIT clauses, and flag N+1 patterns"
 
-    # Strict pattern for counter variables (not just any *count*)
-    COUNTER_NAMES = frozenset([
-        'checked_count', 'check_count', 'processed_count',
-        'iteration_count', 'loop_count', 'item_count'
-    ])
+    COUNTER_NAMES = frozenset(
+        [
+            "checked_count",
+            "check_count",
+            "processed_count",
+            "iteration_count",
+            "loop_count",
+            "item_count",
+        ]
+    )
 
     def __init__(self, context: CodemodContext) -> None:
         super().__init__(context)
@@ -47,52 +52,38 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
         if not filename.endswith("_analyze.py"):
             raise SkipFile("Not an analyzer rule file")
 
-    # =========================================================================
-    # FIX 1: Remove checked_count breaks
-    # Pattern: checked_count += 1; if checked_count > N: break
-    # =========================================================================
-
-    def leave_For(
-        self, original_node: cst.For, updated_node: cst.For
-    ) -> cst.For:
+    def leave_For(self, original_node: cst.For, updated_node: cst.For) -> cst.For:
         """Remove checked_count logic and add N+1/filtering TODOs."""
-        # Only process loops that iterate over fetchall()
+
         if not self._iterates_over_fetchall(updated_node):
             return updated_node
 
-        # Track what we find and fix
         removed_counter = False
         has_n_plus_one = False
         has_python_filter = False
         new_body_stmts = []
 
         for stmt in updated_node.body.body:
-            # Skip: checked_count = 0 (initialization)
             if self._is_counter_init(stmt):
                 removed_counter = True
                 continue
 
-            # Skip: checked_count += 1
             if self._is_counter_increment(stmt):
                 removed_counter = True
                 continue
 
-            # Skip: if checked_count > N: break
             if self._is_counter_break(stmt):
                 removed_counter = True
                 continue
 
-            # Detect N+1: cursor.execute inside loop
             if self._is_cursor_execute(stmt):
                 has_n_plus_one = True
 
-            # Detect Python filtering: if condition: continue
             if self._is_python_filter(stmt):
                 has_python_filter = True
 
             new_body_stmts.append(stmt)
 
-        # Build comments for fixes applied
         comments_to_add = []
 
         if removed_counter:
@@ -104,9 +95,7 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
             comments_to_add.append(
                 "# TODO: N+1 QUERY DETECTED - cursor.execute() inside fetchall() loop"
             )
-            comments_to_add.append(
-                "#       Rewrite with JOIN or CTE to eliminate per-row queries"
-            )
+            comments_to_add.append("#       Rewrite with JOIN or CTE to eliminate per-row queries")
 
         if has_python_filter:
             comments_to_add.append(
@@ -116,28 +105,20 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
                 "#       Move filtering logic to SQL WHERE clause for efficiency"
             )
 
-        # Apply comments if any fixes/detections occurred
         if comments_to_add and new_body_stmts:
             first_stmt = new_body_stmts[0]
 
-            # Build EmptyLine nodes for each comment
             comment_lines = []
             for comment_text in comments_to_add:
-                comment_lines.append(
-                    cst.EmptyLine(comment=cst.Comment(value=comment_text))
-                )
+                comment_lines.append(cst.EmptyLine(comment=cst.Comment(value=comment_text)))
 
-            # Add comments to first statement's leading lines
-            if hasattr(first_stmt, 'leading_lines'):
+            if hasattr(first_stmt, "leading_lines"):
                 new_leading = list(first_stmt.leading_lines) + comment_lines
-                new_body_stmts[0] = first_stmt.with_changes(
-                    leading_lines=new_leading
-                )
+                new_body_stmts[0] = first_stmt.with_changes(leading_lines=new_leading)
 
             new_body = updated_node.body.with_changes(body=new_body_stmts)
             return updated_node.with_changes(body=new_body)
 
-        # If only counter removed but no body changes needed
         if removed_counter:
             new_body = updated_node.body.with_changes(body=new_body_stmts)
             return updated_node.with_changes(body=new_body)
@@ -148,7 +129,7 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
         self,
         original_node: cst.SimpleStatementLine,
         updated_node: cst.SimpleStatementLine,
-    ) -> Union[cst.SimpleStatementLine, cst.RemovalSentinel]:
+    ) -> cst.SimpleStatementLine | cst.RemovalSentinel:
         """Remove checked_count = 0 initializations before loops."""
         if len(updated_node.body) == 1:
             stmt = updated_node.body[0]
@@ -156,35 +137,32 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
                 for target in stmt.targets:
                     if isinstance(target.target, cst.Name):
                         var_name = target.target.value.lower()
-                        # Strict matching - only known counter patterns
-                        if var_name in self.COUNTER_NAMES:
-                            if isinstance(stmt.value, cst.Integer):
-                                if stmt.value.value == '0':
-                                    return cst.RemovalSentinel.REMOVE
+
+                        if (
+                            var_name in self.COUNTER_NAMES
+                            and isinstance(stmt.value, cst.Integer)
+                            and stmt.value.value == "0"
+                        ):
+                            return cst.RemovalSentinel.REMOVE
 
         return updated_node
 
-    # =========================================================================
-    # FIX 2: Remove LIMIT from SQL strings
-    # Pattern: cursor.execute("SELECT ... LIMIT N")
-    # Handles: SimpleString ("..."), FormattedString (f"..."), ConcatenatedString ("""...""")
-    # =========================================================================
-
     def _remove_limit_from_sql(self, value: str) -> tuple[str, bool]:
         """Remove LIMIT clause from SQL string. Returns (new_value, was_modified)."""
-        # Check if it's a SQL string with LIMIT
-        if not ('SELECT' in value.upper() or 'UPDATE' in value.upper() or 'DELETE' in value.upper()):
+
+        if not (
+            "SELECT" in value.upper() or "UPDATE" in value.upper() or "DELETE" in value.upper()
+        ):
             return value, False
 
-        if 'LIMIT' not in value.upper():
+        if "LIMIT" not in value.upper():
             return value, False
 
-        # Remove LIMIT N pattern (handles LIMIT 15, LIMIT 30, etc.)
         new_value = re.sub(
-            r'\s+LIMIT\s+\d+',
-            '\n        -- REMOVED LIMIT: was hiding bugs\n        ',
+            r"\s+LIMIT\s+\d+",
+            "\n        -- REMOVED LIMIT: was hiding bugs\n        ",
             value,
-            flags=re.IGNORECASE
+            flags=re.IGNORECASE,
         )
 
         return new_value, (new_value != value)
@@ -229,15 +207,10 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
             return updated_node.with_changes(left=new_parts[0], right=new_parts[1])
         return updated_node
 
-    # =========================================================================
-    # Helper Methods
-    # =========================================================================
-
     def _iterates_over_fetchall(self, node: cst.For) -> bool:
         """Check if for loop iterates over cursor.fetchall()."""
-        if isinstance(node.iter, cst.Call):
-            if isinstance(node.iter.func, cst.Attribute):
-                return node.iter.func.attr.value == 'fetchall'
+        if isinstance(node.iter, cst.Call) and isinstance(node.iter.func, cst.Attribute):
+            return node.iter.func.attr.value == "fetchall"
         return False
 
     def _is_counter_init(self, stmt: cst.BaseStatement) -> bool:
@@ -248,54 +221,51 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
                     for target in inner.targets:
                         if isinstance(target.target, cst.Name):
                             var_name = target.target.value.lower()
-                            if var_name in self.COUNTER_NAMES:
-                                if isinstance(inner.value, cst.Integer):
-                                    return inner.value.value == '0'
+                            if var_name in self.COUNTER_NAMES and isinstance(
+                                inner.value, cst.Integer
+                            ):
+                                return inner.value.value == "0"
         return False
 
     def _is_counter_increment(self, stmt: cst.BaseStatement) -> bool:
         """Check if statement is: checked_count += 1 or similar."""
         if isinstance(stmt, cst.SimpleStatementLine):
             for inner in stmt.body:
-                if isinstance(inner, cst.AugAssign):
-                    if isinstance(inner.target, cst.Name):
-                        var_name = inner.target.value.lower()
-                        if var_name in self.COUNTER_NAMES:
-                            if isinstance(inner.operator, cst.AddAssign):
-                                return True
+                if isinstance(inner, cst.AugAssign) and isinstance(inner.target, cst.Name):
+                    var_name = inner.target.value.lower()
+                    if var_name in self.COUNTER_NAMES and isinstance(inner.operator, cst.AddAssign):
+                        return True
         return False
 
     def _is_counter_break(self, stmt: cst.BaseStatement) -> bool:
         """Check if statement is: if checked_count > N: break."""
-        if isinstance(stmt, cst.If):
-            # Check if test is comparison with counter
-            if isinstance(stmt.test, cst.Comparison):
-                left = stmt.test.left
-                if isinstance(left, cst.Name):
-                    var_name = left.value.lower()
-                    if var_name in self.COUNTER_NAMES:
-                        # Check if body contains break
-                        for body_stmt in stmt.body.body:
-                            if isinstance(body_stmt, cst.SimpleStatementLine):
-                                for inner in body_stmt.body:
-                                    if isinstance(inner, cst.Break):
-                                        return True
+        if isinstance(stmt, cst.If) and isinstance(stmt.test, cst.Comparison):
+            left = stmt.test.left
+            if isinstance(left, cst.Name):
+                var_name = left.value.lower()
+                if var_name in self.COUNTER_NAMES:
+                    for body_stmt in stmt.body.body:
+                        if isinstance(body_stmt, cst.SimpleStatementLine):
+                            for inner in body_stmt.body:
+                                if isinstance(inner, cst.Break):
+                                    return True
         return False
 
     def _is_cursor_execute(self, stmt: cst.BaseStatement) -> bool:
         """Check if statement contains cursor.execute()."""
         if isinstance(stmt, cst.SimpleStatementLine):
             for inner in stmt.body:
-                if isinstance(inner, cst.Expr):
-                    if isinstance(inner.value, cst.Call):
-                        if isinstance(inner.value.func, cst.Attribute):
-                            return inner.value.func.attr.value == 'execute'
+                if (
+                    isinstance(inner, cst.Expr)
+                    and isinstance(inner.value, cst.Call)
+                    and isinstance(inner.value.func, cst.Attribute)
+                ):
+                    return inner.value.func.attr.value == "execute"
         return False
 
     def _is_python_filter(self, stmt: cst.BaseStatement) -> bool:
         """Check if statement is Python filtering: if condition: continue."""
         if isinstance(stmt, cst.If):
-            # Check if body contains continue (filtering pattern)
             for body_stmt in stmt.body.body:
                 if isinstance(body_stmt, cst.SimpleStatementLine):
                     for inner in body_stmt.body:
@@ -304,16 +274,12 @@ class RuleAntiPatternFixer(VisitorBasedCodemodCommand):
         return False
 
 
-# =========================================================================
-# Standalone Script Mode
-# =========================================================================
-
 def transform_file(file_path: str) -> bool:
     """Transform a single file. Returns True if file was modified."""
     from pathlib import Path
 
     path = Path(file_path)
-    source = path.read_text(encoding='utf-8')
+    source = path.read_text(encoding="utf-8")
 
     try:
         module = cst.parse_module(source)
@@ -330,9 +296,8 @@ def transform_file(file_path: str) -> bool:
         print(f"  SKIP {file_path}: {e}")
         return False
 
-    # Only write if changed
     if not module.deep_equals(modified):
-        path.write_text(modified.code, encoding='utf-8')
+        path.write_text(modified.code, encoding="utf-8")
         print(f"  FIXED {file_path}")
         return True
     else:
@@ -347,7 +312,9 @@ def main():
 
     if len(sys.argv) < 2:
         print("Usage: python rule_antipattern_fixer.py <rules_directory>")
-        print("       python -m libcst.tool codemod scripts.rule_antipattern_fixer.RuleAntiPatternFixer <path>")
+        print(
+            "       python -m libcst.tool codemod scripts.rule_antipattern_fixer.RuleAntiPatternFixer <path>"
+        )
         sys.exit(1)
 
     rules_dir = Path(sys.argv[1])
@@ -360,7 +327,7 @@ def main():
     modified_count = 0
     total_count = 0
 
-    for rule_file in rules_dir.rglob('*_analyze.py'):
+    for rule_file in rules_dir.rglob("*_analyze.py"):
         total_count += 1
         if transform_file(str(rule_file)):
             modified_count += 1
@@ -368,5 +335,5 @@ def main():
     print(f"\nSummary: {modified_count}/{total_count} files modified")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

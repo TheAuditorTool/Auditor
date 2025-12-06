@@ -1,581 +1,903 @@
-"""TypeORM Analyzer - Database-First Approach.
+"""TypeORM Security and Performance Analyzer.
 
-Detects TypeORM anti-patterns and performance issues using ONLY
-indexed database data. NO AST traversal. NO file I/O. Pure SQL queries.
+Detects security vulnerabilities and performance anti-patterns in TypeORM usage:
+- Unbounded queries missing pagination (take/skip/limit)
+- N+1 query patterns (multiple findOne calls without relations)
+- Missing transaction wrappers around multiple writes
+- SQL injection via raw query with string interpolation
+- QueryBuilder without pagination (getMany/getRawMany)
+- cascade:true which can cause unintended deletions
+- synchronize:true which should NEVER be used in production
+- Missing indexes on common lookup fields
+- Complex multi-join queries without pagination
+- EntityManager overuse vs Repository pattern
+- Mass assignment via req.body passed to save/insert (CWE-915)
+- Exposed sensitive columns without select:false (CWE-200)
 
-Follows schema contract architecture (v1.1+):
-- Frozensets for all patterns (O(1) lookups)
-- Schema-validated queries via build_query()
-- Assume all contracted tables exist (crash if missing)
-- Proper confidence levels
+Tables Used:
+- function_call_args: TypeORM method calls and arguments
+- assignments: Configuration detection (cascade, synchronize)
+- files: Entity file discovery
+- symbols: Field/property detection for index analysis
+
+CWE References:
+- CWE-89: SQL Injection
+- CWE-200: Exposure of Sensitive Information to an Unauthorized Actor
+- CWE-400: Uncontrolled Resource Consumption
+- CWE-662: Improper Synchronization
+- CWE-665: Improper Initialization
+- CWE-672: Operation on Resource After Expiration
+- CWE-915: Improperly Controlled Modification of Dynamically-Determined Object Attributes
+
+Schema Contract Compliance: v2.0 (Fidelity Layer - Q class + RuleDB)
 """
 
-
-import sqlite3
-import json
-from typing import List
-from pathlib import Path
-
-from theauditor.rules.base import StandardRuleContext, StandardFinding, Severity, Confidence, RuleMetadata
-from theauditor.indexer.schema import build_query
-
-
-# ============================================================================
-# RULE METADATA - SMART FILTERING
-# ============================================================================
+from theauditor.rules.base import (
+    Confidence,
+    RuleMetadata,
+    RuleResult,
+    Severity,
+    StandardFinding,
+    StandardRuleContext,
+)
+from theauditor.rules.fidelity import RuleDB
+from theauditor.rules.query import Q
 
 METADATA = RuleMetadata(
     name="typeorm_orm_issues",
     category="orm",
-
-    # Target TypeScript files (TypeORM is TypeScript-first)
-    target_extensions=['.ts', '.tsx', '.mjs'],
-
-    # Exclude patterns - skip tests, migrations, build, TheAuditor folders
+    target_extensions=[".ts", ".tsx", ".js", ".mjs"],
     exclude_patterns=[
-        '__tests__/',
-        'test/',
-        'tests/',
-        'node_modules/',
-        'dist/',
-        'build/',
-        '.next/',
-        'migrations/',
-        'migration/',          # TypeORM-specific migrations
-        '.pf/',                # TheAuditor output directory
-        '.auditor_venv/'       # TheAuditor sandboxed tools
+        "__tests__/",
+        "test/",
+        "tests/",
+        "node_modules/",
+        "dist/",
+        "build/",
+        ".next/",
+        "migrations/",
+        "migration/",
+        ".pf/",
+        ".auditor_venv/",
     ],
-
-    # This is a DATABASE-ONLY rule (no JSX required)
-    requires_jsx_pass=False
+    execution_scope="database",
+    primary_table="function_call_args",
 )
 
 
-# ============================================================================
-# PATTERN DEFINITIONS (Golden Standard: Use Frozensets)
-# ============================================================================
-
-# TypeORM query methods that need pagination
-UNBOUNDED_METHODS = frozenset([
-    'find', 'findAndCount', 'getMany', 'getManyAndCount',
-    'getRawMany', 'getRawAndEntities'
-])
-
-# TypeORM write operations that may need transactions
-WRITE_METHODS = frozenset([
-    'save', 'insert', 'update', 'delete', 'remove',
-    'softDelete', 'restore', 'upsert', 'increment',
-    'decrement', 'create'
-])
-
-# Raw query methods that could have SQL injection
-RAW_QUERY_METHODS = frozenset([
-    'query', 'createQueryBuilder', 'getQuery', 'getSql',
-    'manager.query', 'connection.query', 'entityManager.query',
-    'dataSource.query', 'queryRunner.query'
-])
-
-# QueryBuilder methods that return multiple results
-QUERYBUILDER_MANY = frozenset([
-    'getMany', 'getManyAndCount', 'getRawMany', 'getRawAndEntities'
-])
-
-# Transaction-related methods
-TRANSACTION_METHODS = frozenset([
-    'transaction', 'startTransaction', 'commitTransaction',
-    'rollbackTransaction', 'queryRunner.startTransaction'
-])
-
-# Common fields that should be indexed
-COMMON_INDEXED_FIELDS = frozenset([
-    'id', 'email', 'username', 'userId', 'user_id',
-    'createdAt', 'created_at', 'updatedAt', 'updated_at',
-    'deletedAt', 'deleted_at', 'status', 'type', 'slug',
-    'code', 'uuid', 'tenantId', 'tenant_id'
-])
-
-# Dangerous cascade options
-DANGEROUS_CASCADE = frozenset([
-    'cascade: true', 'cascade:true', 'cascade : true',
-    '"cascade": true', '"cascade":true'
-])
-
-# Dangerous synchronize patterns
-DANGEROUS_SYNC = frozenset([
-    'synchronize: true', 'synchronize:true', 'synchronize : true',
-    '"synchronize": true', '"synchronize":true'
-])
-
-# Repository/Entity manager patterns
-REPOSITORY_PATTERNS = frozenset([
-    'getRepository', 'getCustomRepository', 'getTreeRepository',
-    'getMongoRepository', 'EntityManager', 'getManager'
-])
+UNBOUNDED_METHODS = frozenset(
+    [
+        "find",
+        "findAndCount",
+        "getMany",
+        "getManyAndCount",
+        "getRawMany",
+        "getRawAndEntities",
+    ]
+)
 
 
-# ============================================================================
-# MAIN RULE FUNCTION (Orchestrator Entry Point)
-# ============================================================================
+WRITE_METHODS = frozenset(
+    [
+        "save",
+        "insert",
+        "update",
+        "delete",
+        "remove",
+        "softDelete",
+        "restore",
+        "upsert",
+        "increment",
+        "decrement",
+        "create",
+    ]
+)
 
-def analyze(context: StandardRuleContext) -> list[StandardFinding]:
-    """Detect TypeORM anti-patterns and performance issues.
 
-    Detects:
-    - Unbounded queries without pagination
-    - N+1 query patterns
-    - Missing transactions for multiple writes
-    - Unsafe raw SQL queries
-    - Dangerous cascade configurations
-    - synchronize: true in production
-    - Missing database indexes
-    - Complex joins without limits
+QUERYBUILDER_MANY = frozenset(
+    [
+        "getMany",
+        "getManyAndCount",
+        "getRawMany",
+        "getRawAndEntities",
+    ]
+)
+
+
+RAW_QUERY_METHODS = frozenset(
+    [
+        "query",
+        "createQueryBuilder",
+        "getQuery",
+        "getSql",
+        "manager.query",
+        "connection.query",
+        "entityManager.query",
+        "dataSource.query",
+        "queryRunner.query",
+    ]
+)
+
+
+TRANSACTION_METHODS = frozenset(
+    [
+        "transaction",
+        "startTransaction",
+        "commitTransaction",
+        "rollbackTransaction",
+        "queryRunner.startTransaction",
+    ]
+)
+
+
+COMMON_INDEXED_FIELDS = frozenset(
+    [
+        "id",
+        "email",
+        "username",
+        "userId",
+        "user_id",
+        "createdAt",
+        "created_at",
+        "updatedAt",
+        "updated_at",
+        "deletedAt",
+        "deleted_at",
+        "status",
+        "type",
+        "slug",
+        "code",
+        "uuid",
+        "tenantId",
+        "tenant_id",
+    ]
+)
+
+
+TYPEORM_SOURCES = frozenset(
+    [
+        "find",
+        "findOne",
+        "findOneBy",
+        "findBy",
+        "where",
+        "andWhere",
+        "orWhere",
+        "having",
+    ]
+)
+
+
+UNSAFE_INPUT_SOURCES = frozenset(
+    [
+        "req.body",
+        "request.body",
+        "body",
+        "params",
+        "req.params",
+        "request.params",
+        "req.query",
+        "request.query",
+        "input",
+        "data",
+    ]
+)
+
+
+MASS_ASSIGNMENT_METHODS = frozenset(
+    [
+        "save",
+        "insert",
+        "update",
+        "create",
+        "upsert",
+    ]
+)
+
+
+SENSITIVE_FIELD_NAMES = frozenset(
+    [
+        "password",
+        "passwordHash",
+        "password_hash",
+        "hashedPassword",
+        "hashed_password",
+        "secret",
+        "secretKey",
+        "secret_key",
+        "apiKey",
+        "api_key",
+        "apiSecret",
+        "api_secret",
+        "token",
+        "accessToken",
+        "access_token",
+        "refreshToken",
+        "refresh_token",
+        "privateKey",
+        "private_key",
+        "encryptionKey",
+        "encryption_key",
+        "salt",
+        "pin",
+        "ssn",
+        "creditCard",
+        "credit_card",
+    ]
+)
+
+
+def analyze(context: StandardRuleContext) -> RuleResult:
+    """Detect TypeORM security vulnerabilities and performance anti-patterns.
 
     Args:
-        context: Standardized rule context with database path
+        context: Standard rule context with db_path
 
     Returns:
-        List of TypeORM issues found
+        RuleResult with findings and fidelity manifest
     """
-    findings = []
-
     if not context.db_path:
-        return findings
+        return RuleResult(findings=[], manifest={})
 
-    conn = sqlite3.connect(context.db_path)
-    cursor = conn.cursor()
+    with RuleDB(context.db_path, METADATA.name) as db:
+        findings: list[StandardFinding] = []
 
-    try:
+        _check_unbounded_queries(db, findings)
+        _check_n_plus_one_patterns(db, findings)
+        _check_missing_transactions(db, findings)
+        _check_sql_injection(db, findings)
+        _check_querybuilder_no_limit(db, findings)
+        _check_cascade_true(db, findings)
+        _check_synchronize_true(db, findings)
+        _check_missing_indexes(db, findings)
+        _check_complex_joins(db, findings)
+        _check_entity_manager_overuse(db, findings)
+        _check_mass_assignment(db, findings)
+        _check_exposed_secrets(db, findings)
 
-        # ========================================================
-        # CHECK 1: Unbounded Queries (find, getMany without limit)
-        # ========================================================
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        cursor.execute(query)
+        return RuleResult(findings=findings, manifest=db.get_manifest())
 
-        for file, line, method, args in cursor.fetchall():
-            # Check for unbounded methods in Python
-            if not any(method.endswith(f'.{m}') for m in UNBOUNDED_METHODS):
-                continue
-            # Check if limit/take is present
-            has_limit = args and any(term in str(args) for term in
-                                    ['limit', 'take', 'skip', 'offset'])
 
-            if not has_limit:
-                method_name = method.split('.')[-1] if '.' in method else method
-                findings.append(StandardFinding(
-                    rule_name='typeorm-unbounded-query',
-                    message=f'Unbounded query: {method} without pagination',
+def _check_unbounded_queries(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect repository find methods without pagination."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, method, args in rows:
+        if not method:
+            continue
+
+        is_unbounded = any(method.endswith(f".{m}") for m in UNBOUNDED_METHODS)
+        if not is_unbounded:
+            continue
+
+        has_limit = False
+        if args:
+            args_str = str(args).lower()
+            has_limit = any(term in args_str for term in ["limit", "take", "skip", "offset"])
+
+        if not has_limit:
+            method_name = method.split(".")[-1] if "." in method else method
+            severity = Severity.HIGH if method_name in QUERYBUILDER_MANY else Severity.MEDIUM
+
+            findings.append(
+                StandardFinding(
+                    rule_name="typeorm-unbounded-query",
+                    message=f"Unbounded query: {method} without pagination - add take/skip",
                     file_path=file,
                     line=line,
-                    severity=Severity.HIGH if method_name in QUERYBUILDER_MANY else Severity.MEDIUM,
-                    category='orm-performance',
+                    severity=severity,
+                    category="orm",
                     confidence=Confidence.HIGH,
-                    cwe_id='CWE-400'
-                ))
+                    cwe_id="CWE-400",
+                )
+            )
 
-        # ========================================================
-        # CHECK 2: N+1 Query Patterns
-        # ========================================================
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        cursor.execute(query)
 
-        # Filter and group by file to detect patterns
-        file_queries = {}
-        for file, line, method, args in cursor.fetchall():
-            # Check for findOne methods in Python
-            if not any(method.endswith(f'.{m}') for m in ['findOne', 'findOneBy', 'findOneOrFail']):
-                continue
-            if file not in file_queries:
-                file_queries[file] = []
-            file_queries[file].append({'line': line, 'method': method, 'args': args})
+def _check_n_plus_one_patterns(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect multiple findOne calls that may indicate N+1 problem."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-        # Detect N+1 patterns (multiple findOne close together)
-        for file, queries in file_queries.items():
-            for i in range(len(queries) - 1):
-                q1 = queries[i]
-                q2 = queries[i + 1]
+    file_queries: dict[str, list[dict]] = {}
+    for file, line, method, args in rows:
+        if not method:
+            continue
 
-                # Multiple findOne within 10 lines
-                if q2['line'] - q1['line'] <= 10:
-                    # Check if they have relations/joins
-                    has_relations1 = q1['args'] and 'relations' in str(q1['args'])
-                    has_relations2 = q2['args'] and 'relations' in str(q2['args'])
+        is_find_one = any(
+            method.endswith(f".{m}") for m in ["findOne", "findOneBy", "findOneOrFail"]
+        )
+        if not is_find_one:
+            continue
 
-                    if not has_relations1 and not has_relations2:
-                        findings.append(StandardFinding(
-                            rule_name='typeorm-n-plus-one',
-                            message=f'Potential N+1: Multiple {q1["method"]} calls without relations',
+        if file not in file_queries:
+            file_queries[file] = []
+        file_queries[file].append({"line": line, "method": method, "args": args})
+
+    for file, queries in file_queries.items():
+        for i in range(len(queries) - 1):
+            q1 = queries[i]
+            q2 = queries[i + 1]
+
+            if q2["line"] - q1["line"] <= 10:
+                has_relations1 = q1["args"] and "relations" in str(q1["args"])
+                has_relations2 = q2["args"] and "relations" in str(q2["args"])
+
+                if not has_relations1 and not has_relations2:
+                    findings.append(
+                        StandardFinding(
+                            rule_name="typeorm-n-plus-one",
+                            message=f"Potential N+1: Multiple {q1['method']} calls without relations - use eager loading",
                             file_path=file,
-                            line=q1['line'],
+                            line=q1["line"],
                             severity=Severity.HIGH,
-                            category='orm-performance',
+                            category="orm",
                             confidence=Confidence.MEDIUM,
-                            cwe_id='CWE-400'
-                        ))
-                        break
-
-        # ========================================================
-        # CHECK 3: Missing Transactions for Multiple Writes
-        # ========================================================
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           order_by="file, line")
-        cursor.execute(query)
-
-        # Filter and group operations by file
-        file_operations = {}
-        for file, line, method in cursor.fetchall():
-            # Check for write methods in Python
-            if not any(f'.{m}' in method for m in WRITE_METHODS):
-                continue
-            if file not in file_operations:
-                file_operations[file] = []
-            file_operations[file].append({'line': line, 'method': method})
-
-        # Check for close operations without transactions
-        for file, operations in file_operations.items():
-            for i in range(len(operations) - 1):
-                op1 = operations[i]
-                op2 = operations[i + 1]
-
-                # Operations within 20 lines
-                if op2['line'] - op1['line'] <= 20:
-                    # Check for transaction - fetch and filter in Python
-                    trans_query = build_query('function_call_args', ['callee_function'],
-                                             where="file = ? AND line BETWEEN ? AND ?")
-                    cursor.execute(trans_query, (file, op1['line'] - 10, op2['line'] + 10))
-
-                    has_transaction = False
-                    for (callee,) in cursor.fetchall():
-                        if 'transaction' in callee.lower() or 'queryrunner' in callee.lower():
-                            has_transaction = True
-                            break
-
-                    if not has_transaction:
-                        findings.append(StandardFinding(
-                            rule_name='typeorm-missing-transaction',
-                            message=f"Multiple writes without transaction: {op1['method']} and {op2['method']}",
-                            file_path=file,
-                            line=op1['line'],
-                            severity=Severity.HIGH,
-                            category='orm-data-integrity',
-                            confidence=Confidence.MEDIUM,
-                            cwe_id='CWE-662'
-                        ))
-                        break
-
-        # ========================================================
-        # CHECK 4: Raw SQL Injection Risks
-        # ========================================================
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        cursor.execute(query)
-
-        for file, line, func, args in cursor.fetchall():
-            # Check for query methods in Python
-            func_lower = func.lower()
-            if not (func == 'query' or '.query' in func_lower or
-                   'querybuilder' in func_lower or '.createquerybuilder' in func_lower):
-                continue
-            if args:
-                args_str = str(args)
-                # Check for string interpolation
-                has_interpolation = any(pattern in args_str for pattern in [
-                    '${', '"+', '" +', '` +', 'concat', '+', '`'
-                ])
-
-                # Check for parameterization
-                has_params = ':' in args_str or '$' in args_str
-
-                if has_interpolation and not has_params:
-                    findings.append(StandardFinding(
-                        rule_name='typeorm-sql-injection',
-                        message=f'Potential SQL injection in {func}',
-                        file_path=file,
-                        line=line,
-                        severity=Severity.CRITICAL,
-                        category='orm-security',
-                        confidence=Confidence.HIGH if 'query' in func else Confidence.MEDIUM,
-                        cwe_id='CWE-89'
-                    ))
-
-        # ========================================================
-        # CHECK 5: QueryBuilder Without Limits
-        # ========================================================
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        cursor.execute(query)
-        # Store results before nested loop (avoid cursor state bug)
-        all_calls = cursor.fetchall()
-
-        for file, line, method, args in all_calls:
-            # Check for getMany methods in Python
-            method_lower = method.lower()
-            if not ('getmany' in method_lower or 'getrawmany' in method_lower or 'getmanyandcount' in method_lower):
-                continue
-
-            # Check if there's a limit() or take() call nearby - fetch and filter in Python
-            limit_query = build_query('function_call_args', ['callee_function'],
-                                     where="file = ? AND ABS(line - ?) <= 5")
-            cursor.execute(limit_query, (file, line))
-
-            has_limit_nearby = False
-            for (callee,) in cursor.fetchall():
-                if callee.endswith('.limit') or callee.endswith('.take'):
-                    has_limit_nearby = True
+                            cwe_id="CWE-400",
+                        )
+                    )
                     break
 
-            if not has_limit_nearby:
-                findings.append(StandardFinding(
-                    rule_name='typeorm-querybuilder-no-limit',
-                    message=f'QueryBuilder {method} without limit/take',
+
+def _check_missing_transactions(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect multiple write operations without transaction wrapper."""
+    rows = db.query(
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
+    )
+
+    file_operations: dict[str, list[dict]] = {}
+    for file, line, method in rows:
+        if not method:
+            continue
+
+        is_write = any(f".{m}" in method for m in WRITE_METHODS)
+        if not is_write:
+            continue
+
+        if file not in file_operations:
+            file_operations[file] = []
+        file_operations[file].append({"line": line, "method": method})
+
+    for file, operations in file_operations.items():
+        for i in range(len(operations) - 1):
+            op1 = operations[i]
+            op2 = operations[i + 1]
+
+            if op2["line"] - op1["line"] <= 20:
+                has_transaction = _check_transaction_between(db, file, op1["line"], op2["line"])
+
+                if not has_transaction:
+                    findings.append(
+                        StandardFinding(
+                            rule_name="typeorm-missing-transaction",
+                            message=f"Multiple writes without transaction: {op1['method']} (line {op1['line']}) and {op2['method']} (line {op2['line']})",
+                            file_path=file,
+                            line=op1["line"],
+                            severity=Severity.HIGH,
+                            category="orm",
+                            confidence=Confidence.MEDIUM,
+                            cwe_id="CWE-662",
+                        )
+                    )
+                    break
+
+
+def _check_transaction_between(db: RuleDB, file: str, start_line: int, end_line: int) -> bool:
+    """Check if there's a transaction between two lines."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("callee_function")
+        .where("file = ?", file)
+        .where("line BETWEEN ? AND ?", start_line - 10, end_line + 10)
+    )
+
+    for (callee,) in rows:
+        if not callee:
+            continue
+        callee_lower = callee.lower()
+        if "transaction" in callee_lower or "queryrunner" in callee_lower:
+            return True
+
+    return False
+
+
+def _check_sql_injection(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect SQL injection via raw query with string interpolation."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, func, args in rows:
+        if not func or not args:
+            continue
+
+        func_lower = func.lower()
+        is_raw_query = (
+            func == "query"
+            or ".query" in func_lower
+            or "querybuilder" in func_lower
+            or ".createquerybuilder" in func_lower
+        )
+
+        if not is_raw_query:
+            continue
+
+        args_str = str(args)
+
+        interpolation_patterns = ["${", '"+', '" +', "` +", "concat(", ".format("]
+        has_interpolation = any(pattern in args_str for pattern in interpolation_patterns)
+
+        has_params = ":" in args_str or "$" in args_str
+
+        if has_interpolation and not has_params:
+            findings.append(
+                StandardFinding(
+                    rule_name="typeorm-sql-injection",
+                    message=f"SQL injection risk in {func}: string interpolation without parameters",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="orm",
+                    confidence=Confidence.HIGH if "query" in func else Confidence.MEDIUM,
+                    cwe_id="CWE-89",
+                )
+            )
+
+
+def _check_querybuilder_no_limit(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect QueryBuilder getMany/getRawMany without pagination."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
+
+    for file, line, method, _args in rows:
+        if not method:
+            continue
+
+        method_lower = method.lower()
+        is_get_many = any(m in method_lower for m in ["getmany", "getrawmany", "getmanyandcount"])
+
+        if not is_get_many:
+            continue
+
+        limit_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("file = ?", file)
+            .where("ABS(line - ?) <= 5", line)
+        )
+
+        has_limit_nearby = False
+        for (callee,) in limit_rows:
+            if callee and (callee.endswith(".limit") or callee.endswith(".take")):
+                has_limit_nearby = True
+                break
+
+        if not has_limit_nearby:
+            findings.append(
+                StandardFinding(
+                    rule_name="typeorm-querybuilder-no-limit",
+                    message=f"QueryBuilder {method} without limit/take - add pagination",
                     file_path=file,
                     line=line,
                     severity=Severity.HIGH,
-                    category='orm-performance',
+                    category="orm",
                     confidence=Confidence.MEDIUM,
-                    cwe_id='CWE-400'
-                ))
+                    cwe_id="CWE-400",
+                )
+            )
 
-        # ========================================================
-        # CHECK 6: Dangerous Cascade Configuration
-        # ========================================================
-        # Fetch all assignments, filter in Python
-        query = build_query('assignments', ['file', 'line', 'source_expr'])
-        cursor.execute(query)
 
-        for file, line, expr in cursor.fetchall():
-            # Check for cascade:true patterns in Python
-            if not expr:
-                continue
-            expr_lower = expr.lower().replace(' ', '')
-            if 'cascade' not in expr_lower or 'true' not in expr_lower:
-                continue
-            # Verify it's actually cascade: true (various formats)
-            if not any(pattern in expr_lower for pattern in ['cascade:true', 'cascade"true', "cascade'true"]):
-                continue
-            findings.append(StandardFinding(
-                rule_name='typeorm-cascade-true',
-                message='cascade: true can cause unintended data deletion',
+def _check_cascade_true(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect cascade:true which can cause unintended data deletion."""
+    rows = db.query(Q("assignments").select("file", "line", "source_expr"))
+
+    for file, line, expr in rows:
+        if not expr:
+            continue
+
+        expr_lower = expr.lower().replace(" ", "")
+        if "cascade" not in expr_lower or "true" not in expr_lower:
+            continue
+
+        cascade_patterns = ["cascade:true", 'cascade"true', "cascade'true"]
+        if not any(pattern in expr_lower for pattern in cascade_patterns):
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="typeorm-cascade-true",
+                message="cascade:true can cause unintended cascading deletions - use explicit save operations",
                 file_path=file,
                 line=line,
                 severity=Severity.HIGH,
-                category='orm-data-integrity',
+                category="orm",
                 confidence=Confidence.HIGH,
-                cwe_id='CWE-672'
-            ))
+                cwe_id="CWE-672",
+            )
+        )
 
-        # ========================================================
-        # CHECK 7: Synchronize True in Production
-        # ========================================================
-        # Fetch all assignments, filter in Python (METADATA handles file exclusions)
-        query = build_query('assignments', ['file', 'line', 'source_expr'])
-        cursor.execute(query)
 
-        for file, line, expr in cursor.fetchall():
-            # Check for synchronize:true patterns in Python
-            if not expr:
-                continue
-            expr_lower = expr.lower().replace(' ', '')
-            if 'synchronize' not in expr_lower or 'true' not in expr_lower:
-                continue
-            # Verify it's actually synchronize: true
-            if not any(pattern in expr_lower for pattern in ['synchronize:true', 'synchronize"true', "synchronize'true"]):
-                continue
-            # Skip test/spec/mock files
-            file_lower = file.lower()
-            if any(pattern in file_lower for pattern in ['test', 'spec', 'mock']):
-                continue
-            findings.append(StandardFinding(
-                rule_name='typeorm-synchronize-true',
-                message='synchronize: true detected - NEVER use in production',
+def _check_synchronize_true(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect synchronize:true which should NEVER be used in production."""
+    rows = db.query(Q("assignments").select("file", "line", "source_expr"))
+
+    for file, line, expr in rows:
+        if not expr:
+            continue
+
+        expr_lower = expr.lower().replace(" ", "")
+        if "synchronize" not in expr_lower or "true" not in expr_lower:
+            continue
+
+        sync_patterns = ["synchronize:true", 'synchronize"true', "synchronize'true"]
+        if not any(pattern in expr_lower for pattern in sync_patterns):
+            continue
+
+        file_lower = file.lower()
+        if any(pattern in file_lower for pattern in ["test", "spec", "mock"]):
+            continue
+
+        findings.append(
+            StandardFinding(
+                rule_name="typeorm-synchronize-true",
+                message="synchronize:true detected - NEVER use in production, use migrations instead",
                 file_path=file,
                 line=line,
                 severity=Severity.CRITICAL,
-                category='orm-security',
+                category="orm",
                 confidence=Confidence.HIGH,
-                cwe_id='CWE-665'
-            ))
+                cwe_id="CWE-665",
+            )
+        )
 
-        # ========================================================
-        # CHECK 8: Missing Indexes on Common Fields
-        # ========================================================
-        # Find entity files - fetch all files, filter in Python
-        query = build_query('files', ['path'])
-        cursor.execute(query)
 
-        entity_files = []
-        for (path,) in cursor.fetchall():
-            # Check for entity files in Python
-            path_lower = path.lower()
-            if not (path.endswith('.entity.ts') or path.endswith('.entity.js')):
+def _check_missing_indexes(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect common lookup fields without indexes in entity files."""
+    file_rows = db.query(Q("files").select("path"))
+
+    entity_files: list[str] = []
+    for (path,) in file_rows:
+        if not path:
+            continue
+        if not (path.endswith(".entity.ts") or path.endswith(".entity.js")):
+            continue
+        path_lower = path.lower()
+        if "test" in path_lower or "spec" in path_lower:
+            continue
+        entity_files.append(path)
+
+    reported_fields: set[str] = set()
+
+    for entity_file in entity_files:
+        symbol_rows = db.query(
+            Q("symbols")
+            .select("line", "name")
+            .where("path = ?", entity_file)
+            .where("type IN ('property', 'field', 'member')")
+        )
+
+        for field_line, field_name in symbol_rows:
+            if not field_name:
                 continue
-            # Skip test/spec files (METADATA handles this but double-check)
-            if 'test' in path_lower or 'spec' in path_lower:
+
+            field_name_lower = field_name.lower()
+            matching_field = None
+            for common_field in COMMON_INDEXED_FIELDS:
+                if common_field.lower() in field_name_lower:
+                    matching_field = common_field
+                    break
+
+            if not matching_field:
                 continue
-            entity_files.append(path)
 
-        for entity_file in entity_files:
-            # Check for common fields in this entity
-            for field in COMMON_INDEXED_FIELDS:
-                # Fetch symbols and filter in Python
-                field_query = build_query('symbols', ['line', 'name'],
-                                         where="path = ? AND type IN ('property', 'field', 'member')")
-                cursor.execute(field_query, (entity_file,))
-
-                field_result = None
-                for line, name in cursor.fetchall():
-                    if field.lower() in name.lower():
-                        field_result = (line,)
-                        break
-
-                if field_result:
-                    field_line = field_result[0]
-
-                    # Check if there's an @Index nearby - fetch and filter in Python
-                    index_query = build_query('symbols', ['name'],
-                                             where="path = ? AND ABS(line - ?) <= 3")
-                    cursor.execute(index_query, (entity_file, field_line))
-
-                    has_index = False
-                    for (symbol_name,) in cursor.fetchall():
-                        if 'index' in symbol_name.lower():
-                            has_index = True
-                            break
-
-                    if not has_index:
-                        findings.append(StandardFinding(
-                            rule_name='typeorm-missing-index',
-                            message=f'Common field "{field}" is not indexed',
-                            file_path=entity_file,
-                            line=field_line,
-                            severity=Severity.MEDIUM,
-                            category='orm-performance',
-                            confidence=Confidence.MEDIUM,
-                            cwe_id='CWE-400'
-                        ))
-
-        # ========================================================
-        # CHECK 9: Complex Joins Without Pagination
-        # ========================================================
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function', 'argument_expr'],
-                           order_by="file, line")
-        cursor.execute(query)
-
-        # Filter and count joins per query
-        join_counts = {}
-        for file, line, method, args in cursor.fetchall():
-            # Check for join methods in Python
-            method_lower = method.lower()
-            if not ('leftjoin' in method_lower or 'innerjoin' in method_lower or 'leftjoinandselect' in method_lower):
+            report_key = f"{entity_file}:{matching_field}"
+            if report_key in reported_fields:
                 continue
-            key = f"{file}:{line // 10}"  # Group by 10-line blocks
-            if key not in join_counts:
-                join_counts[key] = {'file': file, 'line': line, 'count': 0}
-            join_counts[key]['count'] += 1
 
-        # Check for complex joins without limit
-        for key, data in join_counts.items():
-            if data['count'] >= 3:
-                # Check for limit/take - fetch and filter in Python
-                limit_query = build_query('function_call_args', ['callee_function'],
-                                         where="file = ? AND ABS(line - ?) <= 10")
-                cursor.execute(limit_query, (data['file'], data['line']))
+            nearby_rows = db.query(
+                Q("symbols")
+                .select("name")
+                .where("path = ?", entity_file)
+                .where("ABS(line - ?) <= 3", field_line)
+            )
 
-                has_limit = False
-                for (callee,) in cursor.fetchall():
-                    if callee.endswith('.limit') or callee.endswith('.take'):
-                        has_limit = True
-                        break
+            has_index = False
+            for (symbol_name,) in nearby_rows:
+                if symbol_name and "index" in symbol_name.lower():
+                    has_index = True
+                    break
 
-                if not has_limit:
-                    findings.append(StandardFinding(
-                        rule_name='typeorm-complex-joins',
-                        message=f'Complex query with {data["count"]} joins but no pagination',
-                        file_path=data['file'],
-                        line=data['line'],
-                        severity=Severity.HIGH,
-                        category='orm-performance',
+            if not has_index:
+                reported_fields.add(report_key)
+                findings.append(
+                    StandardFinding(
+                        rule_name="typeorm-missing-index",
+                        message=f"Common field '{field_name}' is not indexed - add @Index() decorator",
+                        file_path=entity_file,
+                        line=field_line,
+                        severity=Severity.MEDIUM,
+                        category="orm",
                         confidence=Confidence.MEDIUM,
-                        cwe_id='CWE-400'
-                    ))
-
-        # ========================================================
-        # CHECK 10: Entity Manager vs Repository Pattern
-        # ========================================================
-        # Fetch all function_call_args, filter in Python
-        query = build_query('function_call_args', ['file', 'line', 'callee_function'],
-                           order_by="file, line")
-        cursor.execute(query)
-
-        # Filter for EntityManager usage
-        manager_usage = []
-        for file, line, func in cursor.fetchall():
-            func_lower = func.lower()
-            if 'entitymanager.' in func_lower or 'getmanager' in func_lower:
-                manager_usage.append((file, line, func))
-
-        if len(manager_usage) > 20:  # Significant EntityManager usage
-            # Check if using repositories - fetch all again and filter
-            repo_query = build_query('function_call_args', ['callee_function'])
-            cursor.execute(repo_query)
-
-            repo_count = 0
-            for (callee,) in cursor.fetchall():
-                callee_lower = callee.lower()
-                if 'getrepository' in callee_lower or 'getcustomrepository' in callee_lower:
-                    repo_count += 1
-
-            if repo_count < 5:  # Very few repository uses
-                findings.append(StandardFinding(
-                    rule_name='typeorm-entity-manager-overuse',
-                    message='Heavy EntityManager usage - consider Repository pattern',
-                    file_path=manager_usage[0][0],
-                    line=1,
-                    severity=Severity.LOW,
-                    category='orm-architecture',
-                    confidence=Confidence.LOW,
-                    cwe_id='CWE-1061'
-                ))
-
-    finally:
-        conn.close()
-
-    return findings
+                        cwe_id="CWE-400",
+                    )
+                )
 
 
-def register_taint_patterns(taint_registry):
-    """Register TypeORM-specific taint patterns.
+def _check_complex_joins(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect complex multi-join queries without pagination."""
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-    This function is called by the orchestrator to register
-    ORM-specific sources and sinks for taint analysis.
+    join_counts: dict[str, dict] = {}
+    for file, line, method, _args in rows:
+        if not method:
+            continue
 
-    Args:
-        taint_registry: TaintRegistry instance
+        method_lower = method.lower()
+        is_join = any(j in method_lower for j in ["leftjoin", "innerjoin", "leftjoinandselect"])
+
+        if not is_join:
+            continue
+
+        key = f"{file}:{line // 10}"
+        if key not in join_counts:
+            join_counts[key] = {"file": file, "line": line, "count": 0}
+        join_counts[key]["count"] += 1
+
+    for _key, data in join_counts.items():
+        if data["count"] < 3:
+            continue
+
+        limit_rows = db.query(
+            Q("function_call_args")
+            .select("callee_function")
+            .where("file = ?", data["file"])
+            .where("ABS(line - ?) <= 10", data["line"])
+        )
+
+        has_limit = False
+        for (callee,) in limit_rows:
+            if callee and (callee.endswith(".limit") or callee.endswith(".take")):
+                has_limit = True
+                break
+
+        if not has_limit:
+            findings.append(
+                StandardFinding(
+                    rule_name="typeorm-complex-joins",
+                    message=f"Complex query with {data['count']} joins but no pagination - may cause performance issues",
+                    file_path=data["file"],
+                    line=data["line"],
+                    severity=Severity.HIGH,
+                    category="orm",
+                    confidence=Confidence.MEDIUM,
+                    cwe_id="CWE-400",
+                )
+            )
+
+
+def _check_entity_manager_overuse(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect heavy EntityManager usage instead of Repository pattern."""
+    rows = db.query(
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
+    )
+
+    manager_usage: list[tuple[str, int, str]] = []
+    for file, line, func in rows:
+        if not func:
+            continue
+        func_lower = func.lower()
+        if "entitymanager." in func_lower or "getmanager" in func_lower:
+            manager_usage.append((file, line, func))
+
+    if len(manager_usage) <= 20:
+        return
+
+    all_rows = db.query(Q("function_call_args").select("callee_function"))
+
+    repo_count = 0
+    for (callee,) in all_rows:
+        if not callee:
+            continue
+        callee_lower = callee.lower()
+        if "getrepository" in callee_lower or "getcustomrepository" in callee_lower:
+            repo_count += 1
+
+    if repo_count < 5:
+        findings.append(
+            StandardFinding(
+                rule_name="typeorm-entity-manager-overuse",
+                message=f"Heavy EntityManager usage ({len(manager_usage)} calls) - consider Repository pattern for better maintainability",
+                file_path=manager_usage[0][0],
+                line=1,
+                severity=Severity.LOW,
+                category="orm",
+                confidence=Confidence.LOW,
+                cwe_id="CWE-1061",
+            )
+        )
+
+
+def _check_mass_assignment(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect mass assignment vulnerabilities - passing req.body directly to save/insert.
+
+    Attackers can overwrite internal fields (e.g., isAdmin, role, balance) if raw input
+    is passed directly to TypeORM write methods without whitelisting.
     """
-    # Register TypeORM raw query methods as SQL sinks
-    for pattern in RAW_QUERY_METHODS:
-        taint_registry.register_sink(pattern, 'sql', 'javascript')
-        taint_registry.register_sink(pattern, 'sql', 'typescript')
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
+        .order_by("file, line")
+    )
 
-    # Register TypeORM input sources
-    TYPEORM_SOURCES = frozenset([
-        'find', 'findOne', 'findOneBy', 'findBy',
-        'where', 'andWhere', 'orWhere', 'having'
-    ])
+    for file, line, func, args in rows:
+        if not func or not args:
+            continue
+
+        is_write_method = any(f".{method}" in func for method in MASS_ASSIGNMENT_METHODS)
+        if not is_write_method:
+            continue
+
+        args_str = str(args)
+        args_lower = args_str.lower()
+
+        has_unsafe_input = any(source.lower() in args_lower for source in UNSAFE_INPUT_SOURCES)
+
+        if not has_unsafe_input:
+            continue
+
+        has_spread = "..." in args_str
+        has_direct_pass = any(
+            f"({source}" in args_str or f", {source}" in args_str or f"[{source}" in args_str
+            for source in UNSAFE_INPUT_SOURCES
+        )
+
+        if has_direct_pass or has_spread:
+            findings.append(
+                StandardFinding(
+                    rule_name="typeorm-mass-assignment",
+                    message=f"Mass assignment vulnerability: {func} receives raw user input directly",
+                    file_path=file,
+                    line=line,
+                    severity=Severity.CRITICAL,
+                    category="orm",
+                    snippet=f"{func}({args_str[:50]}...)"
+                    if len(args_str) > 50
+                    else f"{func}({args_str})",
+                    confidence=Confidence.HIGH,
+                    cwe_id="CWE-915",
+                    additional_info={
+                        "remediation": "Whitelist allowed fields explicitly: repository.save({ field1: body.field1, field2: body.field2 })",
+                    },
+                )
+            )
+
+
+def _check_exposed_secrets(db: RuleDB, findings: list[StandardFinding]) -> None:
+    """Detect sensitive columns without select:false in TypeORM entities.
+
+    By default, TypeORM returns all columns in queries. Sensitive fields like
+    password, secret, token should use @Column({ select: false }) to prevent
+    accidental exposure in API responses.
+    """
+    file_rows = db.query(Q("files").select("path"))
+
+    entity_files: list[str] = []
+    for (path,) in file_rows:
+        if not path:
+            continue
+        if not (path.endswith(".entity.ts") or path.endswith(".entity.js")):
+            continue
+        path_lower = path.lower()
+        if "test" in path_lower or "spec" in path_lower or "mock" in path_lower:
+            continue
+        entity_files.append(path)
+
+    reported_fields: set[str] = set()
+
+    for entity_file in entity_files:
+        symbol_rows = db.query(
+            Q("symbols")
+            .select("line", "name")
+            .where("path = ?", entity_file)
+            .where("type IN ('property', 'field', 'member')")
+        )
+
+        for field_line, field_name in symbol_rows:
+            if not field_name:
+                continue
+
+            field_name_lower = field_name.lower()
+            matching_sensitive = None
+            for sensitive_field in SENSITIVE_FIELD_NAMES:
+                if (
+                    sensitive_field.lower() == field_name_lower
+                    or sensitive_field.lower() in field_name_lower
+                ):
+                    matching_sensitive = sensitive_field
+                    break
+
+            if not matching_sensitive:
+                continue
+
+            report_key = f"{entity_file}:{field_name}"
+            if report_key in reported_fields:
+                continue
+
+            nearby_call_rows = db.query(
+                Q("function_call_args")
+                .select("argument_expr")
+                .where("file = ?", entity_file)
+                .where("ABS(line - ?) <= 3", field_line)
+            )
+
+            has_select_false = False
+            for (args,) in nearby_call_rows:
+                if not args:
+                    continue
+                args_lower = str(args).lower().replace(" ", "")
+                if "select:false" in args_lower or "select :false" in str(args).lower():
+                    has_select_false = True
+                    break
+
+            assign_rows = db.query(
+                Q("assignments")
+                .select("source_expr")
+                .where("file = ?", entity_file)
+                .where("ABS(line - ?) <= 3", field_line)
+            )
+
+            for (expr,) in assign_rows:
+                if not expr:
+                    continue
+                expr_lower = str(expr).lower().replace(" ", "")
+                if "select:false" in expr_lower:
+                    has_select_false = True
+                    break
+
+            if not has_select_false:
+                reported_fields.add(report_key)
+                findings.append(
+                    StandardFinding(
+                        rule_name="typeorm-exposed-secret",
+                        message=f"Sensitive field '{field_name}' missing select:false - will be returned in queries by default",
+                        file_path=entity_file,
+                        line=field_line,
+                        severity=Severity.HIGH,
+                        category="orm",
+                        confidence=Confidence.HIGH,
+                        cwe_id="CWE-200",
+                        additional_info={
+                            "remediation": f"Add @Column({{ select: false }}) to '{field_name}' to prevent accidental exposure in API responses.",
+                        },
+                    )
+                )
+
+
+def register_taint_patterns(taint_registry) -> None:
+    """Register TypeORM-specific taint patterns for dataflow analysis."""
+    for pattern in RAW_QUERY_METHODS:
+        taint_registry.register_sink(pattern, "sql", "javascript")
+        taint_registry.register_sink(pattern, "sql", "typescript")
 
     for pattern in TYPEORM_SOURCES:
-        taint_registry.register_source(pattern, 'user_input', 'javascript')
-        taint_registry.register_source(pattern, 'user_input', 'typescript')
+        taint_registry.register_source(pattern, "user_input", "javascript")
+        taint_registry.register_source(pattern, "user_input", "typescript")
 
-    # Register transaction methods
     for pattern in TRANSACTION_METHODS:
-        taint_registry.register_sink(pattern, 'transaction', 'javascript')
-        taint_registry.register_sink(pattern, 'transaction', 'typescript')
+        taint_registry.register_sink(pattern, "transaction", "javascript")
+        taint_registry.register_sink(pattern, "transaction", "typescript")
