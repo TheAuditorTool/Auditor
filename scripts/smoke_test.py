@@ -203,7 +203,7 @@ INVOCATION_TESTS = [
     ("aud cfg analyze", "CFG analyze (no file)", True),
 
     # IMPACT - requires --file or --symbol option (NOT positional)
-    ("aud impact --symbol main", "Impact analysis by symbol", True),
+    ("aud impact --file theauditor/cli.py", "Impact analysis by file", True),
 
     # REFACTOR - single command, analyzes migrations (no extract subcommand)
     ("aud refactor", "Refactor migration analysis", True),

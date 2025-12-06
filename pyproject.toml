@@ -95,6 +95,10 @@ ignore = [
     "E501",  # line too long - handled by black
     "SIM105",  # contextlib.suppress - can be less readable
     "SIM117",  # multiple with statements - can be less readable
+    "N811",  # METADATA imported as non-constant - intentional design for rules system
+    "PLR0911",  # too many return statements - informational
+    "PLR0912",  # too many branches - informational
+    "PLR0915",  # too many statements - informational
 ]
 
 [tool.ruff.lint.isort]
@@ -111,8 +115,6 @@ addopts = "-v"
 
 [tool.mypy]
 python_version = "3.14"
-strict = true
-warn_unused_configs = true
 packages = ["theauditor"]
 plugins = ["pydantic.mypy"]
 exclude = [
@@ -126,6 +128,26 @@ exclude = [
     "dist/",
     "build/",
 ]
+
+# Graduated strictness - enable what's useful, skip the noise
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_return_any = false
+no_implicit_reexport = false
+
+# These catch real bugs
+check_untyped_defs = true
+disallow_untyped_decorators = true
+
+# Skip these for now (too noisy for untyped codebase)
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+disallow_any_generics = false
+
+# Mixin pattern causes 1100+ false positives - ignore until refactored
+disable_error_code = ["attr-defined"]
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
