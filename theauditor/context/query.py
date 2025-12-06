@@ -607,8 +607,8 @@ class CodeQueryEngine:
         """Trace variable through def-use chains using assignment_sources."""
         if not var_name:
             raise ValueError("var_name cannot be empty")
-        if depth < 1 or depth > 20:
-            raise ValueError("Depth must be between 1 and 20")
+        if depth < 1 or depth > 10:
+            raise ValueError("Depth must be between 1 and 10")
 
         from_file = self._normalize_path(from_file)
         cursor = self.repo_db.cursor()

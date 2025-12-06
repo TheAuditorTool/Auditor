@@ -367,7 +367,7 @@ def deduplicate_paths(paths: list[Any]) -> list[Any]:
 
 def trace_taint(
     db_path: str,
-    max_depth: int = 20,
+    max_depth: int = 15,
     registry=None,
     use_memory_cache: bool = True,
     memory_limit_mb: int = 12000,
