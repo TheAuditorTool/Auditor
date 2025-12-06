@@ -258,76 +258,113 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
         console.print("  [cyan].pf/fce.log[/cyan]           [dim]FCE detailed output[/dim]")
 
     console.print()
-    console.rule("[bold]AUDIT FINAL STATUS[/bold]")
-    console.print()
 
     exit_code = ExitCodes.SUCCESS
     failed_phase_names = result.get("failed_phase_names", [])
 
-    if result["failed_phases"] > 0:
-        if failed_phase_names:
-            phase_descs = []
-            for name in failed_phase_names[:3]:
-                desc = name.split(". ", 1)[-1] if ". " in name else name
-                phase_descs.append(desc)
-            failed_summary = ", ".join(phase_descs)
-            if len(failed_phase_names) > 3:
-                failed_summary += f" (+{len(failed_phase_names) - 3} more)"
+    if is_index_only:
+        # INDEX-ONLY mode: Show index status, NOT security audit status
+        console.rule("[bold]INDEX STATUS[/bold]")
+        console.print()
+
+        if result["failed_phases"] > 0:
+            if failed_phase_names:
+                phase_descs = []
+                for name in failed_phase_names[:3]:
+                    desc = name.split(". ", 1)[-1] if ". " in name else name
+                    phase_descs.append(desc)
+                failed_summary = ", ".join(phase_descs)
+                if len(failed_phase_names) > 3:
+                    failed_summary += f" (+{len(failed_phase_names) - 3} more)"
+            else:
+                failed_summary = f"{result['failed_phases']} phase(s)"
+
+            exit_code = ExitCodes.TASK_INCOMPLETE
+            print_status_panel(
+                "INDEX INCOMPLETE",
+                f"Indexing failed during: {failed_summary}",
+                "Check errors above. Database may be partial.",
+                level="critical",
+            )
         else:
-            failed_summary = f"{result['failed_phases']} phase(s)"
+            print_status_panel(
+                "INDEX COMPLETE",
+                "Database ready. No security analysis was performed.",
+                "Run 'aud full' for complete security audit.",
+                level="info",
+            )
 
-        exit_code = ExitCodes.TASK_INCOMPLETE
-        print_status_panel(
-            "PIPELINE FAILED",
-            f"Crashed during: {failed_summary}",
-            "Check errors above. Fix and re-run. Results are partial.",
-            level="critical",
-        )
-    elif critical > 0:
-        print_status_panel(
-            "CRITICAL",
-            f"Audit complete. Found {critical} critical vulnerabilities.",
-            "Immediate action required - deployment should be blocked.",
-            level="critical",
-        )
-        exit_code = ExitCodes.CRITICAL_SEVERITY
-    elif high > 0:
-        print_status_panel(
-            "HIGH",
-            f"Audit complete. Found {high} high-severity issues.",
-            "Priority remediation needed before next release.",
-            level="high",
-        )
-        if exit_code == ExitCodes.SUCCESS:
-            exit_code = ExitCodes.HIGH_SEVERITY
-    elif medium > 0 or low > 0:
-        print_status_panel(
-            "MODERATE",
-            f"Audit complete. Found {medium} medium and {low} low issues.",
-            "Schedule fixes for upcoming sprints.",
-            level="medium",
-        )
+        console.print("\nQuery the database with [cmd]aud context query[/cmd]")
+        console.rule()
     else:
-        print_status_panel(
-            "CLEAN",
-            "No critical or high-severity issues found.",
-            "Codebase meets security and quality standards.",
-            level="success",
-        )
+        # Full audit mode: Show security findings status
+        console.rule("[bold]AUDIT FINAL STATUS[/bold]")
+        console.print()
 
-    if critical + high + medium + low > 0:
-        console.print("\n[bold]Findings breakdown:[/bold]")
-        if critical > 0:
-            console.print(f"  - [critical]Critical: {critical}[/critical]")
-        if high > 0:
-            console.print(f"  - [high]High:     {high}[/high]")
-        if medium > 0:
-            console.print(f"  - [medium]Medium:   {medium}[/medium]")
-        if low > 0:
-            console.print(f"  - [low]Low:      {low}[/low]")
+        if result["failed_phases"] > 0:
+            if failed_phase_names:
+                phase_descs = []
+                for name in failed_phase_names[:3]:
+                    desc = name.split(". ", 1)[-1] if ". " in name else name
+                    phase_descs.append(desc)
+                failed_summary = ", ".join(phase_descs)
+                if len(failed_phase_names) > 3:
+                    failed_summary += f" (+{len(failed_phase_names) - 3} more)"
+            else:
+                failed_summary = f"{result['failed_phases']} phase(s)"
 
-    console.print("\nReview the findings in [path].pf/raw/[/path]")
-    console.rule()
+            exit_code = ExitCodes.TASK_INCOMPLETE
+            print_status_panel(
+                "PIPELINE FAILED",
+                f"Crashed during: {failed_summary}",
+                "Check errors above. Fix and re-run. Results are partial.",
+                level="critical",
+            )
+        elif critical > 0:
+            print_status_panel(
+                "CRITICAL",
+                f"Audit complete. Found {critical} critical vulnerabilities.",
+                "Immediate action required - deployment should be blocked.",
+                level="critical",
+            )
+            exit_code = ExitCodes.CRITICAL_SEVERITY
+        elif high > 0:
+            print_status_panel(
+                "HIGH",
+                f"Audit complete. Found {high} high-severity issues.",
+                "Priority remediation needed before next release.",
+                level="high",
+            )
+            if exit_code == ExitCodes.SUCCESS:
+                exit_code = ExitCodes.HIGH_SEVERITY
+        elif medium > 0 or low > 0:
+            print_status_panel(
+                "MODERATE",
+                f"Audit complete. Found {medium} medium and {low} low issues.",
+                "Schedule fixes for upcoming sprints.",
+                level="medium",
+            )
+        else:
+            print_status_panel(
+                "CLEAN",
+                "No critical or high-severity issues found.",
+                "Codebase meets security and quality standards.",
+                level="success",
+            )
+
+        if critical + high + medium + low > 0:
+            console.print("\n[bold]Findings breakdown:[/bold]")
+            if critical > 0:
+                console.print(f"  - [critical]Critical: {critical}[/critical]")
+            if high > 0:
+                console.print(f"  - [high]High:     {high}[/high]")
+            if medium > 0:
+                console.print(f"  - [medium]Medium:   {medium}[/medium]")
+            if low > 0:
+                console.print(f"  - [low]Low:      {low}[/low]")
+
+        console.print("\nReview the findings in [path].pf/raw/[/path]")
+        console.rule()
 
     if exit_code != ExitCodes.SUCCESS:
         sys.exit(exit_code)
