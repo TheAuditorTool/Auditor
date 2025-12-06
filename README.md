@@ -592,7 +592,7 @@ ruff check theauditor
 
 ## License
 
-MIT License - see [LICENSE](LICENSE) for details.
+AGPL-3.0 - see [LICENSE](LICENSE) for details.
 
 ---
 
