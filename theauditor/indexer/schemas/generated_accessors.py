@@ -1192,23 +1192,23 @@ class ComposeServicesTable:
     @staticmethod
     def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
         """Get all rows from compose_services."""
-        query = build_query('compose_services', ['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck'])
+        query = build_query('compose_services', ['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck', 'mem_limit', 'cpus', 'read_only'])
         cursor.execute(query)
-        return [dict(zip(['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck', 'mem_limit', 'cpus', 'read_only'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_file_path(cursor: sqlite3.Cursor, file_path: str) -> list[dict[str, Any]]:
         """Get rows by file_path."""
-        query = build_query('compose_services', ['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck'], where="file_path = ?")
+        query = build_query('compose_services', ['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck', 'mem_limit', 'cpus', 'read_only'], where="file_path = ?")
         cursor.execute(query, (file_path,))
-        return [dict(zip(['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck', 'mem_limit', 'cpus', 'read_only'], row, strict=True)) for row in cursor.fetchall()]
 
     @staticmethod
     def get_by_is_privileged(cursor: sqlite3.Cursor, is_privileged: bool) -> list[dict[str, Any]]:
         """Get rows by is_privileged."""
-        query = build_query('compose_services', ['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck'], where="is_privileged = ?")
+        query = build_query('compose_services', ['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck', 'mem_limit', 'cpus', 'read_only'], where="is_privileged = ?")
         cursor.execute(query, (is_privileged,))
-        return [dict(zip(['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck'], row, strict=True)) for row in cursor.fetchall()]
+        return [dict(zip(['file_path', 'service_name', 'image', 'is_privileged', 'network_mode', 'user', 'security_opt', 'restart', 'command', 'entrypoint', 'healthcheck', 'mem_limit', 'cpus', 'read_only'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class ConfigFilesTable:
@@ -1306,6 +1306,31 @@ class DockerfileEnvVarsTable:
         query = build_query('dockerfile_env_vars', ['id', 'file_path', 'var_name', 'var_value', 'is_build_arg'], where="file_path = ?")
         cursor.execute(query, (file_path,))
         return [dict(zip(['id', 'file_path', 'var_name', 'var_value', 'is_build_arg'], row, strict=True)) for row in cursor.fetchall()]
+
+
+class DockerfileInstructionsTable:
+    """Accessor class for dockerfile_instructions table."""
+
+    @staticmethod
+    def get_all(cursor: sqlite3.Cursor) -> list[dict[str, Any]]:
+        """Get all rows from dockerfile_instructions."""
+        query = build_query('dockerfile_instructions', ['id', 'file_path', 'line', 'instruction', 'arguments'])
+        cursor.execute(query)
+        return [dict(zip(['id', 'file_path', 'line', 'instruction', 'arguments'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_file_path(cursor: sqlite3.Cursor, file_path: str) -> list[dict[str, Any]]:
+        """Get rows by file_path."""
+        query = build_query('dockerfile_instructions', ['id', 'file_path', 'line', 'instruction', 'arguments'], where="file_path = ?")
+        cursor.execute(query, (file_path,))
+        return [dict(zip(['id', 'file_path', 'line', 'instruction', 'arguments'], row, strict=True)) for row in cursor.fetchall()]
+
+    @staticmethod
+    def get_by_instruction(cursor: sqlite3.Cursor, instruction: str) -> list[dict[str, Any]]:
+        """Get rows by instruction."""
+        query = build_query('dockerfile_instructions', ['id', 'file_path', 'line', 'instruction', 'arguments'], where="instruction = ?")
+        cursor.execute(query, (instruction,))
+        return [dict(zip(['id', 'file_path', 'line', 'instruction', 'arguments'], row, strict=True)) for row in cursor.fetchall()]
 
 
 class DockerfilePortsTable:

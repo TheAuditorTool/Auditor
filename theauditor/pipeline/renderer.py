@@ -112,13 +112,18 @@ class RichRenderer(PipelineObserver):
                 elif len(buffer) == self.MAX_BUFFER_LINES:
                     buffer.append("... [truncated, see .pf/pipeline.log for full output]")
 
-        elif self._live:
-            style = "bold red" if is_error else None
-            self._live.console.print(text, style=style)
         else:
-            # Live not active - print directly to console
-            style = "bold red" if is_error else None
-            self.console.print(text, style=style)
+            # Route through loguru for consistent timestamp formatting
+            # Strip Rich markup to get plain text for logger
+            try:
+                plain_text = Text.from_markup(text).plain
+            except Exception:
+                plain_text = text  # Fallback if markup parsing fails
+
+            if is_error:
+                logger.error(plain_text)
+            else:
+                logger.info(plain_text)
 
     def log_message(self, message):
         """Loguru sink that routes logs through Rich console safely.
