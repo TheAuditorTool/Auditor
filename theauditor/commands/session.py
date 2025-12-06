@@ -13,8 +13,7 @@ from theauditor.session.activity_metrics import (
     analyze_activity,
     analyze_multiple_sessions as analyze_activity_multiple,
 )
-from theauditor.session.analysis import SessionAnalysis
-from theauditor.session.analyzer import SessionAnalyzer
+from theauditor.session.analysis import Finding, SessionAnalysis, SessionStats
 from theauditor.session.detector import detect_agent_type, detect_session_directory
 from theauditor.session.parser import SessionParser, load_session
 from theauditor.utils.error_handler import handle_exceptions
@@ -233,14 +232,14 @@ def report(project_path, db_path, limit, show_findings):
     console.print(f"Analyzing {len(sessions_to_analyze)} most recent sessions\n", highlight=False)
 
     db_full_path = Path(project_path) / db_path
-    analyzer = SessionAnalyzer(db_path=db_full_path if db_full_path.exists() else None)
+    analyzer = SessionAnalysis(db_path=db_full_path if db_full_path.exists() else None)
 
     if db_full_path.exists():
         console.print(f"Using database for cross-referencing: {db_full_path}", highlight=False)
     else:
         console.print("Database not found - some detectors will be disabled")
 
-    aggregate_report = analyzer.analyze_multiple_sessions(sessions_to_analyze)
+    aggregate_report = analyzer.analyze_multiple_sessions_with_findings(sessions_to_analyze)
 
     console.rule()
     console.print("SESSION ANALYSIS SUMMARY")
@@ -339,9 +338,9 @@ def inspect(session_file, db_path):
                 console.print(f"  - {file}" + (f" (x{count})" if count > 1 else ""), markup=False)
 
     db_full_path = Path(session_obj.cwd) / db_path if session_obj.cwd else Path(db_path)
-    analyzer = SessionAnalyzer(db_path=db_full_path if db_full_path.exists() else None)
+    analyzer = SessionAnalysis(db_path=db_full_path if db_full_path.exists() else None)
 
-    stats, findings = analyzer.analyze_session(session_obj)
+    stats, findings = analyzer.analyze_session_with_findings(session_obj)
 
     console.print("\n=== Session Stats ===")
     console.print(f"Total turns: {stats.total_turns}", highlight=False)
@@ -351,7 +350,7 @@ def inspect(session_file, db_path):
     console.print(f"Bash commands: {stats.bash_commands}", highlight=False)
     console.print(f"Avg tokens/turn: {stats.avg_tokens_per_turn:.0f}", highlight=False)
 
-    # Activity metrics (talk vs work vs planning)
+    
     activity = analyze_activity(session_obj)
     console.print("\n=== Activity Breakdown ===")
     console.print(f"Planning:     {activity.planning_turns:3d} turns ({activity.planning_ratio:5.1%})  |  {activity.planning_tokens:,} tokens ({activity.planning_token_ratio:5.1%})", highlight=False)
@@ -438,7 +437,7 @@ def activity(project_path, limit, json_output):
         console.print("[warning]No session files found[/warning]")
         return
 
-    # Take most recent sessions
+    
     recent_files = session_files[-limit:] if limit else session_files
     console.print(f"Analyzing {len(recent_files)} sessions...", highlight=False)
 
@@ -456,12 +455,12 @@ def activity(project_path, limit, json_output):
     results = analyze_activity_multiple(sessions)
 
     if json_output:
-        # Remove per_session for cleaner output
+        
         output = {k: v for k, v in results.items() if k != "per_session"}
         console.print(json.dumps(output, indent=2))
         return
 
-    # Pretty print
+    
     console.rule("Activity Analysis")
     console.print(f"Sessions analyzed: {results['session_count']}", highlight=False)
 
@@ -479,7 +478,7 @@ def activity(project_path, limit, json_output):
     console.print(f"  Work/Talk ratio:    {avgs['work_to_talk_ratio']:.2f}", highlight=False)
     console.print(f"  Tokens per edit:    {avgs['tokens_per_edit']:.0f}", highlight=False)
 
-    # Interpretation
+    
     console.print("\n[bold]Interpretation[/bold]")
     work_pct = ratios["working"] * 100
     talk_pct = (ratios["planning"] + ratios["conversation"]) * 100

@@ -8,6 +8,11 @@ from theauditor.session.activity_metrics import (
     analyze_activity,
     analyze_multiple_sessions,
 )
+from theauditor.session.analysis import (
+    Finding,
+    SessionAnalysis,
+    SessionStats,
+)
 from theauditor.session.parser import (
     Session,
     SessionParser,
@@ -16,16 +21,20 @@ from theauditor.session.parser import (
 )
 
 __all__ = [
-    # Parser
+    
     "Session",
     "SessionParser",
     "load_session",
     "load_project_sessions",
-    # Activity metrics
+    
     "ActivityType",
     "ActivityMetrics",
     "ActivityClassifier",
     "TurnClassification",
     "analyze_activity",
     "analyze_multiple_sessions",
+    
+    "Finding",
+    "SessionAnalysis",
+    "SessionStats",
 ]
