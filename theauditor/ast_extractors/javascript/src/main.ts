@@ -1,36 +1,29 @@
-// =============================================================================
-// DEATH RATTLE PATTERN - Global Exception Handlers
-// These MUST be at the very top, before any other code executes.
-// If Node crashes for ANY reason, Python will receive structured telemetry.
-// =============================================================================
+process.on("uncaughtException", (err: Error) => {
+  const crashReport = {
+    type: "FATAL_CRASH",
+    category: "uncaughtException",
+    error: err.message,
+    stack: err.stack,
+    timestamp: new Date().toISOString(),
+  };
+  console.error(JSON.stringify(crashReport));
+  process.exit(1);
+});
 
-process.on('uncaughtException', (err: Error) => {
+process.on(
+  "unhandledRejection",
+  (reason: unknown, promise: Promise<unknown>) => {
     const crashReport = {
-        type: "FATAL_CRASH",
-        category: "uncaughtException",
-        error: err.message,
-        stack: err.stack,
-        timestamp: new Date().toISOString()
+      type: "FATAL_CRASH",
+      category: "unhandledRejection",
+      error: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined,
+      timestamp: new Date().toISOString(),
     };
     console.error(JSON.stringify(crashReport));
     process.exit(1);
-});
-
-process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
-    const crashReport = {
-        type: "FATAL_CRASH",
-        category: "unhandledRejection",
-        error: reason instanceof Error ? reason.message : String(reason),
-        stack: reason instanceof Error ? reason.stack : undefined,
-        timestamp: new Date().toISOString()
-    };
-    console.error(JSON.stringify(crashReport));
-    process.exit(1);
-});
-
-// =============================================================================
-// Regular Imports
-// =============================================================================
+  },
+);
 
 import * as path from "path";
 import * as fs from "fs";
@@ -81,11 +74,6 @@ try {
   );
 }
 
-/**
- * Sanitize virtual Vue paths back to original file paths.
- * Virtual paths like /virtual_vue/xxx.ts leak into extracted data
- * and break graph edges since they don't match actual file records.
- */
 function sanitizeVirtualPaths(
   data: any,
   virtualToOriginalMap: Map<string, string>,
@@ -108,17 +96,20 @@ function sanitizeVirtualPaths(
         typeof value === "string" &&
         value.includes("/virtual_vue/")
       ) {
-        // Extract scope ID from virtual path and look up original
         const match = value.match(/\/virtual_vue\/([^.]+)/);
         if (match) {
           const scopeId = match[1];
           const original = virtualToOriginalMap.get(scopeId);
           if (!original) {
-            console.error(`[SANITIZE ERROR] Virtual path ${value} has no mapping for scopeId ${scopeId}`);
+            console.error(
+              `[SANITIZE ERROR] Virtual path ${value} has no mapping for scopeId ${scopeId}`,
+            );
           }
           sanitized[key] = original || value;
         } else {
-          console.error(`[SANITIZE ERROR] Virtual path ${value} does not match expected pattern`);
+          console.error(
+            `[SANITIZE ERROR] Virtual path ${value} does not match expected pattern`,
+          );
           sanitized[key] = value;
         }
       } else {
@@ -416,7 +407,6 @@ async function main(): Promise<void> {
           const vueMeta = prepareVueSfcFile(absoluteFilePath);
           fileEntry.absolute = vueMeta.virtualPath;
           fileEntry.vueMeta = vueMeta;
-          // Track scopeId -> original path for virtual path sanitization
           virtualToOriginalMap.set(vueMeta.scopeId, filePath);
         } catch (err: any) {
           preprocessingErrors.set(
@@ -473,13 +463,21 @@ async function main(): Promise<void> {
         try {
           const configFileContent = fs.readFileSync(configKey, "utf8");
 
-          const { config, error } = ts.parseConfigFileTextToJson(configKey, configFileContent);
+          const { config, error } = ts.parseConfigFileTextToJson(
+            configKey,
+            configFileContent,
+          );
           if (error) {
-            throw new Error(typeof error.messageText === 'string' ? error.messageText : JSON.stringify(error.messageText));
+            throw new Error(
+              typeof error.messageText === "string"
+                ? error.messageText
+                : JSON.stringify(error.messageText),
+            );
           }
 
           const parseConfigHost = {
-            useCaseSensitiveFileNames: ts.sys?.useCaseSensitiveFileNames ?? true,
+            useCaseSensitiveFileNames:
+              ts.sys?.useCaseSensitiveFileNames ?? true,
             readDirectory: ts.sys?.readDirectory ?? (() => []),
             fileExists: fs.existsSync,
             readFile: (f: string) => fs.readFileSync(f, "utf8"),
@@ -508,7 +506,10 @@ async function main(): Promise<void> {
           const hasJavaScriptFiles = groupedFiles.some((fileInfo) => {
             const ext = path.extname(fileInfo.absolute).toLowerCase();
             return (
-              ext === ".js" || ext === ".jsx" || ext === ".cjs" || ext === ".mjs"
+              ext === ".js" ||
+              ext === ".jsx" ||
+              ext === ".cjs" ||
+              ext === ".mjs"
             );
           });
           if (hasJavaScriptFiles) {
@@ -619,14 +620,16 @@ async function main(): Promise<void> {
           const func_param_decorators = funcData.func_param_decorators;
 
           const functionParamsMap = new Map<string, Array<{ name: string }>>();
-          func_params.forEach((p: { function_name: string; param_name: string }) => {
-            if (!functionParamsMap.has(p.function_name)) {
-              functionParamsMap.set(p.function_name, []);
-            }
-            functionParamsMap
-              .get(p.function_name)!
-              .push({ name: p.param_name });
-          });
+          func_params.forEach(
+            (p: { function_name: string; param_name: string }) => {
+              if (!functionParamsMap.has(p.function_name)) {
+                functionParamsMap.set(p.function_name, []);
+              }
+              functionParamsMap
+                .get(p.function_name)!
+                .push({ name: p.param_name });
+            },
+          );
 
           const classData = core.extractClasses(
             sourceFile,
@@ -947,10 +950,11 @@ async function main(): Promise<void> {
       };
     }
 
-    // Sanitize virtual Vue paths before validation
-    const sanitizedResults = sanitizeVirtualPaths(results, virtualToOriginalMap);
+    const sanitizedResults = sanitizeVirtualPaths(
+      results,
+      virtualToOriginalMap,
+    );
 
-    // Attach fidelity manifests (generated INSIDE Node)
     const withManifest = attachManifest(sanitizedResults);
 
     try {
@@ -959,7 +963,9 @@ async function main(): Promise<void> {
       console.error("[BATCH DEBUG] Output validated and written successfully");
     } catch (e) {
       if (e instanceof z.ZodError) {
-        console.error("[BATCH ERROR] Zod validation failed - refusing to write invalid data:");
+        console.error(
+          "[BATCH ERROR] Zod validation failed - refusing to write invalid data:",
+        );
         console.error(JSON.stringify(e.errors.slice(0, 10), null, 2));
         process.exit(1);
       }

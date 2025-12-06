@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.logging import logger
 
 
@@ -181,9 +181,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
             db_manager = DatabaseManager(str(repo_db_path.resolve()))
             db_manager.write_findings_batch(meta_findings, "cfg-analysis")
             db_manager.close()
-            console.print(
-                f"  Wrote {len(meta_findings)} CFG findings to database", highlight=False
-            )
+            console.print(f"  Wrote {len(meta_findings)} CFG findings to database", highlight=False)
 
         output_path = Path(".pf") / "raw" / "cfg.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)

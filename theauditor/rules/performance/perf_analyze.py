@@ -224,7 +224,6 @@ def _find_queries_in_loops(db: RuleDB) -> list[StandardFinding]:
     """Find database queries executed inside loops (N+1 problem)."""
     findings = []
 
-    # Get all loop blocks from cfg_blocks
     rows = db.query(
         Q("cfg_blocks")
         .select("file", "function_name", "start_line", "end_line", "block_type")
@@ -237,9 +236,7 @@ def _find_queries_in_loops(db: RuleDB) -> list[StandardFinding]:
         if block_type in ("loop", "for_loop", "while_loop", "do_while") or "loop" in block_lower:
             loops.append((file, function, start_line, end_line))
 
-    # For each loop, find database operations inside
     for file, _function, loop_start, loop_end in loops:
-        # Get function calls inside this loop
         call_rows = db.query(
             Q("function_call_args")
             .select("line", "callee_function", "argument_expr")
@@ -250,11 +247,9 @@ def _find_queries_in_loops(db: RuleDB) -> list[StandardFinding]:
         )
 
         for line, operation, _args in call_rows:
-            # Skip non-DB operations
             if operation not in DB_OPERATIONS:
                 continue
 
-            # Check for nested loops
             nested_rows = db.query(
                 Q("cfg_blocks")
                 .select("block_type")
@@ -279,14 +274,12 @@ def _find_queries_in_loops(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check for DB operations inside array methods (implicit loops)
     array_call_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "caller_function")
         .order_by("file, line")
     )
 
-    # Group by file and check for array method + DB op proximity
     array_method_calls = []
     db_op_calls = []
     for file, line, callee, caller in array_call_rows:
@@ -295,12 +288,9 @@ def _find_queries_in_loops(db: RuleDB) -> list[StandardFinding]:
         if callee in DB_OPERATIONS:
             db_op_calls.append((file, line, callee, caller))
 
-    # Find array methods with nearby DB operations in same function
     for file, line, method, caller in array_method_calls:
         for db_file, db_line, db_op, db_caller in db_op_calls:
-            if (file == db_file and
-                caller == db_caller and
-                abs(db_line - line) <= 10):
+            if file == db_file and caller == db_caller and abs(db_line - line) <= 10:
                 findings.append(
                     StandardFinding(
                         rule_name="perf-query-in-array-method",
@@ -313,7 +303,7 @@ def _find_queries_in_loops(db: RuleDB) -> list[StandardFinding]:
                         cwe_id="CWE-1050",
                     )
                 )
-                break  # One finding per array method call
+                break
 
     return findings
 
@@ -322,11 +312,7 @@ def _find_expensive_operations_in_loops(db: RuleDB) -> list[StandardFinding]:
     """Find expensive operations that should be moved outside loops."""
     findings = []
 
-    # Get all loop blocks
-    rows = db.query(
-        Q("cfg_blocks")
-        .select("file", "start_line", "end_line", "block_type")
-    )
+    rows = db.query(Q("cfg_blocks").select("file", "start_line", "end_line", "block_type"))
 
     loops = []
     for file, start_line, end_line, block_type in rows:
@@ -334,7 +320,6 @@ def _find_expensive_operations_in_loops(db: RuleDB) -> list[StandardFinding]:
             loops.append((file, start_line, end_line))
 
     for file, loop_start, loop_end in loops:
-        # Get function calls inside this loop
         call_rows = db.query(
             Q("function_call_args")
             .select("line", "callee_function", "argument_expr")
@@ -345,7 +330,6 @@ def _find_expensive_operations_in_loops(db: RuleDB) -> list[StandardFinding]:
         )
 
         for line, operation, _args in call_rows:
-            # Skip non-expensive operations
             if operation not in EXPENSIVE_OPS:
                 continue
 
@@ -385,10 +369,8 @@ def _find_inefficient_string_concat(db: RuleDB) -> list[StandardFinding]:
     """Find inefficient string concatenation in loops (O(n^2) complexity)."""
     findings = []
 
-    # Get all loop blocks
     rows = db.query(
-        Q("cfg_blocks")
-        .select("file", "start_line", "end_line", "function_name", "block_type")
+        Q("cfg_blocks").select("file", "start_line", "end_line", "function_name", "block_type")
     )
 
     loops = []
@@ -397,7 +379,6 @@ def _find_inefficient_string_concat(db: RuleDB) -> list[StandardFinding]:
             loops.append((file, start_line, end_line, function))
 
     for file, loop_start, loop_end, _function in loops:
-        # Get assignments inside this loop
         assign_rows = db.query(
             Q("assignments")
             .select("line", "target_var", "source_expr")
@@ -440,22 +421,16 @@ def _find_synchronous_io_patterns(db: RuleDB) -> list[StandardFinding]:
     """Find synchronous I/O operations that block the event loop."""
     findings = []
 
-    # Get all function calls
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "caller_function", "argument_expr")
         .order_by("file, line")
     )
 
-    # Pre-fetch API endpoints for context checking
-    endpoint_rows = db.query(
-        Q("api_endpoints")
-        .select("file", "line")
-    )
+    endpoint_rows = db.query(Q("api_endpoints").select("file", "line"))
     endpoint_locations = {(f, ln) for f, ln in endpoint_rows}
 
     for file, line, operation, caller, _args in rows:
-        # Skip non-sync operations
         if operation not in SYNC_BLOCKERS:
             continue
 
@@ -468,7 +443,6 @@ def _find_synchronous_io_patterns(db: RuleDB) -> list[StandardFinding]:
                 is_async_context = True
                 confidence = Confidence.HIGH
 
-        # Check if near an API endpoint
         for ep_file, ep_line in endpoint_locations:
             if file == ep_file and abs(line - ep_line) <= 50:
                 is_async_context = True
@@ -497,7 +471,6 @@ def _find_unbounded_operations(db: RuleDB) -> list[StandardFinding]:
     """Find operations without proper limits that could cause memory issues."""
     findings = []
 
-    # Unbounded query operations
     unbounded_ops = ("find", "findMany", "findAll", "select", "query", "all")
     single_result_ops = ("findOne", "findUnique", "first", "get")
 
@@ -531,7 +504,6 @@ def _find_unbounded_operations(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Large file reads
     file_read_ops = ("readFile", "readFileSync", "read")
     for file, line, operation, file_arg in rows:
         if operation not in file_read_ops:
@@ -554,8 +526,6 @@ def _find_unbounded_operations(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Memory-intensive operations on large datasets
-    # Collect memory ops and query ops with their locations
     memory_op_locs = []
     query_op_locs = []
     query_ops = ("find", "findMany", "findAll", "query")
@@ -566,7 +536,6 @@ def _find_unbounded_operations(db: RuleDB) -> list[StandardFinding]:
         if operation in query_ops:
             query_op_locs.append((file, line))
 
-    # Find memory ops near query ops
     for mem_file, mem_line, mem_op in memory_op_locs:
         for q_file, q_line in query_op_locs:
             if mem_file == q_file and abs(mem_line - q_line) <= 5:
@@ -591,7 +560,6 @@ def _find_deep_property_chains(db: RuleDB) -> list[StandardFinding]:
     """Find deep property access chains that impact performance."""
     findings = []
 
-    # Get property symbols - filter by depth >= 3 in Python
     rows = db.query(
         Q("symbols")
         .select("path", "name", "line")
@@ -624,7 +592,6 @@ def _find_deep_property_chains(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check for repeated property access - aggregate in Python
     property_counts: dict[tuple[str, str], tuple[int, int]] = {}
     for file, prop_chain, line in rows:
         depth = prop_chain.count(".")
@@ -632,7 +599,7 @@ def _find_deep_property_chains(db: RuleDB) -> list[StandardFinding]:
             continue
         key = (file, prop_chain)
         if key not in property_counts:
-            property_counts[key] = (0, line)  # (count, first_line)
+            property_counts[key] = (0, line)
         count, first_line = property_counts[key]
         property_counts[key] = (count + 1, first_line)
 
@@ -658,21 +625,19 @@ def _find_repeated_expensive_calls(db: RuleDB) -> list[StandardFinding]:
     """Find expensive functions called multiple times in same context."""
     findings = []
 
-    # Get all function calls with caller context
     rows = db.query(
         Q("function_call_args")
         .select("file", "caller_function", "callee_function", "line")
         .where("caller_function IS NOT NULL")
     )
 
-    # Aggregate expensive ops by (file, caller, callee)
     call_counts: dict[tuple[str, str, str], tuple[int, int]] = {}
     for file, caller, callee, line in rows:
         if callee not in EXPENSIVE_OPS:
             continue
         key = (file, caller, callee)
         if key not in call_counts:
-            call_counts[key] = (0, line)  # (count, first_line)
+            call_counts[key] = (0, line)
         count, first_line = call_counts[key]
         call_counts[key] = (count + 1, first_line)
 
@@ -706,11 +671,8 @@ def _find_large_object_operations(db: RuleDB) -> list[StandardFinding]:
     """Find operations on large objects that could cause performance issues."""
     findings = []
 
-    # Get assignments with source expressions
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     large_expr_candidates = []
@@ -719,7 +681,6 @@ def _find_large_object_operations(db: RuleDB) -> list[StandardFinding]:
             continue
         expr_len = len(expr)
 
-        # Check for large JSON operations
         if expr_len > 500 and any(json_op in expr for json_op in ("JSON.parse", "JSON.stringify")):
             if expr_len > 2000:
                 severity = Severity.HIGH
@@ -743,11 +704,9 @@ def _find_large_object_operations(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-        # Track large expressions for object copy detection
         if expr_len > 1000:
             large_expr_candidates.append((file, line, var_name, expr, expr_len))
 
-    # Sort by expression length and take top 10
     large_expr_candidates.sort(key=lambda x: x[4], reverse=True)
     for file, line, var_name, expr, _expr_len in large_expr_candidates[:10]:
         if "{" not in expr and "[" not in expr:

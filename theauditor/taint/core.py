@@ -22,8 +22,6 @@ class TaintRegistry:
     database-driven lookups that compute vulnerability types at registration time.
     """
 
-    # Category to vulnerability type mapping - SINGLE SOURCE OF TRUTH
-    # Moved from taint_path.py determine_vulnerability_type() hardcoding
     CATEGORY_TO_VULN_TYPE: dict[str, str] = {
         "xss": "Cross-Site Scripting (XSS)",
         "sql": "SQL Injection",
@@ -47,13 +45,10 @@ class TaintRegistry:
     }
 
     def __init__(self):
-        # Legacy structure (kept to avoid breaking everything at once)
         self.sources: dict[str, dict[str, list[str]]] = {}
         self.sinks: dict[str, dict[str, list[str]]] = {}
         self.sanitizers: dict[str, list[str]] = {}
 
-        # NEW: Fast O(1) lookups for metadata
-        # Keys are patterns (e.g., "dangerouslySetInnerHTML", "innerHTML")
         self.sink_metadata: dict[str, dict[str, Any]] = {}
         self.source_metadata: dict[str, dict[str, Any]] = {}
 
@@ -66,7 +61,6 @@ class TaintRegistry:
         if pattern not in self.sources[language][category]:
             self.sources[language][category].append(pattern)
 
-        # Store metadata for O(1) retrieval
         self.source_metadata[pattern] = {
             "category": category,
             "language": language,
@@ -82,7 +76,6 @@ class TaintRegistry:
         if pattern not in self.sinks[language][category]:
             self.sinks[language][category].append(pattern)
 
-        # Vulnerability type from category. NO FALLBACKS. NO PATTERN GUESSING.
         vuln_type = self.CATEGORY_TO_VULN_TYPE.get(category, "Data Exposure")
 
         self.sink_metadata[pattern] = {
@@ -323,7 +316,9 @@ def deduplicate_paths(paths: list[Any]) -> list[Any]:
         length_component = length if cross_hops else -length
 
         if cross_hops > 0:
-            logger.debug(f"Path score: cross_hops={cross_hops}, uses_cfg={1 if uses_cfg else 0}, length={length_component}")
+            logger.debug(
+                f"Path score: cross_hops={cross_hops}, uses_cfg={1 if uses_cfg else 0}, length={length_component}"
+            )
 
         return (cross_hops, 1 if uses_cfg else 0, length_component)
 
@@ -528,7 +523,9 @@ def trace_taint(
                     built_hash = lines[1].split("SCHEMA_HASH:")[1].strip()
 
         if current_hash != built_hash:
-            logger.error("[SCHEMA STALE] Schema files have changed but generated code is out of date!")
+            logger.error(
+                "[SCHEMA STALE] Schema files have changed but generated code is out of date!"
+            )
             logger.error("[SCHEMA STALE] Regenerating code automatically...")
 
             try:
@@ -607,16 +604,12 @@ def trace_taint(
         logger.info("Using IFDS mode with graphs.db")
         sys.stderr.flush()
 
-        # --- THE HANDSHAKE: Filter sinks based on FlowResolver results ---
-        # In complete mode, FlowResolver already ran and identified reachable sinks.
-        # IFDS should only analyze those, not the entire universe.
         if mode == "complete":
             logger.info("Handshake: Filtering sinks based on FlowResolver results...")
 
             handshake_conn = sqlite3.connect(db_path)
             handshake_cursor = handshake_conn.cursor()
-            # FIX: Accept REACHABLE status (new semantic) in addition to VULNERABLE (legacy)
-            # FlowResolver now marks unsanitized paths as REACHABLE, not VULNERABLE
+
             handshake_cursor.execute("""
                 SELECT DISTINCT sink_file, sink_line
                 FROM resolved_flow_audit
@@ -631,8 +624,6 @@ def trace_taint(
 
             logger.info(f"FlowResolver identified {len(reachable_targets)} reachable sinks.")
 
-            # UNION STRATEGY: Tag sinks confirmed by FlowResolver, but let IFDS analyze ALL sinks
-            # This ensures FlowResolver timeouts don't muzzle IFDS (backward, deterministic) analysis
             flow_resolver_hits = reachable_targets
             for sink in sinks:
                 sink_key = (sink.get("file"), sink.get("line"))
@@ -640,10 +631,11 @@ def trace_taint(
                     sink["confirmed_by_forward_analysis"] = True
 
             confirmed_count = sum(1 for s in sinks if s.get("confirmed_by_forward_analysis"))
-            logger.info(f"Ensemble: {confirmed_count}/{len(sinks)} sinks confirmed by FlowResolver. "
-                f"IFDS will analyze ALL {len(sinks)} sinks (Union Strategy).")
+            logger.info(
+                f"Ensemble: {confirmed_count}/{len(sinks)} sinks confirmed by FlowResolver. "
+                f"IFDS will analyze ALL {len(sinks)} sinks (Union Strategy)."
+            )
             sys.stderr.flush()
-        # --- END HANDSHAKE ---
 
         from .ifds_analyzer import IFDSTaintAnalyzer
         from .type_resolver import TypeResolver
@@ -672,7 +664,9 @@ def trace_taint(
         for idx, sink in enumerate(sinks):
             if idx % progress_interval == 0:
                 total_found = len(all_vulnerable_paths) + len(all_sanitized_paths)
-                logger.info(f"Progress: {idx}/{len(sinks)} sinks analyzed, {total_found} total paths ({len(all_vulnerable_paths)} vulnerable, {len(all_sanitized_paths)} sanitized)")
+                logger.info(
+                    f"Progress: {idx}/{len(sinks)} sinks analyzed, {total_found} total paths ({len(all_vulnerable_paths)} vulnerable, {len(all_sanitized_paths)} sanitized)"
+                )
                 sys.stderr.flush()
 
             vulnerable, sanitized = ifds_analyzer.analyze_sink_to_sources(sink, sources, max_depth)
@@ -683,7 +677,9 @@ def trace_taint(
 
         graph_conn.close()
         repo_conn.close()
-        logger.info(f"IFDS found {len(all_vulnerable_paths)} vulnerable paths, {len(all_sanitized_paths)} sanitized paths")
+        logger.info(
+            f"IFDS found {len(all_vulnerable_paths)} vulnerable paths, {len(all_sanitized_paths)} sanitized paths"
+        )
 
         unique_vulnerable_paths = deduplicate_paths(all_vulnerable_paths)
 
@@ -789,8 +785,12 @@ def trace_taint(
 
         conn.commit()
         conn.close()
-        logger.info(f"Persisted {total_inserted} flows to resolved_flow_audit ({len(unique_vulnerable_paths)} vulnerable, {len(unique_sanitized_paths)} sanitized)")
-        logger.info(f"Persisted {len(unique_vulnerable_paths)} vulnerable flows to taint_flows (backward compatibility)")
+        logger.info(
+            f"Persisted {total_inserted} flows to resolved_flow_audit ({len(unique_vulnerable_paths)} vulnerable, {len(unique_sanitized_paths)} sanitized)"
+        )
+        logger.info(
+            f"Persisted {len(unique_vulnerable_paths)} vulnerable flows to taint_flows (backward compatibility)"
+        )
 
         unique_paths = unique_vulnerable_paths
 
@@ -829,10 +829,6 @@ def trace_taint(
             conn_temp = sqlite3.connect(db_path)
             cursor_temp = conn_temp.cursor()
 
-            # Count flows by status across ALL engines
-            # VULNERABLE = confirmed exploits (from IFDS backward analysis)
-            # REACHABLE = candidates (from FlowResolver forward analysis, no sanitizer found)
-            # SANITIZED = safe paths (sanitizer detected by either engine)
             cursor_temp.execute(
                 "SELECT COUNT(*) FROM resolved_flow_audit WHERE status = 'VULNERABLE'"
             )
@@ -848,7 +844,6 @@ def trace_taint(
             )
             total_sanitized = cursor_temp.fetchone()[0]
 
-            # Per-engine breakdown for debugging
             cursor_temp.execute(
                 "SELECT engine, status, COUNT(*) FROM resolved_flow_audit GROUP BY engine, status"
             )
@@ -866,7 +861,9 @@ def trace_taint(
             logger.info("COMPLETE MODE RESULTS:")
             logger.info(f"IFDS found: {len(unique_paths)} confirmed vulnerable paths")
             logger.info(f"FlowResolver resolved: {total_flows} total flows")
-            logger.info(f"Final: {total_vulnerable} Confirmed, {total_reachable} Reachable, {total_sanitized} Sanitized")
+            logger.info(
+                f"Final: {total_vulnerable} Confirmed, {total_reachable} Reachable, {total_sanitized} Sanitized"
+            )
 
         return result
 
@@ -965,27 +962,22 @@ def save_taint_analysis(
         json.dump(analysis_result, f, indent=2, sort_keys=True)
 
 
-# Vulnerability type to severity mapping - derived from TaintRegistry._estimate_risk()
 VULN_TYPE_TO_SEVERITY: dict[str, str] = {
-    # Critical: RCE, code execution, SQL injection
     "SQL Injection": "critical",
     "Command Injection": "critical",
     "Code Injection": "critical",
     "Insecure Deserialization": "critical",
-    # High: XSS, path traversal, SSRF, XXE, template injection
     "Cross-Site Scripting (XSS)": "high",
     "Path Traversal": "high",
     "Server-Side Request Forgery (SSRF)": "high",
     "XML External Entity (XXE)": "high",
     "Template Injection": "high",
-    # Medium: NoSQL, LDAP, ORM, redirect
     "NoSQL Injection": "medium",
     "LDAP Injection": "medium",
     "ORM Injection": "medium",
     "Open Redirect": "medium",
     "Prototype Pollution": "medium",
     "Unvalidated Input": "medium",
-    # Low: logging, crypto, generic exposure
     "Log Injection": "low",
     "Weak Cryptography": "low",
     "Data Exposure": "low",
@@ -1001,7 +993,6 @@ def normalize_taint_path(path: dict[str, Any]) -> dict[str, Any]:
     path.setdefault("path_length", 0)
     path.setdefault("path", [])
 
-    # Add severity based on vulnerability_type (required for --severity filter)
     vuln_type = path.get("vulnerability_type", "Data Exposure")
     path.setdefault("severity", VULN_TYPE_TO_SEVERITY.get(vuln_type, "medium"))
 
@@ -1022,6 +1013,8 @@ def normalize_taint_path(path: dict[str, Any]) -> dict[str, Any]:
     src_file_after = path["source"]["file"]
     sink_file_after = path["sink"]["file"]
     if src_file_before != src_file_after or sink_file_before != sink_file_after:
-        logger.debug(f"Changed: {src_file_before} -> {src_file_after}, {sink_file_before} -> {sink_file_after}")
+        logger.debug(
+            f"Changed: {src_file_before} -> {src_file_after}, {sink_file_before} -> {sink_file_after}"
+        )
 
     return path

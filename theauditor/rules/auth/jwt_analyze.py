@@ -35,55 +35,63 @@ METADATA = RuleMetadata(
 )
 
 
-JWT_SIGN_FUNCTIONS = frozenset([
-    "jwt.sign",
-    "jsonwebtoken.sign",
-    "jose.JWT.sign",
-    "jose.sign",
-    "JWT.sign",
-    "jwt.encode",
-    "PyJWT.encode",
-    "pyjwt.encode",
-    "njwt.create",
-    "jws.sign",
-])
+JWT_SIGN_FUNCTIONS = frozenset(
+    [
+        "jwt.sign",
+        "jsonwebtoken.sign",
+        "jose.JWT.sign",
+        "jose.sign",
+        "JWT.sign",
+        "jwt.encode",
+        "PyJWT.encode",
+        "pyjwt.encode",
+        "njwt.create",
+        "jws.sign",
+    ]
+)
 
 
-JWT_VERIFY_FUNCTIONS = frozenset([
-    "jwt.verify",
-    "jsonwebtoken.verify",
-    "jose.JWT.verify",
-    "jose.verify",
-    "JWT.verify",
-    "jwt.decode",
-    "PyJWT.decode",
-    "pyjwt.decode",
-    "njwt.verify",
-    "jws.verify",
-])
+JWT_VERIFY_FUNCTIONS = frozenset(
+    [
+        "jwt.verify",
+        "jsonwebtoken.verify",
+        "jose.JWT.verify",
+        "jose.verify",
+        "JWT.verify",
+        "jwt.decode",
+        "PyJWT.decode",
+        "pyjwt.decode",
+        "njwt.verify",
+        "jws.verify",
+    ]
+)
 
 
-JWT_DECODE_FUNCTIONS = frozenset([
-    "jwt.decode",
-    "jsonwebtoken.decode",
-    "jose.JWT.decode",
-    "JWT.decode",
-    "PyJWT.decode",
-    "pyjwt.decode",
-])
+JWT_DECODE_FUNCTIONS = frozenset(
+    [
+        "jwt.decode",
+        "jsonwebtoken.decode",
+        "jose.JWT.decode",
+        "JWT.decode",
+        "PyJWT.decode",
+        "pyjwt.decode",
+    ]
+)
 
 
-JWT_SENSITIVE_FIELDS = frozenset([
-    "password",
-    "secret",
-    "creditCard",
-    "ssn",
-    "apiKey",
-    "privateKey",
-    "cvv",
-    "creditcard",
-    "social_security",
-])
+JWT_SENSITIVE_FIELDS = frozenset(
+    [
+        "password",
+        "secret",
+        "creditCard",
+        "ssn",
+        "apiKey",
+        "privateKey",
+        "cvv",
+        "creditcard",
+        "social_security",
+    ]
+)
 
 
 ENV_PATTERNS = frozenset(["process.env", "import.meta.env", "os.environ", "getenv", "config"])
@@ -95,17 +103,19 @@ WEAK_ENV_NAMES = frozenset(["TEST", "DEMO", "DEV", "LOCAL"])
 STORAGE_FUNCTIONS = frozenset(["localStorage.setItem", "sessionStorage.setItem"])
 
 
-HTTP_FUNCTIONS = frozenset([
-    "fetch",
-    "axios",
-    "axios.get",
-    "axios.post",
-    "request",
-    "http.get",
-    "http.post",
-    "https.get",
-    "https.post",
-])
+HTTP_FUNCTIONS = frozenset(
+    [
+        "fetch",
+        "axios",
+        "axios.get",
+        "axios.post",
+        "request",
+        "http.get",
+        "http.post",
+        "https.get",
+        "https.post",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -252,7 +262,12 @@ def _check_missing_expiration(db: RuleDB) -> list[StandardFinding]:
         options_rows = db.query(
             Q("function_call_args")
             .select("argument_expr")
-            .where("file = ? AND line = ? AND callee_function = ? AND argument_index = 2", file, line, func)
+            .where(
+                "file = ? AND line = ? AND callee_function = ? AND argument_index = 2",
+                file,
+                line,
+                func,
+            )
         )
 
         options_row = options_rows[0] if options_rows else None
@@ -276,7 +291,9 @@ def _check_missing_expiration(db: RuleDB) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.HIGH,
                     category="authentication",
-                    snippet=options[:100] if options and len(options) > 100 else options or "No options provided",
+                    snippet=options[:100]
+                    if options and len(options) > 100
+                    else options or "No options provided",
                     cwe_id="CWE-613",
                 )
             )
@@ -295,7 +312,6 @@ def _check_algorithm_confusion(db: RuleDB) -> list[StandardFinding]:
     findings = []
     jwt_verify_condition = _build_jwt_verify_condition()
 
-    # Check for mixed algorithm configurations
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "argument_expr")
@@ -325,7 +341,6 @@ def _check_algorithm_confusion(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check for public key used as secret argument (deeper algorithm confusion)
     secret_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -334,16 +349,23 @@ def _check_algorithm_confusion(db: RuleDB) -> list[StandardFinding]:
     )
 
     public_key_patterns = [
-        "publickey", "public_key", "pubkey", "pub_key",
-        "-----begin public", "-----begin rsa public",
-        "-----begin certificate", ".pem", ".pub",
-        "getpublickey", "get_public_key", "publickeypem",
+        "publickey",
+        "public_key",
+        "pubkey",
+        "pub_key",
+        "-----begin public",
+        "-----begin rsa public",
+        "-----begin certificate",
+        ".pem",
+        ".pub",
+        "getpublickey",
+        "get_public_key",
+        "publickeypem",
     ]
 
     for file, line, func, secret_arg in secret_rows:
         secret_lower = secret_arg.lower()
 
-        # Check if a public key is being passed as the secret
         if any(pat in secret_lower for pat in public_key_patterns):
             findings.append(
                 StandardFinding(
@@ -353,7 +375,9 @@ def _check_algorithm_confusion(db: RuleDB) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.HIGH,
                     category="authentication",
-                    snippet=f"{func}(token, {secret_arg[:40]}...)" if len(secret_arg) > 40 else f"{func}(token, {secret_arg})",
+                    snippet=f"{func}(token, {secret_arg[:40]}...)"
+                    if len(secret_arg) > 40
+                    else f"{func}(token, {secret_arg})",
                     cwe_id="CWE-327",
                 )
             )
@@ -532,9 +556,7 @@ def _check_jwt_in_url(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, target, source in rows:
@@ -557,7 +579,9 @@ def _check_jwt_in_url(db: RuleDB) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.CRITICAL,
                     category="data-exposure",
-                    snippet=f"{target} = {source[:80]}" if len(source) <= 80 else f"{target} = {source[:80]}...",
+                    snippet=f"{target} = {source[:80]}"
+                    if len(source) <= 80
+                    else f"{target} = {source[:80]}...",
                     cwe_id="CWE-598",
                 )
             )
@@ -627,7 +651,9 @@ def _check_cross_origin_transmission(db: RuleDB) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.MEDIUM,
                     category="authentication",
-                    snippet=f"Request with Bearer token: {args[:80]}" if len(args) <= 80 else f"Request with Bearer token: {args[:80]}...",
+                    snippet=f"Request with Bearer token: {args[:80]}"
+                    if len(args) <= 80
+                    else f"Request with Bearer token: {args[:80]}...",
                     cwe_id="CWE-346",
                 )
             )
@@ -640,9 +666,7 @@ def _check_react_state_storage(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, target, source in rows:
@@ -662,7 +686,9 @@ def _check_react_state_storage(db: RuleDB) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.LOW,
                     category="authentication",
-                    snippet=f"{target} = {source[:80]}" if len(source) <= 80 else f"{target} = {source[:80]}...",
+                    snippet=f"{target} = {source[:80]}"
+                    if len(source) <= 80
+                    else f"{target} = {source[:80]}...",
                     cwe_id="CWE-922",
                 )
             )
@@ -678,11 +704,8 @@ def _check_jku_injection(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Look for JWT header extraction or jku handling
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, target_var, source_expr in rows:
@@ -692,10 +715,8 @@ def _check_jku_injection(db: RuleDB) -> list[StandardFinding]:
         target_lower = target_var.lower()
         source_lower = source_expr.lower()
 
-        # Detect jku extraction from JWT header
         jku_patterns = ["jku", "jwk_url", "jwkurl", "jwks_uri", "jwksuri", "x5u"]
         if any(pat in target_lower or pat in source_lower for pat in jku_patterns):
-            # Check if it's being used to fetch keys without validation
             if "header" in source_lower or "decode" in source_lower:
                 findings.append(
                     StandardFinding(
@@ -705,12 +726,13 @@ def _check_jku_injection(db: RuleDB) -> list[StandardFinding]:
                         line=line,
                         severity=Severity.HIGH,
                         category="authentication",
-                        snippet=f"{target_var} = {source_expr[:60]}..." if len(source_expr) > 60 else f"{target_var} = {source_expr}",
+                        snippet=f"{target_var} = {source_expr[:60]}..."
+                        if len(source_expr) > 60
+                        else f"{target_var} = {source_expr}",
                         cwe_id="CWE-918",
                     )
                 )
 
-    # Check function calls that fetch from jku URLs
     func_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -721,7 +743,6 @@ def _check_jku_injection(db: RuleDB) -> list[StandardFinding]:
         func_lower = func.lower()
         args_lower = (args or "").lower()
 
-        # Look for HTTP requests with jku/jwk related arguments
         is_http_call = any(hf in func_lower for hf in ["fetch", "get", "request", "axios"])
         has_jku = any(pat in args_lower for pat in ["jku", "jwks", "jwk", ".well-known"])
 
@@ -750,14 +771,11 @@ def _check_kid_injection(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Look for kid extraction and subsequent usage
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
-    kid_files = {}  # file -> list of (line, var_name)
+    kid_files = {}
 
     for file, line, target_var, source_expr in rows:
         if not source_expr:
@@ -766,15 +784,12 @@ def _check_kid_injection(db: RuleDB) -> list[StandardFinding]:
         target_lower = target_var.lower()
         source_lower = source_expr.lower()
 
-        # Detect kid extraction from JWT header
         if "kid" in target_lower or ("kid" in source_lower and "header" in source_lower):
             if file not in kid_files:
                 kid_files[file] = []
             kid_files[file].append((line, target_var))
 
-    # For files with kid extraction, check for dangerous usage
     for file, kid_usages in kid_files.items():
-        # Check for SQL queries in the same file
         sql_rows = db.query(
             Q("function_call_args")
             .select("line", "callee_function", "argument_expr")
@@ -785,10 +800,8 @@ def _check_kid_injection(db: RuleDB) -> list[StandardFinding]:
             func_lower = func.lower()
             args_lower = (args or "").lower()
 
-            # Check for SQL query functions
             sql_funcs = ["query", "execute", "raw", "prepare", "findone", "findall"]
             if any(sf in func_lower for sf in sql_funcs):
-                # Check if kid variable appears in query
                 for kid_line, kid_var in kid_usages:
                     if kid_var.lower() in args_lower:
                         findings.append(
@@ -804,7 +817,6 @@ def _check_kid_injection(db: RuleDB) -> list[StandardFinding]:
                             )
                         )
 
-            # Check for file system operations
             fs_funcs = ["readfile", "readfilesync", "open", "path.join", "resolve"]
             if any(ff in func_lower for ff in fs_funcs):
                 for kid_line, kid_var in kid_usages:

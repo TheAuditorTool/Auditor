@@ -9,12 +9,10 @@ from functools import lru_cache
 
 from theauditor.utils.logging import logger
 
-# DEEP PROVENANCE TUNING: Balanced for oracle-grade analysis without explosion.
-# Visit limits handle DEPTH (recursion), super node threshold handles BREADTH (fan-out).
-INFRASTRUCTURE_MAX_VISITS = 5    # Config/env vars rarely loop meaningfully
-USERCODE_MAX_VISITS = 20         # Was 50 - 20 handles complex patterns without CPU burn
-SUPERNODE_EDGE_THRESHOLD = 500   # Real route handlers have 200-250 edges, allow headroom
-PER_ENTRY_TIME_BUDGET = 120      # Prevent single greedy entry from hogging all budget
+INFRASTRUCTURE_MAX_VISITS = 5
+USERCODE_MAX_VISITS = 20
+SUPERNODE_EDGE_THRESHOLD = 500
+PER_ENTRY_TIME_BUDGET = 120
 
 
 class FlowResolver:
@@ -33,16 +31,15 @@ class FlowResolver:
         self.repo_cursor = self.repo_conn.cursor()
         self.graph_conn = sqlite3.connect(graph_db)
         self.flows_resolved = 0
-        # DEEP PROVENANCE TUNING: ENV overrides for CI vs Oracle modes
+
         self.max_depth = int(os.environ.get("AUD_MAX_DEPTH", 100))
-        self.max_flows = 10_000_000       # Safety valve for memory
+        self.max_flows = 10_000_000
         self.max_flows_per_entry = int(os.environ.get("AUD_MAX_FLOWS_ENTRY", 10_000))
         self.time_budget_seconds = int(os.environ.get("AUD_TIME_BUDGET", 600))
         self.per_entry_budget = int(os.environ.get("AUD_ENTRY_BUDGET", PER_ENTRY_TIME_BUDGET))
-        self.start_time = 0  # Tracks global start for inner loop time checks
+        self.start_time = 0
         self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
 
-        # Sanitizer data for path checking
         self._safe_sinks: set[str] = set()
         self._validation_sanitizers: list[dict] = []
         self._call_args_cache: dict[tuple, list[str]] = {}
@@ -71,16 +68,18 @@ class FlowResolver:
         exit_nodes = self._get_exit_nodes()
 
         logger.info(f"Found {len(entry_nodes)} entry points and {len(exit_nodes)} exit points")
-        logger.info(f"FlowResolver config: Depth={self.max_depth}, GlobalBudget={self.time_budget_seconds}s, EntryBudget={self.per_entry_budget}s, MaxFlowsPerEntry={self.max_flows_per_entry}")
+        logger.info(
+            f"FlowResolver config: Depth={self.max_depth}, GlobalBudget={self.time_budget_seconds}s, EntryBudget={self.per_entry_budget}s, MaxFlowsPerEntry={self.max_flows_per_entry}"
+        )
 
-        # Store start time as instance var so inner loop can check it
         self.start_time = time.time()
 
         for _i, entry_id in enumerate(entry_nodes):
-            # Time budget check between entries
             elapsed = time.time() - self.start_time
             if elapsed > self.time_budget_seconds:
-                logger.warning(f"Time budget ({self.time_budget_seconds}s) exceeded after {elapsed:.1f}s")
+                logger.warning(
+                    f"Time budget ({self.time_budget_seconds}s) exceeded after {elapsed:.1f}s"
+                )
                 break
 
             self._trace_from_entry(entry_id, exit_nodes)
@@ -88,7 +87,9 @@ class FlowResolver:
         self.repo_conn.commit()
 
         elapsed = time.time() - self.start_time
-        logger.info(f"Flow resolution complete: {self.flows_resolved} flows resolved in {elapsed:.1f}s")
+        logger.info(
+            f"Flow resolution complete: {self.flows_resolved} flows resolved in {elapsed:.1f}s"
+        )
         return self.flows_resolved
 
     def _get_language_for_file(self, file_path: str) -> str:
@@ -140,12 +141,8 @@ class FlowResolver:
         repo_cursor = self.repo_conn.cursor()
         entry_nodes = set()
 
-        # --- 1. AUTHORITATIVE SOURCES (The "Highway Map") ---
-
-        # Common web framework argument names to try for each handler
         web_args = ["req", "request", "args", "kwargs", "event", "context"]
 
-        # API Endpoints (Python Flask/Django/FastAPI + normalized routes)
         repo_cursor.execute("""
             SELECT file, handler_function
             FROM api_endpoints
@@ -153,12 +150,11 @@ class FlowResolver:
         """)
         for row in repo_cursor.fetchall():
             file, handler = row[0], row[1]
-            file = file.replace("\\", "/") if file else file  # Normalize path
+            file = file.replace("\\", "/") if file else file
             base_id = f"{file}::{handler}"
             for arg in web_args:
                 entry_nodes.add(f"{base_id}::{arg}")
 
-        # Express Middleware Chains (First handlers only)
         repo_cursor.execute("""
             SELECT file, handler_function, handler_expr
             FROM express_middleware_chains
@@ -166,25 +162,23 @@ class FlowResolver:
         """)
         for row in repo_cursor.fetchall():
             file = row[0]
-            file = file.replace("\\", "/") if file else file  # Normalize path
+            file = file.replace("\\", "/") if file else file
             func = row[1] or row[2]
             if func:
                 base_id = f"{file}::{func}"
                 for arg in ["req", "req.body", "req.query", "req.params"]:
                     entry_nodes.add(f"{base_id}::{arg}")
 
-        # Environment Variables (Configuration Injection Sources)
         repo_cursor.execute("""
             SELECT DISTINCT file, var_name, in_function
             FROM env_var_usage
         """)
         for row in repo_cursor.fetchall():
             file, var_name = row[0], row[1]
-            file = file.replace("\\", "/") if file else file  # Normalize path
+            file = file.replace("\\", "/") if file else file
             func = row[2] if row[2] else "global"
             entry_nodes.add(f"{file}::{func}::{var_name}")
 
-        # Cross-Boundary Edges (Frontend -> Backend)
         graph_cursor.execute("""
             SELECT DISTINCT target
             FROM edges
@@ -196,20 +190,20 @@ class FlowResolver:
 
         authoritative_count = len(entry_nodes)
 
-        # --- 2. SMART HEURISTICS (The "Dirt Roads") ---
-        # Catches what extractors missed, but filters out noise.
-
-        # Patterns that indicate entry points (request objects, event handlers)
         heuristic_patterns = ["req", "request", "event", "context", "body", "payload"]
 
-        # Exclusions - the circuit breaker against noise
         exclusions = [
-            "node_modules", ".test.", ".spec.", "__tests__", "test/",
-            "mock", "fixtures", ".d.ts", "__mocks__"
+            "node_modules",
+            ".test.",
+            ".spec.",
+            "__tests__",
+            "test/",
+            "mock",
+            "fixtures",
+            ".d.ts",
+            "__mocks__",
         ]
 
-        # Query graph for nodes matching entry patterns
-        # Node ID format: file::function::variable
         like_clauses = " OR ".join([f"id LIKE '%::{p}'" for p in heuristic_patterns])
 
         graph_cursor.execute(f"""
@@ -219,25 +213,19 @@ class FlowResolver:
         """)
 
         for (node_id,) in graph_cursor.fetchall():
-            # Filter 1: Noise Exclusion (Tests/Libs)
             node_lower = node_id.lower()
             if any(exc in node_lower for exc in exclusions):
                 continue
 
-            # Filter 2: Must be actual parameter, not just variable containing the word
-            # Node format: file::func::var - we want var to BE the pattern, not contain it
             parts = node_id.split("::")
             if len(parts) >= 3:
                 var_name = parts[-1]
-                # Only accept if variable name IS the pattern (not "my_request_helper")
+
                 if var_name in heuristic_patterns or var_name.split(".")[0] in heuristic_patterns:
                     entry_nodes.add(node_id)
 
         heuristic_count = len(entry_nodes) - authoritative_count
 
-        # --- 3. FINAL VALIDATION ---
-
-        # Validate all nodes exist in graph (filter ghosts)
         validated = []
         for node in entry_nodes:
             graph_cursor.execute(
@@ -251,9 +239,9 @@ class FlowResolver:
             if graph_cursor.fetchone():
                 validated.append(node)
 
-        # Final test/fixture filter on validated set
         filtered_entries = [
-            n for n in validated
+            n
+            for n in validated
             if not any(
                 x in n.lower()
                 for x in [".test.", ".spec.", "__tests__", "/test/", "/mock/", "/fixtures/"]
@@ -261,8 +249,10 @@ class FlowResolver:
         ]
 
         if self.debug:
-            logger.info(f"Hybrid Entry Analysis: {len(filtered_entries)} roots "
-                f"(Authoritative: {authoritative_count}, Heuristic: {heuristic_count})")
+            logger.info(
+                f"Hybrid Entry Analysis: {len(filtered_entries)} roots "
+                f"(Authoritative: {authoritative_count}, Heuristic: {heuristic_count})"
+            )
 
         return filtered_entries
 
@@ -293,7 +283,7 @@ class FlowResolver:
         """)
 
         for file, _line, func, arg_expr in repo_cursor.fetchall():
-            file = file.replace("\\", "/") if file else file  # Normalize path
+            file = file.replace("\\", "/") if file else file
             if not func:
                 func = "global"
 
@@ -330,7 +320,7 @@ class FlowResolver:
         """)
 
         for file, _line, func, arg_expr in repo_cursor.fetchall():
-            file = file.replace("\\", "/") if file else file  # Normalize path
+            file = file.replace("\\", "/") if file else file
             if not func:
                 func = "global"
 
@@ -364,7 +354,7 @@ class FlowResolver:
         """)
 
         for file, _line, func, arg_expr in repo_cursor.fetchall():
-            file = file.replace("\\", "/") if file else file  # Normalize path
+            file = file.replace("\\", "/") if file else file
             if not func:
                 func = "global"
 
@@ -414,7 +404,7 @@ class FlowResolver:
         """)
 
         for file, _line, func, arg_expr in repo_cursor.fetchall():
-            file = file.replace("\\", "/") if file else file  # Normalize path
+            file = file.replace("\\", "/") if file else file
             if not func:
                 func = "global"
 
@@ -447,7 +437,6 @@ class FlowResolver:
         file_path = parts[0].lower()
         var_name = parts[-1] if len(parts) > 0 else ""
 
-        # Adaptive visit limits: infrastructure nodes need fewer revisits
         is_infrastructure = (
             "config" in file_path
             or "env" in file_path
@@ -461,7 +450,7 @@ class FlowResolver:
         node_visit_counts: dict[str, int] = defaultdict(int)
 
         flows_from_this_entry = 0
-        entry_start = time.time()  # Per-entry budget tracking
+        entry_start = time.time()
 
         while (
             worklist
@@ -469,13 +458,15 @@ class FlowResolver:
             and flows_from_this_entry < self.max_flows_per_entry
         ):
             now = time.time()
-            # CRITICAL: Global budget check - stop everything
+
             if now - self.start_time > self.time_budget_seconds:
                 logger.debug(f"Global budget hit mid-trace for {entry_id}")
                 return
-            # Per-entry budget check - move to next entry, don't hog
+
             if now - entry_start > self.per_entry_budget:
-                logger.debug(f"Entry budget ({self.per_entry_budget}s) hit for {entry_id}, resolved {flows_from_this_entry} flows")
+                logger.debug(
+                    f"Entry budget ({self.per_entry_budget}s) hit for {entry_id}, resolved {flows_from_this_entry} flows"
+                )
                 return
 
             current_id, path = worklist.pop()
@@ -513,30 +504,27 @@ class FlowResolver:
         """
         raw_successors = self._get_successors_cached(node_id)
 
-        # Fast path: under threshold, return immediately
         if len(raw_successors) <= SUPERNODE_EDGE_THRESHOLD:
             return list(raw_successors)
 
-        # SUPER NODE LOGIC: Prioritize application code over noise
         high_value = []
         low_value = []
 
         for target in raw_successors:
             target_lower = target.lower()
-            # Noise patterns: logging, testing, third-party
+
             is_noise = (
-                "console." in target_lower or
-                "logger." in target_lower or
-                "log(" in target_lower or
-                ".test." in target_lower or
-                ".spec." in target_lower or
-                "__tests__" in target_lower or
-                "node_modules" in target_lower or
-                "__mocks__" in target_lower
+                "console." in target_lower
+                or "logger." in target_lower
+                or "log(" in target_lower
+                or ".test." in target_lower
+                or ".spec." in target_lower
+                or "__tests__" in target_lower
+                or "node_modules" in target_lower
+                or "__mocks__" in target_lower
             )
             (low_value if is_noise else high_value).append(target)
 
-        # Fill budget: all high-value first, then low-value
         final_list = high_value[:SUPERNODE_EDGE_THRESHOLD]
         remaining = SUPERNODE_EDGE_THRESHOLD - len(final_list)
         if remaining > 0:
@@ -579,10 +567,6 @@ class FlowResolver:
         if sanitizer_meta:
             return ("SANITIZED", sanitizer_meta)
         else:
-            # SEMANTIC FIX: Forward analysis proves REACHABILITY, not VULNERABILITY.
-            # FlowResolver finds paths from sources to sinks. If no sanitizer is detected,
-            # the path is REACHABLE (a candidate for exploitation), not a confirmed exploit.
-            # Only IFDS (backward analysis) can confirm actual VULNERABILITY.
             return ("REACHABLE", None)
 
     def _record_flow(
@@ -653,7 +637,6 @@ class FlowResolver:
 
         source_line = 0
 
-        # Try assignment_source_vars first (most specific)
         repo_cursor.execute(
             """
             SELECT MIN(line) FROM assignment_source_vars
@@ -665,7 +648,6 @@ class FlowResolver:
         if result and result[0]:
             source_line = result[0]
 
-        # Fallback to func_params (for req, res, ctx parameters)
         if source_line == 0:
             repo_cursor.execute(
                 """
@@ -678,7 +660,6 @@ class FlowResolver:
             if result and result[0]:
                 source_line = result[0]
 
-        # Fallback to variable_usage (general usage)
         if source_line == 0:
             repo_cursor.execute(
                 """
@@ -733,7 +714,6 @@ class FlowResolver:
             }
             hop_chain.append(hop)
 
-        # Get vulnerability type from registry. NO FALLBACKS.
         if not self.registry:
             raise ValueError("Registry is MANDATORY. NO FALLBACKS.")
         vuln_type = self.registry.get_sink_info(sink_pattern)["vulnerability_type"]
@@ -826,7 +806,7 @@ class FlowResolver:
 
     def _load_sanitizer_data(self):
         """Load sanitizer data from database for path checking."""
-        # Load safe sinks
+
         self.repo_cursor.execute("""
             SELECT DISTINCT sink_pattern
             FROM framework_safe_sinks
@@ -837,7 +817,6 @@ class FlowResolver:
             if pattern:
                 self._safe_sinks.add(pattern)
 
-        # Load validation sanitizers
         self.repo_cursor.execute("""
             SELECT DISTINCT
                 file_path as file, line, framework, is_validator, variable_name as schema_name
@@ -845,14 +824,15 @@ class FlowResolver:
             WHERE framework IN ('zod', 'joi', 'yup', 'express-validator')
         """)
         for row in self.repo_cursor.fetchall():
-            self._validation_sanitizers.append({
-                "file": row["file"],
-                "line": row["line"],
-                "framework": row["framework"],
-                "schema": row["schema_name"],
-            })
+            self._validation_sanitizers.append(
+                {
+                    "file": row["file"],
+                    "line": row["line"],
+                    "framework": row["framework"],
+                    "schema": row["schema_name"],
+                }
+            )
 
-        # Pre-load function calls for O(1) lookup
         self.repo_cursor.execute("""
             SELECT file, line, callee_function
             FROM function_call_args
@@ -927,7 +907,6 @@ class FlowResolver:
             if not hop_file:
                 return None
 
-            # PRIMARY CHECK: Query graph for call edges from this node
             graph_cursor.execute(
                 """
                 SELECT target, metadata
@@ -939,46 +918,46 @@ class FlowResolver:
             )
             for row in graph_cursor.fetchall():
                 target = row[0]
-                # Extract function name from target node ID
+
                 target_parts = target.split("::")
                 if len(target_parts) >= 2:
                     called_func = target_parts[-1]
                     if self._is_sanitizer(called_func, hop_file):
                         return {"file": hop_file, "line": 0, "method": called_func}
 
-            # SECONDARY CHECK: Check if function itself is a sanitizer
             if func and self._is_sanitizer(func, hop_file):
                 return {"file": hop_file, "line": 0, "method": func}
 
-            # HEURISTIC CHECK: Validation middleware functions by name
-            # Fixes false positives where validators are DEFINED in middleware/validate.ts
-            # but USED in routes/*.ts. Function names like validateBody, validateParams
-            # are strong indicators of sanitization regardless of file location.
             if func:
                 heuristic_validators = {
-                    "validateBody", "validateParams", "validateQuery",
-                    "validateRequest", "validate", "safeParse", "parse",
-                    "verify", "authenticate", "sanitize", "escape",
+                    "validateBody",
+                    "validateParams",
+                    "validateQuery",
+                    "validateRequest",
+                    "validate",
+                    "safeParse",
+                    "parse",
+                    "verify",
+                    "authenticate",
+                    "sanitize",
+                    "escape",
                 }
-                # Extract clean function name (handle "middleware.validateBody" -> "validateBody")
+
                 clean_func = func.split(".")[-1] if "." in func else func
                 if clean_func in heuristic_validators:
                     return {"file": hop_file, "line": 0, "method": f"Heuristic::{clean_func}"}
-                # Also check if func CONTAINS these keywords (e.g., "validateUserBody")
+
                 func_lower = func.lower()
                 if any(hv.lower() in func_lower for hv in heuristic_validators):
                     return {"file": hop_file, "line": 0, "method": f"Heuristic::{func}"}
 
-            # TERTIARY CHECK: Validation frameworks (Zod, Joi, Yup, express-validator)
-            # Match by file containing validators + common validation patterns in func/var
             var_name = parts[2] if len(parts) > 2 else ""
             validation_keywords = ["schema", "validate", "parse", "safeParse", "validator", "check"]
 
             for san in self._validation_sanitizers:
-                # Check file match (loose match for path differences)
                 if san["file"] in hop_file or hop_file in san["file"]:
                     schema_name = san.get("schema", "")
-                    # Match if: schema name in func/var OR validation keyword in func/var
+
                     func_lower = func.lower() if func else ""
                     var_lower = var_name.lower() if var_name else ""
 
@@ -988,7 +967,7 @@ class FlowResolver:
                             "line": san["line"],
                             "method": f"{san['framework']}:{schema_name}",
                         }
-                    # Fallback: validation keyword match in same file as validator
+
                     if any(kw in func_lower or kw in var_lower for kw in validation_keywords):
                         return {
                             "file": hop_file,
@@ -1000,12 +979,10 @@ class FlowResolver:
 
         for node in path:
             if isinstance(node, str):
-                # Legacy string format: "file::func::pattern"
                 result = check_node_for_sanitizer(node)
                 if result:
                     return result
             elif isinstance(node, dict):
-                # Dict format: {"from": "file::func::pattern", "to": "file::func::pattern", ...}
                 for key in ("from", "to"):
                     node_str = node.get(key)
                     if node_str and isinstance(node_str, str):

@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from theauditor.rules.base import Severity, StandardRuleContext
-from theauditor.rules.terraform.terraform_analyze import find_terraform_issues
+from theauditor.rules.terraform.terraform_analyze import analyze as terraform_analyze
 from theauditor.utils.logging import logger
 
 
@@ -46,8 +46,8 @@ class TerraformAnalyzer:
     def analyze(self) -> list[TerraformFinding]:
         """Run standardized Terraform rule and return converted findings."""
         context = self._build_rule_context()
-        standard_findings = find_terraform_issues(context)
-        terraform_findings = self._convert_findings(standard_findings)
+        result = terraform_analyze(context)
+        terraform_findings = self._convert_findings(result.findings)
 
         filtered = self._filter_by_severity(terraform_findings)
         self._write_findings(filtered)

@@ -211,7 +211,6 @@ class PlanningManager:
         """
         shadow = ShadowRepoManager(self.db_path.parent)
 
-        # Auto-detect dirty files if not provided
         if files_affected is None:
             files_affected = shadow.detect_dirty_files(project_root)
 

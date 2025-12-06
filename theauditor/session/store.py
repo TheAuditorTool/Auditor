@@ -97,7 +97,7 @@ class SessionExecutionStore:
             logger.error(f"Failed to create session_executions table: {e}")
             conn.rollback()
             conn.close()
-            raise  
+            raise
         finally:
             conn.close()
 
@@ -120,23 +120,25 @@ class SessionExecutionStore:
 
             for exc in executions:
                 diffs_json = json.dumps(exc.diffs_scored)
-                data_to_insert.append((
-                    exc.session_id,
-                    exc.task_description,
-                    1 if exc.workflow_compliant else 0,
-                    exc.compliance_score,
-                    exc.risk_score,
-                    1 if exc.task_completed else 0,
-                    1 if exc.corrections_needed else 0,
-                    1 if exc.rollback else 0,
-                    exc.timestamp,
-                    exc.tool_call_count,
-                    exc.files_modified,
-                    exc.user_message_count,
-                    exc.user_engagement_rate,
-                    diffs_json,
-                    last_modified,
-                ))
+                data_to_insert.append(
+                    (
+                        exc.session_id,
+                        exc.task_description,
+                        1 if exc.workflow_compliant else 0,
+                        exc.compliance_score,
+                        exc.risk_score,
+                        1 if exc.task_completed else 0,
+                        1 if exc.corrections_needed else 0,
+                        1 if exc.rollback else 0,
+                        exc.timestamp,
+                        exc.tool_call_count,
+                        exc.files_modified,
+                        exc.user_message_count,
+                        exc.user_engagement_rate,
+                        diffs_json,
+                        last_modified,
+                    )
+                )
 
             cursor.executemany(
                 """
@@ -156,7 +158,7 @@ class SessionExecutionStore:
         except sqlite3.Error as e:
             logger.error(f"Failed batch write: {e}")
             conn.rollback()
-            raise  
+            raise
         finally:
             conn.close()
 
@@ -203,7 +205,7 @@ class SessionExecutionStore:
         except sqlite3.Error as e:
             logger.error(f"Failed to write to database: {e}")
             conn.rollback()
-            raise  
+            raise
         finally:
             conn.close()
 

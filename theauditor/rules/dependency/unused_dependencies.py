@@ -34,76 +34,77 @@ METADATA = RuleMetadata(
     primary_table="package_dependencies",
 )
 
-# Packages that are used via CLI or config, not direct imports
-CLI_PACKAGES: frozenset[str] = frozenset([
-    "eslint",
-    "prettier",
-    "typescript",
-    "tsc",
-    "ts-node",
-    "tsx",
-    "nodemon",
-    "concurrently",
-    "npm-run-all",
-    "husky",
-    "lint-staged",
-    "commitlint",
-    "semantic-release",
-    "cross-env",
-    "dotenv-cli",
-    "rimraf",
-    "copyfiles",
-    "shx",
-    "ncp",
-])
 
-# Packages used as plugins/presets (referenced in config, not imported)
-PLUGIN_PACKAGES: frozenset[str] = frozenset([
-    # Babel
-    "@babel/preset-env",
-    "@babel/preset-react",
-    "@babel/preset-typescript",
-    "@babel/plugin-transform-runtime",
-    # ESLint
-    "eslint-plugin-react",
-    "eslint-plugin-react-hooks",
-    "eslint-plugin-import",
-    "eslint-plugin-jsx-a11y",
-    "eslint-config-prettier",
-    "eslint-config-airbnb",
-    # PostCSS
-    "autoprefixer",
-    "postcss-preset-env",
-    "tailwindcss",
-    "cssnano",
-    # Webpack/Build
-    "babel-loader",
-    "css-loader",
-    "style-loader",
-    "file-loader",
-    "url-loader",
-    "sass-loader",
-    "less-loader",
-    "postcss-loader",
-    "ts-loader",
-    "html-webpack-plugin",
-    "mini-css-extract-plugin",
-    "terser-webpack-plugin",
-])
+CLI_PACKAGES: frozenset[str] = frozenset(
+    [
+        "eslint",
+        "prettier",
+        "typescript",
+        "tsc",
+        "ts-node",
+        "tsx",
+        "nodemon",
+        "concurrently",
+        "npm-run-all",
+        "husky",
+        "lint-staged",
+        "commitlint",
+        "semantic-release",
+        "cross-env",
+        "dotenv-cli",
+        "rimraf",
+        "copyfiles",
+        "shx",
+        "ncp",
+    ]
+)
 
-# CSS/styling packages (used via imports in CSS/SCSS, not JS)
-STYLING_PACKAGES: frozenset[str] = frozenset([
-    "normalize.css",
-    "reset-css",
-    "sanitize.css",
-    "modern-normalize",
-    "animate.css",
-    "font-awesome",
-    "@fortawesome/fontawesome-free",
-])
 
-# Python package name to import name mapping
-# PyPI names often differ from the actual import statement
+PLUGIN_PACKAGES: frozenset[str] = frozenset(
+    [
+        "@babel/preset-env",
+        "@babel/preset-react",
+        "@babel/preset-typescript",
+        "@babel/plugin-transform-runtime",
+        "eslint-plugin-react",
+        "eslint-plugin-react-hooks",
+        "eslint-plugin-import",
+        "eslint-plugin-jsx-a11y",
+        "eslint-config-prettier",
+        "eslint-config-airbnb",
+        "autoprefixer",
+        "postcss-preset-env",
+        "tailwindcss",
+        "cssnano",
+        "babel-loader",
+        "css-loader",
+        "style-loader",
+        "file-loader",
+        "url-loader",
+        "sass-loader",
+        "less-loader",
+        "postcss-loader",
+        "ts-loader",
+        "html-webpack-plugin",
+        "mini-css-extract-plugin",
+        "terser-webpack-plugin",
+    ]
+)
+
+
+STYLING_PACKAGES: frozenset[str] = frozenset(
+    [
+        "normalize.css",
+        "reset-css",
+        "sanitize.css",
+        "modern-normalize",
+        "animate.css",
+        "font-awesome",
+        "@fortawesome/fontawesome-free",
+    ]
+)
+
+
 PYTHON_IMPORT_MAP: dict[str, str] = {
     "pyyaml": "yaml",
     "beautifulsoup4": "bs4",
@@ -123,31 +124,33 @@ PYTHON_IMPORT_MAP: dict[str, str] = {
     "protobuf": "google",
 }
 
-# Python dev tools that are rarely imported but valid in requirements
-PYTHON_DEV_TOOLS: frozenset[str] = frozenset([
-    "pytest",
-    "pytest-cov",
-    "pytest-asyncio",
-    "pytest-mock",
-    "pytest-xdist",
-    "black",
-    "mypy",
-    "flake8",
-    "pylint",
-    "ruff",
-    "tox",
-    "coverage",
-    "isort",
-    "pre-commit",
-    "pip-tools",
-    "build",
-    "twine",
-    "wheel",
-    "setuptools",
-    "hatch",
-    "flit",
-    "poetry",
-])
+
+PYTHON_DEV_TOOLS: frozenset[str] = frozenset(
+    [
+        "pytest",
+        "pytest-cov",
+        "pytest-asyncio",
+        "pytest-mock",
+        "pytest-xdist",
+        "black",
+        "mypy",
+        "flake8",
+        "pylint",
+        "ruff",
+        "tox",
+        "coverage",
+        "isort",
+        "pre-commit",
+        "pip-tools",
+        "build",
+        "twine",
+        "wheel",
+        "setuptools",
+        "hatch",
+        "flit",
+        "poetry",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -170,19 +173,14 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Get all imported package names
         imported_packages = _get_imported_packages(db)
 
-        # Get packages referenced in scripts
         script_packages = _get_script_referenced_packages(db)
 
-        # Combine all "used" packages
         used_packages = imported_packages | script_packages
 
-        # Check JavaScript/Node dependencies
         findings.extend(_check_js_unused(db, used_packages))
 
-        # Check Python dependencies
         findings.extend(_check_python_unused(db, imported_packages))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
@@ -199,11 +197,7 @@ def _get_imported_packages(db: RuleDB) -> set[str]:
     """
     imported: set[str] = set()
 
-    rows = db.query(
-        Q("import_styles")
-        .select("package")
-        .order_by("package")
-    )
+    rows = db.query(Q("import_styles").select("package").order_by("package"))
 
     for (package,) in rows:
         if not package:
@@ -228,28 +222,22 @@ def _get_script_referenced_packages(db: RuleDB) -> set[str]:
     referenced: set[str] = set()
 
     rows = db.query(
-        Q("package_scripts")
-        .select("script_name", "script_command")
-        .order_by("script_name")
+        Q("package_scripts").select("script_name", "script_command").order_by("script_name")
     )
 
     for script_name, script_command in rows:
         if not script_command:
             continue
 
-        # Extract package names from script command
-        # Common patterns: "eslint .", "prettier --write", "jest", "tsc"
         parts = script_command.split()
         if parts:
-            # First word is often the command/package
             first_cmd = parts[0]
-            # Handle cross-env, npx, etc.
+
             if first_cmd in ("cross-env", "npx", "pnpx", "yarn"):
                 if len(parts) > 1:
                     first_cmd = parts[1]
 
-            # Clean up the command
-            cmd_clean = first_cmd.split("/")[-1]  # Handle ./node_modules/.bin/
+            cmd_clean = first_cmd.split("/")[-1]
             if cmd_clean and not cmd_clean.startswith("-"):
                 referenced.add(cmd_clean.lower())
 
@@ -275,17 +263,14 @@ def _check_js_unused(db: RuleDB, used: set[str]) -> list[StandardFinding]:
     )
 
     for file_path, pkg_name, is_dev, is_peer in rows:
-        # Skip peer dependencies - they're provided by consumers
         if is_peer:
             continue
 
         normalized = _normalize_package_name(pkg_name)
 
-        # Skip if actually used (imported or in scripts)
         if normalized in used:
             continue
 
-        # Skip known false positives
         if _is_exempt_package(pkg_name):
             continue
 
@@ -329,18 +314,14 @@ def _check_python_unused(db: RuleDB, imported: set[str]) -> list[StandardFinding
     for file_path, pkg_name, is_dev in rows:
         normalized = _normalize_package_name(pkg_name)
 
-        # Check PyPI name -> import name mapping (e.g., PyYAML -> yaml)
         mapped_import = PYTHON_IMPORT_MAP.get(normalized, normalized)
 
-        # Skip if actually imported (check both normalized and mapped names)
         if normalized in imported or mapped_import in imported:
             continue
 
-        # Skip Python dev tools (pytest, black, mypy, etc.)
         if normalized in PYTHON_DEV_TOOLS:
             continue
 
-        # Skip CLI/build tools
         if _is_exempt_package(pkg_name):
             continue
 
@@ -375,18 +356,16 @@ def _normalize_package_name(package: str) -> str:
     Returns:
         Normalized base package name in lowercase
     """
-    # Handle scoped packages (@org/package)
+
     if package.startswith("@"):
         parts = package.split("/", 2)
         if len(parts) >= 2:
             return "/".join(parts[:2]).lower()
         return package.lower()
 
-    # Handle node: protocol
     if package.startswith("node:"):
         return package.lower()
 
-    # Get base package (before / or .)
     base = package.split("/")[0].split(".")[0]
     return base.lower()
 
@@ -402,27 +381,21 @@ def _is_exempt_package(package: str) -> bool:
     """
     pkg_lower = package.lower()
 
-    # Check against known CLI packages
     if pkg_lower in CLI_PACKAGES:
         return True
 
-    # Check against dev-only packages from config
     if pkg_lower in DEV_ONLY_PACKAGES:
         return True
 
-    # Check against plugin packages
     if pkg_lower in PLUGIN_PACKAGES:
         return True
 
-    # Check against styling packages
     if pkg_lower in STYLING_PACKAGES:
         return True
 
-    # Type definition packages
     if package.startswith("@types/"):
         return True
 
-    # Heuristic: packages with these patterns are usually build/dev tools
     exempt_patterns = (
         "eslint-",
         "prettier-",

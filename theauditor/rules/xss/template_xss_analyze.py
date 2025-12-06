@@ -93,7 +93,11 @@ def _check_template_string_injection(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-        if "+" in (template_arg or "") or 'f"' in (template_arg or "") or "`" in (template_arg or ""):
+        if (
+            "+" in (template_arg or "")
+            or 'f"' in (template_arg or "")
+            or "`" in (template_arg or "")
+        ):
             findings.append(
                 StandardFinding(
                     rule_name="template-dynamic-construction",
@@ -114,8 +118,6 @@ def _check_unsafe_template_syntax(db: RuleDB) -> list[StandardFinding]:
     """Check for unsafe template syntax usage."""
     findings: list[StandardFinding] = []
 
-    # Pre-filter with LIKE to reduce rows fetched from DB
-    # These cover the most common dangerous patterns
     rows = db.query(
         Q("assignments")
         .select("file", "line", "source_expr")
@@ -124,14 +126,19 @@ def _check_unsafe_template_syntax(db: RuleDB) -> list[StandardFinding]:
             "source_expr LIKE ? OR source_expr LIKE ? OR source_expr LIKE ? OR "
             "source_expr LIKE ? OR source_expr LIKE ? OR source_expr LIKE ? OR "
             "source_expr LIKE ? OR source_expr LIKE ?",
-            "%|safe%", "%|raw%", "%{{{%", "%Markup(%", "%mark_safe%",
-            "%SafeString%", "%autoescape%", "%{!!%"
+            "%|safe%",
+            "%|raw%",
+            "%{{{%",
+            "%Markup(%",
+            "%mark_safe%",
+            "%SafeString%",
+            "%autoescape%",
+            "%{!!%",
         )
         .order_by("file, line")
     )
 
     for file, line, source in rows:
-        # Check engine-specific unsafe patterns
         for engine, patterns in TEMPLATE_ENGINES.items():
             for unsafe_pattern in patterns.get("unsafe", []):
                 if unsafe_pattern in (source or ""):
@@ -139,9 +146,17 @@ def _check_unsafe_template_syntax(db: RuleDB) -> list[StandardFinding]:
 
                     if has_user_input:
                         normalized = (source or "").replace(" ", "")
-                        if engine == "mako" and unsafe_pattern.lower() == "|n" and "|n" not in normalized:
+                        if (
+                            engine == "mako"
+                            and unsafe_pattern.lower() == "|n"
+                            and "|n" not in normalized
+                        ):
                             continue
-                        if engine == "mako" and unsafe_pattern.lower() == "|h" and "|h" not in normalized:
+                        if (
+                            engine == "mako"
+                            and unsafe_pattern.lower() == "|h"
+                            and "|h" not in normalized
+                        ):
                             continue
 
                         findings.append(
@@ -157,7 +172,6 @@ def _check_unsafe_template_syntax(db: RuleDB) -> list[StandardFinding]:
                             )
                         )
 
-        # Check unescaped output patterns (combined into same loop - no duplicate query)
         has_unescaped = (
             ("{{{" in source and "}}}" in source)
             or ("<%-%" in source and "%>" in source)
@@ -253,7 +267,6 @@ def _check_template_autoescape_disabled(db: RuleDB) -> list[StandardFinding]:
         "config.autoescape = false",
     ]
 
-    # Pre-filter with LIKE - only fetch rows containing "autoescape"
     rows = db.query(
         Q("assignments")
         .select("file", "line", "source_expr")
@@ -323,7 +336,9 @@ def _check_custom_template_helpers(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func, filter_def in rows:
-        is_filter = ".filters[" in func or "app.jinja_env.filters" in func or func == "register.filter"
+        is_filter = (
+            ".filters[" in func or "app.jinja_env.filters" in func or func == "register.filter"
+        )
         if not is_filter:
             continue
 
@@ -371,24 +386,42 @@ def _check_server_side_template_injection(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     dangerous_template_patterns = [
-        ".__class__", ".__mro__", ".__subclasses__", ".__globals__",
-        ".__builtins__", ".__import__", "config.", "self.", "lipsum.",
-        "cycler.", "|attr(", "|format(", "getattr(", "{{config",
-        "{{self", "{{request", "${__", "#{__",
+        ".__class__",
+        ".__mro__",
+        ".__subclasses__",
+        ".__globals__",
+        ".__builtins__",
+        ".__import__",
+        "config.",
+        "self.",
+        "lipsum.",
+        "cycler.",
+        "|attr(",
+        "|format(",
+        "getattr(",
+        "{{config",
+        "{{self",
+        "{{request",
+        "${__",
+        "#{__",
     ]
 
-    assignment_rows = list(db.query(
-        Q("assignments")
-        .select("file", "line", "source_expr")
-        .where("source_expr IS NOT NULL")
-        .order_by("file, line")
-    ))
+    assignment_rows = list(
+        db.query(
+            Q("assignments")
+            .select("file", "line", "source_expr")
+            .where("source_expr IS NOT NULL")
+            .order_by("file, line")
+        )
+    )
 
-    render_funcs = list(db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .where("callee_function IS NOT NULL")
-    ))
+    render_funcs = list(
+        db.query(
+            Q("function_call_args")
+            .select("file", "line", "callee_function")
+            .where("callee_function IS NOT NULL")
+        )
+    )
 
     for pattern in dangerous_template_patterns:
         needs_proximity_check = pattern in ["config.", "self."]
@@ -404,9 +437,14 @@ def _check_server_side_template_injection(db: RuleDB) -> list[StandardFinding]:
                         continue
 
                     is_render_func = (
-                        rf_func in (
-                            "render_template_string", "render", "compile",
-                            "ejs.render", "ejs.compile", "Handlebars.compile",
+                        rf_func
+                        in (
+                            "render_template_string",
+                            "render",
+                            "compile",
+                            "ejs.render",
+                            "ejs.compile",
+                            "Handlebars.compile",
                         )
                         or "render" in rf_func
                         or "compile" in rf_func
@@ -476,7 +514,6 @@ def _check_server_side_template_injection(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Reuse cached assignment_rows instead of querying again
     template_directives = ["{% include", "{% extends", "{% import"]
     user_input_indicators = ["request.", "params.", "user."]
 

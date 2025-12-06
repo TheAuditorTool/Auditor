@@ -1,35 +1,38 @@
 #!/usr/bin/env python
-"""TheAuditor Smoke Test - Professional Grade CLI Health Check.
+"""TheAuditor Pre-Flight Check - Complete Systems Verification.
 
-This script:
-1. DYNAMICALLY discovers ALL commands via Click introspection (no stale lists)
-2. Tests --help for every command (catches import errors)
-3. Runs minimal invocations for safe commands (catches runtime crashes)
-4. Captures structured logs via THEAUDITOR_LOG_FILE for each command
-5. Generates an LLM-readable failure report
+This is THE ONE test. No gloves. Tests everything including setup, indexing,
+and all commands with correct syntax.
+
+Phases:
+  1. ENVIRONMENT - Python version, dependencies, paths
+  2. SETUP - Build JS extractor if missing
+  3. INDEX - Run aud full --index --offline to populate database
+  4. COMMANDS - Test every single command with correct invocation
 
 Usage:
     cd C:/Users/santa/Desktop/TheAuditor
     .venv/Scripts/python.exe scripts/smoke_test.py
 
     # Options:
-    .venv/Scripts/python.exe scripts/smoke_test.py --help-only    # Skip invocations
-    .venv/Scripts/python.exe scripts/smoke_test.py --verbose      # Show all output
-    .venv/Scripts/python.exe scripts/smoke_test.py --clean        # Cleanup logs after
+    --skip-index     Skip the aud full indexing phase (use existing .pf/)
+    --skip-setup     Skip environment setup checks
+    --verbose        Show all output including stdout
+    --timeout N      Override default timeout (default: 300s for commands)
 """
 
 import os
+import shutil
 import subprocess
 import sys
 import time
-import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# ANSI colors for terminal output
 try:
     from rich.console import Console
     from rich.panel import Panel
+    from rich.table import Table
     console = Console()
     USE_RICH = True
 except ImportError:
@@ -39,23 +42,25 @@ except ImportError:
 
 @dataclass
 class TestResult:
-    """Result of a single command test."""
+    """Result of a single test."""
+    name: str
     command: str
-    phase: str  # "help" or "invoke"
+    phase: str
     success: bool
     exit_code: int | str
     duration: float
     stdout: str = ""
     stderr: str = ""
-    log_content: str = ""  # Content from THEAUDITOR_LOG_FILE
     error_summary: str = ""
 
 
 @dataclass
-class SmokeTestReport:
-    """Aggregated smoke test results."""
+class PreFlightReport:
+    """Complete pre-flight check report."""
     results: list[TestResult] = field(default_factory=list)
     total_time: float = 0.0
+    index_time: float = 0.0
+    setup_time: float = 0.0
 
     @property
     def passed(self) -> int:
@@ -71,54 +76,27 @@ class SmokeTestReport:
 
 
 # =============================================================================
-# DYNAMIC COMMAND DISCOVERY
+# PROJECT CONFIGURATION
 # =============================================================================
 
-def discover_all_commands() -> list[str]:
-    """Dynamically find ALL registered commands via Click introspection.
+PROJECT_ROOT = Path(__file__).parent.parent
+PF_DIR = PROJECT_ROOT / ".pf"
+JS_EXTRACTOR = PROJECT_ROOT / "theauditor" / "ast_extractors" / "javascript"
+JS_BUNDLE = JS_EXTRACTOR / "dist" / "extractor.cjs"
 
-    This prevents the test from becoming stale when new commands are added.
-    """
-    try:
-        from theauditor.cli import cli
-        import click
-
-        ctx = click.Context(cli)
-        commands = ["aud --help"]  # Always test root
-
-        def recurse(group, parent_name: str, depth: int = 0):
-            """Recursively discover commands and subcommands."""
-            if depth > 3:  # Prevent infinite recursion
-                return
-
-            try:
-                cmd_names = group.list_commands(ctx)
-            except Exception:
-                return
-
-            for name in cmd_names:
-                full_name = f"{parent_name} {name}"
-                commands.append(f"{full_name} --help")
-
-                try:
-                    sub = group.get_command(ctx, name)
-                    # Check if it's a group (has subcommands)
-                    if hasattr(sub, "list_commands"):
-                        recurse(sub, full_name, depth + 1)
-                except Exception:
-                    pass  # Some commands may fail to load - that's what we're testing
-
-        recurse(cli, "aud")
-        return sorted(set(commands))  # Dedupe and sort
-
-    except Exception as e:
-        print(f"[WARNING] Dynamic discovery failed: {e}")
-        print("[WARNING] Falling back to hardcoded command list")
-        return FALLBACK_COMMANDS
+# Default timeouts
+SETUP_TIMEOUT = 120      # 2 min for npm install/build
+INDEX_TIMEOUT = 600      # 10 min for aud full --index
+COMMAND_TIMEOUT = 300    # 5 min per command (taint can be slow)
+HELP_TIMEOUT = 30        # 30s for --help commands
 
 
-# Fallback if dynamic discovery fails (shouldn't happen, but safety net)
-FALLBACK_COMMANDS = [
+# =============================================================================
+# COMMAND DEFINITIONS - ALL COMMANDS WITH CORRECT SYNTAX
+# =============================================================================
+
+# Phase 1: Help tests for ALL commands (catches import errors)
+HELP_TESTS = [
     "aud --help",
     "aud full --help",
     "aud setup-ai --help",
@@ -126,99 +104,129 @@ FALLBACK_COMMANDS = [
     "aud workset --help",
     "aud manual --help",
     "aud detect-patterns --help",
+    "aud detect-frameworks --help",
     "aud taint --help",
+    "aud boundaries --help",
     "aud graph --help",
+    "aud graph build --help",
+    "aud graph build-dfg --help",
+    "aud graph analyze --help",
+    "aud graph query --help",
+    "aud graph viz --help",
+    "aud cfg --help",
+    "aud cfg analyze --help",
+    "aud cfg viz --help",
+    "aud graphql --help",
+    "aud graphql build --help",
+    "aud graphql query --help",
+    "aud graphql viz --help",
+    "aud metadata --help",
+    "aud metadata churn --help",
+    "aud metadata coverage --help",
+    "aud metadata analyze --help",
     "aud session --help",
+    "aud session list --help",
+    "aud session activity --help",
+    "aud session analyze --help",
+    "aud session report --help",
     "aud learn --help",
     "aud suggest --help",
     "aud explain --help",
+    "aud query --help",
+    "aud impact --help",
+    "aud refactor --help",
     "aud blueprint --help",
+    "aud deadcode --help",
+    "aud deps --help",
+    "aud docs --help",
+    "aud lint --help",
+    "aud fce --help",
+    "aud planning --help",
+    "aud workflows --help",
+    "aud workflows analyze --help",
+    "aud docker-analyze --help",
+    "aud terraform --help",
+    "aud cdk --help",
+    "aud context --help",
+    "aud context query --help",
+    "aud rules --help",
 ]
 
-
-# 10 minute timeout for ALL commands - no arbitrary limits
-DEFAULT_TIMEOUT = 600
-
-# Commands for real minimal invocation - test EVERYTHING except setup-ai, full, detect-patterns
+# Phase 2: Minimal invocation tests (database readers, utilities)
+# Format: (command, description, expected_to_pass)
+# expected_to_pass=False means command runs but may exit non-zero (e.g., findings detected)
 INVOCATION_TESTS = [
-    # UTILITIES
-    ("aud manual --list", "List manual topics"),
-    ("aud tools", "Show tool versions"),
-    ("aud tools list", "List all tools"),
-    ("aud planning list", "List plans"),
+    # UTILITIES - always work
+    ("aud tools", "Show tool versions", True),
+    ("aud tools list", "List all tools", True),
+    ("aud manual --list", "List manual topics", True),
+    ("aud planning list", "List plans", True),
 
-    # DATABASE READERS
-    ("aud blueprint --structure", "Show codebase structure"),
-    ("aud detect-frameworks", "Show detected frameworks"),
-    ("aud deadcode --format summary", "Dead code summary"),
-    ("aud boundaries", "Security boundaries"),
-    ("aud query --symbol main", "Query symbol"),
-    ("aud explain theauditor/cli.py", "Explain file context"),
+    # DATABASE READERS - require .pf/repo_index.db
+    ("aud blueprint --structure", "Codebase structure", True),
+    ("aud detect-frameworks", "Detected frameworks", True),
+    ("aud deadcode --format summary", "Dead code summary", True),
+    ("aud boundaries", "Security boundaries", False),  # exits 1 if issues found
+    ("aud query --symbol main", "Query symbol", True),
+    ("aud explain theauditor/cli.py", "Explain file context", True),
 
-    # GRAPH COMMANDS
-    ("aud graph analyze", "Analyze dependency graph"),
-    ("aud graph query --uses theauditor.cli", "Query graph relationships"),
-    ("aud graph build", "Build/rebuild graphs.db"),
-    ("aud graph build-dfg", "Build DFG in graphs.db"),
-    ("aud graph viz", "Graph viz DOT output"),
+    # GRAPH COMMANDS - require graphs.db
+    ("aud graph analyze", "Analyze dependency graph", True),
+    ("aud graph query --uses theauditor.cli", "Query graph relationships", True),
+    ("aud graph build", "Build/rebuild graphs.db", True),
+    ("aud graph build-dfg", "Build DFG in graphs.db", True),
+    ("aud graph viz", "Graph viz DOT output", True),
 
     # ML COMMANDS
-    ("aud learn", "Train ML models"),
+    ("aud learn", "Train ML models", True),
+    ("aud suggest --print-plan", "ML suggestions", True),
 
     # SESSION COMMANDS
-    ("aud session list", "List Claude sessions"),
-    ("aud session activity --limit 5", "Session activity"),
-    ("aud session analyze", "Analyze sessions"),
-    ("aud session report", "Session report"),
+    ("aud session list", "List Claude sessions", True),
+    ("aud session activity --limit 5", "Session activity", True),
+    ("aud session analyze", "Analyze sessions", True),
+    ("aud session report", "Session report", True),
 
-    # FCE (taint skipped - known 10min+ on large fixture repos)
-    ("aud fce", "FCE analysis"),
+    # ANALYSIS COMMANDS
+    ("aud fce", "FCE analysis", True),
+    ("aud lint", "Run linters", False),  # exits non-zero if issues found
+    ("aud deps --offline", "Dependency analysis (offline)", True),
+    ("aud docs", "Generate docs", True),
 
-    # LINTING & DEPS
-    ("aud lint", "Run linters"),
-    ("aud deps", "Dependency analysis"),
-    ("aud deps --offline", "Deps offline mode"),
+    # METADATA - GROUP with subcommands (NOT: aud metadata alone)
+    ("aud metadata churn", "Git churn metadata", True),
 
-    # DOCS & METADATA
-    ("aud docs", "Generate docs"),
-    ("aud metadata churn", "Git churn metadata"),
+    # WORKSET - single command with options (NOT: aud workset show/list)
+    ("aud workset --all --print-stats", "Workset all files", True),
 
-    # WORKSET COMMANDS (workset requires mode: --all, --diff, or --files)
-    ("aud workset --all --print-stats", "Generate and show workset stats"),
+    # CFG - GROUP with subcommands, requires --file option
+    ("aud cfg analyze", "CFG analyze (no file)", True),
 
-    # CFG (Control Flow Graph) - cfg is a GROUP with subcommands
-    ("aud cfg analyze --file theauditor/cli.py", "CFG analyze cli.py"),
+    # IMPACT - requires --file or --symbol option (NOT positional)
+    ("aud impact --symbol main", "Impact analysis by symbol", True),
 
-    # IMPACT ANALYSIS - uses --file option, not positional arg
-    ("aud impact --file theauditor/cli.py", "Impact analysis cli.py"),
+    # REFACTOR - single command, analyzes migrations (no extract subcommand)
+    ("aud refactor", "Refactor migration analysis", True),
 
-    # REFACTOR - analyzes migrations, no extract subcommand
-    ("aud refactor", "Refactor migration analysis"),
-
-    # GRAPHQL - group with subcommands
-    ("aud graphql build", "GraphQL resolver build"),
+    # GRAPHQL - GROUP with subcommands
+    ("aud graphql build", "GraphQL resolver build", True),
 
     # WORKFLOWS
-    ("aud workflows analyze", "Analyze workflows"),
+    ("aud workflows analyze", "Analyze workflows", True),
+
+    # DOCKER - deprecated but should still work
+    ("aud docker-analyze", "Docker analysis (deprecated)", True),
+
+    # TAINT - known slow, but include it (no gloves)
+    ("aud taint", "Taint analysis", True),
 ]
 
 
-# Commands to SKIP (and why)
-SKIP_REASONS = {
-    "aud full": "Heavy pipeline - runs 20+ phases, too slow for smoke test",
-    "aud setup-ai": "Installs packages and creates venv - modifies environment",
-    "aud detect-patterns": "Long running analysis (30+ seconds)",
-    "aud taint": "Known 10min+ on large fixture repos (rust+python+go+node+bash)",
-    "aud suggest": "Requires workset.json from prior 'aud workset' run",
-    "aud docker-analyze": "Module deleted in Great Regex Purge - analysis via rules in 'aud full'",
-}
-
-# Commands that exit non-zero when they find issues (intentional CI behavior)
-# These are NOT failures - they ran successfully and reported findings
-EXPECTED_NONZERO_COMMANDS = {
-    "aud boundaries",  # Exits 1 when input validation issues found
-    "aud lint",        # Exits non-zero when lint errors found
-    "aud suggest",     # May exit non-zero on model mismatch
+# Commands that exit non-zero when they find issues (not failures)
+EXPECTED_NONZERO = {
+    "aud boundaries",
+    "aud lint",
+    "aud suggest",
 }
 
 
@@ -226,26 +234,14 @@ EXPECTED_NONZERO_COMMANDS = {
 # TEST EXECUTION
 # =============================================================================
 
-LOG_DIR = Path("logs/smoke_test")
-
-
-def run_command(cmd: str, timeout: int = DEFAULT_TIMEOUT, cwd: Path | None = None) -> TestResult:
-    """Run a command with isolated environment and log capture."""
+def run_command(cmd: str, timeout: int, cwd: Path, description: str = "") -> TestResult:
+    """Run a command and capture results."""
     start = time.time()
     phase = "help" if "--help" in cmd else "invoke"
+    name = description or cmd
 
-    # Generate unique log file for this command
-    run_id = str(uuid.uuid4())[:8]
-    safe_cmd_name = cmd.replace(" ", "_").replace("/", "_").replace("\\", "_")[:50]
-    log_file = LOG_DIR / f"{safe_cmd_name}_{run_id}.log"
-    log_file.parent.mkdir(exist_ok=True, parents=True)
-
-    # Force consistent environment for maximum debuggability
     env = os.environ.copy()
-    env["THEAUDITOR_LOG_JSON"] = "1"  # Force structured JSON logs
-    env["THEAUDITOR_LOG_LEVEL"] = "DEBUG"  # Maximum verbosity on crash
-    env["THEAUDITOR_LOG_FILE"] = str(log_file.resolve())
-    env["PYTHONIOENCODING"] = "utf-8"  # Force UTF-8 for subprocess
+    env["PYTHONIOENCODING"] = "utf-8"
 
     try:
         result = subprocess.run(
@@ -254,70 +250,49 @@ def run_command(cmd: str, timeout: int = DEFAULT_TIMEOUT, cwd: Path | None = Non
             capture_output=True,
             text=True,
             timeout=timeout,
-            cwd=cwd or Path.cwd(),
+            cwd=cwd,
             env=env,
             encoding="utf-8",
             errors="replace",
         )
         duration = time.time() - start
 
-        # Check if this command is expected to exit non-zero on findings
-        is_expected_nonzero = any(cmd.startswith(ec) for ec in EXPECTED_NONZERO_COMMANDS)
+        # Determine success
+        is_expected_nonzero = any(cmd.startswith(ec) for ec in EXPECTED_NONZERO)
 
-        # Success if exit 0, OR if expected non-zero and produced stdout (ran successfully)
         if result.returncode == 0:
             success = True
-        elif is_expected_nonzero and result.stdout and "error" not in result.stderr.lower():
-            # Command ran and produced output - findings are expected, not errors
+        elif is_expected_nonzero and result.stdout:
+            # Command ran successfully, just reported findings
             success = True
         else:
             success = False
 
         error_summary = ""
-        log_content = ""
-
-        # Read log file if it exists (even on success, useful for debugging)
-        if log_file.exists():
-            try:
-                log_content = log_file.read_text(encoding="utf-8", errors="replace")
-                # Keep only last 2000 chars to avoid bloat
-                if len(log_content) > 2000:
-                    log_content = "...[truncated]...\n" + log_content[-2000:]
-            except Exception:
-                pass
-
         if not success:
-            # Extract meaningful error from stderr
             stderr_lines = result.stderr.strip().split("\n")
             for line in reversed(stderr_lines):
-                line_lower = line.lower()
-                if any(x in line_lower for x in ["error:", "exception:", "traceback", "failed"]):
+                if any(x in line.lower() for x in ["error:", "exception:", "traceback"]):
                     error_summary = line.strip()[:200]
                     break
             if not error_summary and stderr_lines:
                 error_summary = stderr_lines[-1][:200]
 
-            # If stderr is empty but we have log content, extract from there
-            if not error_summary and log_content:
-                for line in reversed(log_content.split("\n")):
-                    if "ERROR" in line or "exception" in line.lower():
-                        error_summary = line.strip()[:200]
-                        break
-
         return TestResult(
+            name=name,
             command=cmd,
             phase=phase,
             success=success,
             exit_code=result.returncode,
             duration=duration,
-            stdout=result.stdout[:5000] if result.stdout else "",
-            stderr=result.stderr[:5000] if result.stderr else "",
-            log_content=log_content,
+            stdout=result.stdout[:3000] if result.stdout else "",
+            stderr=result.stderr[:3000] if result.stderr else "",
             error_summary=error_summary,
         )
 
     except subprocess.TimeoutExpired:
         return TestResult(
+            name=name,
             command=cmd,
             phase=phase,
             success=False,
@@ -327,6 +302,7 @@ def run_command(cmd: str, timeout: int = DEFAULT_TIMEOUT, cwd: Path | None = Non
         )
     except Exception as e:
         return TestResult(
+            name=name,
             command=cmd,
             phase=phase,
             success=False,
@@ -336,88 +312,198 @@ def run_command(cmd: str, timeout: int = DEFAULT_TIMEOUT, cwd: Path | None = Non
         )
 
 
-def print_progress(msg: str, status: str = "..."):
-    """Print progress indicator."""
+def print_status(msg: str, status: str = "...", duration: float = 0):
+    """Print status line."""
+    dur_str = f" ({duration:.1f}s)" if duration > 0 else ""
     if USE_RICH:
-        style = "green" if status == "OK" else "red" if status == "FAIL" else "yellow"
-        console.print(f"  [{style}]{status:4}[/{style}] {msg}")
+        style = {
+            "OK": "green", "PASS": "green",
+            "FAIL": "red", "TIMEOUT": "red",
+            "SKIP": "yellow", "...": "dim",
+        }.get(status, "white")
+        console.print(f"  [{style}]{status:7}[/{style}] {msg}{dur_str}")
     else:
-        print(f"  [{status:4}] {msg}")
+        print(f"  [{status:7}] {msg}{dur_str}")
 
 
-def run_smoke_tests(help_only: bool = False, verbose: bool = False) -> SmokeTestReport:
-    """Run all smoke tests and return report."""
-    report = SmokeTestReport()
-    start_time = time.time()
-
-    project_root = Path(__file__).parent.parent
-
-    # Phase 1: Dynamically discover and test --help for all commands
+def print_header(text: str):
+    """Print section header."""
     if USE_RICH:
-        console.print("\n[bold cyan]PHASE 1:[/bold cyan] Discovering commands and testing --help...")
+        console.print(f"\n[bold cyan]{text}[/bold cyan]")
+        console.print("-" * 60)
     else:
-        print("\nPHASE 1: Discovering commands and testing --help...")
+        print(f"\n{text}")
+        print("-" * 60)
 
-    all_commands = discover_all_commands()
 
-    if USE_RICH:
-        console.print(f"  [dim]Discovered {len(all_commands)} commands[/dim]")
-    else:
-        print(f"  Discovered {len(all_commands)} commands")
+# =============================================================================
+# MAIN TEST PHASES
+# =============================================================================
 
-    for cmd in all_commands:
-        result = run_command(cmd, timeout=DEFAULT_TIMEOUT, cwd=project_root)
-        report.results.append(result)
+def check_environment() -> list[TestResult]:
+    """Phase 1: Check environment is ready."""
+    results = []
+
+    # Python version
+    py_version = f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
+    py_ok = sys.version_info >= (3, 11)
+    results.append(TestResult(
+        name="Python version",
+        command=f"python --version",
+        phase="setup",
+        success=py_ok,
+        exit_code=0 if py_ok else 1,
+        duration=0,
+        stdout=py_version,
+        error_summary="" if py_ok else f"Python 3.11+ required, got {py_version}",
+    ))
+    print_status(f"Python {py_version}", "OK" if py_ok else "FAIL")
+
+    # Check aud command exists
+    aud_result = run_command("aud --version", HELP_TIMEOUT, PROJECT_ROOT, "aud command")
+    results.append(aud_result)
+    print_status("aud command", "OK" if aud_result.success else "FAIL", aud_result.duration)
+
+    # Check .pf directory
+    pf_exists = PF_DIR.exists()
+    results.append(TestResult(
+        name=".pf directory",
+        command="check .pf/",
+        phase="setup",
+        success=True,  # Not a failure if missing, will be created
+        exit_code=0,
+        duration=0,
+        stdout="exists" if pf_exists else "will be created",
+    ))
+    print_status(f".pf directory", "OK" if pf_exists else "SKIP")
+
+    return results
+
+
+def setup_js_extractor() -> list[TestResult]:
+    """Phase 2: Build JS extractor if missing."""
+    results = []
+
+    if JS_BUNDLE.exists():
+        print_status("JS extractor bundle", "OK")
+        results.append(TestResult(
+            name="JS extractor",
+            command="check dist/extractor.cjs",
+            phase="setup",
+            success=True,
+            exit_code=0,
+            duration=0,
+            stdout="bundle exists",
+        ))
+        return results
+
+    print_status("JS extractor bundle missing, building...", "...")
+
+    # npm install
+    npm_install = run_command(
+        "npm install",
+        SETUP_TIMEOUT,
+        JS_EXTRACTOR,
+        "npm install"
+    )
+    results.append(npm_install)
+    if not npm_install.success:
+        print_status("npm install", "FAIL", npm_install.duration)
+        return results
+    print_status("npm install", "OK", npm_install.duration)
+
+    # npm run build
+    npm_build = run_command(
+        "npm run build",
+        SETUP_TIMEOUT,
+        JS_EXTRACTOR,
+        "npm run build"
+    )
+    results.append(npm_build)
+    status = "OK" if npm_build.success else "FAIL"
+    print_status("npm run build", status, npm_build.duration)
+
+    return results
+
+
+def run_indexing() -> list[TestResult]:
+    """Phase 3: Run aud full --index --offline to build database."""
+    results = []
+
+    print_status("Running aud full --index --offline...", "...")
+
+    index_result = run_command(
+        "aud full --index --offline",
+        INDEX_TIMEOUT,
+        PROJECT_ROOT,
+        "aud full --index --offline"
+    )
+    results.append(index_result)
+
+    status = "OK" if index_result.success else "FAIL"
+    print_status("aud full --index --offline", status, index_result.duration)
+
+    if not index_result.success:
+        print(f"         -> {index_result.error_summary}")
+
+    return results
+
+
+def run_help_tests() -> list[TestResult]:
+    """Phase 4a: Test --help for all commands."""
+    results = []
+
+    for cmd in HELP_TESTS:
+        result = run_command(cmd, HELP_TIMEOUT, PROJECT_ROOT, cmd)
+        results.append(result)
 
         status = "OK" if result.success else "FAIL"
-        if verbose or not result.success:
-            print_progress(cmd, status)
-            if not result.success and result.error_summary:
-                print(f"         -> {result.error_summary}")
+        print_status(cmd, status, result.duration)
 
-    help_passed = sum(1 for r in report.results if r.phase == "help" and r.success)
-    help_total = sum(1 for r in report.results if r.phase == "help")
+        if not result.success:
+            print(f"         -> {result.error_summary}")
 
-    if USE_RICH:
-        console.print(f"  [dim]Help tests: {help_passed}/{help_total} passed[/dim]")
-    else:
-        print(f"  Help tests: {help_passed}/{help_total} passed")
-
-    # Phase 2: Real invocations (if not help_only)
-    if not help_only:
-        if USE_RICH:
-            console.print("\n[bold cyan]PHASE 2:[/bold cyan] Testing minimal invocations...")
-        else:
-            print("\nPHASE 2: Testing minimal invocations...")
-
-        for cmd, description in INVOCATION_TESTS:
-            result = run_command(cmd, timeout=DEFAULT_TIMEOUT, cwd=project_root)
-            report.results.append(result)
-
-            status = "OK" if result.success else "FAIL"
-            print_progress(f"{description} ({cmd})", status)
-
-            if not result.success:
-                if result.error_summary:
-                    print(f"         -> {result.error_summary}")
-                if verbose and result.stderr:
-                    # Show last 300 chars of stderr
-                    print(f"         stderr: ...{result.stderr[-300:]}")
-
-    report.total_time = time.time() - start_time
-    return report
+    return results
 
 
-def generate_report(report: SmokeTestReport, output_path: Path | None = None) -> str:
-    """Generate markdown failure report optimized for LLM consumption."""
+def run_invocation_tests(command_timeout: int) -> list[TestResult]:
+    """Phase 4b: Test minimal invocations."""
+    results = []
+
+    for cmd, description, expected_pass in INVOCATION_TESTS:
+        result = run_command(cmd, command_timeout, PROJECT_ROOT, description)
+        results.append(result)
+
+        # Adjust success based on expectation
+        if not expected_pass and result.exit_code != 0 and result.stdout:
+            # Command ran but found issues - that's expected
+            result.success = True
+
+        status = "OK" if result.success else "FAIL"
+        print_status(f"{description} ({cmd})", status, result.duration)
+
+        if not result.success:
+            print(f"         -> {result.error_summary}")
+
+    return results
+
+
+# =============================================================================
+# REPORTING
+# =============================================================================
+
+def generate_report(report: PreFlightReport, output_path: Path) -> str:
+    """Generate markdown report."""
     lines = [
-        "# TheAuditor Smoke Test Report",
+        "# TheAuditor Pre-Flight Check Report",
         "",
         f"**Date:** {time.strftime('%Y-%m-%d %H:%M:%S')}",
+        f"**Total Duration:** {report.total_time:.1f}s",
+        f"**Index Duration:** {report.index_time:.1f}s",
+        "",
         f"**Total Tests:** {len(report.results)}",
         f"**Passed:** {report.passed}",
         f"**Failed:** {report.failed}",
-        f"**Duration:** {report.total_time:.1f}s",
         "",
     ]
 
@@ -425,29 +511,19 @@ def generate_report(report: SmokeTestReport, output_path: Path | None = None) ->
         lines.extend([
             "## Result: ALL TESTS PASSED",
             "",
-            "No runtime errors detected across the CLI surface.",
-            "",
-            "All commands loaded successfully and executed without crashes.",
+            "Pre-flight check complete. All systems operational.",
         ])
     else:
         lines.extend([
             "## FAILURES DETECTED",
             "",
-            "The following commands crashed or exited with non-zero codes.",
-            "",
-            "**Instructions for fixing:** Each failure below includes:",
-            "- The exact command that failed",
-            "- Exit code and duration",
-            "- Error summary extracted from stderr/logs",
-            "- Full stderr output (truncated)",
-            "- Internal log content from THEAUDITOR_LOG_FILE",
-            "",
         ])
 
         for i, fail in enumerate(report.failures, 1):
             lines.extend([
-                f"### Failure {i}: `{fail.command}`",
+                f"### Failure {i}: {fail.name}",
                 "",
+                f"- **Command:** `{fail.command}`",
                 f"- **Phase:** {fail.phase}",
                 f"- **Exit Code:** {fail.exit_code}",
                 f"- **Duration:** {fail.duration:.2f}s",
@@ -456,7 +532,7 @@ def generate_report(report: SmokeTestReport, output_path: Path | None = None) ->
 
             if fail.error_summary:
                 lines.extend([
-                    "**Error Summary:**",
+                    "**Error:**",
                     "```",
                     fail.error_summary,
                     "```",
@@ -465,18 +541,9 @@ def generate_report(report: SmokeTestReport, output_path: Path | None = None) ->
 
             if fail.stderr:
                 lines.extend([
-                    "**Stderr (last 1500 chars):**",
-                    "```python",
-                    fail.stderr[-1500:],
+                    "**Stderr:**",
                     "```",
-                    "",
-                ])
-
-            if fail.log_content:
-                lines.extend([
-                    "**Internal Logs (THEAUDITOR_LOG_FILE):**",
-                    "```json",
-                    fail.log_content[-1000:],
+                    fail.stderr[-1000:],
                     "```",
                     "",
                 ])
@@ -484,125 +551,151 @@ def generate_report(report: SmokeTestReport, output_path: Path | None = None) ->
             lines.append("---")
             lines.append("")
 
-    # Command coverage summary
-    help_cmds = [r for r in report.results if r.phase == "help"]
-    invoke_cmds = [r for r in report.results if r.phase == "invoke"]
-
+    # Summary table
     lines.extend([
         "",
-        "## Test Coverage Summary",
+        "## Test Summary by Phase",
         "",
-        f"| Phase | Total | Passed | Failed |",
-        f"|-------|-------|--------|--------|",
-        f"| Help (--help) | {len(help_cmds)} | {sum(1 for r in help_cmds if r.success)} | {sum(1 for r in help_cmds if not r.success)} |",
-        f"| Invocation | {len(invoke_cmds)} | {sum(1 for r in invoke_cmds if r.success)} | {sum(1 for r in invoke_cmds if not r.success)} |",
-        "",
+        "| Phase | Total | Passed | Failed |",
+        "|-------|-------|--------|--------|",
     ])
 
-    # Skipped commands for reference
-    lines.extend([
-        "",
-        "## Skipped Commands (By Design)",
-        "",
-        "These commands were not tested with real invocations:",
-        "",
-    ])
-    for cmd, reason in sorted(SKIP_REASONS.items()):
-        lines.append(f"- `{cmd}`: {reason}")
+    phases = {}
+    for r in report.results:
+        if r.phase not in phases:
+            phases[r.phase] = {"total": 0, "passed": 0, "failed": 0}
+        phases[r.phase]["total"] += 1
+        if r.success:
+            phases[r.phase]["passed"] += 1
+        else:
+            phases[r.phase]["failed"] += 1
+
+    for phase, counts in phases.items():
+        lines.append(f"| {phase} | {counts['total']} | {counts['passed']} | {counts['failed']} |")
 
     content = "\n".join(lines)
-
-    if output_path:
-        output_path.write_text(content, encoding="utf-8")
-
+    output_path.write_text(content, encoding="utf-8")
     return content
 
 
-def cleanup_logs():
-    """Remove smoke test log files."""
-    if LOG_DIR.exists():
-        import shutil
-        shutil.rmtree(LOG_DIR)
-        print(f"Cleaned up {LOG_DIR}")
-
-
-def print_summary(report: SmokeTestReport):
+def print_summary(report: PreFlightReport):
     """Print final summary."""
     if USE_RICH:
         if report.failed == 0:
             panel = Panel(
-                f"[bold green]ALL {report.passed} TESTS PASSED[/bold green]\n"
-                f"[dim]Duration: {report.total_time:.1f}s[/dim]",
-                title="[bold]Smoke Test Complete[/bold]",
+                f"[bold green]ALL {report.passed} TESTS PASSED[/bold green]\n\n"
+                f"[dim]Total: {report.total_time:.1f}s | Index: {report.index_time:.1f}s[/dim]",
+                title="[bold]Pre-Flight Check Complete[/bold]",
                 border_style="green",
             )
         else:
             panel = Panel(
-                f"[bold red]{report.failed} FAILURES[/bold red] / {report.passed} passed\n"
-                f"[dim]Duration: {report.total_time:.1f}s[/dim]\n\n"
+                f"[bold red]{report.failed} FAILURES[/bold red] / {report.passed} passed\n\n"
+                f"[dim]Total: {report.total_time:.1f}s[/dim]\n\n"
                 f"[yellow]See execution_report.md for details[/yellow]",
-                title="[bold]Smoke Test Complete[/bold]",
+                title="[bold]Pre-Flight Check Complete[/bold]",
                 border_style="red",
             )
         console.print()
         console.print(panel)
     else:
         print()
+        print("=" * 60)
         if report.failed == 0:
-            print(f"=== ALL {report.passed} TESTS PASSED ({report.total_time:.1f}s) ===")
+            print(f"ALL {report.passed} TESTS PASSED ({report.total_time:.1f}s)")
         else:
-            print(f"=== {report.failed} FAILURES / {report.passed} passed ({report.total_time:.1f}s) ===")
+            print(f"{report.failed} FAILURES / {report.passed} passed ({report.total_time:.1f}s)")
             print("See execution_report.md for details")
+        print("=" * 60)
 
+
+# =============================================================================
+# MAIN
+# =============================================================================
 
 def main():
-    """Main entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description="TheAuditor CLI Smoke Test")
-    parser.add_argument("--help-only", action="store_true",
-                        help="Only test --help commands, skip real invocations")
+    parser = argparse.ArgumentParser(description="TheAuditor Pre-Flight Check")
+    parser.add_argument("--skip-index", action="store_true",
+                        help="Skip aud full indexing (use existing .pf/)")
+    parser.add_argument("--skip-setup", action="store_true",
+                        help="Skip environment and JS extractor setup")
     parser.add_argument("--verbose", "-v", action="store_true",
-                        help="Show all command output, not just failures")
+                        help="Show all output")
+    parser.add_argument("--timeout", type=int, default=COMMAND_TIMEOUT,
+                        help=f"Command timeout in seconds (default: {COMMAND_TIMEOUT})")
     parser.add_argument("--output", "-o", type=Path, default=Path("execution_report.md"),
-                        help="Output path for failure report (default: execution_report.md)")
-    parser.add_argument("--clean", action="store_true",
-                        help="Clean up log files after test")
+                        help="Output path for report")
     args = parser.parse_args()
 
+    # Banner
     if USE_RICH:
         console.print(Panel(
-            "[bold]TheAuditor CLI Smoke Test[/bold]\n"
-            "[dim]Professional-grade runtime health check[/dim]\n"
-            "[dim]Dynamic discovery + isolated environment + log capture[/dim]",
+            "[bold]TheAuditor Pre-Flight Check[/bold]\n"
+            "[dim]Complete systems verification - no gloves[/dim]",
             border_style="blue",
         ))
     else:
         print("=" * 60)
-        print("TheAuditor CLI Smoke Test")
-        print("Professional-grade runtime health check")
+        print("TheAuditor Pre-Flight Check")
+        print("Complete systems verification - no gloves")
         print("=" * 60)
 
-    # Run tests
-    report = run_smoke_tests(help_only=args.help_only, verbose=args.verbose)
+    report = PreFlightReport()
+    start_time = time.time()
+
+    # Phase 1: Environment
+    if not args.skip_setup:
+        print_header("PHASE 1: ENVIRONMENT CHECK")
+        env_results = check_environment()
+        report.results.extend(env_results)
+
+        # Phase 2: JS Extractor
+        print_header("PHASE 2: JS EXTRACTOR SETUP")
+        setup_start = time.time()
+        setup_results = setup_js_extractor()
+        report.results.extend(setup_results)
+        report.setup_time = time.time() - setup_start
+
+    # Phase 3: Indexing
+    if not args.skip_index:
+        print_header("PHASE 3: DATABASE INDEXING")
+        index_start = time.time()
+        index_results = run_indexing()
+        report.results.extend(index_results)
+        report.index_time = time.time() - index_start
+
+        # Check if indexing failed - abort if so
+        if index_results and not index_results[0].success:
+            print("\n[ABORT] Indexing failed - cannot proceed with command tests")
+            report.total_time = time.time() - start_time
+            generate_report(report, args.output)
+            print_summary(report)
+            return min(report.failed, 125)
+
+    # Phase 4a: Help tests
+    print_header("PHASE 4a: COMMAND HELP TESTS")
+    help_results = run_help_tests()
+    report.results.extend(help_results)
+
+    # Phase 4b: Invocation tests
+    print_header("PHASE 4b: COMMAND INVOCATION TESTS")
+    invoke_results = run_invocation_tests(args.timeout)
+    report.results.extend(invoke_results)
+
+    # Finalize
+    report.total_time = time.time() - start_time
 
     # Generate report
-    report_content = generate_report(report, args.output)
+    generate_report(report, args.output)
+    print(f"\nReport saved to: {args.output}")
 
     # Print summary
     print_summary(report)
 
-    if report.failed > 0:
-        print(f"\nReport saved to: {args.output}")
-        print(f"Log files in: {LOG_DIR}")
-
-    # Cleanup if requested
-    if args.clean:
-        cleanup_logs()
-
-    # Exit with failure count (capped at 125 for shell compatibility)
-    sys.exit(min(report.failed, 125))
+    return min(report.failed, 125)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

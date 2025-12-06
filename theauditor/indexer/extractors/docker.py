@@ -36,7 +36,6 @@ class DockerExtractor(BaseExtractor):
         """Extract facts from Dockerfile and return data dict with manifest."""
         file_path_str = str(file_info["path"])
 
-        # Initialize result with empty lists (meaningful empty results)
         result: dict[str, Any] = {
             "docker_images": [],
             "dockerfile_ports": [],
@@ -61,13 +60,14 @@ class DockerExtractor(BaseExtractor):
                 inst_value = instruction.get("value", "")
                 inst_line = instruction.get("startline", 1)
 
-                # Capture all instructions for security analysis
-                result["dockerfile_instructions"].append({
-                    "file_path": file_path_str,
-                    "line": inst_line,
-                    "instruction": inst_type,
-                    "arguments": inst_value,
-                })
+                result["dockerfile_instructions"].append(
+                    {
+                        "file_path": file_path_str,
+                        "line": inst_line,
+                        "instruction": inst_type,
+                        "arguments": inst_value,
+                    }
+                )
 
                 if inst_type == "ENV":
                     if "=" in inst_value:
@@ -98,15 +98,15 @@ class DockerExtractor(BaseExtractor):
                     ports = inst_value.split()
                     exposed_ports.extend(ports)
 
-            # Build docker_images data
-            result["docker_images"].append({
-                "file_path": file_path_str,
-                "base_image": base_image,
-                "user": user,
-                "has_healthcheck": has_healthcheck,
-            })
+            result["docker_images"].append(
+                {
+                    "file_path": file_path_str,
+                    "base_image": base_image,
+                    "user": user,
+                    "has_healthcheck": has_healthcheck,
+                }
+            )
 
-            # Build dockerfile_ports data
             seen_ports: set[tuple[int, str]] = set()
             for port_str in exposed_ports:
                 port_str = str(port_str)
@@ -118,36 +118,39 @@ class DockerExtractor(BaseExtractor):
                     port_key = (port_num, protocol)
                     if port_key not in seen_ports:
                         seen_ports.add(port_key)
-                        result["dockerfile_ports"].append({
-                            "file_path": file_path_str,
-                            "port": port_num,
-                            "protocol": protocol,
-                        })
+                        result["dockerfile_ports"].append(
+                            {
+                                "file_path": file_path_str,
+                                "port": port_num,
+                                "protocol": protocol,
+                            }
+                        )
                 except ValueError:
-                    pass  # Skip non-numeric ports (e.g., variable references)
+                    pass
 
-            # Build dockerfile_env_vars data (ENV variables)
             for var_name, var_value in env_vars.items():
                 if var_name == "_DOCKER_USER":
                     continue
-                result["dockerfile_env_vars"].append({
-                    "file_path": file_path_str,
-                    "var_name": var_name,
-                    "var_value": str(var_value) if var_value else None,
-                    "is_build_arg": False,
-                })
+                result["dockerfile_env_vars"].append(
+                    {
+                        "file_path": file_path_str,
+                        "var_name": var_name,
+                        "var_value": str(var_value) if var_value else None,
+                        "is_build_arg": False,
+                    }
+                )
 
-            # Build dockerfile_env_vars data (ARG variables)
             for arg_name, arg_value in build_args.items():
-                result["dockerfile_env_vars"].append({
-                    "file_path": file_path_str,
-                    "var_name": arg_name,
-                    "var_value": str(arg_value) if arg_value else None,
-                    "is_build_arg": True,
-                })
+                result["dockerfile_env_vars"].append(
+                    {
+                        "file_path": file_path_str,
+                        "var_name": arg_name,
+                        "var_value": str(arg_value) if arg_value else None,
+                        "is_build_arg": True,
+                    }
+                )
 
         except Exception as e:
             logger.error(f"Failed to parse Dockerfile {file_path_str}: {e}")
-            # Return empty result with manifest - exposes the failure in fidelity counts
 
         return FidelityToken.attach_manifest(result)

@@ -5,7 +5,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.helpers import get_self_exclusion_patterns
 
 

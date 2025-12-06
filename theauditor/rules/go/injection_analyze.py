@@ -42,77 +42,88 @@ class GoInjectionPatterns:
     Used by register_taint_patterns() for taint analysis integration.
     """
 
-    SQL_METHODS = frozenset([
-        "Query",
-        "QueryRow",
-        "QueryContext",
-        "QueryRowContext",
-        "Exec",
-        "ExecContext",
-        "Prepare",
-        "PrepareContext",
-        "Raw",
-        "Where",
-        "Select",
-        "Get",
-        "NamedQuery",
-        "NamedExec",
-    ])
+    SQL_METHODS = frozenset(
+        [
+            "Query",
+            "QueryRow",
+            "QueryContext",
+            "QueryRowContext",
+            "Exec",
+            "ExecContext",
+            "Prepare",
+            "PrepareContext",
+            "Raw",
+            "Where",
+            "Select",
+            "Get",
+            "NamedQuery",
+            "NamedExec",
+        ]
+    )
 
-    COMMAND_METHODS = frozenset([
-        "exec.Command",
-        "exec.CommandContext",
-        "os.StartProcess",
-        "syscall.Exec",
-        "syscall.ForkExec",
-    ])
+    COMMAND_METHODS = frozenset(
+        [
+            "exec.Command",
+            "exec.CommandContext",
+            "os.StartProcess",
+            "syscall.Exec",
+            "syscall.ForkExec",
+        ]
+    )
 
-    TEMPLATE_METHODS = frozenset([
-        "template.HTML",
-        "template.HTMLAttr",
-        "template.JS",
-        "template.JSStr",
-        "template.URL",
-        "template.CSS",
-    ])
+    TEMPLATE_METHODS = frozenset(
+        [
+            "template.HTML",
+            "template.HTMLAttr",
+            "template.JS",
+            "template.JSStr",
+            "template.URL",
+            "template.CSS",
+        ]
+    )
 
-    PATH_METHODS = frozenset([
-        "filepath.Join",
-        "path.Join",
-        "os.Open",
-        "os.OpenFile",
-        "os.Create",
-        "ioutil.ReadFile",
-        "os.ReadFile",
-        "os.WriteFile",
-    ])
+    PATH_METHODS = frozenset(
+        [
+            "filepath.Join",
+            "path.Join",
+            "os.Open",
+            "os.OpenFile",
+            "os.Create",
+            "ioutil.ReadFile",
+            "os.ReadFile",
+            "os.WriteFile",
+        ]
+    )
 
-    USER_INPUTS = frozenset([
-        "r.URL.Query",
-        "r.FormValue",
-        "r.PostFormValue",
-        "r.Form",
-        "r.PostForm",
-        "r.Body",
-        "c.Query",
-        "c.Param",
-        "c.PostForm",
-        "c.BindJSON",
-        "c.ShouldBind",
-        "ctx.Query",
-        "ctx.Param",
-        "ctx.FormValue",
-        "ctx.Body",
-    ])
+    USER_INPUTS = frozenset(
+        [
+            "r.URL.Query",
+            "r.FormValue",
+            "r.PostFormValue",
+            "r.Form",
+            "r.PostForm",
+            "r.Body",
+            "c.Query",
+            "c.Param",
+            "c.PostForm",
+            "c.BindJSON",
+            "c.ShouldBind",
+            "ctx.Query",
+            "ctx.Param",
+            "ctx.FormValue",
+            "ctx.Body",
+        ]
+    )
 
-    # Patterns indicating parameterized queries (safe)
-    SAFE_PATTERNS = frozenset([
-        "?",
-        "$1",
-        "$2",
-        ":name",
-        "@name",
-    ])
+    SAFE_PATTERNS = frozenset(
+        [
+            "?",
+            "$1",
+            "$2",
+            ":name",
+            "@name",
+        ]
+    )
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -147,7 +158,6 @@ def _check_sql_injection(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Check 1: fmt.Sprintf with SQL keywords
     sprintf_rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "name", "initial_value")
@@ -156,7 +166,11 @@ def _check_sql_injection(db: RuleDB) -> list[StandardFinding]:
             "UPPER(initial_value) LIKE ? OR UPPER(initial_value) LIKE ? "
             "OR UPPER(initial_value) LIKE ? OR UPPER(initial_value) LIKE ? "
             "OR UPPER(initial_value) LIKE ?",
-            "%SELECT %", "%INSERT %", "%UPDATE %", "%DELETE %", "%WHERE %"
+            "%SELECT %",
+            "%INSERT %",
+            "%UPDATE %",
+            "%DELETE %",
+            "%WHERE %",
         )
     )
 
@@ -166,7 +180,6 @@ def _check_sql_injection(db: RuleDB) -> list[StandardFinding]:
         has_safe_patterns = any(safe in value for safe in GoInjectionPatterns.SAFE_PATTERNS)
         has_format_specifiers = "%s" in value or "%v" in value or "%d" in value
 
-        # If safe patterns exist BUT format specifiers also exist, still flag (table name injection)
         if has_safe_patterns and has_format_specifiers:
             findings.append(
                 StandardFinding(
@@ -194,7 +207,6 @@ def _check_sql_injection(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check 2: String concatenation with SQL keywords
     concat_rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "name", "initial_value")
@@ -203,21 +215,28 @@ def _check_sql_injection(db: RuleDB) -> list[StandardFinding]:
             "UPPER(initial_value) LIKE ? OR UPPER(initial_value) LIKE ? "
             "OR UPPER(initial_value) LIKE ? OR UPPER(initial_value) LIKE ? "
             "OR UPPER(initial_value) LIKE ?",
-            "%SELECT %", "%INSERT %", "%UPDATE %", "%DELETE %", "%WHERE %"
+            "%SELECT %",
+            "%INSERT %",
+            "%UPDATE %",
+            "%DELETE %",
+            "%WHERE %",
         )
     )
 
     for file_path, line, name, initial_value in concat_rows:
         value = initial_value or ""
 
-        # Skip if it's just fmt.Sprintf (already handled above)
         if "fmt.Sprintf" in value:
             continue
 
-        # Must have SQL string literal AND concatenation with non-literal
-        has_sql_string = ('"SELECT' in value or '"INSERT' in value or
-                         '"UPDATE' in value or '"DELETE' in value or
-                         '"WHERE' in value or "'SELECT" in value)
+        has_sql_string = (
+            '"SELECT' in value
+            or '"INSERT' in value
+            or '"UPDATE' in value
+            or '"DELETE' in value
+            or '"WHERE' in value
+            or "'SELECT" in value
+        )
 
         if has_sql_string:
             findings.append(
@@ -244,7 +263,6 @@ def _check_command_injection(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Build OR clause for all command methods
     command_methods = list(GoInjectionPatterns.COMMAND_METHODS)
     like_clauses = " OR ".join(["initial_value LIKE ?" for _ in command_methods])
     like_params = [f"%{method}%" for method in command_methods]
@@ -258,7 +276,6 @@ def _check_command_injection(db: RuleDB) -> list[StandardFinding]:
     for file_path, line, initial_value in rows:
         value = initial_value or ""
 
-        # Determine which method was matched
         matched_method = None
         for method in command_methods:
             if method in value:
@@ -268,7 +285,6 @@ def _check_command_injection(db: RuleDB) -> list[StandardFinding]:
         if not matched_method:
             continue
 
-        # Skip if command is a string literal (safe)
         if f'{matched_method}("' in value or f"{matched_method}('" in value:
             continue
 
@@ -296,23 +312,28 @@ def _check_template_injection(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Find unsafe template type conversions
     rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "initial_value")
         .where(
             "initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
-            "%template.HTML(%", "%template.JS(%", "%template.URL(%"
+            "%template.HTML(%",
+            "%template.JS(%",
+            "%template.URL(%",
         )
     )
 
     for file_path, line, initial_value in rows:
         value = initial_value or ""
 
-        # Skip if argument is a string literal (safe)
-        if ('template.HTML("' in value or "template.HTML('" in value or
-            'template.JS("' in value or "template.JS('" in value or
-            'template.URL("' in value or "template.URL('" in value):
+        if (
+            'template.HTML("' in value
+            or "template.HTML('" in value
+            or 'template.JS("' in value
+            or "template.JS('" in value
+            or 'template.URL("' in value
+            or "template.URL('" in value
+        ):
             continue
 
         findings.append(
@@ -339,24 +360,29 @@ def _check_path_traversal(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Find path operations with user input patterns
     rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "initial_value")
         .where(
             "initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
-            "%filepath.Join%", "%path.Join%", "%os.Open(%"
+            "%filepath.Join%",
+            "%path.Join%",
+            "%os.Open(%",
         )
     )
 
     for file_path, line, initial_value in rows:
         value = initial_value or ""
 
-        # Check if user input patterns are present
         user_input_present = any(
-            pattern in value for pattern in [
-                "r.URL", "c.Param", "c.Query", "ctx.Param",
-                "r.FormValue", "r.PostFormValue"
+            pattern in value
+            for pattern in [
+                "r.URL",
+                "c.Param",
+                "c.Query",
+                "ctx.Param",
+                "r.FormValue",
+                "r.PostFormValue",
             ]
         )
 

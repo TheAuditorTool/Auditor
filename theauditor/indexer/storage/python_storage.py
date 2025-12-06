@@ -41,7 +41,6 @@ class PythonStorage(BaseStorage):
             "python_expressions": self._store_python_expressions,
             "python_comprehensions": self._store_python_comprehensions,
             "python_control_statements": self._store_python_control_statements,
-            # Python package manifest handlers (Stream C)
             "python_package_configs": self._store_python_package_configs,
             "python_package_dependencies": self._store_python_package_dependencies,
             "python_build_requires": self._store_python_build_requires,
@@ -401,7 +400,6 @@ class PythonStorage(BaseStorage):
                 try:
                     implemented_methods = json.loads(implemented_methods)
                 except (json.JSONDecodeError, TypeError) as e:
-                    # ZERO FALLBACK: CRASH with full context
                     raise ValueError(
                         f"DATA CORRUPTION: Invalid implemented_methods JSON.\n"
                         f"  File: {file_path}\n"
@@ -458,7 +456,6 @@ class PythonStorage(BaseStorage):
                 try:
                     type_params = json.loads(type_params)
                 except (json.JSONDecodeError, TypeError) as e:
-                    # ZERO FALLBACK: CRASH with full context
                     raise ValueError(
                         f"DATA CORRUPTION: Invalid type_params JSON.\n"
                         f"  File: {file_path}\n"
@@ -499,7 +496,6 @@ class PythonStorage(BaseStorage):
                     try:
                         fields = json.loads(fields)
                     except (json.JSONDecodeError, TypeError) as e:
-                        # ZERO FALLBACK: CRASH with full context
                         raise ValueError(
                             f"DATA CORRUPTION: Invalid TypedDict fields JSON.\n"
                             f"  File: {file_path}\n"
@@ -554,7 +550,6 @@ class PythonStorage(BaseStorage):
                 try:
                     literal_values = json.loads(literal_values)
                 except (json.JSONDecodeError, TypeError) as e:
-                    # ZERO FALLBACK: CRASH with full context
                     raise ValueError(
                         f"DATA CORRUPTION: Invalid literal_values JSON.\n"
                         f"  File: {file_path}\n"
@@ -682,8 +677,6 @@ class PythonStorage(BaseStorage):
         for config in python_framework_config:
             config_kind = config.get("config_kind") or config.get("config_type", "unknown")
 
-            # Option A expansion: map extractor fields to 5 high-value columns
-            # class_name: form/admin/serializer/schema/manager/queryset class names
             class_name = (
                 config.get("form_class_name")
                 or config.get("admin_class_name")
@@ -694,10 +687,8 @@ class PythonStorage(BaseStorage):
                 or config.get("class_name")
             )
 
-            # model_name: model references from forms, admin, CBVs
             model_name = config.get("model_name")
 
-            # function_name: handlers, receivers, resolvers, factories
             function_name = (
                 config.get("function_name")
                 or config.get("factory_name")
@@ -705,7 +696,6 @@ class PythonStorage(BaseStorage):
                 or config.get("receiver_function")
             )
 
-            # target_name: task/signal/schedule/blueprint/event/command names
             target_name = (
                 config.get("task_name")
                 or config.get("signal_name")
@@ -715,7 +705,6 @@ class PythonStorage(BaseStorage):
                 or config.get("command_name")
             )
 
-            # base_class: inheritance info for managers, querysets, views
             base_class = config.get("base_class") or config.get("base_view_class")
 
             config_id = self.db_manager.add_python_framework_config(
@@ -743,7 +732,6 @@ class PythonStorage(BaseStorage):
                 self.counts["python_framework_config"] = 0
             self.counts["python_framework_config"] += 1
 
-            # Get methods from extractor or derive from boolean flags
             methods = config.get("methods")
             if methods:
                 if isinstance(methods, str):
@@ -753,7 +741,6 @@ class PythonStorage(BaseStorage):
                 else:
                     method_list = []
             else:
-                # Derive methods from boolean flags (e.g., Django middleware)
                 method_list = []
                 if config.get("has_process_request"):
                     method_list.append("process_request")
@@ -767,9 +754,7 @@ class PythonStorage(BaseStorage):
                     method_list.append("process_template_response")
 
             for idx, method_name in enumerate(method_list):
-                self.db_manager.add_python_framework_method(
-                    file_path, config_id, method_name, idx
-                )
+                self.db_manager.add_python_framework_method(file_path, config_id, method_name, idx)
                 if "python_framework_methods" not in self.counts:
                     self.counts["python_framework_methods"] = 0
                 self.counts["python_framework_methods"] += 1
@@ -993,8 +978,6 @@ class PythonStorage(BaseStorage):
             if "python_control_statements" not in self.counts:
                 self.counts["python_control_statements"] = 0
             self.counts["python_control_statements"] += 1
-
-    # ==================== Python Package Manifest Handlers (Stream C) ====================
 
     def _store_python_package_configs(
         self, file_path: str, python_package_configs: list, jsx_pass: bool

@@ -33,7 +33,15 @@ METADATA = RuleMetadata(
     category="react",
     target_extensions=[".jsx", ".tsx", ".js", ".ts"],
     target_file_patterns=["frontend/", "client/", "src/components/", "app/"],
-    exclude_patterns=["node_modules/", "__tests__/", "*.test.jsx", "*.test.tsx", "*.spec.jsx", "*.spec.tsx", "migrations/"],
+    exclude_patterns=[
+        "node_modules/",
+        "__tests__/",
+        "*.test.jsx",
+        "*.test.tsx",
+        "*.spec.jsx",
+        "*.spec.tsx",
+        "migrations/",
+    ],
     execution_scope="database",
     primary_table="react_components",
 )
@@ -49,11 +57,24 @@ class ReactComponentPatterns:
     MAX_HOOKS_COUNT: int = 10
 
     MEMO_CANDIDATES: frozenset = frozenset(["list", "table", "grid", "card", "item", "row", "cell"])
-    PERFORMANCE_PROPS: frozenset = frozenset(["data", "items", "list", "rows", "options", "children"])
-    COMPONENT_SUFFIXES: frozenset = frozenset([
-        "Component", "Container", "Page", "View", "Modal",
-        "Dialog", "Form", "List", "Table", "Card", "Button",
-    ])
+    PERFORMANCE_PROPS: frozenset = frozenset(
+        ["data", "items", "list", "rows", "options", "children"]
+    )
+    COMPONENT_SUFFIXES: frozenset = frozenset(
+        [
+            "Component",
+            "Container",
+            "Page",
+            "View",
+            "Modal",
+            "Dialog",
+            "Form",
+            "List",
+            "Table",
+            "Card",
+            "Button",
+        ]
+    )
     ANONYMOUS_PATTERNS: frozenset = frozenset(["anonymous", "arrow", "function", "_", "temp"])
 
 
@@ -196,11 +217,15 @@ class ReactComponentAnalyzer:
                 if outer_end <= outer_start:
                     continue
 
-                for inner in sorted_components[i + 1:]:
+                for inner in sorted_components[i + 1 :]:
                     inner_start = inner["start_line"] or 0
                     inner_end = inner["end_line"] or 0
 
-                    if inner_start > outer_start and inner_end < outer_end and outer["name"] != inner["name"]:
+                    if (
+                        inner_start > outer_start
+                        and inner_end < outer_end
+                        and outer["name"] != inner["name"]
+                    ):
                         self.findings.append(
                             StandardFinding(
                                 rule_name="react-inline-component",
@@ -404,8 +429,9 @@ class ReactComponentAnalyzer:
     def _bootstrap_component_metadata(self) -> None:
         """Load component-level metadata and relationship tables once."""
         rows = self.db.query(
-            Q("react_components")
-            .select("file", "name", "type", "start_line", "end_line", "has_jsx", "props_type")
+            Q("react_components").select(
+                "file", "name", "type", "start_line", "end_line", "has_jsx", "props_type"
+            )
         )
 
         for file, name, comp_type, start_line, end_line, has_jsx, props_type in rows:
@@ -428,8 +454,7 @@ class ReactComponentAnalyzer:
         """Return mapping of components to hooks used."""
         hooks: dict[tuple, set[str]] = defaultdict(set)
         rows = self.db.query(
-            Q("react_component_hooks")
-            .select("component_file", "component_name", "hook_name")
+            Q("react_component_hooks").select("component_file", "component_name", "hook_name")
         )
         for component_file, component_name, hook_name in rows:
             key = self._component_key(component_file, component_name)
@@ -440,8 +465,7 @@ class ReactComponentAnalyzer:
         """Return mapping of components to dependency tokens."""
         dependencies: dict[tuple, set[str]] = defaultdict(set)
         rows = self.db.query(
-            Q("react_hook_dependencies")
-            .select("hook_file", "hook_component", "dependency_name")
+            Q("react_hook_dependencies").select("hook_file", "hook_component", "dependency_name")
         )
         for hook_file, hook_component, dependency_name in rows:
             normalized = self._normalize_dependency_name(dependency_name)

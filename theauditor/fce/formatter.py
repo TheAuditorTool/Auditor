@@ -23,7 +23,6 @@ class FCEFormatter:
     This class handles JSON serialization for --format json and --write modes.
     """
 
-    # Vector display names (no emojis)
     VECTOR_LABELS: dict[Vector, str] = {
         Vector.STATIC: "STATIC",
         Vector.FLOW: "FLOW",
@@ -31,12 +30,11 @@ class FCEFormatter:
         Vector.STRUCTURAL: "STRUCTURAL",
     }
 
-    # Vector short codes for compact display
     VECTOR_CODES: dict[Vector, str] = {
         Vector.STATIC: "S",
         Vector.FLOW: "F",
         Vector.PROCESS: "P",
-        Vector.STRUCTURAL: "T",  # T for sTructural (S taken)
+        Vector.STRUCTURAL: "T",
     }
 
     @staticmethod
@@ -81,32 +79,26 @@ class FCEFormatter:
 
         Handles Pydantic models, sets, enums, and nested structures.
         """
-        # Handle None
+
         if data is None:
             return None
 
-        # Handle Pydantic models
         if hasattr(data, "model_dump"):
             dumped = data.model_dump()
             return self._to_json_serializable(dumped)
 
-        # Handle sets (convert to sorted lists)
         if isinstance(data, set):
             return sorted([self._to_json_serializable(item) for item in data])
 
-        # Handle enums
         if isinstance(data, Vector):
             return data.value
 
-        # Handle dicts
         if isinstance(data, dict):
             return {k: self._to_json_serializable(v) for k, v in data.items()}
 
-        # Handle lists
         if isinstance(data, list):
             return [self._to_json_serializable(item) for item in data]
 
-        # Primitives
         return data
 
     def point_to_dict(self, point: ConvergencePoint) -> dict:
@@ -118,7 +110,7 @@ class FCEFormatter:
         Returns:
             Dict suitable for JSON serialization
         """
-        # Handle both enum objects and string values (use_enum_values=True)
+
         vectors = []
         for v in point.signal.vectors_present:
             if hasattr(v, "value"):
@@ -129,14 +121,16 @@ class FCEFormatter:
         facts = []
         for f in point.facts:
             vector_val = f.vector.value if hasattr(f.vector, "value") else str(f.vector)
-            facts.append({
-                "vector": vector_val,
-                "source": f.source,
-                "file_path": f.file_path,
-                "line": f.line,
-                "observation": f.observation,
-                "raw_data": f.raw_data,
-            })
+            facts.append(
+                {
+                    "vector": vector_val,
+                    "source": f.source,
+                    "file_path": f.file_path,
+                    "line": f.line,
+                    "observation": f.observation,
+                    "raw_data": f.raw_data,
+                }
+            )
 
         return {
             "file_path": point.file_path,

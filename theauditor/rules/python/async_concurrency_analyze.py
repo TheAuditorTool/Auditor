@@ -25,210 +25,238 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# Counter operations that indicate non-atomic modifications
+
 COUNTER_OPS = frozenset(["+= 1", "-= 1", "+= ", "-= "])
 
-# Task creation functions that don't need await
-TASK_CREATORS = frozenset([
-    "asyncio.create_task",
-    "asyncio.ensure_future",
-    "create_task",
-    "ensure_future",
-    "loop.create_task",
-])
 
-# Executor patterns for parallel execution
+TASK_CREATORS = frozenset(
+    [
+        "asyncio.create_task",
+        "asyncio.ensure_future",
+        "create_task",
+        "ensure_future",
+        "loop.create_task",
+    ]
+)
+
+
 EXECUTOR_PATTERNS = ("ThreadPoolExecutor", "ProcessPoolExecutor", "map", "submit")
 
-# TOCTOU check functions (time-of-check)
-TOCTOU_CHECKS = frozenset([
-    "exists",
-    "isfile",
-    "isdir",
-    "path.exists",
-    "os.path.exists",
-    "os.path.isfile",
-    "os.path.isdir",
-    "Path.exists",
-    "has_key",
-    "hasattr",
-    "__contains__",
-])
 
-# TOCTOU action functions (time-of-use)
-TOCTOU_ACTIONS = frozenset([
-    "open",
-    "mkdir",
-    "makedirs",
-    "create",
-    "write",
-    "unlink",
-    "remove",
-    "rmdir",
-    "rename",
-    "move",
-    "copy",
-    "shutil.copy",
-    "shutil.move",
-    "Path.mkdir",
-    "Path.write_text",
-    "Path.write_bytes",
-])
+TOCTOU_CHECKS = frozenset(
+    [
+        "exists",
+        "isfile",
+        "isdir",
+        "path.exists",
+        "os.path.exists",
+        "os.path.isfile",
+        "os.path.isdir",
+        "Path.exists",
+        "has_key",
+        "hasattr",
+        "__contains__",
+    ]
+)
 
-# Concurrency-related imports
-CONCURRENCY_IMPORTS = frozenset([
-    "threading",
-    "multiprocessing",
-    "asyncio",
-    "concurrent",
-    "queue",
-    "Queue",
-    "gevent",
-    "eventlet",
-    "twisted",
-    "trio",
-    "anyio",
-    "curio",
-])
 
-# Lock-related methods
-LOCK_METHODS = frozenset([
-    "acquire",
-    "release",
-    "Lock",
-    "RLock",
-    "Semaphore",
-    "BoundedSemaphore",
-    "Event",
-    "Condition",
-    "__enter__",
-    "__exit__",
-    "lock",
-    "unlock",
-    "wait",
-    "notify",
-])
+TOCTOU_ACTIONS = frozenset(
+    [
+        "open",
+        "mkdir",
+        "makedirs",
+        "create",
+        "write",
+        "unlink",
+        "remove",
+        "rmdir",
+        "rename",
+        "move",
+        "copy",
+        "shutil.copy",
+        "shutil.move",
+        "Path.mkdir",
+        "Path.write_text",
+        "Path.write_bytes",
+    ]
+)
 
-# Async gathering/parallel methods
-ASYNC_METHODS = frozenset([
-    "gather",
-    "asyncio.gather",
-    "wait",
-    "as_completed",
-    "create_task",
-    "ensure_future",
-    "run_coroutine_threadsafe",
-    "asyncio.create_task",
-    "asyncio.ensure_future",
-    "loop.create_task",
-])
 
-# Thread/process start methods
-THREAD_START = frozenset([
-    "start",
-    "Thread.start",
-    "Process.start",
-    "run",
-    "submit",
-    "apply_async",
-    "map_async",
-])
+CONCURRENCY_IMPORTS = frozenset(
+    [
+        "threading",
+        "multiprocessing",
+        "asyncio",
+        "concurrent",
+        "queue",
+        "Queue",
+        "gevent",
+        "eventlet",
+        "twisted",
+        "trio",
+        "anyio",
+        "curio",
+    ]
+)
 
-# Thread/process cleanup methods
-THREAD_CLEANUP = frozenset([
-    "join",
-    "Thread.join",
-    "Process.join",
-    "terminate",
-    "kill",
-    "close",
-    "shutdown",
-    "wait",
-    "cancel",
-])
 
-# Worker creation patterns
-WORKER_CREATION = frozenset([
-    "Process",
-    "Thread",
-    "Worker",
-    "Pool",
-    "ThreadPoolExecutor",
-    "ProcessPoolExecutor",
-    "ThreadPool",
-    "ProcessPool",
-    "fork",
-    "spawn",
-    "Popen",
-])
+LOCK_METHODS = frozenset(
+    [
+        "acquire",
+        "release",
+        "Lock",
+        "RLock",
+        "Semaphore",
+        "BoundedSemaphore",
+        "Event",
+        "Condition",
+        "__enter__",
+        "__exit__",
+        "lock",
+        "unlock",
+        "wait",
+        "notify",
+    ]
+)
 
-# Write operations that cause race conditions when parallel
-WRITE_OPERATIONS = frozenset([
-    "save",
-    "update",
-    "insert",
-    "write",
-    "delete",
-    "remove",
-    "create",
-    "put",
-    "post",
-    "patch",
-    "upsert",
-    "bulk_create",
-    "bulk_update",
-    "execute",
-    "executemany",
-    "commit",
-])
 
-# Sleep/delay methods
-SLEEP_METHODS = frozenset([
-    "sleep",
-    "time.sleep",
-    "delay",
-    "wait",
-    "pause",
-    "asyncio.sleep",
-    "gevent.sleep",
-    "eventlet.sleep",
-])
+ASYNC_METHODS = frozenset(
+    [
+        "gather",
+        "asyncio.gather",
+        "wait",
+        "as_completed",
+        "create_task",
+        "ensure_future",
+        "run_coroutine_threadsafe",
+        "asyncio.create_task",
+        "asyncio.ensure_future",
+        "loop.create_task",
+    ]
+)
 
-# Retry-related variable names
-RETRY_VARIABLES = frozenset([
-    "retry",
-    "retries",
-    "attempt",
-    "attempts",
-    "tries",
-    "max_retries",
-    "retry_count",
-    "num_retries",
-])
 
-# Backoff patterns indicating exponential backoff
-BACKOFF_PATTERNS = frozenset([
-    "**",
-    "exponential",
-    "backoff",
-    "*= 2",
-    "* 2",
-    "<< 1",
-    "math.pow",
-    "pow(2",
-])
+THREAD_START = frozenset(
+    [
+        "start",
+        "Thread.start",
+        "Process.start",
+        "run",
+        "submit",
+        "apply_async",
+        "map_async",
+    ]
+)
 
-# Singleton variable names
-SINGLETON_VARS = frozenset([
-    "instance",
-    "_instance",
-    "__instance",
-    "singleton",
-    "_singleton",
-    "__singleton",
-    "INSTANCE",
-    "_INSTANCE",
-])
+
+THREAD_CLEANUP = frozenset(
+    [
+        "join",
+        "Thread.join",
+        "Process.join",
+        "terminate",
+        "kill",
+        "close",
+        "shutdown",
+        "wait",
+        "cancel",
+    ]
+)
+
+
+WORKER_CREATION = frozenset(
+    [
+        "Process",
+        "Thread",
+        "Worker",
+        "Pool",
+        "ThreadPoolExecutor",
+        "ProcessPoolExecutor",
+        "ThreadPool",
+        "ProcessPool",
+        "fork",
+        "spawn",
+        "Popen",
+    ]
+)
+
+
+WRITE_OPERATIONS = frozenset(
+    [
+        "save",
+        "update",
+        "insert",
+        "write",
+        "delete",
+        "remove",
+        "create",
+        "put",
+        "post",
+        "patch",
+        "upsert",
+        "bulk_create",
+        "bulk_update",
+        "execute",
+        "executemany",
+        "commit",
+    ]
+)
+
+
+SLEEP_METHODS = frozenset(
+    [
+        "sleep",
+        "time.sleep",
+        "delay",
+        "wait",
+        "pause",
+        "asyncio.sleep",
+        "gevent.sleep",
+        "eventlet.sleep",
+    ]
+)
+
+
+RETRY_VARIABLES = frozenset(
+    [
+        "retry",
+        "retries",
+        "attempt",
+        "attempts",
+        "tries",
+        "max_retries",
+        "retry_count",
+        "num_retries",
+    ]
+)
+
+
+BACKOFF_PATTERNS = frozenset(
+    [
+        "**",
+        "exponential",
+        "backoff",
+        "*= 2",
+        "* 2",
+        "<< 1",
+        "math.pow",
+        "pow(2",
+    ]
+)
+
+
+SINGLETON_VARS = frozenset(
+    [
+        "instance",
+        "_instance",
+        "__instance",
+        "singleton",
+        "_singleton",
+        "__singleton",
+        "INSTANCE",
+        "_INSTANCE",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -275,10 +303,8 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                 )
             )
 
-        # Check if project uses concurrency at all
         has_concurrency = _detect_concurrency_usage(db)
 
-        # Run all checks
         _check_race_conditions(db, add_finding)
         _check_async_without_await(db, add_finding)
         _check_parallel_writes(db, add_finding)
@@ -293,11 +319,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
 def _detect_concurrency_usage(db: RuleDB) -> bool:
     """Check if project uses threading/async/multiprocessing."""
-    rows = db.query(
-        Q("refs")
-        .select("COUNT(*)")
-        .where_in("value", list(CONCURRENCY_IMPORTS))
-    )
+    rows = db.query(Q("refs").select("COUNT(*)").where_in("value", list(CONCURRENCY_IMPORTS)))
     count = rows[0][0] if rows else 0
     return count > 0
 
@@ -346,22 +368,22 @@ def _check_async_without_await(db: RuleDB, add_finding) -> None:
 
     Missing await causes coroutine to never execute, silently dropping work.
     """
-    # First, identify async functions by looking for await patterns
+
     rows = db.query(
-        Q("function_call_args")
-        .select("caller_function", "argument_expr", "callee_function")
+        Q("function_call_args").select("caller_function", "argument_expr", "callee_function")
     )
 
     async_functions = set()
     for row in rows:
         caller, arg_expr, callee = row[0], row[1], row[2]
-        if caller and ((arg_expr and "await" in str(arg_expr)) or (callee and "await" in str(callee))):
+        if caller and (
+            (arg_expr and "await" in str(arg_expr)) or (callee and "await" in str(callee))
+        ):
             async_functions.add(caller)
 
     if not async_functions:
         return
 
-    # Find calls to async functions without await
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "caller_function", "argument_expr")
@@ -374,15 +396,12 @@ def _check_async_without_await(db: RuleDB, add_finding) -> None:
         if func not in async_functions:
             continue
 
-        # Skip if already awaited
         if arg_expr and "await" in str(arg_expr):
             continue
 
-        # Skip task creators (they handle the coroutine)
         if func in TASK_CREATORS:
             continue
 
-        # Only flag if caller is also async (can use await)
         if caller in async_functions:
             add_finding(
                 file=file,
@@ -397,7 +416,7 @@ def _check_async_without_await(db: RuleDB, add_finding) -> None:
 
 def _check_parallel_writes(db: RuleDB, add_finding) -> None:
     """Find parallel operations with write operations - data corruption risk."""
-    # Check asyncio.gather with writes
+
     async_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "argument_expr")
@@ -424,7 +443,6 @@ def _check_parallel_writes(db: RuleDB, add_finding) -> None:
                 cwe_id="CWE-362",
             )
 
-    # Check executor patterns with writes nearby
     executor_placeholders = ", ".join("?" for _ in EXECUTOR_PATTERNS)
     write_placeholders = ", ".join("?" for _ in WRITE_OPERATIONS)
 
@@ -462,7 +480,6 @@ def _check_threading_issues(db: RuleDB, add_finding) -> None:
     start_placeholders = ", ".join("?" for _ in THREAD_START)
     cleanup_placeholders = ", ".join("?" for _ in THREAD_CLEANUP)
 
-    # Threads started without join
     sql, params = Q.raw(
         f"""
         SELECT DISTINCT f1.file, f1.line, f1.callee_function
@@ -490,7 +507,6 @@ def _check_threading_issues(db: RuleDB, add_finding) -> None:
             cwe_id="CWE-404",
         )
 
-    # Workers created without cleanup
     worker_placeholders = ", ".join("?" for _ in WORKER_CREATION)
 
     sql, params = Q.raw(
@@ -525,7 +541,6 @@ def _check_lock_issues(db: RuleDB, add_finding) -> None:
     """Find lock-related issues: missing timeouts, nested locks, unprotected singletons."""
     lock_placeholders = ", ".join("?" for _ in LOCK_METHODS)
 
-    # Locks without timeout
     sql, params = Q.raw(
         f"""
         SELECT file, line, callee_function, argument_expr
@@ -553,7 +568,6 @@ def _check_lock_issues(db: RuleDB, add_finding) -> None:
                 cwe_id="CWE-667",
             )
 
-    # Multiple locks in same function (deadlock risk)
     sql, params = Q.raw(
         f"""
         SELECT file, caller_function, COUNT(*) as lock_count
@@ -579,7 +593,6 @@ def _check_lock_issues(db: RuleDB, add_finding) -> None:
                 cwe_id="CWE-833",
             )
 
-    # Singleton patterns without lock protection
     singleton_placeholders = ", ".join("?" for _ in SINGLETON_VARS)
 
     sql, params = Q.raw(
@@ -615,7 +628,6 @@ def _check_shared_state_no_lock(db: RuleDB, add_finding, has_concurrency: bool) 
     if not has_concurrency:
         return
 
-    # Get assignments to shared state (self., cls., __class__.)
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "in_function", "source_expr")
@@ -625,18 +637,17 @@ def _check_shared_state_no_lock(db: RuleDB, add_finding, has_concurrency: bool) 
     for row in rows:
         file, line, var, function, source_expr = row[0], row[1], row[2], row[3], row[4]
 
-        # Only check shared state patterns
         if not var:
             continue
         if not (var.startswith("self.") or var.startswith("cls.") or var.startswith("__class__.")):
             continue
 
-        # Check if lock is nearby
         has_lock = _check_lock_nearby(db, file, line, function)
 
         if not has_lock:
-            # Higher confidence for counter operations
-            confidence = Confidence.HIGH if any(op in str(var) for op in COUNTER_OPS) else Confidence.MEDIUM
+            confidence = (
+                Confidence.HIGH if any(op in str(var) for op in COUNTER_OPS) else Confidence.MEDIUM
+            )
 
             add_finding(
                 file=file,
@@ -648,7 +659,6 @@ def _check_shared_state_no_lock(db: RuleDB, add_finding, has_concurrency: bool) 
                 cwe_id="CWE-362",
             )
 
-        # Check for unprotected counter operations specifically
         if source_expr and any(op in str(source_expr) for op in COUNTER_OPS):
             add_finding(
                 file=file,
@@ -729,20 +739,15 @@ def _check_sleep_in_loops(db: RuleDB, add_finding) -> None:
 
 def _check_retry_without_backoff(db: RuleDB, add_finding) -> None:
     """Find retry loops without exponential backoff - thundering herd risk."""
-    # Get all loops
+
     loop_rows = db.query(
         Q("cfg_blocks")
         .select("file", "start_line", "end_line")
         .where("block_type IN (?, ?, ?)", "loop", "while_loop", "for_loop")
     )
 
-    # Get all assignments
-    assignment_rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-    )
+    assignment_rows = db.query(Q("assignments").select("file", "line", "target_var", "source_expr"))
 
-    # Index assignments by file for faster lookup
     assignments_by_file: dict[str, list] = {}
     for row in assignment_rows:
         file = row[0]
@@ -750,7 +755,6 @@ def _check_retry_without_backoff(db: RuleDB, add_finding) -> None:
             assignments_by_file[file] = []
         assignments_by_file[file].append(row)
 
-    # Find retry loops
     retry_loops = []
     for loop_row in loop_rows:
         file, start_line, end_line = loop_row[0], loop_row[1], loop_row[2]
@@ -764,14 +768,15 @@ def _check_retry_without_backoff(db: RuleDB, add_finding) -> None:
             if target_var and target_var in RETRY_VARIABLES:
                 has_retry = True
                 break
-            if source_expr and ("retry" in str(source_expr).lower() or "attempt" in str(source_expr).lower()):
+            if source_expr and (
+                "retry" in str(source_expr).lower() or "attempt" in str(source_expr).lower()
+            ):
                 has_retry = True
                 break
 
         if has_retry:
             retry_loops.append((file, start_line, end_line))
 
-    # Check each retry loop for backoff
     for file, start_line, end_line in retry_loops:
         has_backoff = _check_backoff_pattern(db, file, start_line, end_line)
 

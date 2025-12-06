@@ -77,11 +77,7 @@ def _is_vue_app(db: RuleDB) -> bool:
     if list(framework_rows):
         return True
 
-    component_rows = db.query(
-        Q("vue_components")
-        .select("name")
-        .limit(1)
-    )
+    component_rows = db.query(Q("vue_components").select("name").limit(1))
     return len(list(component_rows)) > 0
 
 
@@ -100,7 +96,11 @@ def _check_vhtml_directive(db: RuleDB) -> list[StandardFinding]:
         has_user_input = any(src in (expression or "") for src in VUE_INPUT_SOURCES)
 
         if has_user_input and not is_sanitized(expression or ""):
-            snippet = f'v-html="{expression[:60]}"' if len(expression or "") > 60 else f'v-html="{expression}"'
+            snippet = (
+                f'v-html="{expression[:60]}"'
+                if len(expression or "") > 60
+                else f'v-html="{expression}"'
+            )
             findings.append(
                 StandardFinding(
                     rule_name="vue-xss-vhtml",
@@ -191,9 +191,7 @@ def _check_template_compilation(db: RuleDB) -> list[StandardFinding]:
             )
 
     component_rows = db.query(
-        Q("vue_components")
-        .select("file", "start_line", "name")
-        .where("has_template = ?", 1)
+        Q("vue_components").select("file", "start_line", "name").where("has_template = ?", 1)
     )
 
     for file, line, comp_name in component_rows:
@@ -315,14 +313,13 @@ def _check_component_props_injection(db: RuleDB) -> list[StandardFinding]:
     """Check for XSS through component props."""
     findings: list[StandardFinding] = []
 
-    # JOIN to get v-html directives in components with props - ONE query instead of N+1
     rows = db.query(
         Q("vue_directives")
         .select(
             "vue_directives.file",
             "vue_directives.line",
             "vue_directives.expression",
-            "vue_components.name"
+            "vue_components.name",
         )
         .join("vue_components", on=[("file", "file"), ("in_component", "name")])
         .where("vue_directives.directive_name = ?", "v-html")
@@ -347,7 +344,6 @@ def _check_component_props_injection(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check for $attrs in v-html (uncontrolled input)
     rows = db.query(
         Q("vue_directives")
         .select("file", "line", "expression", "in_component")

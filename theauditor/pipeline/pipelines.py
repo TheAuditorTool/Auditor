@@ -10,9 +10,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 from .renderer import RichRenderer
 from .structures import PhaseResult, TaskStatus
-from theauditor.utils.logging import logger
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -60,8 +61,7 @@ def get_command_timeout(cmd: list[str]) -> int:
     return DEFAULT_TIMEOUT
 
 
-# Regex to detect loguru-formatted output: "HH:MM:SS | LEVEL |" pattern
-_LOGURU_PATTERN = re.compile(r'^\d{2}:\d{2}:\d{2}\s*\|\s*(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s*\|')
+_LOGURU_PATTERN = re.compile(r"^\d{2}:\d{2}:\d{2}\s*\|\s*(DEBUG|INFO|WARNING|ERROR|CRITICAL)\s*\|")
 
 
 def _format_stderr_output(stderr: str, max_chars: int = 300) -> list[str]:
@@ -76,7 +76,7 @@ def _format_stderr_output(stderr: str, max_chars: int = 300) -> list[str]:
     if not stderr or not stderr.strip():
         return []
 
-    lines = stderr.strip().split('\n')
+    lines = stderr.strip().split("\n")
     output: list[str] = []
     char_count = 0
 
@@ -85,15 +85,11 @@ def _format_stderr_output(stderr: str, max_chars: int = 300) -> list[str]:
         if not line:
             continue
 
-        # Check if this line is loguru-formatted
         if _LOGURU_PATTERN.match(line):
-            # Already formatted by loguru - print with indent, no "Error:" prefix
             formatted = f"  {line}"
         else:
-            # Raw error message - add "Error:" prefix
             formatted = f"  Error: {line}"
 
-        # Truncate if we've exceeded max chars
         if char_count + len(formatted) > max_chars:
             remaining = max_chars - char_count
             if remaining > 20:
@@ -119,63 +115,51 @@ def _format_phase_output(stdout: str, phase_name: str, max_lines: int = 3) -> li
     lines = stdout.strip().split("\n")
     output: list[str] = []
 
-    # Known patterns to extract metrics from
     metric_patterns = [
-        # Counts and totals
-        (r'(?:total|found|wrote|detected|analyzed|indexed)\s*[:\s]*(\d+)', None),
-        # Key-value style: "Key: value"
-        (r'^[\s]*([A-Z][a-zA-Z\s]+):\s*(\d+)', lambda m: f"{m.group(1).strip()}: {m.group(2)}"),
-        # Findings breakdown
-        (r'(critical|high|medium|low|error|warning)s?\s*[:\s]*(\d+)', lambda m: f"{m.group(1).title()}: {m.group(2)}"),
+        (r"(?:total|found|wrote|detected|analyzed|indexed)\s*[:\s]*(\d+)", None),
+        (r"^[\s]*([A-Z][a-zA-Z\s]+):\s*(\d+)", lambda m: f"{m.group(1).strip()}: {m.group(2)}"),
+        (
+            r"(critical|high|medium|low|error|warning)s?\s*[:\s]*(\d+)",
+            lambda m: f"{m.group(1).title()}: {m.group(2)}",
+        ),
     ]
 
-    # Check if this is a table output (has --- separators or | columns)
     is_table = any("---" in line or line.count("|") >= 2 for line in lines[:10])
 
-    # For tables (like detect-frameworks), show the whole thing
     if is_table and len(lines) <= 30:
         return [f"  {line}" for line in lines]
 
-    # Extract key metrics
     metrics_found: list[str] = []
     for line in lines:
         line_lower = line.lower().strip()
 
-        # Skip empty lines and headers
         if not line_lower or line_lower.startswith("=") or line_lower.startswith("-"):
             continue
 
-        # Look for metric patterns
         for pattern, formatter in metric_patterns:
             match = re.search(pattern, line, re.IGNORECASE)
             if match:
                 if formatter:
                     metrics_found.append(formatter(match))
                 else:
-                    # Use original line if it's short enough
                     clean_line = line.strip()
                     if len(clean_line) <= 60:
                         metrics_found.append(clean_line)
                 break
 
-    # If we found metrics, show them
     if metrics_found:
-        # Dedupe while preserving order
         seen = set()
-        for metric in metrics_found[:5]:  # Max 5 metrics
+        for metric in metrics_found[:5]:
             if metric not in seen:
-                # Colorize numbers to make them pop
-                colored_metric = re.sub(r'(\d+)', r'[cyan]\1[/cyan]', metric)
+                colored_metric = re.sub(r"(\d+)", r"[cyan]\1[/cyan]", metric)
                 output.append(f"  [dim]{colored_metric}[/dim]")
                 seen.add(metric)
         return output
 
-    # Fallback: show first few non-empty lines
     shown = 0
     for line in lines:
         if line.strip() and not line.strip().startswith("="):
-            # Colorize numbers in fallback output too
-            colored_line = re.sub(r'(\d+)', r'[cyan]\1[/cyan]', line.strip())
+            colored_line = re.sub(r"(\d+)", r"[cyan]\1[/cyan]", line.strip())
             output.append(f"  {colored_line}")
             shown += 1
             if shown >= max_lines:
@@ -229,12 +213,10 @@ async def run_command_async(cmd: list[str], cwd: str, timeout: int = 900) -> Pha
         )
 
         try:
-            # Poll for completion while checking for interrupt
             stdout_chunks = []
             stderr_chunks = []
 
             while True:
-                # Check for interrupt every 0.5 seconds
                 if is_stop_requested():
                     process.kill()
                     await process.wait()
@@ -247,7 +229,6 @@ async def run_command_async(cmd: list[str], cwd: str, timeout: int = 900) -> Pha
                         exit_code=-2,
                     )
 
-                # Check if process finished
                 try:
                     stdout_data, stderr_data = await asyncio.wait_for(
                         process.communicate(), timeout=0.5
@@ -261,7 +242,6 @@ async def run_command_async(cmd: list[str], cwd: str, timeout: int = 900) -> Pha
                         exit_code=process.returncode or 0,
                     )
                 except TimeoutError:
-                    # Process still running, check elapsed time
                     if time.time() - start_time > timeout:
                         process.kill()
                         await process.wait()
@@ -273,7 +253,7 @@ async def run_command_async(cmd: list[str], cwd: str, timeout: int = 900) -> Pha
                             stderr=f"Command timed out after {timeout}s",
                             exit_code=-1,
                         )
-                    # Continue polling
+
                     continue
 
         except asyncio.CancelledError:
@@ -406,7 +386,6 @@ async def run_full_pipeline(
 
     reset_stop_flag()
 
-    # Force absolute path immediately - prevents WSL/Windows path ambiguity
     root = str(Path(root).resolve())
 
     pf_dir = Path(root) / ".pf"
@@ -443,9 +422,13 @@ async def run_full_pipeline(
         raw_dir.mkdir(parents=True, exist_ok=True)
 
         renderer.on_log("[bold]TheAuditor[/bold]  Full Pipeline Execution")
-        renderer.on_log(f"[dim]Started:[/dim] {time.strftime('%Y-%m-%d %H:%M:%S')}  [dim]Directory:[/dim] {Path(root).resolve()}")
+        renderer.on_log(
+            f"[dim]Started:[/dim] {time.strftime('%Y-%m-%d %H:%M:%S')}  [dim]Directory:[/dim] {Path(root).resolve()}"
+        )
         if index_only:
-            renderer.on_log("[dim]Mode: INDEX-ONLY (Stage 1 + 2 only, skipping heavy analysis)[/dim]")
+            renderer.on_log(
+                "[dim]Mode: INDEX-ONLY (Stage 1 + 2 only, skipping heavy analysis)[/dim]"
+            )
 
         log_lines.append("TheAuditor Full Pipeline Execution Log")
         log_lines.append(f"Started: {time.strftime('%Y-%m-%d %H:%M:%S')}")
@@ -491,7 +474,7 @@ async def run_full_pipeline(
         for cmd_name, extra_args in command_order:
             if (
                 cmd_name in available_commands
-                or cmd_name == "index"  # index runs in-process, not as CLI command
+                or cmd_name == "index"
                 or (cmd_name == "docs" and "docs" in available_commands)
                 or (cmd_name == "graph" and "graph" in available_commands)
                 or (cmd_name == "cfg" and "cfg" in available_commands)
@@ -579,8 +562,14 @@ async def run_full_pipeline(
                 if venv_aud.exists():
                     command_array = [str(venv_aud), cmd_name] + extra_args
                 else:
-                    renderer.on_log(f"[bold red]Error:[/bold red] Sandbox not found at [cyan]{venv_aud}[/cyan]", is_error=True)
-                    renderer.on_log("[bold red]Error:[/bold red] Run 'aud setup-ai --target .' to create sandbox", is_error=True)
+                    renderer.on_log(
+                        f"[bold red]Error:[/bold red] Sandbox not found at [cyan]{venv_aud}[/cyan]",
+                        is_error=True,
+                    )
+                    renderer.on_log(
+                        "[bold red]Error:[/bold red] Run 'aud setup-ai --target .' to create sandbox",
+                        is_error=True,
+                    )
                     log_lines.append(f"[ERROR] Sandbox not found at {venv_aud}")
                     log_lines.append("[ERROR] Run 'aud setup-ai --target .' to create sandbox")
 
@@ -588,12 +577,14 @@ async def run_full_pipeline(
 
                 commands.append((description, command_array))
             else:
-                renderer.on_log(f"[yellow]Warning:[/yellow] Command '{cmd_name}' not available, skipping")
+                renderer.on_log(
+                    f"[yellow]Warning:[/yellow] Command '{cmd_name}' not available, skipping"
+                )
                 log_lines.append(f"[WARNING] Command '{cmd_name}' not available, skipping")
 
         current_phase = 0
         failed_phases = 0
-        failed_phase_names: list[str] = []  # Track which phases failed
+        failed_phase_names: list[str] = []
         phases_with_warnings = 0
         pipeline_start = time.time()
 
@@ -653,7 +644,11 @@ async def run_full_pipeline(
                 or "graph viz" in cmd_str
                 or "cdk" in cmd_str
                 or "workflows" in cmd_str
-                or ("deps" in cmd_str and "--vuln-scan" in cmd_str and "--check-latest" not in cmd_str)
+                or (
+                    "deps" in cmd_str
+                    and "--vuln-scan" in cmd_str
+                    and "--check-latest" not in cmd_str
+                )
             ):
                 track_b_commands.append((phase_name, cmd))
 
@@ -666,8 +661,6 @@ async def run_full_pipeline(
             else:
                 final_commands.append((phase_name, cmd))
 
-        # Renumber phases to be continuous after track filtering
-        # Phases inside parallel tracks don't get individual numbers
         def renumber_phases(phase_list: list, start_num: int) -> int:
             """Renumber phase descriptions starting from start_num. Returns next available number."""
             for i, (phase_name, cmd) in enumerate(phase_list):
@@ -681,7 +674,6 @@ async def run_full_pipeline(
         phase_num = renumber_phases(foundation_commands, phase_num)
         phase_num = renumber_phases(data_prep_commands, phase_num)
 
-        # Track numbering - each track gets a phase number
         track_phase_numbers: dict[str, int] = {}
         if track_a_commands:
             track_phase_numbers["Track A (Taint Analysis)"] = phase_num
@@ -695,23 +687,28 @@ async def run_full_pipeline(
 
         phase_num = renumber_phases(final_commands, phase_num)
 
-        # Recalculate total_phases - count ALL commands, not tracks as single phases
         total_phases = (
-            len(foundation_commands) +
-            len(data_prep_commands) +
-            len(track_a_commands) +
-            len(track_b_commands) +
-            len(track_c_commands) +
-            len(final_commands)
+            len(foundation_commands)
+            + len(data_prep_commands)
+            + len(track_a_commands)
+            + len(track_b_commands)
+            + len(track_c_commands)
+            + len(final_commands)
         )
 
         if index_only:
             total_phases = len(foundation_commands) + len(data_prep_commands)
             renderer.on_log("")
-            renderer.on_log(f"[bold]Index-Only Mode[/bold]  Running {total_phases} phases (Stage 1 + 2)")
-            renderer.on_log("[dim]Skipping: Track A (taint), Track B (patterns, lint), Track C (network), Stage 4 (fce, report)[/dim]")
+            renderer.on_log(
+                f"[bold]Index-Only Mode[/bold]  Running {total_phases} phases (Stage 1 + 2)"
+            )
+            renderer.on_log(
+                "[dim]Skipping: Track A (taint), Track B (patterns, lint), Track C (network), Stage 4 (fce, report)[/dim]"
+            )
             log_lines.append(f"\n[INDEX-ONLY MODE] Running {total_phases} phases (Stage 1 + 2)")
-            log_lines.append("  Skipping: Track A (taint), Track B (patterns, lint), Track C (network), Stage 4 (fce, report)")
+            log_lines.append(
+                "  Skipping: Track A (taint), Track B (patterns, lint), Track C (network), Stage 4 (fce, report)"
+            )
 
         renderer.on_stage_start("FOUNDATION - Sequential Execution", 1)
         log_lines.append("\n" + "=" * 60)
@@ -719,7 +716,6 @@ async def run_full_pipeline(
         log_lines.append("=" * 60)
 
         for phase_name, cmd in foundation_commands:
-            # Check for interrupt before starting each phase
             if is_stop_requested():
                 renderer.on_log("[bold yellow]Pipeline interrupted by user[/bold yellow]")
                 log_lines.append("[INTERRUPTED] Pipeline stopped by user")
@@ -735,7 +731,9 @@ async def run_full_pipeline(
                 try:
                     journal.phase_start(phase_name, " ".join(cmd), current_phase)
                 except Exception as e:
-                    renderer.on_log(f"[yellow]Warning:[/yellow] Journal phase_start failed: {e}", is_error=True)
+                    renderer.on_log(
+                        f"[yellow]Warning:[/yellow] Journal phase_start failed: {e}", is_error=True
+                    )
 
             try:
                 if "index" in " ".join(cmd):
@@ -748,8 +746,12 @@ async def run_full_pipeline(
                     exclude_patterns = None
                     if exclude_self:
                         exclude_patterns = get_self_exclusion_patterns(True)
-                        renderer.on_log(f"[dim]Excluding {len(exclude_patterns)} TheAuditor patterns[/dim]")
-                        log_lines.append(f"[INDEX] Excluding {len(exclude_patterns)} TheAuditor patterns")
+                        renderer.on_log(
+                            f"[dim]Excluding {len(exclude_patterns)} TheAuditor patterns[/dim]"
+                        )
+                        log_lines.append(
+                            f"[INDEX] Excluding {len(exclude_patterns)} TheAuditor patterns"
+                        )
 
                     try:
                         idx_result = await asyncio.to_thread(
@@ -805,17 +807,19 @@ async def run_full_pipeline(
                             exit_code=result.exit_code,
                         )
                     except Exception as e:
-                        renderer.on_log(f"[yellow]Warning:[/yellow] Journal phase_end failed: {e}", is_error=True)
+                        renderer.on_log(
+                            f"[yellow]Warning:[/yellow] Journal phase_end failed: {e}",
+                            is_error=True,
+                        )
 
                 if result.success:
                     renderer.on_phase_complete(phase_name, elapsed)
                     log_lines.append(f"[OK] {phase_name} completed in {elapsed:.1f}s")
 
-                    # Format and display phase output
                     for line in _format_phase_output(result.stdout, phase_name):
                         renderer.on_log(line)
-                        # Strip Rich markup for log file
-                        log_lines.append(re.sub(r'\[/?[a-z ]+\]', '', line))
+
+                        log_lines.append(re.sub(r"\[/?[a-z ]+\]", "", line))
                 else:
                     failed_phases += 1
                     failed_phase_names.append(phase_name)
@@ -838,7 +842,10 @@ async def run_full_pipeline(
                             renderer.on_log(error_line, is_error=True)
                             log_lines.append(error_line)
 
-                    renderer.on_log("[bold red]Foundation stage failed - stopping pipeline[/bold red]", is_error=True)
+                    renderer.on_log(
+                        "[bold red]Foundation stage failed - stopping pipeline[/bold red]",
+                        is_error=True,
+                    )
                     log_lines.append("[CRITICAL] Foundation stage failed - stopping pipeline")
                     break
 
@@ -867,7 +874,6 @@ async def run_full_pipeline(
             log_lines.append("Preparing data structures for parallel analysis...")
 
             for phase_name, cmd in data_prep_commands:
-                # Check for interrupt before starting each phase
                 if is_stop_requested():
                     renderer.on_log("[bold yellow]Pipeline interrupted by user[/bold yellow]")
                     log_lines.append("[INTERRUPTED] Pipeline stopped by user")
@@ -883,7 +889,10 @@ async def run_full_pipeline(
                     try:
                         journal.phase_start(phase_name, " ".join(cmd), current_phase)
                     except Exception as e:
-                        renderer.on_log(f"[yellow]Warning:[/yellow] Journal phase_start failed: {e}", is_error=True)
+                        renderer.on_log(
+                            f"[yellow]Warning:[/yellow] Journal phase_start failed: {e}",
+                            is_error=True,
+                        )
 
                 try:
                     cmd_timeout = get_command_timeout(cmd)
@@ -908,16 +917,18 @@ async def run_full_pipeline(
                                 exit_code=result.exit_code,
                             )
                         except Exception as e:
-                            renderer.on_log(f"[yellow]Warning:[/yellow] Journal phase_end failed: {e}", is_error=True)
+                            renderer.on_log(
+                                f"[yellow]Warning:[/yellow] Journal phase_end failed: {e}",
+                                is_error=True,
+                            )
 
                     if result.success:
                         renderer.on_phase_complete(phase_name, elapsed)
                         log_lines.append(f"[OK] {phase_name} completed in {elapsed:.1f}s")
 
-                        # Format and display phase output
                         for line in _format_phase_output(result.stdout, phase_name):
                             renderer.on_log(line)
-                            log_lines.append(re.sub(r'\[/?[a-z ]+\]', '', line))
+                            log_lines.append(re.sub(r"\[/?[a-z ]+\]", "", line))
                     else:
                         failed_phases += 1
                         failed_phase_names.append(phase_name)
@@ -931,14 +942,21 @@ async def run_full_pipeline(
                                 renderer.on_log(error_line, is_error=True)
                                 log_lines.append(error_line)
 
-                        renderer.on_log("[bold red]Data preparation stage failed - stopping pipeline[/bold red]", is_error=True)
-                        log_lines.append("[CRITICAL] Data preparation stage failed - stopping pipeline")
+                        renderer.on_log(
+                            "[bold red]Data preparation stage failed - stopping pipeline[/bold red]",
+                            is_error=True,
+                        )
+                        log_lines.append(
+                            "[CRITICAL] Data preparation stage failed - stopping pipeline"
+                        )
                         break
 
                 except Exception as e:
                     failed_phases += 1
                     failed_phase_names.append(phase_name)
-                    renderer.on_log(f"[bold red]FAILED[/bold red]  {phase_name}: {e}", is_error=True)
+                    renderer.on_log(
+                        f"[bold red]FAILED[/bold red]  {phase_name}: {e}", is_error=True
+                    )
                     log_lines.append(f"[FAILED] {phase_name} failed: {e}")
 
                     try:
@@ -960,13 +978,17 @@ async def run_full_pipeline(
             renderer.on_stage_start("HEAVY PARALLEL ANALYSIS - Optimized Execution", 3)
             renderer.on_log("Launching rebalanced parallel tracks:")
             if track_a_commands:
-                renderer.on_log("  [dim]Track A:[/dim] Taint Analysis [dim](isolated heavy task)[/dim]")
+                renderer.on_log(
+                    "  [dim]Track A:[/dim] Taint Analysis [dim](isolated heavy task)[/dim]"
+                )
             if track_b_commands:
                 renderer.on_log(
                     "  [dim]Track B:[/dim] Static Analysis & Offline Security [dim](lint, patterns, graph, vuln-scan)[/dim]"
                 )
             if track_c_commands and not offline:
-                renderer.on_log("  [dim]Track C:[/dim] Network I/O [dim](version checks, docs)[/dim]")
+                renderer.on_log(
+                    "  [dim]Track C:[/dim] Network I/O [dim](version checks, docs)[/dim]"
+                )
             elif offline:
                 renderer.on_log("  [dim]Track C: Skipped (offline mode)[/dim]")
 
@@ -999,7 +1021,6 @@ async def run_full_pipeline(
 
                         start_time = time.time()
 
-                        # NOTE: No stdout/stderr redirect - let logger.info show live progress
                         logger.info("Track A: Starting taint analysis...")
 
                         memory_limit = get_recommended_memory_limit()
@@ -1007,9 +1028,7 @@ async def run_full_pipeline(
 
                         logger.info("Track A: Initializing security analysis infrastructure...")
                         registry = TaintRegistry()
-                        orchestrator = RulesOrchestrator(
-                            project_path=Path(root), db_path=db_path
-                        )
+                        orchestrator = RulesOrchestrator(project_path=Path(root), db_path=db_path)
                         orchestrator.collect_rule_patterns(registry)
 
                         all_findings = []
@@ -1044,12 +1063,16 @@ async def run_full_pipeline(
 
                         if result.get("mode") == "complete":
                             logger.info("Track A: COMPLETE MODE RESULTS:")
-                            logger.info(f"Track A:   IFDS (backward): {len(taint_paths)} vulnerable paths")
+                            logger.info(
+                                f"Track A:   IFDS (backward): {len(taint_paths)} vulnerable paths"
+                            )
                             logger.info(
                                 f"Track A:   FlowResolver (forward): {result.get('total_flows_resolved', 0)} total flows"
                             )
                         else:
-                            logger.info(f"Track A: Found {len(taint_paths)} taint flow vulnerabilities")
+                            logger.info(
+                                f"Track A: Found {len(taint_paths)} taint flow vulnerabilities"
+                            )
 
                         logger.info("Track A: Running advanced security analysis...")
 
@@ -1064,11 +1087,11 @@ async def run_full_pipeline(
                                         return True
                             return False
 
-                        advanced_findings = orchestrator.run_taint_dependent_rules(
-                            taint_checker
-                        )
+                        advanced_findings = orchestrator.run_taint_dependent_rules(taint_checker)
                         all_findings.extend(advanced_findings)
-                        logger.info(f"Track A: Found {len(advanced_findings)} advanced security issues")
+                        logger.info(
+                            f"Track A: Found {len(advanced_findings)} advanced security issues"
+                        )
 
                         logger.info(
                             f"Track A: Total vulnerabilities: {len(all_findings) + len(taint_paths)}"
@@ -1125,9 +1148,7 @@ async def run_full_pipeline(
                                 )
 
                             if findings_dicts:
-                                db_manager.write_findings_batch(
-                                    findings_dicts, tool_name="taint"
-                                )
+                                db_manager.write_findings_batch(findings_dicts, tool_name="taint")
                                 db_manager.close()
                                 logger.info(
                                     f"Track A: Wrote {len(findings_dicts)} findings to database"
@@ -1182,9 +1203,7 @@ async def run_full_pipeline(
                     track_a_num = track_phase_numbers.get("Track A (Taint Analysis)", 0)
                     track_a_display = f"{track_a_num}. Track A (Taint Analysis)"
                     renderer.on_parallel_track_start(track_a_display)
-                    tasks.append(
-                        run_chain_silent(track_a_commands, root, track_a_display)
-                    )
+                    tasks.append(run_chain_silent(track_a_commands, root, track_a_display))
                     track_names.append(track_a_display)
                     current_phase += 1
 
@@ -1208,25 +1227,31 @@ async def run_full_pipeline(
 
             parallel_results = await asyncio.gather(*tasks, return_exceptions=True)
 
-            # Process results and collect summaries for display
             track_summaries: list[dict] = []
 
-            # Add placeholder for skipped Track C in offline mode
             if offline and not track_c_commands:
                 track_c_num = track_phase_numbers.get("Track C (Network I/O)", 0)
-                track_summaries.append({
-                    "name": f"{track_c_num}. Track C (Network I/O)",
+                track_summaries.append(
+                    {
+                        "name": f"{track_c_num}. Track C (Network I/O)",
+                        "success": True,
+                        "elapsed": 0.0,
+                        "phases": [],
+                        "findings": 0,
+                        "skipped": True,
+                        "skip_reason": "offline mode",
+                    }
+                )
+
+            for i, result in enumerate(parallel_results):
+                track_name = track_names[i] if i < len(track_names) else f"Track {i}"
+                summary: dict = {
+                    "name": track_name,
                     "success": True,
                     "elapsed": 0.0,
                     "phases": [],
                     "findings": 0,
-                    "skipped": True,
-                    "skip_reason": "offline mode",
-                })
-
-            for i, result in enumerate(parallel_results):
-                track_name = track_names[i] if i < len(track_names) else f"Track {i}"
-                summary: dict = {"name": track_name, "success": True, "elapsed": 0.0, "phases": [], "findings": 0}
+                }
 
                 if isinstance(result, Exception):
                     log_lines.append(f"[ERROR] {track_name} failed with exception: {result}")
@@ -1236,12 +1261,13 @@ async def run_full_pipeline(
 
                     try:
                         with open(error_log_path, "a", encoding="utf-8") as ef:
-                            ef.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [ERROR] {track_name} exception: {result}\n")
+                            ef.write(
+                                f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] [ERROR] {track_name} exception: {result}\n"
+                            )
                     except Exception:
                         pass
 
                 elif isinstance(result, list):
-                    # Track B/C - list of PhaseResults from run_chain_silent
                     total_elapsed = sum(r.elapsed for r in result)
                     all_success = all(r.success for r in result)
                     summary["elapsed"] = total_elapsed
@@ -1255,17 +1281,16 @@ async def run_full_pipeline(
                             "findings": 0,
                         }
 
-                        # Extract findings count from stdout if present
                         if phase_result.stdout:
                             stdout_lower = phase_result.stdout.lower()
-                            # Look for common patterns in security tool output
+
                             patterns = [
-                                r'total findings[:\s]*(\d+)',
-                                r'found\s+(\d+)\s+(?:issue|finding|vulnerabilit|security)',
-                                r'(\d+)\s+(?:issue|finding|vulnerabilit|security)',
-                                r'wrote\s+(\d+)\s+findings',
-                                r'critical[:\s]*(\d+)',  # severity counts
-                                r'high[:\s]*(\d+)',
+                                r"total findings[:\s]*(\d+)",
+                                r"found\s+(\d+)\s+(?:issue|finding|vulnerabilit|security)",
+                                r"(\d+)\s+(?:issue|finding|vulnerabilit|security)",
+                                r"wrote\s+(\d+)\s+findings",
+                                r"critical[:\s]*(\d+)",
+                                r"high[:\s]*(\d+)",
                             ]
                             for pattern in patterns:
                                 findings_match = re.search(pattern, stdout_lower)
@@ -1276,11 +1301,15 @@ async def run_full_pipeline(
                             summary["findings"] += phase_info["findings"]
 
                         summary["phases"].append(phase_info)
-                        log_lines.append(f"{'[OK]' if phase_result.success else '[FAILED]'} {phase_result.name} ({phase_result.elapsed:.1f}s)")
+                        log_lines.append(
+                            f"{'[OK]' if phase_result.success else '[FAILED]'} {phase_result.name} ({phase_result.elapsed:.1f}s)"
+                        )
 
-                        # Register sub-phase with renderer for progress table (indented)
-                        # Extract short name from "N. Description" format
-                        short_name = phase_result.name.split(". ", 1)[-1] if ". " in phase_result.name else phase_result.name
+                        short_name = (
+                            phase_result.name.split(". ", 1)[-1]
+                            if ". " in phase_result.name
+                            else phase_result.name
+                        )
                         subphase_display = f"    - {short_name}"
                         renderer._phases[subphase_display] = {
                             "status": "success" if phase_result.success else "FAILED",
@@ -1291,14 +1320,15 @@ async def run_full_pipeline(
                         failed_phases += 1
 
                 elif isinstance(result, PhaseResult):
-                    # Track A - single PhaseResult from run_taint_async
                     summary["elapsed"] = result.elapsed
                     summary["success"] = result.success
                     summary["findings"] = result.findings_count
-                    summary["stdout"] = result.stdout  # Store for display
+                    summary["stdout"] = result.stdout
                     summary["stderr"] = result.stderr if not result.success else ""
 
-                    log_lines.append(f"{'[OK]' if result.success else '[FAILED]'} {result.name} ({result.elapsed:.1f}s)")
+                    log_lines.append(
+                        f"{'[OK]' if result.success else '[FAILED]'} {result.name} ({result.elapsed:.1f}s)"
+                    )
 
                     if not result.success:
                         failed_phases += 1
@@ -1306,7 +1336,6 @@ async def run_full_pipeline(
                 track_summaries.append(summary)
                 renderer.on_parallel_track_complete(track_name, summary["elapsed"])
 
-            # Display track summaries with Rich formatting
             renderer.on_log("")
             renderer.on_log("[bold magenta]Stage 3[/bold magenta]  [bold cyan]Results[/bold cyan]")
             for summary in track_summaries:
@@ -1319,41 +1348,49 @@ async def run_full_pipeline(
                 else:
                     status = "[bold red]FAILED[/bold red]"
 
-                # Handle skipped tracks
                 if summary.get("skipped"):
-                    renderer.on_log(f"[dim]SKIP[/dim]  {track_name}  [dim]({summary.get('skip_reason', 'skipped')})[/dim]")
+                    renderer.on_log(
+                        f"[dim]SKIP[/dim]  {track_name}  [dim]({summary.get('skip_reason', 'skipped')})[/dim]"
+                    )
                     continue
 
-                # Main track line
-                findings_str = f"  [dim]([cyan]{findings}[/cyan] findings)[/dim]" if findings > 0 else ""
+                findings_str = (
+                    f"  [dim]([cyan]{findings}[/cyan] findings)[/dim]" if findings > 0 else ""
+                )
                 renderer.on_log(f"{status}  {track_name}  [dim]{elapsed:.1f}s[/dim]{findings_str}")
 
-                # Show phase breakdown for multi-phase tracks (Track B/C)
                 if summary["phases"]:
                     for phase in summary["phases"]:
-                        phase_status = "[green]OK[/green]" if phase["success"] else "[red]FAIL[/red]"
-                        phase_findings = f" ([cyan]{phase['findings']}[/cyan])" if phase["findings"] > 0 else ""
-                        # Extract short name from "N. Description" format
-                        short_name = phase["name"].split(". ", 1)[-1] if ". " in phase["name"] else phase["name"]
-                        renderer.on_log(f"    {phase_status}  {short_name}  [dim]{phase['elapsed']:.1f}s[/dim]{phase_findings}")
+                        phase_status = (
+                            "[green]OK[/green]" if phase["success"] else "[red]FAIL[/red]"
+                        )
+                        phase_findings = (
+                            f" ([cyan]{phase['findings']}[/cyan])" if phase["findings"] > 0 else ""
+                        )
 
-                # Show Track A (taint) details from stdout - formatted like Track B
+                        short_name = (
+                            phase["name"].split(". ", 1)[-1]
+                            if ". " in phase["name"]
+                            else phase["name"]
+                        )
+                        renderer.on_log(
+                            f"    {phase_status}  {short_name}  [dim]{phase['elapsed']:.1f}s[/dim]{phase_findings}"
+                        )
+
                 elif summary.get("stdout"):
                     for line in summary["stdout"].strip().split("\n"):
                         text = line.strip()
                         if not text:
                             continue
-                        # Format: "    Label: value" with cyan numbers, dim prefix
+
                         if ":" in text:
                             label, value = text.split(":", 1)
-                            # Colorize numbers in value
-                            colored_value = re.sub(r'(\d+)', r'[cyan]\1[/cyan]', value)
+
+                            colored_value = re.sub(r"(\d+)", r"[cyan]\1[/cyan]", value)
                             renderer.on_log(f"    [dim]{label}:[/dim]{colored_value}")
                         else:
-                            # Header line like "Taint analysis completed"
                             renderer.on_log(f"    [dim]{text}[/dim]")
 
-                # Show error for failed tracks
                 if not summary["success"] and summary.get("stderr"):
                     error_preview = summary["stderr"][:150]
                     if len(summary["stderr"]) > 150:
@@ -1367,7 +1404,6 @@ async def run_full_pipeline(
             log_lines.append("=" * 60)
 
             for phase_name, cmd in final_commands:
-                # Check for interrupt before starting each phase
                 if is_stop_requested():
                     renderer.on_log("[bold yellow]Pipeline interrupted by user[/bold yellow]")
                     log_lines.append("[INTERRUPTED] Pipeline stopped by user")
@@ -1382,7 +1418,10 @@ async def run_full_pipeline(
                     try:
                         journal.phase_start(phase_name, " ".join(cmd), current_phase)
                     except Exception as e:
-                        renderer.on_log(f"[yellow]Warning:[/yellow] Journal phase_start failed: {e}", is_error=True)
+                        renderer.on_log(
+                            f"[yellow]Warning:[/yellow] Journal phase_start failed: {e}",
+                            is_error=True,
+                        )
 
                 cmd_timeout = get_command_timeout(cmd)
                 result = await run_command_async(cmd, cwd=root, timeout=cmd_timeout)
@@ -1432,7 +1471,10 @@ async def run_full_pipeline(
                             phase_name, success=success, elapsed=elapsed, exit_code=result.exit_code
                         )
                     except Exception as e:
-                        renderer.on_log(f"[yellow]Warning:[/yellow] Journal phase_end failed: {e}", is_error=True)
+                        renderer.on_log(
+                            f"[yellow]Warning:[/yellow] Journal phase_end failed: {e}",
+                            is_error=True,
+                        )
 
                 if success:
                     if result.exit_code == 2 and is_findings_command:
@@ -1447,10 +1489,9 @@ async def run_full_pipeline(
                     renderer.on_phase_complete(phase_name, elapsed)
                     log_lines.append(ok_msg)
 
-                    # Format and display phase output
                     for line in _format_phase_output(result.stdout, phase_name):
                         renderer.on_log(line)
-                        log_lines.append(re.sub(r'\[/?[a-z ]+\]', '', line))
+                        log_lines.append(re.sub(r"\[/?[a-z ]+\]", "", line))
                 else:
                     failed_phases += 1
                     failed_phase_names.append(phase_name)
@@ -1505,7 +1546,6 @@ async def run_full_pipeline(
             f.write(f"Commands executed: {total_phases}\n")
             f.write(f"Failed commands: {failed_phases}\n")
 
-        # Summary display moved to full.py for proper ordering after Live table
         all_created_files.append(str(allfiles_path))
         all_created_files.append(str(log_file_path))
 
@@ -1518,7 +1558,9 @@ async def run_full_pipeline(
                 if not list(status_dir.iterdir()):
                     status_dir.rmdir()
             except Exception as e:
-                renderer.on_log(f"[yellow]Warning:[/yellow] Could not clean status files: {e}", is_error=True)
+                renderer.on_log(
+                    f"[yellow]Warning:[/yellow] Could not clean status files: {e}", is_error=True
+                )
 
         findings_data = _get_findings_from_db(Path(root))
         critical_findings = findings_data["critical"]
@@ -1540,7 +1582,9 @@ async def run_full_pipeline(
                 journal.close(copy_to_history=True)
                 renderer.on_log("[dim]Journal closed and copied to history for ML training[/dim]")
             except Exception as e:
-                renderer.on_log(f"[yellow]Warning:[/yellow] Journal close failed: {e}", is_error=True)
+                renderer.on_log(
+                    f"[yellow]Warning:[/yellow] Journal close failed: {e}", is_error=True
+                )
 
         return {
             "success": failed_phases == 0 and phases_with_warnings == 0,

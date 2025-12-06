@@ -41,23 +41,27 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-EXPRESS_DANGEROUS_SINKS = frozenset([
-    "res.send",
-    "res.write",
-    "res.end",
-    "response.send",
-    "response.write",
-    "response.end",
-])
+EXPRESS_DANGEROUS_SINKS = frozenset(
+    [
+        "res.send",
+        "res.write",
+        "res.end",
+        "response.send",
+        "response.write",
+        "response.end",
+    ]
+)
 
-# Extend common sources with Express-specific sources
-EXPRESS_INPUT_SOURCES = COMMON_INPUT_SOURCES | frozenset([
-    "req.get(",
-    "req.header(",
-    "req.signedCookies",
-    "req.originalUrl",
-    "req.path",
-])
+
+EXPRESS_INPUT_SOURCES = COMMON_INPUT_SOURCES | frozenset(
+    [
+        "req.get(",
+        "req.header(",
+        "req.signedCookies",
+        "req.originalUrl",
+        "req.path",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -113,9 +117,19 @@ def _check_unsafe_res_send(db: RuleDB) -> list[StandardFinding]:
         if not args:
             continue
 
-        has_html = any(pattern in args for pattern in [
-            "`", "<html", "<div", "<script", "<img", "<iframe", "<span", "<p>",
-        ])
+        has_html = any(
+            pattern in args
+            for pattern in [
+                "`",
+                "<html",
+                "<div",
+                "<script",
+                "<img",
+                "<iframe",
+                "<span",
+                "<p>",
+            ]
+        )
         has_user_input = _has_express_input(args)
         sanitized = is_sanitized(args)
 
@@ -123,7 +137,6 @@ def _check_unsafe_res_send(db: RuleDB) -> list[StandardFinding]:
             continue
 
         if has_html and has_user_input:
-            # HIGH: Definite HTML context with user input
             findings.append(
                 StandardFinding(
                     rule_name="express-xss-res-send-html",
@@ -137,8 +150,6 @@ def _check_unsafe_res_send(db: RuleDB) -> list[StandardFinding]:
                 )
             )
         elif has_user_input:
-            # MEDIUM: Tainted input without visible HTML - could still be dangerous
-            # e.g., res.send(req.body.content) where content may contain HTML
             findings.append(
                 StandardFinding(
                     rule_name="express-xss-res-send-tainted",
@@ -288,8 +299,13 @@ def _check_header_injection(db: RuleDB) -> list[StandardFinding]:
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function IN (?, ?, ?, ?)",
-               "res.set", "res.setHeader", "response.set", "response.setHeader")
+        .where(
+            "callee_function IN (?, ?, ?, ?)",
+            "res.set",
+            "res.setHeader",
+            "response.set",
+            "response.setHeader",
+        )
         .where("argument_index = ?", 1)
         .where("argument_expr IS NOT NULL")
         .order_by("file, line")
@@ -323,7 +339,7 @@ def _check_header_injection(db: RuleDB) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.MEDIUM,
                     category="injection",
-                    snippet=f'{func}({header_name}, req.body...)',
+                    snippet=f"{func}({header_name}, req.body...)",
                     cwe_id="CWE-113",
                 )
             )

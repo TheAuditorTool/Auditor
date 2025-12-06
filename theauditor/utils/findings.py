@@ -3,7 +3,6 @@
 from datetime import UTC, datetime
 from typing import Any
 
-# Severity priority (lower number = higher priority)
 PRIORITY_ORDER = {
     "critical": 0,
     "high": 1,
@@ -15,7 +14,7 @@ PRIORITY_ORDER = {
     "unknown": 7,
 }
 
-# Tool importance for sorting (lower = more important)
+
 TOOL_IMPORTANCE = {
     "taint-analyzer": 0,
     "vulnerability-scanner": 0,
@@ -44,7 +43,7 @@ TOOL_IMPORTANCE = {
     "beautifier": 7,
 }
 
-# Map various severity formats to standard strings
+
 SEVERITY_MAPPINGS = {
     4: "critical",
     3: "high",

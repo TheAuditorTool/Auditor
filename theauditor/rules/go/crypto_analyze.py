@@ -67,11 +67,8 @@ def _check_insecure_random(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Find files importing math/rand
     math_rand_rows = db.query(
-        Q("go_imports")
-        .select("file_path", "line")
-        .where("path = ?", "math/rand")
+        Q("go_imports").select("file_path", "line").where("path = ?", "math/rand")
     )
 
     math_rand_files = {file_path: line for file_path, line in math_rand_rows}
@@ -80,7 +77,6 @@ def _check_insecure_random(db: RuleDB) -> list[StandardFinding]:
         return findings
 
     for file_path, import_line in math_rand_files.items():
-        # Check if file also imports crypto-related packages
         crypto_import_rows = db.query(
             Q("go_imports")
             .select("path")
@@ -90,7 +86,6 @@ def _check_insecure_random(db: RuleDB) -> list[StandardFinding]:
         )
         has_crypto = len(list(crypto_import_rows)) > 0
 
-        # Check for security-related function names
         security_func_rows = db.query(
             Q("go_functions")
             .select("name")
@@ -98,7 +93,12 @@ def _check_insecure_random(db: RuleDB) -> list[StandardFinding]:
             .where(
                 "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
                 "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?",
-                "%token%", "%secret%", "%password%", "%key%", "%auth%", "%session%"
+                "%token%",
+                "%secret%",
+                "%password%",
+                "%key%",
+                "%auth%",
+                "%session%",
             )
             .limit(1)
         )
@@ -129,12 +129,16 @@ def _check_weak_crypto(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Find files importing weak crypto algorithms
     weak_crypto_rows = db.query(
         Q("go_imports")
         .select("file_path", "line", "path")
-        .where("path = ? OR path = ? OR path = ? OR path = ?",
-               "crypto/md5", "crypto/sha1", "crypto/des", "crypto/rc4")
+        .where(
+            "path = ? OR path = ? OR path = ? OR path = ?",
+            "crypto/md5",
+            "crypto/sha1",
+            "crypto/des",
+            "crypto/rc4",
+        )
     )
 
     for file_path, import_line, import_path in weak_crypto_rows:
@@ -153,7 +157,6 @@ def _check_weak_crypto(db: RuleDB) -> list[StandardFinding]:
         else:
             continue
 
-        # Check for security-related function context
         security_func_rows = db.query(
             Q("go_functions")
             .select("name")
@@ -161,7 +164,12 @@ def _check_weak_crypto(db: RuleDB) -> list[StandardFinding]:
             .where(
                 "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
                 "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?",
-                "%password%", "%auth%", "%verify%", "%hash%", "%sign%", "%encrypt%"
+                "%password%",
+                "%auth%",
+                "%verify%",
+                "%hash%",
+                "%sign%",
+                "%encrypt%",
             )
             .limit(1)
         )
@@ -201,12 +209,14 @@ def _check_insecure_tls(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Check for InsecureSkipVerify: true
     skip_verify_rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "initial_value")
-        .where("initial_value LIKE ? OR initial_value LIKE ?",
-               "%InsecureSkipVerify%true%", "%InsecureSkipVerify:%true%")
+        .where(
+            "initial_value LIKE ? OR initial_value LIKE ?",
+            "%InsecureSkipVerify%true%",
+            "%InsecureSkipVerify:%true%",
+        )
     )
 
     for file_path, line, initial_value in skip_verify_rows:
@@ -223,12 +233,15 @@ def _check_insecure_tls(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check for weak TLS versions
     weak_tls_rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "initial_value")
-        .where("initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
-               "%tls.VersionSSL30%", "%tls.VersionTLS10%", "%tls.VersionTLS11%")
+        .where(
+            "initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
+            "%tls.VersionSSL30%",
+            "%tls.VersionTLS10%",
+            "%tls.VersionTLS11%",
+        )
     )
 
     for file_path, line, initial_value in weak_tls_rows:
@@ -248,24 +261,23 @@ def _check_insecure_tls(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
-# High-entropy patterns for common API keys/secrets
 SECRET_PATTERNS = [
-    (re.compile(r'AKIA[0-9A-Z]{16}'), "AWS Access Key ID"),
-    (re.compile(r'[0-9a-zA-Z/+]{40}'), "AWS Secret Key (40-char base64)"),
-    (re.compile(r'ghp_[0-9a-zA-Z]{36}'), "GitHub Personal Access Token"),
-    (re.compile(r'gho_[0-9a-zA-Z]{36}'), "GitHub OAuth Token"),
-    (re.compile(r'ghu_[0-9a-zA-Z]{36}'), "GitHub User Token"),
-    (re.compile(r'ghs_[0-9a-zA-Z]{36}'), "GitHub Server Token"),
-    (re.compile(r'ghr_[0-9a-zA-Z]{36}'), "GitHub Refresh Token"),
-    (re.compile(r'sk-[0-9a-zA-Z]{48}'), "OpenAI API Key"),
-    (re.compile(r'sk-live-[0-9a-zA-Z]{24,}'), "Stripe Live Secret Key"),
-    (re.compile(r'sk-test-[0-9a-zA-Z]{24,}'), "Stripe Test Secret Key"),
-    (re.compile(r'xox[baprs]-[0-9a-zA-Z-]{10,}'), "Slack Token"),
-    (re.compile(r'AIza[0-9A-Za-z_-]{35}'), "Google API Key"),
-    (re.compile(r'ya29\.[0-9A-Za-z_-]+'), "Google OAuth Token"),
-    (re.compile(r'[0-9a-f]{32}-us[0-9]{1,2}'), "Mailchimp API Key"),
-    (re.compile(r'SG\.[0-9A-Za-z_-]{22}\.[0-9A-Za-z_-]{43}'), "SendGrid API Key"),
-    (re.compile(r'key-[0-9a-zA-Z]{32}'), "Mailgun API Key"),
+    (re.compile(r"AKIA[0-9A-Z]{16}"), "AWS Access Key ID"),
+    (re.compile(r"[0-9a-zA-Z/+]{40}"), "AWS Secret Key (40-char base64)"),
+    (re.compile(r"ghp_[0-9a-zA-Z]{36}"), "GitHub Personal Access Token"),
+    (re.compile(r"gho_[0-9a-zA-Z]{36}"), "GitHub OAuth Token"),
+    (re.compile(r"ghu_[0-9a-zA-Z]{36}"), "GitHub User Token"),
+    (re.compile(r"ghs_[0-9a-zA-Z]{36}"), "GitHub Server Token"),
+    (re.compile(r"ghr_[0-9a-zA-Z]{36}"), "GitHub Refresh Token"),
+    (re.compile(r"sk-[0-9a-zA-Z]{48}"), "OpenAI API Key"),
+    (re.compile(r"sk-live-[0-9a-zA-Z]{24,}"), "Stripe Live Secret Key"),
+    (re.compile(r"sk-test-[0-9a-zA-Z]{24,}"), "Stripe Test Secret Key"),
+    (re.compile(r"xox[baprs]-[0-9a-zA-Z-]{10,}"), "Slack Token"),
+    (re.compile(r"AIza[0-9A-Za-z_-]{35}"), "Google API Key"),
+    (re.compile(r"ya29\.[0-9A-Za-z_-]+"), "Google OAuth Token"),
+    (re.compile(r"[0-9a-f]{32}-us[0-9]{1,2}"), "Mailchimp API Key"),
+    (re.compile(r"SG\.[0-9A-Za-z_-]{22}\.[0-9A-Za-z_-]{43}"), "SendGrid API Key"),
+    (re.compile(r"key-[0-9a-zA-Z]{32}"), "Mailgun API Key"),
 ]
 
 
@@ -278,7 +290,6 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Check 1: Constants with secret-like names
     secret_const_rows = db.query(
         Q("go_constants")
         .select("file_path", "line", "name", "value")
@@ -288,8 +299,13 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
             "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
             "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
             "OR LOWER(name) LIKE ?",
-            "%password%", "%secret%", "%api_key%", "%apikey%",
-            "%token%", "%private%key%", "%credential%"
+            "%password%",
+            "%secret%",
+            "%api_key%",
+            "%apikey%",
+            "%token%",
+            "%private%key%",
+            "%credential%",
         )
     )
 
@@ -311,7 +327,6 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check 2: Package-level variables with secret-like names
     secret_var_rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "name", "initial_value")
@@ -321,8 +336,12 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
         .where(
             "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
             "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?",
-            "%password%", "%secret%", "%api_key%", "%apikey%",
-            "%token%", "%private%key%"
+            "%password%",
+            "%secret%",
+            "%api_key%",
+            "%apikey%",
+            "%token%",
+            "%private%key%",
         )
     )
 
@@ -344,7 +363,6 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check 3: High-entropy patterns in ALL string constants (value-based detection)
     all_const_rows = db.query(
         Q("go_constants")
         .select("file_path", "line", "name", "value")
@@ -355,7 +373,7 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
     seen_findings: set[tuple[str, int]] = set()
     for file_path, line, name, value in all_const_rows:
         value = value or ""
-        # Strip quotes
+
         clean_value = value.strip('"').strip("'").strip("`")
 
         for pattern, secret_type in SECRET_PATTERNS:

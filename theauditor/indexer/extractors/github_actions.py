@@ -9,8 +9,8 @@ import yaml
 
 from theauditor.utils.logging import logger
 
-from . import BaseExtractor
 from ..fidelity_utils import FidelityToken
+from . import BaseExtractor
 
 
 class GitHubWorkflowExtractor(BaseExtractor):
@@ -31,7 +31,6 @@ class GitHubWorkflowExtractor(BaseExtractor):
         """Extract GitHub Actions workflow data and return with fidelity manifest."""
         workflow_path = str(file_info["path"])
 
-        # Initialize result structure with empty lists
         result = {
             "github_workflows": [],
             "github_jobs": [],
@@ -46,11 +45,9 @@ class GitHubWorkflowExtractor(BaseExtractor):
             if not workflow_data or not isinstance(workflow_data, dict):
                 return FidelityToken.attach_manifest(result)
 
-            # Extract workflow-level data
             workflow_record = self._extract_workflow(workflow_path, workflow_data)
             result["github_workflows"].append(workflow_record)
 
-            # Extract jobs and their children
             jobs_data = workflow_data.get("jobs", {})
             if isinstance(jobs_data, dict):
                 jobs, job_deps, steps, step_outputs, step_refs = self._extract_jobs(
@@ -147,22 +144,23 @@ class GitHubWorkflowExtractor(BaseExtractor):
             uses_reusable = "uses" in job_value
             reusable_path = job_value.get("uses") if uses_reusable else None
 
-            jobs.append({
-                "job_id": job_id,
-                "workflow_path": workflow_path,
-                "job_key": job_key,
-                "job_name": job_name,
-                "runs_on": runs_on_json,
-                "strategy": strategy_json,
-                "permissions": permissions_json,
-                "env": env_json,
-                "if_condition": if_condition,
-                "timeout_minutes": timeout_minutes,
-                "uses_reusable_workflow": uses_reusable,
-                "reusable_workflow_path": reusable_path,
-            })
+            jobs.append(
+                {
+                    "job_id": job_id,
+                    "workflow_path": workflow_path,
+                    "job_key": job_key,
+                    "job_name": job_name,
+                    "runs_on": runs_on_json,
+                    "strategy": strategy_json,
+                    "permissions": permissions_json,
+                    "env": env_json,
+                    "if_condition": if_condition,
+                    "timeout_minutes": timeout_minutes,
+                    "uses_reusable_workflow": uses_reusable,
+                    "reusable_workflow_path": reusable_path,
+                }
+            )
 
-            # Extract job dependencies (needs:)
             needs = job_value.get("needs", [])
             if isinstance(needs, str):
                 needs_list = [needs]
@@ -173,12 +171,13 @@ class GitHubWorkflowExtractor(BaseExtractor):
 
             for needed_job_key in needs_list:
                 needed_job_id = f"{workflow_path}::{needed_job_key}"
-                job_dependencies.append({
-                    "job_id": job_id,
-                    "needs_job_id": needed_job_id,
-                })
+                job_dependencies.append(
+                    {
+                        "job_id": job_id,
+                        "needs_job_id": needed_job_id,
+                    }
+                )
 
-            # Extract steps
             steps = job_value.get("steps", [])
             if isinstance(steps, list):
                 step_list, output_list, ref_list = self._extract_steps(job_id, steps)
@@ -188,9 +187,7 @@ class GitHubWorkflowExtractor(BaseExtractor):
 
         return jobs, job_dependencies, all_steps, all_step_outputs, all_step_references
 
-    def _extract_steps(
-        self, job_id: str, steps: list[dict]
-    ) -> tuple[list, list, list]:
+    def _extract_steps(self, job_id: str, steps: list[dict]) -> tuple[list, list, list]:
         """Extract steps and their references, returning data lists."""
         step_list = []
         output_list = []
@@ -227,40 +224,40 @@ class GitHubWorkflowExtractor(BaseExtractor):
 
             continue_on_error = step.get("continue-on-error", False)
 
-            step_list.append({
-                "step_id": step_id,
-                "job_id": job_id,
-                "sequence_order": sequence_order,
-                "step_name": step_name,
-                "uses_action": uses_action,
-                "uses_version": uses_version,
-                "run_script": run_script,
-                "shell": shell,
-                "env": env_json,
-                "with_args": with_args_json,
-                "if_condition": if_condition,
-                "timeout_minutes": timeout_minutes,
-                "continue_on_error": continue_on_error,
-            })
+            step_list.append(
+                {
+                    "step_id": step_id,
+                    "job_id": job_id,
+                    "sequence_order": sequence_order,
+                    "step_name": step_name,
+                    "uses_action": uses_action,
+                    "uses_version": uses_version,
+                    "run_script": run_script,
+                    "shell": shell,
+                    "env": env_json,
+                    "with_args": with_args_json,
+                    "if_condition": if_condition,
+                    "timeout_minutes": timeout_minutes,
+                    "continue_on_error": continue_on_error,
+                }
+            )
 
-            # Extract step outputs
             outputs = step.get("outputs")
             if isinstance(outputs, dict):
                 for output_name, output_expr in outputs.items():
-                    output_list.append({
-                        "step_id": step_id,
-                        "output_name": output_name,
-                        "output_expression": str(output_expr),
-                    })
+                    output_list.append(
+                        {
+                            "step_id": step_id,
+                            "output_name": output_name,
+                            "output_expression": str(output_expr),
+                        }
+                    )
 
-            # Extract references from various fields
             reference_list.extend(self._extract_references(step_id, "run", run_script))
             reference_list.extend(self._extract_references(step_id, "if", if_condition))
             if env:
                 for _env_key, env_value in env.items():
-                    reference_list.extend(
-                        self._extract_references(step_id, "env", str(env_value))
-                    )
+                    reference_list.extend(self._extract_references(step_id, "env", str(env_value)))
             if with_args:
                 for _with_key, with_value in with_args.items():
                     reference_list.extend(
@@ -269,9 +266,7 @@ class GitHubWorkflowExtractor(BaseExtractor):
 
         return step_list, output_list, reference_list
 
-    def _extract_references(
-        self, step_id: str, location: str, text: str | None
-    ) -> list[dict]:
+    def _extract_references(self, step_id: str, location: str, text: str | None) -> list[dict]:
         """Extract ${{ }} expression references from text, returning list of dicts."""
         if not text:
             return []
@@ -286,11 +281,13 @@ class GitHubWorkflowExtractor(BaseExtractor):
             first_segment = reference_path.split(".")[0].split("[")[0]
             reference_type = first_segment
 
-            references.append({
-                "step_id": step_id,
-                "reference_location": location,
-                "reference_type": reference_type,
-                "reference_path": reference_path,
-            })
+            references.append(
+                {
+                    "step_id": step_id,
+                    "reference_location": location,
+                    "reference_type": reference_type,
+                    "reference_path": reference_path,
+                }
+            )
 
         return references

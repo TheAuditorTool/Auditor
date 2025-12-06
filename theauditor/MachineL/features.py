@@ -592,7 +592,6 @@ def load_comment_hallucination_features(
                             file_path_obj = file_path_obj.relative_to(project_root)
                         normalized_file = str(file_path_obj).replace("\\", "/")
                     except ValueError:
-                        # Path not relative to project root
                         normalized_file = file.replace("\\", "/")
 
                     if normalized_file not in file_paths:
@@ -611,7 +610,6 @@ def load_comment_hallucination_features(
 
         analyzer.close()
     except ImportError:
-        # Session analyzer not available
         pass
 
     return dict(stats)
@@ -692,7 +690,6 @@ def load_agent_behavior_features(
 
         analyzer.close()
     except ImportError:
-        # Session analyzer not available
         pass
 
     return dict(stats)
@@ -771,7 +768,6 @@ def load_session_execution_features(
                             diff_path_obj = diff_path_obj.relative_to(project_root)
                         normalized_diff = str(diff_path_obj.as_posix())
                     except ValueError:
-                        # Path not relative to project root
                         normalized_diff = str(Path(diff_file).as_posix())
 
                     if normalized_diff == normalized_path:
@@ -836,7 +832,6 @@ def load_impact_features(db_path: str, file_paths: list[str]) -> dict[str, dict]
     with sqlite3.connect(db_path) as conn:
         cursor = conn.cursor()
 
-        # BATCH 1: Check which files are API endpoints (high-value targets)
         placeholders = ",".join("?" * len(file_paths))
         cursor.execute(
             f"SELECT DISTINCT file FROM api_endpoints WHERE file IN ({placeholders})",
@@ -848,7 +843,6 @@ def load_impact_features(db_path: str, file_paths: list[str]) -> dict[str, dict]
             if fp in api_files:
                 stats[fp]["is_api_endpoint"] = True
 
-        # BATCH 2: Get first function/class for ALL files in one query
         cursor.execute(
             f"""
             SELECT path, name, type, line
@@ -860,7 +854,6 @@ def load_impact_features(db_path: str, file_paths: list[str]) -> dict[str, dict]
             file_paths,
         )
 
-        # Keep only first symbol per file
         file_symbols: dict[str, tuple[str, str, int]] = {}
         for path, name, sym_type, line in cursor.fetchall():
             if path not in file_symbols:
@@ -869,50 +862,37 @@ def load_impact_features(db_path: str, file_paths: list[str]) -> dict[str, dict]
         if not file_symbols:
             return dict(stats)
 
-        # Prepare batch inputs
         upstream_symbols = [
-            (fp, name, sym_type)
-            for fp, (name, sym_type, _) in file_symbols.items()
+            (fp, name, sym_type) for fp, (name, sym_type, _) in file_symbols.items()
         ]
-        downstream_symbols = [
-            (fp, line, name)
-            for fp, (name, _, line) in file_symbols.items()
-        ]
+        downstream_symbols = [(fp, line, name) for fp, (name, _, line) in file_symbols.items()]
 
-        # BATCH 3: Get all upstream dependencies in ONE query
         upstream_results = impact_analyzer.find_upstream_dependencies_batch(
             cursor, upstream_symbols
         )
 
-        # BATCH 4: Get all downstream dependencies in ONE query
         downstream_results = impact_analyzer.find_downstream_dependencies_batch(
             cursor, downstream_symbols
         )
 
-        # Process results for each file
         for fp in file_paths:
             if fp not in file_symbols:
                 continue
 
             name, sym_type, line = file_symbols[fp]
 
-            # Get upstream for this file's symbol
             upstream = upstream_results.get(name, [])
 
-            # Get downstream for this file's symbol
             downstream_key = f"{fp}:{name}"
             downstream = downstream_results.get(downstream_key, [])
 
-            # Calculate transitive impact (still recursive, but starting from batch results)
             downstream_transitive = impact_analyzer.calculate_transitive_impact(
                 cursor, downstream, "downstream", max_depth=2
             )
 
-            # Risk classification
             all_impacts = upstream + downstream + downstream_transitive
             risk_data = impact_analyzer.classify_risk(all_impacts)
 
-            # Populate features
             stats[fp]["direct_upstream"] = len(upstream)
             stats[fp]["direct_downstream"] = len(downstream)
             stats[fp]["transitive_impact"] = len(downstream_transitive)
@@ -924,13 +904,10 @@ def load_impact_features(db_path: str, file_paths: list[str]) -> dict[str, dict]
 
             stats[fp]["affected_files"] = affected_files
 
-            # Log-scale blast radius (stability for large values)
             stats[fp]["blast_radius"] = float(np.log1p(total_impact))
 
-            # Coupling score: normalized 0-1
             stats[fp]["coupling_score"] = min(total_impact / 50.0, 1.0)
 
-            # Production dependency count (most actionable)
             stats[fp]["prod_dependency_count"] = risk_data["metrics"]["prod_count"]
 
     return dict(stats)
@@ -953,7 +930,6 @@ def load_all_db_features(
     semantic = load_semantic_import_features(db_path, file_paths)
     complexity = load_ast_complexity_metrics(db_path, file_paths)
 
-    # 2025: Blast radius features from impact_analyzer
     impact_features = load_impact_features(db_path, file_paths)
 
     session_execution_features = load_session_execution_features(None, file_paths)
@@ -979,7 +955,6 @@ def load_all_db_features(
         combined_features[file_path].update(semantic.get(file_path, {}))
         combined_features[file_path].update(complexity.get(file_path, {}))
 
-        # 2025: Blast radius features
         combined_features[file_path].update(impact_features.get(file_path, {}))
 
         combined_features[file_path].update(session_execution_features.get(file_path, {}))

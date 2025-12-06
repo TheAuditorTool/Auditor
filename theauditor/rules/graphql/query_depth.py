@@ -27,8 +27,10 @@ METADATA = RuleMetadata(
     primary_table="graphql_fields",
 )
 
-# Scalar types that don't contribute to nesting depth
-SCALAR_TYPES = frozenset(["String", "Int", "Float", "Boolean", "ID", "DateTime", "Date", "Time", "JSON"])
+
+SCALAR_TYPES = frozenset(
+    ["String", "Int", "Float", "Boolean", "ID", "DateTime", "Date", "Time", "JSON"]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -49,7 +51,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        # Find list fields returning non-scalar types
         rows = db.query(
             Q("graphql_fields")
             .select(
@@ -70,14 +71,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             if not return_type:
                 continue
 
-            # Strip nullability and list markers to get base type
             base_return_type = return_type.rstrip("!").strip("[]").rstrip("!")
 
-            # Skip scalar types
             if base_return_type in SCALAR_TYPES:
                 continue
 
-            # Check if the returned type also has list fields (nesting potential)
             nested_rows = db.query(
                 Q("graphql_types")
                 .select("graphql_types.type_id")
@@ -85,7 +83,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             )
 
             for (nested_type_id,) in nested_rows:
-                # Count list fields in the nested type
                 count_rows = db.query(
                     Q("graphql_fields")
                     .select("field_id")
@@ -114,6 +111,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                             },
                         )
                     )
-                    break  # One finding per field
+                    break
 
         return RuleResult(findings=findings, manifest=db.get_manifest())

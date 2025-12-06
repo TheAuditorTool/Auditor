@@ -205,13 +205,11 @@ def extract_rust_use_statements(root_node: Any, file_path: str) -> list[dict]:
                 uses.extend(expanded)
             else:
                 if is_glob:
-                    # Glob imports get "*" as local_name for uniqueness in composite key
                     local_name = "*"
                 elif "::" in import_path:
                     parts = import_path.split("::")
                     local_name = parts[-1].strip()
                 else:
-                    # Simple import like `use foo;`
                     local_name = import_path.strip()
 
                 uses.append(
@@ -1312,7 +1310,7 @@ def extract_rust_assignments(root_node: Any, file_path: str) -> list[dict]:
                 if child.type != "mut":
                     vars_list.extend(extract_pattern_vars(child))
         elif node.type == "_":
-            pass  # Wildcard pattern, no variable
+            pass
 
         return vars_list
 
@@ -1324,7 +1322,7 @@ def extract_rust_assignments(root_node: Any, file_path: str) -> list[dict]:
 
         if node.type == "identifier":
             name = _get_text(node)
-            # Filter out type names (PascalCase) and keywords
+
             if (
                 name
                 and not name[0].isupper()
@@ -1332,16 +1330,15 @@ def extract_rust_assignments(root_node: Any, file_path: str) -> list[dict]:
             ):
                 vars_list.append(name)
         elif node.type == "field_expression":
-            # For x.y.z, extract full path
             text = _get_text(node)
             if text:
                 vars_list.append(text)
-            return vars_list  # Don't recurse, we have the full path
+            return vars_list
         else:
             for child in node.children:
                 vars_list.extend(extract_source_vars(child))
 
-        return list(dict.fromkeys(vars_list))  # Dedupe preserving order
+        return list(dict.fromkeys(vars_list))
 
     def visit(node: Any) -> None:
         if node.type == "function_item":
@@ -1356,24 +1353,18 @@ def extract_rust_assignments(root_node: Any, file_path: str) -> list[dict]:
             return
 
         if node.type == "let_declaration":
-            # Find pattern and value nodes
             pattern_node = None
             value_node = None
 
-            # Pattern comes after 'let' (and possibly 'mut'), before '=' or ':'
-            # Value comes after '='
             found_eq = False
             for child in node.children:
                 if child.type == "=":
                     found_eq = True
                 elif not found_eq:
-                    # Skip let keyword, mut specifier, type annotations
                     if child.type not in ["let", "mutable_specifier", ":"]:
-                        # Skip type nodes
                         if not child.type.endswith("_type") and child.type != "type_identifier":
                             pattern_node = child
                 else:
-                    # Value is the expression after '='
                     if child.type != ";":
                         value_node = child
                         break
@@ -1434,7 +1425,6 @@ def extract_rust_function_calls(root_node: Any, file_path: str) -> list[dict]:
         if func_node.type == "identifier":
             return _get_text(func_node)
         elif func_node.type == "field_expression":
-            # method call: obj.method -> return "method"
             field_node = _get_child_by_type(func_node, "field_identifier")
             if field_node:
                 return _get_text(field_node)
@@ -1443,7 +1433,6 @@ def extract_rust_function_calls(root_node: Any, file_path: str) -> list[dict]:
             # Type::function -> return full path
             return _get_text(func_node)
         elif func_node.type == "generic_function":
-            # func::<T>() -> extract the base function name
             base = None
             for child in func_node.children:
                 if child.type in ["identifier", "field_expression", "scoped_identifier"]:
@@ -1468,8 +1457,6 @@ def extract_rust_function_calls(root_node: Any, file_path: str) -> list[dict]:
             return
 
         if node.type == "call_expression":
-            # First child is the function being called
-            # Look for arguments node
             func_node = None
             args_node = None
 
@@ -1483,20 +1470,17 @@ def extract_rust_function_calls(root_node: Any, file_path: str) -> list[dict]:
             caller_function = current_function[0] or "global"
             line = node.start_point[0] + 1
 
-            # Skip empty callee
             if not callee_function:
                 for child in node.children:
                     visit(child)
                 return
 
-            # Extract arguments
             args = []
             if args_node:
                 for child in args_node.children:
                     if child.type not in ["(", ")", ","]:
                         args.append(child)
 
-            # If no arguments, still record the call
             if not args:
                 calls.append(
                     {
@@ -1519,7 +1503,7 @@ def extract_rust_function_calls(root_node: Any, file_path: str) -> list[dict]:
                             "callee_function": callee_function,
                             "argument_index": i,
                             "argument_expr": arg_expr[:500] if arg_expr else "",
-                            "param_name": f"arg{i}",  # Rust doesn't have named args
+                            "param_name": f"arg{i}",
                             "callee_file_path": None,
                         }
                     )
@@ -1556,7 +1540,7 @@ def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
 
         if node.type == "identifier":
             name = _get_text(node)
-            # Filter out type names (PascalCase) and keywords
+
             if (
                 name
                 and not name[0].isupper()
@@ -1564,7 +1548,6 @@ def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
             ):
                 vars_list.append(name)
         elif node.type == "field_expression":
-            # For x.y.z, extract full path
             text = _get_text(node)
             if text:
                 vars_list.append(text)
@@ -1584,26 +1567,22 @@ def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
         if block_node is None or block_node.type != "block":
             return None
 
-        # Get all non-brace children
         children = [c for c in block_node.children if c.type not in ["{", "}"]]
         if not children:
             return None
 
         last_child = children[-1]
 
-        # If it's an expression_statement, check if it ends with semicolon
         if last_child.type == "expression_statement":
-            # expression_statement with semicolon is NOT an implicit return
             text = _get_text(last_child)
             if text.rstrip().endswith(";"):
                 return None
-            # Otherwise, get the expression inside
+
             for child in last_child.children:
                 if child.type != ";":
                     return child
             return None
 
-        # If it's a direct expression (not wrapped in statement), it's implicit return
         if last_child.type not in [
             "let_declaration",
             "macro_invocation",
@@ -1621,16 +1600,13 @@ def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
             old_func = current_function[0]
             current_function[0] = _get_text(name_node) if name_node else None
 
-            # Process explicit returns in this function
             for child in node.children:
                 visit(child)
 
-            # Check for implicit return at end of function block
             block_node = _get_child_by_type(node, "block")
             if block_node and current_function[0]:
                 last_expr = get_last_expression_in_block(block_node)
                 if last_expr:
-                    # This is an implicit return
                     return_expr = _get_text(last_expr)
                     return_vars = extract_return_vars(last_expr)
 
@@ -1650,7 +1626,6 @@ def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
         if node.type == "return_expression":
             function_name = current_function[0] or "global"
 
-            # Get the return value (expression after 'return')
             return_value = None
             for child in node.children:
                 if child.type != "return":
@@ -1661,7 +1636,7 @@ def extract_rust_returns(root_node: Any, file_path: str) -> list[dict]:
                 return_expr = _get_text(return_value)
                 return_vars = extract_return_vars(return_value)
             else:
-                return_expr = "()"  # Return unit type
+                return_expr = "()"
                 return_vars = []
 
             returns.append(
@@ -1721,7 +1696,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
             block_id_counter[0] += 1
             return block_id_counter[0]
 
-        # Create entry block
         entry_id = get_next_block_id()
         blocks.append(
             {
@@ -1743,7 +1717,7 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
             for child in children:
                 result = process_statement(child, current_id, get_next_block_id)
                 if result is None:
-                    return None  # Explicit return, no continuation
+                    return None
                 if isinstance(result, tuple):
                     new_blocks, new_edges, next_id = result
                     blocks.extend(new_blocks)
@@ -1759,7 +1733,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
             stmt_blocks = []
             stmt_edges = []
 
-            # Unwrap expression_statement to get the actual expression
             actual_stmt = stmt
             if stmt.type == "expression_statement":
                 for child in stmt.children:
@@ -1768,7 +1741,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                         break
 
             if actual_stmt.type == "if_expression":
-                # Get condition
                 condition_node = None
                 consequence_node = None
                 alternative_node = None
@@ -1782,12 +1754,9 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                         consequence_node = child
                     elif child.type == "else_clause":
                         for c in child.children:
-                            if c.type == "block":
-                                alternative_node = c
-                            elif c.type == "if_expression":
+                            if c.type == "block" or c.type == "if_expression":
                                 alternative_node = c
 
-                # Create condition block
                 cond_id = get_id()
                 cond_text = _get_text(condition_node) if condition_node else ""
                 stmt_blocks.append(
@@ -1802,7 +1771,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                 )
                 stmt_edges.append({"source": current_id, "target": cond_id, "type": "normal"})
 
-                # Create then block
                 then_id = get_id()
                 stmt_blocks.append(
                     {
@@ -1819,7 +1787,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                 )
                 stmt_edges.append({"source": cond_id, "target": then_id, "type": "true"})
 
-                # Merge block
                 merge_id = get_id()
                 stmt_blocks.append(
                     {
@@ -1851,7 +1818,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                 return stmt_blocks, stmt_edges, merge_id
 
             elif actual_stmt.type == "match_expression":
-                # Get scrutinee
                 scrutinee_node = None
                 match_body = None
                 for child in actual_stmt.children:
@@ -1887,7 +1853,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                     }
                 )
 
-                # Process match arms
                 if match_body:
                     for child in match_body.children:
                         if child.type == "match_arm":
@@ -1915,7 +1880,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
             elif actual_stmt.type in ["loop_expression", "while_expression", "for_expression"]:
                 loop_type = actual_stmt.type.replace("_expression", "")
 
-                # Get condition (for while/for) or None (for loop)
                 condition_text = ""
                 body_node = None
 
@@ -1932,9 +1896,7 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                     pattern = None
                     iterator = None
                     for child in actual_stmt.children:
-                        if child.type == "for":
-                            continue
-                        elif child.type == "in":
+                        if child.type == "for" or child.type == "in":
                             continue
                         elif child.type == "block":
                             body_node = child
@@ -1944,12 +1906,11 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                             iterator = _get_text(child)
                     condition_text = f"{pattern} in {iterator}" if pattern and iterator else ""
 
-                else:  # loop_expression
+                else:
                     for child in actual_stmt.children:
                         if child.type == "block":
                             body_node = child
 
-                # Loop header/condition block
                 loop_id = get_id()
                 stmt_blocks.append(
                     {
@@ -1963,7 +1924,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                 )
                 stmt_edges.append({"source": current_id, "target": loop_id, "type": "normal"})
 
-                # Loop body block
                 body_id = get_id()
                 stmt_blocks.append(
                     {
@@ -1981,7 +1941,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                 stmt_edges.append({"source": loop_id, "target": body_id, "type": "true"})
                 stmt_edges.append({"source": body_id, "target": loop_id, "type": "back_edge"})
 
-                # Exit block
                 exit_id = get_id()
                 stmt_blocks.append(
                     {
@@ -2008,15 +1967,12 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
                     }
                 )
                 stmt_edges.append({"source": current_id, "target": return_id, "type": "normal"})
-                return None  # No continuation after return
+                return None
 
-            # For other statements, just continue
             return current_id
 
-        # Process the function block
         exit_id = process_block(block_node, entry_id)
 
-        # Create exit block if we have a continuation path
         if exit_id is not None:
             final_exit_id = get_next_block_id()
             blocks.append(
@@ -2036,7 +1992,6 @@ def extract_rust_cfg(root_node: Any, file_path: str) -> list[dict]:
             "edges": edges,
         }
 
-    # Find all function items and build CFG for each
     def visit(node: Any) -> None:
         if node.type == "function_item":
             func_cfg = build_function_cfg(node)

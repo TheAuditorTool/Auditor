@@ -17,10 +17,7 @@ from .events import PipelineObserver
 from .structures import PhaseResult
 from .ui import console as shared_console
 
-# Pre-compiled regex for colorizing numbers in log messages.
-# Matches digits NOT preceded by ANSI escape sequence start (\x1b[)
-# and NOT followed by 'm' (which would indicate ANSI color code like "32m").
-_NUMBER_COLORIZE_RE = re.compile(r'(?<!\x1b\[)(\d+)(?!\d*m)')
+_NUMBER_COLORIZE_RE = re.compile(r"(?<!\x1b\[)(\d+)(?!\d*m)")
 
 
 class DynamicTable:
@@ -45,7 +42,6 @@ class RichRenderer(PipelineObserver):
 
         self.is_tty = sys.stdout.isatty()
 
-        # Use shared console from ui.py - One Console to Rule Them All
         self.console = shared_console
 
         self._parallel_buffers: dict[str, list[str]] = {}
@@ -61,7 +57,6 @@ class RichRenderer(PipelineObserver):
 
         self._pipeline_start_time: float | None = None
 
-        # Handler ID for loguru sink swap (for Rich Live integration)
         self._loguru_handler_id: int | None = None
 
     def _build_live_table(self) -> Table:
@@ -113,12 +108,10 @@ class RichRenderer(PipelineObserver):
                     buffer.append("... [truncated, see .pf/pipeline.log for full output]")
 
         else:
-            # Route through loguru for consistent timestamp formatting
-            # Strip Rich markup to get plain text for logger
             try:
                 plain_text = Text.from_markup(text).plain
             except Exception:
-                plain_text = text  # Fallback if markup parsing fails
+                plain_text = text
 
             if is_error:
                 logger.error(plain_text)
@@ -135,26 +128,21 @@ class RichRenderer(PipelineObserver):
         Usage:
             logger.add(renderer.log_message, format="{message}", level="INFO")
         """
-        # Extract the formatted message text (loguru passes the full message object)
+
         text = str(message).rstrip("\n")
 
         if self.quiet:
             return
 
-        # Colorize numbers in the message portion (after the " - " separator)
-        # This makes counts like "250 files", "6787 symbols" pop with cyan
         if " - " in text:
             prefix, msg = text.split(" - ", 1)
-            # Use pre-compiled regex (module-level) for performance
-            msg = _NUMBER_COLORIZE_RE.sub(lambda m: f'\x1b[36m{m.group(1)}\x1b[0m', msg)
+
+            msg = _NUMBER_COLORIZE_RE.sub(lambda m: f"\x1b[36m{m.group(1)}\x1b[0m", msg)
             text = f"{prefix} - {msg}"
 
-        # Convert ANSI escape codes from loguru to Rich Text
-        # Loguru outputs ANSI codes, Rich expects Rich markup - Text.from_ansi() bridges them
         rich_text = Text.from_ansi(text)
 
         if self._live:
-            # Live.console.print() knows how to print ABOVE the live display
             self._live.console.print(rich_text)
         else:
             self.console.print(rich_text)
@@ -167,7 +155,6 @@ class RichRenderer(PipelineObserver):
             self._live = Live(dynamic_table, refresh_per_second=4, console=self.console)
             self._live.__enter__()
 
-            # Swap loguru sink to route through Rich console (logs appear above Live table)
             self._loguru_handler_id = swap_to_rich_sink(self.log_message)
 
     def stop(self):
@@ -176,7 +163,6 @@ class RichRenderer(PipelineObserver):
             self._live.__exit__(None, None, None)
             self._live = None
 
-            # Restore loguru to use stderr now that Live is done
             restore_stderr_sink(self._loguru_handler_id)
             self._loguru_handler_id = None
 
@@ -185,7 +171,9 @@ class RichRenderer(PipelineObserver):
 
     def on_stage_start(self, stage_name: str, stage_num: int) -> None:
         self._write("")
-        self._write(f"[bold magenta]Stage {stage_num}[/bold magenta]  [bold cyan]{stage_name}[/bold cyan]")
+        self._write(
+            f"[bold magenta]Stage {stage_num}[/bold magenta]  [bold cyan]{stage_name}[/bold cyan]"
+        )
 
     def on_phase_start(self, name: str, index: int, total: int) -> None:
         self._current_phase = index
@@ -204,7 +192,9 @@ class RichRenderer(PipelineObserver):
     def on_phase_failed(self, name: str, error: str, exit_code: int) -> None:
         self._phases[name] = {"status": "FAILED", "elapsed": 0}
 
-        self._write(f"[bold red]FAILED[/bold red]  {name}  [dim]exit {exit_code}[/dim]", is_error=True)
+        self._write(
+            f"[bold red]FAILED[/bold red]  {name}  [dim]exit {exit_code}[/dim]", is_error=True
+        )
         if error:
             truncated = error[:200] + "..." if len(error) > 200 else error
             self._write(f"  Error: {truncated}", is_error=True)
@@ -221,7 +211,6 @@ class RichRenderer(PipelineObserver):
     def on_parallel_track_complete(self, track_name: str, elapsed: float) -> None:
         self._phases[track_name] = {"status": "success", "elapsed": elapsed}
 
-        # Discard buffer - output is handled by pipelines.py track summaries
         self._parallel_buffers.pop(track_name, None)
 
         if not self._parallel_buffers:
@@ -241,6 +230,10 @@ class RichRenderer(PipelineObserver):
 
         self._write("")
         if failed == 0:
-            self._write(f"[bold green]AUDIT COMPLETE[/bold green]  All {total} phases successful  {total_time}")
+            self._write(
+                f"[bold green]AUDIT COMPLETE[/bold green]  All {total} phases successful  {total_time}"
+            )
         else:
-            self._write(f"[bold yellow]AUDIT COMPLETE[/bold yellow]  {failed} phases failed  {total_time}")
+            self._write(
+                f"[bold yellow]AUDIT COMPLETE[/bold yellow]  {failed} phases failed  {total_time}"
+            )

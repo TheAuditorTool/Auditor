@@ -662,8 +662,14 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
             )
 
             result = subprocess.run(
-                cmd, env=env, capture_output=True, text=True, timeout=600, cwd=str(target_dir),
-                encoding='utf-8', errors='replace'
+                cmd,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=600,
+                cwd=str(target_dir),
+                encoding="utf-8",
+                errors="replace",
             )
 
             if result.returncode > 1:
@@ -689,29 +695,41 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
 
             if npm_db.exists():
                 npm_size = npm_db.stat().st_size / (1024 * 1024)
-                logger.info(f"    {check_mark} npm vulnerability database downloaded ({npm_size:.1f} MB)")
+                logger.info(
+                    f"    {check_mark} npm vulnerability database downloaded ({npm_size:.1f} MB)"
+                )
             else:
                 if "npm" in lockfiles:
-                    logger.info("    [warning]npm database download failed - online mode will use API[/warning]")
+                    logger.info(
+                        "    [warning]npm database download failed - online mode will use API[/warning]"
+                    )
                 else:
                     logger.info("    ℹ No npm lockfile found - npm database not needed")
 
             if pypi_db.exists():
                 pypi_size = pypi_db.stat().st_size / (1024 * 1024)
-                logger.info(f"    {check_mark} PyPI vulnerability database downloaded ({pypi_size:.1f} MB)")
+                logger.info(
+                    f"    {check_mark} PyPI vulnerability database downloaded ({pypi_size:.1f} MB)"
+                )
             else:
                 if "PyPI" in lockfiles:
-                    logger.info("    [warning]PyPI database download failed - online mode will use API[/warning]")
+                    logger.info(
+                        "    [warning]PyPI database download failed - online mode will use API[/warning]"
+                    )
                 else:
                     logger.info("    ℹ No Python lockfile found - PyPI database not needed")
 
             if npm_db.exists() or pypi_db.exists():
                 logger.info(f"    {check_mark} Offline vulnerability scanning ready")
             else:
-                logger.info("    [warning]Database download failed - scanner will use online API mode[/warning]")
+                logger.info(
+                    "    [warning]Database download failed - scanner will use online API mode[/warning]"
+                )
                 logger.info("    [warning]To retry manually, run:[/warning]")
                 logger.info(f"      export OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY={db_dir}")
-                logger.info(f"      {binary_path} scan -r . --offline-vulnerabilities --download-offline-databases")
+                logger.info(
+                    f"      {binary_path} scan -r . --offline-vulnerabilities --download-offline-databases"
+                )
 
         except subprocess.TimeoutExpired:
             logger.info("    [warning]Database download timed out after 10 minutes[/warning]")
@@ -722,7 +740,9 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
             logger.info("    [warning]Scanner will use online API mode[/warning]")
             logger.info("    [warning]To retry manually:[/warning]")
             logger.info(f"      export OSV_SCANNER_LOCAL_DB_CACHE_DIRECTORY={db_dir}")
-            logger.info(f"      {binary_path} scan -r . --offline-vulnerabilities --download-offline-databases")
+            logger.info(
+                f"      {binary_path} scan -r . --offline-vulnerabilities --download-offline-databases"
+            )
         finally:
             for tmp in temp_files:
                 with contextlib.suppress(OSError):
@@ -733,7 +753,9 @@ def setup_osv_scanner(sandbox_dir: Path) -> Path | None:
 
     except urllib.error.URLError as e:
         logger.warning(f"\\ Network error downloading OSV-Scanner: {e}")
-        logger.info("    [warning]You can manually download from: https://github.com/google/osv-scanner/releases[/warning]")
+        logger.info(
+            "    [warning]You can manually download from: https://github.com/google/osv-scanner/releases[/warning]"
+        )
         return None
     except Exception as e:
         logger.warning(f"\\ Failed to install OSV-Scanner: {e}")
@@ -895,7 +917,9 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                     shutil.copy2(str(agent_file), str(dest_file))
 
                 check_mark = "[OK]"
-                logger.info(f"    {check_mark} Planning agents copied to sandbox ({len(agent_files)} agents)")
+                logger.info(
+                    f"    {check_mark} Planning agents copied to sandbox ({len(agent_files)} agents)"
+                )
                 logger.info(f"        -> {agents_dest}")
 
                 _inject_agents_md(target_dir)
@@ -917,9 +941,13 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                     shutil.copy2(str(command_file), str(dest_file))
 
                 check_mark = "[OK]" if IS_WINDOWS else "✓"
-                logger.info(f"    {check_mark} Slash commands copied to project ({len(command_files)} commands)")
+                logger.info(
+                    f"    {check_mark} Slash commands copied to project ({len(command_files)} commands)"
+                )
                 logger.info(f"        -> {commands_dest}")
-                logger.info("        Available: /theauditor:planning, /theauditor:security, /theauditor:refactor, /theauditor:dataflow")
+                logger.info(
+                    "        Available: /theauditor:planning, /theauditor:security, /theauditor:refactor, /theauditor:dataflow"
+                )
             else:
                 logger.warning(f"\\ No command files found in {commands_source}")
         else:
@@ -1027,11 +1055,15 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                     logger.info(f"    {check_mark} ESLint verified at: {eslint_path}")
             else:
                 logger.warning(f"\\ npm install failed: {result.stderr[:500]}")
-                logger.info("    [warning]This may be a network issue. Try running setup again.[/warning]")
+                logger.info(
+                    "    [warning]This may be a network issue. Try running setup again.[/warning]"
+                )
 
         except RuntimeError as e:
             logger.warning(f"\\ Could not set up bundled Node.js: {e}")
-            logger.info("    [warning]JavaScript/TypeScript linting will not be available[/warning]")
+            logger.info(
+                "    [warning]JavaScript/TypeScript linting will not be available[/warning]"
+            )
             logger.info("    [warning]To retry: Delete .auditor_venv and run setup again[/warning]")
         except Exception as e:
             logger.warning(f"\\ Unexpected error setting up JS tools: {e}")
@@ -1043,6 +1075,8 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
             check_mark = "[OK]"
             logger.info(f"{check_mark} OSV-Scanner ready for vulnerability detection")
         else:
-            logger.info("[warning]OSV-Scanner setup failed - vulnerability detection may be limited[/warning]")
+            logger.info(
+                "[warning]OSV-Scanner setup failed - vulnerability detection may be limited[/warning]"
+            )
 
     return venv_path, success

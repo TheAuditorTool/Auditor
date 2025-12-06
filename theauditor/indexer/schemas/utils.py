@@ -88,7 +88,7 @@ class TableSchema:
 
     def create_table_sql(self) -> str:
         """Generate CREATE TABLE statement."""
-        # GUARD: Detect PRIMARY KEY conflict (column-level + table-level)
+
         column_pks = [col.name for col in self.columns if col.primary_key]
         if column_pks and self.primary_key:
             raise ValueError(
@@ -115,7 +115,6 @@ class TableSchema:
                     f"FOREIGN KEY ({local_cols}) REFERENCES {fk.foreign_table} ({foreign_cols})"
                 )
             elif isinstance(fk, tuple) and len(fk) >= 3:
-                # Legacy tuple format: (local_col, foreign_table, foreign_col, [cascade])
                 local_col, foreign_table, foreign_col = fk[0], fk[1], fk[2]
                 col_defs.append(
                     f"FOREIGN KEY ({local_col}) REFERENCES {foreign_table} ({foreign_col})"
@@ -151,13 +150,11 @@ class TableSchema:
         """
         errors = []
 
-        # 1. Check table exists
         cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (self.name,))
         if not cursor.fetchone():
             errors.append(f"Table {self.name} does not exist")
             return False, errors
 
-        # 2. Check columns exist with correct types
         cursor.execute(f"PRAGMA table_info({self.name})")
         actual_cols = {row[1]: row[2] for row in cursor.fetchall()}
 
@@ -170,9 +167,7 @@ class TableSchema:
                     f"expected {col.type}, got {actual_cols[col.name]}"
                 )
 
-        # 3. Check UNIQUE constraints using PRAGMA (not brittle string matching)
         if self.unique_constraints:
-            # Get all unique indexes from the database
             cursor.execute(f"PRAGMA index_list({self.name})")
             db_unique_sets: list[set[str]] = []
 
@@ -181,14 +176,10 @@ class TableSchema:
                 is_unique = idx_row[2]
 
                 if is_unique:
-                    # Get columns in this unique index
                     cursor.execute(f"PRAGMA index_info({idx_name})")
-                    idx_cols = {row[2] for row in cursor.fetchall()}  # row[2] is column name
+                    idx_cols = {row[2] for row in cursor.fetchall()}
                     db_unique_sets.append(idx_cols)
 
-            # Also check for inline UNIQUE constraints in CREATE TABLE
-            # These show up in table_info with pk > 0 for composite PKs
-            # But for explicit UNIQUE(...) we need to parse - fall back to SQL check
             cursor.execute(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name=?", (self.name,)
             )
@@ -198,17 +189,14 @@ class TableSchema:
             for unique_cols in self.unique_constraints:
                 expected_set = set(unique_cols)
 
-                # Check if this constraint exists in any form
                 found = any(expected_set == db_set for db_set in db_unique_sets)
 
-                # Also check inline UNIQUE in CREATE TABLE SQL (normalized check)
                 if not found:
-                    # Normalize: strip quotes and spaces for comparison
                     normalized_cols = [c.strip('"').strip("'") for c in unique_cols]
                     for variant in [
                         f"UNIQUE({', '.join(normalized_cols)})",
                         f"UNIQUE ({', '.join(normalized_cols)})",
-                        f'UNIQUE("{"\", \"".join(normalized_cols)}")',
+                        f'UNIQUE("{'", "'.join(normalized_cols)}")',
                     ]:
                         if variant.upper() in create_sql:
                             found = True
@@ -219,11 +207,10 @@ class TableSchema:
                         f"UNIQUE constraint on ({', '.join(unique_cols)}) missing in database table {self.name}"
                     )
 
-        # 4. Check FOREIGN KEY constraints (CRITICAL: was completely missing before)
         if self.foreign_keys:
             cursor.execute(f"PRAGMA foreign_key_list({self.name})")
-            # foreign_key_list returns: (id, seq, table, from, to, on_update, on_delete, match)
-            db_fks: dict[str, list[tuple[str, str]]] = {}  # foreign_table -> [(local_col, foreign_col), ...]
+
+            db_fks: dict[str, list[tuple[str, str]]] = {}
 
             for fk_row in cursor.fetchall():
                 fk_id = fk_row[0]
@@ -241,7 +228,6 @@ class TableSchema:
                     expected_table = fk.foreign_table
                     expected_pairs = list(zip(fk.local_columns, fk.foreign_columns, strict=True))
 
-                    # Find matching FK in database
                     found = False
                     for (fk_id, db_table), db_pairs in db_fks.items():
                         if db_table == expected_table and set(db_pairs) == set(expected_pairs):

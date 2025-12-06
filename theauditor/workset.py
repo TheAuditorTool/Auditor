@@ -86,7 +86,6 @@ def get_git_diff_files(diff_spec: str, root_path: str = ".") -> list[str]:
         raise RuntimeError("Git is not available. Use --files instead.") from None
 
 
-# Supported extensions for import resolution (JS/TS + Python)
 IMPORT_EXTENSIONS = (".ts", ".js", ".tsx", ".jsx", ".py")
 
 
@@ -105,14 +104,12 @@ def _resolve_import_to_file(
     """
     value = import_value.strip("'\"")
 
-    # Skip invalid/special imports
     if value in ["{", "}", "(", ")", "*"] or value.startswith("@"):
         return None
 
     candidates = []
 
     if value.startswith("./") or value.startswith("../"):
-        # Relative import - resolve from source file's directory
         src_dir = Path(src_file).parent
         resolved = normalize_path(os.path.normpath(str(src_dir / value)))
 
@@ -125,13 +122,11 @@ def _resolve_import_to_file(
             candidates.append(resolved + "/index" + ext)
 
     elif "/" in value and not value.startswith("/"):
-        # Path-like import without ./ prefix
         normalized = normalize_path(value)
         candidates.append(normalized)
         for ext in IMPORT_EXTENSIONS:
             candidates.append(normalized + ext)
 
-    # Return first candidate that exists in manifest
     for candidate in candidates:
         if candidate in manifest_paths:
             return candidate
@@ -171,12 +166,10 @@ def _build_dependency_maps(
         if resolved is None:
             continue
 
-        # Forward: src imports resolved
         if src not in forward_deps:
             forward_deps[src] = set()
         forward_deps[src].add(resolved)
 
-        # Reverse: resolved is imported by src
         if resolved not in reverse_deps:
             reverse_deps[resolved] = set()
         reverse_deps[resolved].add(src)
@@ -198,7 +191,6 @@ def expand_dependencies(
     if max_depth == 0:
         return seed_files
 
-    # Load ALL refs once and build lookup maps
     forward_deps, reverse_deps = _build_dependency_maps(conn, manifest_paths)
 
     expanded = seed_files.copy()
@@ -208,11 +200,9 @@ def expand_dependencies(
         next_level = set()
 
         for file_path in current_level:
-            # Forward deps: files this file imports
             forward = forward_deps.get(file_path, set())
             next_level.update(forward - expanded)
 
-            # Reverse deps: files that import this file
             reverse = reverse_deps.get(file_path, set())
             next_level.update(reverse - expanded)
 

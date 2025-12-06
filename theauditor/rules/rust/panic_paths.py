@@ -38,10 +38,16 @@ METADATA = RuleMetadata(
 
 PANIC_MACROS = frozenset(["panic", "todo", "unimplemented", "unreachable"])
 
-ASSERT_MACROS = frozenset([
-    "assert", "assert_eq", "assert_ne",
-    "debug_assert", "debug_assert_eq", "debug_assert_ne",
-])
+ASSERT_MACROS = frozenset(
+    [
+        "assert",
+        "assert_eq",
+        "assert_ne",
+        "debug_assert",
+        "debug_assert_eq",
+        "debug_assert_ne",
+    ]
+)
 
 
 def _is_test_file(file_path: str) -> bool:
@@ -154,7 +160,11 @@ def _check_unwraps(db: RuleDB) -> list[StandardFinding]:
         .where("file LIKE ?", "%.rs")
         .where(
             "callee_function = ? OR callee_function = ? OR callee_function LIKE ? OR callee_function LIKE ? OR callee_function = ?",
-            "unwrap", "expect", "%::unwrap", "%::expect", "unwrap_or_default"
+            "unwrap",
+            "expect",
+            "%::unwrap",
+            "%::expect",
+            "unwrap_or_default",
         )
         .order_by("file, line")
     )
@@ -166,7 +176,6 @@ def _check_unwraps(db: RuleDB) -> list[StandardFinding]:
         if _is_test_file(file_path):
             continue
 
-        # Determine severity based on method
         if callee in ("unwrap", "Option::unwrap", "Result::unwrap") or callee.endswith("::unwrap"):
             severity = Severity.HIGH
             message = ".unwrap() call may panic without meaningful error message"
@@ -179,7 +188,7 @@ def _check_unwraps(db: RuleDB) -> list[StandardFinding]:
                 severity = Severity.HIGH
                 message = ".expect() with empty message - no better than unwrap()"
         elif callee == "unwrap_or_default":
-            continue  # Safe - doesn't panic
+            continue
         else:
             severity = Severity.MEDIUM
             message = f".{callee}() call may panic"
@@ -222,12 +231,9 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        # Rust macro invocations - panic/assert macros
-        # Table may not exist if no Rust files were indexed - queries return empty
         findings.extend(_check_panic_macros(db))
         findings.extend(_check_assertion_macros(db))
 
-        # Method calls - unwrap/expect on Option/Result
         findings.extend(_check_unwraps(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())

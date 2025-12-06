@@ -38,10 +38,9 @@ class IFDSTaintAnalyzer:
 
         import os
 
-        # DEEP PROVENANCE TUNING: ENV overrides for CI vs Oracle modes
         self.max_depth = int(os.environ.get("AUD_IFDS_DEPTH", 100))
         self.max_paths_per_sink = int(os.environ.get("AUD_IFDS_MAX_PATHS", 1000))
-        self.time_budget_seconds = int(os.environ.get("AUD_IFDS_BUDGET", 60))  # Was 10 - per-sink
+        self.time_budget_seconds = int(os.environ.get("AUD_IFDS_BUDGET", 60))
 
         self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
 
@@ -51,7 +50,6 @@ class IFDSTaintAnalyzer:
             logger.debug(f"Database: {repo_db_path}")
             logger.debug("========================================")
 
-        # Pre-load sanitizer data for path checking
         self._safe_sinks: set[str] = set()
         self._validation_sanitizers: list[dict] = []
         self._call_args_cache: dict[tuple, list[str]] = {}
@@ -79,7 +77,9 @@ class IFDSTaintAnalyzer:
         vulnerable, sanitized = self._trace_backward_to_any_source(sink, source_aps, max_depth)
 
         if self.debug:
-            logger.debug(f"Found {len(vulnerable)} vulnerable paths, {len(sanitized)} sanitized paths")
+            logger.debug(
+                f"Found {len(vulnerable)} vulnerable paths, {len(sanitized)} sanitized paths"
+            )
 
         return (vulnerable, sanitized)
 
@@ -96,11 +96,10 @@ class IFDSTaintAnalyzer:
 
         worklist = deque([(sink_ap, 0, [], None)])
         visited_states: set[str] = set()
-        # UNCAGED: Replaced iteration count with time budget
+
         start_time = time.time()
 
         while worklist and (len(vulnerable_paths) + len(sanitized_paths)) < self.max_paths_per_sink:
-            # Time budget check - stop if taking too long on this sink
             if time.time() - start_time > self.time_budget_seconds:
                 if self.debug:
                     logger.debug(f"Time budget ({self.time_budget_seconds}s) exceeded for sink")
@@ -149,13 +148,17 @@ class IFDSTaintAnalyzer:
                         sanitized_paths.append(path)
 
                         if self.debug:
-                            logger.debug(f"✓ Recorded SANITIZED path at max_depth={depth}, {len(hop_chain)} hops")
+                            logger.debug(
+                                f"✓ Recorded SANITIZED path at max_depth={depth}, {len(hop_chain)} hops"
+                            )
                     else:
                         path = self._build_taint_path(current_matched_source, sink, hop_chain)
                         vulnerable_paths.append(path)
 
                         if self.debug:
-                            logger.debug(f"✓ Recorded VULNERABLE path at max_depth={depth}, {len(hop_chain)} hops")
+                            logger.debug(
+                                f"✓ Recorded VULNERABLE path at max_depth={depth}, {len(hop_chain)} hops"
+                            )
 
                 continue
 
@@ -173,13 +176,17 @@ class IFDSTaintAnalyzer:
                         sanitized_paths.append(path)
 
                         if self.debug:
-                            logger.debug(f"✓ Recorded SANITIZED path at natural termination (no predecessors), {len(hop_chain)} hops")
+                            logger.debug(
+                                f"✓ Recorded SANITIZED path at natural termination (no predecessors), {len(hop_chain)} hops"
+                            )
                     else:
                         path = self._build_taint_path(current_matched_source, sink, hop_chain)
                         vulnerable_paths.append(path)
 
                         if self.debug:
-                            logger.debug(f"✓ Recorded VULNERABLE path at natural termination (no predecessors), {len(hop_chain)} hops")
+                            logger.debug(
+                                f"✓ Recorded VULNERABLE path at natural termination (no predecessors), {len(hop_chain)} hops"
+                            )
 
                 continue
 
@@ -211,9 +218,6 @@ class IFDSTaintAnalyzer:
         """
         predecessors = []
 
-        # Query 1: Reverse edges (source = current, target = predecessor)
-        # FIX #9: Exclude node_modules to prevent traversal into libraries
-        # FIX #16: Include line column for sanitizer proximity detection
         self.graph_cursor.execute(
             """
             SELECT target, type, metadata, line
@@ -239,7 +243,6 @@ class IFDSTaintAnalyzer:
                 except (json.JSONDecodeError, TypeError):
                     metadata = {}
 
-            # FIX #16: Inject line from column (not from metadata JSON)
             metadata["line"] = row["line"] if row["line"] is not None else 0
 
             source_ap = AccessPath.parse(source_id)
@@ -248,10 +251,6 @@ class IFDSTaintAnalyzer:
             elif self.debug:
                 logger.debug(f"WARNING: Dropped malformed node ID: '{source_id}' (parse failed)")
 
-        # Query 2: Forward edges traversed backwards (target = current, source = predecessor)
-        # This catches edges where graph builder created forward but not reverse
-        # FIX #9: Exclude node_modules to prevent traversal into libraries
-        # FIX #16: Include line column for sanitizer proximity detection
         self.graph_cursor.execute(
             """
             SELECT source, type, metadata, line
@@ -277,19 +276,15 @@ class IFDSTaintAnalyzer:
                 except (json.JSONDecodeError, TypeError):
                     metadata = {}
 
-            # FIX #16: Inject line from column (not from metadata JSON)
             metadata["line"] = row["line"] if row["line"] is not None else 0
 
             pred_ap = AccessPath.parse(pred_id)
             if pred_ap:
-                # Avoid duplicates if same predecessor found via both queries
                 if not any(p[0].node_id == pred_ap.node_id for p in predecessors):
                     predecessors.append((pred_ap, edge_type, metadata))
             elif self.debug:
                 logger.debug(f"WARNING: Dropped malformed node ID: '{pred_id}' (parse failed)")
 
-        # FIX #9: Exclude node_modules from call graph traversal too
-        # FIX #16: Include line column for sanitizer proximity detection
         self.graph_cursor.execute(
             """
             SELECT source, type, metadata, line
@@ -314,7 +309,6 @@ class IFDSTaintAnalyzer:
                 except (json.JSONDecodeError, TypeError):
                     metadata = {}
 
-            # FIX #16: Inject line from column (not from metadata JSON)
             metadata["line"] = row["line"] if row["line"] is not None else 0
 
             source_ap = AccessPath.parse(source_id)
@@ -516,7 +510,7 @@ class IFDSTaintAnalyzer:
 
     def _load_sanitizer_data(self):
         """Load sanitizer data from database for path checking."""
-        # Load safe sinks
+
         self.repo_cursor.execute("""
             SELECT DISTINCT sink_pattern
             FROM framework_safe_sinks
@@ -527,7 +521,6 @@ class IFDSTaintAnalyzer:
             if pattern:
                 self._safe_sinks.add(pattern)
 
-        # Load validation sanitizers
         self.repo_cursor.execute("""
             SELECT DISTINCT
                 file_path as file, line, framework, is_validator, variable_name as schema_name
@@ -535,14 +528,15 @@ class IFDSTaintAnalyzer:
             WHERE framework IN ('zod', 'joi', 'yup', 'express-validator')
         """)
         for row in self.repo_cursor.fetchall():
-            self._validation_sanitizers.append({
-                "file": row["file"],
-                "line": row["line"],
-                "framework": row["framework"],
-                "schema": row["schema_name"],
-            })
+            self._validation_sanitizers.append(
+                {
+                    "file": row["file"],
+                    "line": row["line"],
+                    "framework": row["framework"],
+                    "schema": row["schema_name"],
+                }
+            )
 
-        # Pre-load function calls for O(1) lookup
         self.repo_cursor.execute("""
             SELECT file, line, callee_function
             FROM function_call_args
@@ -568,9 +562,11 @@ class IFDSTaintAnalyzer:
                 self._call_args_cache[key].append(callee)
 
         if self.debug:
-            logger.debug(f"Loaded {len(self._safe_sinks)} safe sinks, "
+            logger.debug(
+                f"Loaded {len(self._safe_sinks)} safe sinks, "
                 f"{len(self._validation_sanitizers)} validators, "
-                f"{len(self._call_args_cache)} call locations")
+                f"{len(self._call_args_cache)} call locations"
+            )
 
     def _is_sanitizer(self, function_name: str, file_path: str = None) -> bool:
         """Check if function is a sanitizer. Uses registry if available.
@@ -600,8 +596,11 @@ class IFDSTaintAnalyzer:
                 hop_file = hop.get("from_file") or hop.get("to_file")
                 hop_line = hop.get("line", 0)
                 node_str = (
-                    hop.get("from") or hop.get("to") or
-                    hop.get("from_node") or hop.get("to_node") or ""
+                    hop.get("from")
+                    or hop.get("to")
+                    or hop.get("from_node")
+                    or hop.get("to_node")
+                    or ""
                 )
             else:
                 node_str = hop
@@ -619,17 +618,12 @@ class IFDSTaintAnalyzer:
             if not hop_file:
                 continue
 
-            # PRIMARY CHECK: Function calls at this location (call edge check)
-            # This is the authoritative source - checks what functions are actually called
             if hop_line > 0:
                 callees = self._call_args_cache.get((hop_file, hop_line), [])
                 for callee in callees:
-                    # FIX #19: Pass hop_file so registry checks language-specific sanitizers
                     if self._is_sanitizer(callee, hop_file):
                         return {"file": hop_file, "line": hop_line, "method": callee}
 
-            # SECONDARY CHECK: Query graph for call edges from this node
-            # Catches cases where assignment target doesn't reveal the sanitizer
             if node_str and "::" in node_str:
                 self.graph_cursor.execute(
                     """
@@ -642,19 +636,19 @@ class IFDSTaintAnalyzer:
                 )
                 for row in self.graph_cursor.fetchall():
                     target = row["target"]
-                    # Extract function name from target node ID
+
                     target_parts = target.split("::")
                     if len(target_parts) >= 2:
                         called_func = target_parts[-1]
-                        # FIX #19: Pass hop_file so registry checks language-specific sanitizers
+
                         if self._is_sanitizer(called_func, hop_file):
                             return {"file": hop_file, "line": hop_line, "method": called_func}
 
-            # TERTIARY CHECK: Validation framework sanitizers by proximity
             if hop_line > 0:
                 for san in self._validation_sanitizers:
-                    if (san["file"].endswith(hop_file) or hop_file.endswith(san["file"])) and \
-                            abs(san["line"] - hop_line) <= 10:
+                    if (san["file"].endswith(hop_file) or hop_file.endswith(san["file"])) and abs(
+                        san["line"] - hop_line
+                    ) <= 10:
                         return {
                             "file": hop_file,
                             "line": hop_line,

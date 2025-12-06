@@ -30,62 +30,70 @@ METADATA = RuleMetadata(
     primary_table="api_endpoints",
 )
 
-# Blocking sync operations that should not be in async routes
-SYNC_OPERATIONS = frozenset([
-    "time.sleep",
-    "requests.get",
-    "requests.post",
-    "requests.put",
-    "requests.delete",
-    "requests.patch",
-    "requests.head",
-    "requests.options",
-    "urllib.request.urlopen",
-    "urllib.urlopen",
-    "subprocess.run",
-    "subprocess.call",
-    "subprocess.check_output",
-])
 
-# Debug endpoint patterns that should not be in production
-DEBUG_ENDPOINTS = frozenset([
-    "/debug",
-    "/test",
-    "/_debug",
-    "/_test",
-    "/health/full",
-    "/metrics/internal",
-    "/admin/debug",
-    "/dev",
-    "/_dev",
-    "/testing",
-    "/__debug__",
-    "/internal",
-])
+SYNC_OPERATIONS = frozenset(
+    [
+        "time.sleep",
+        "requests.get",
+        "requests.post",
+        "requests.put",
+        "requests.delete",
+        "requests.patch",
+        "requests.head",
+        "requests.options",
+        "urllib.request.urlopen",
+        "urllib.urlopen",
+        "subprocess.run",
+        "subprocess.call",
+        "subprocess.check_output",
+    ]
+)
 
-# FastAPI response classes
-FASTAPI_RESPONSE_SINKS = frozenset([
-    "JSONResponse",
-    "HTMLResponse",
-    "PlainTextResponse",
-    "StreamingResponse",
-    "FileResponse",
-    "RedirectResponse",
-])
 
-# FastAPI input sources
-FASTAPI_INPUT_SOURCES = frozenset([
-    "Request",
-    "Body",
-    "Query",
-    "Path",
-    "Form",
-    "File",
-    "Header",
-    "Cookie",
-    "Depends",
-    "UploadFile",
-])
+DEBUG_ENDPOINTS = frozenset(
+    [
+        "/debug",
+        "/test",
+        "/_debug",
+        "/_test",
+        "/health/full",
+        "/metrics/internal",
+        "/admin/debug",
+        "/dev",
+        "/_dev",
+        "/testing",
+        "/__debug__",
+        "/internal",
+    ]
+)
+
+
+FASTAPI_RESPONSE_SINKS = frozenset(
+    [
+        "JSONResponse",
+        "HTMLResponse",
+        "PlainTextResponse",
+        "StreamingResponse",
+        "FileResponse",
+        "RedirectResponse",
+    ]
+)
+
+
+FASTAPI_INPUT_SOURCES = frozenset(
+    [
+        "Request",
+        "Body",
+        "Query",
+        "Path",
+        "Form",
+        "File",
+        "Header",
+        "Cookie",
+        "Depends",
+        "UploadFile",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -103,12 +111,10 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings: list[StandardFinding] = []
 
-        # Check if this is a FastAPI project
         fastapi_files = _get_fastapi_files(db)
         if not fastapi_files:
             return RuleResult(findings=findings, manifest=db.get_manifest())
 
-        # Run all security checks
         findings.extend(_check_sync_in_async(db))
         findings.extend(_check_no_dependency_injection(db))
         findings.extend(_check_missing_cors(db, fastapi_files))
@@ -133,11 +139,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
 def _get_fastapi_files(db: RuleDB) -> list[str]:
     """Get files that import FastAPI."""
-    rows = db.query(
-        Q("refs")
-        .select("src")
-        .where("value IN (?, ?)", "fastapi", "FastAPI")
-    )
+    rows = db.query(Q("refs").select("src").where("value IN (?, ?)", "fastapi", "FastAPI"))
     return list({row[0] for row in rows})
 
 
@@ -190,7 +192,6 @@ def _check_no_dependency_injection(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Find DB access calls in API endpoint files
     sql, params = Q.raw(
         """
         SELECT DISTINCT file, line, callee_function, caller_function
@@ -209,7 +210,6 @@ def _check_no_dependency_injection(db: RuleDB) -> list[StandardFinding]:
     )
     db_access_rows = list(db.execute(sql, params))
 
-    # Get all Depends/SessionDep usage per file+function
     di_sql, di_params = Q.raw(
         """
         SELECT DISTINCT file, caller_function, callee_function
@@ -222,7 +222,6 @@ def _check_no_dependency_injection(db: RuleDB) -> list[StandardFinding]:
     )
     di_rows = list(db.execute(di_sql, di_params))
 
-    # Build set of (file, function) pairs that have DI
     di_functions = set()
     di_files = set()
     for file, caller, callee in di_rows:
@@ -237,11 +236,9 @@ def _check_no_dependency_injection(db: RuleDB) -> list[StandardFinding]:
             continue
         seen.add(key)
 
-        # Check if this specific function uses DI
         if caller and (file, caller) in di_functions:
-            continue  # This function has DI
+            continue
 
-        # Fallback: if file has ANY DI and caller is unknown, skip (benefit of doubt)
         if not caller and file in di_files:
             continue
 
@@ -266,17 +263,10 @@ def _check_missing_cors(db: RuleDB, fastapi_files: list[str]) -> list[StandardFi
     """Check for missing CORS middleware."""
     findings = []
 
-    # Check if CORSMiddleware is imported
-    rows = db.query(
-        Q("refs")
-        .select("value")
-        .where("value = ?", "CORSMiddleware")
-        .limit(1)
-    )
+    rows = db.query(Q("refs").select("value").where("value = ?", "CORSMiddleware").limit(1))
     if list(rows):
         return findings
 
-    # Check if FastAPI app exists
     rows = db.query(
         Q("function_call_args")
         .select("callee_function")
@@ -286,7 +276,6 @@ def _check_missing_cors(db: RuleDB, fastapi_files: list[str]) -> list[StandardFi
     if not list(rows):
         return findings
 
-    # No CORS middleware found
     if fastapi_files:
         findings.append(
             StandardFinding(
@@ -398,12 +387,18 @@ def _check_background_task_errors(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, _func in rows:
-        # Check if there's error handling nearby
         error_rows = db.query(
             Q("cfg_blocks")
             .select("id")
-            .where("file = ? AND block_type IN (?, ?, ?) AND start_line BETWEEN ? AND ?",
-                   file, "try", "except", "finally", line - 20, line + 20)
+            .where(
+                "file = ? AND block_type IN (?, ?, ?) AND start_line BETWEEN ? AND ?",
+                file,
+                "try",
+                "except",
+                "finally",
+                line - 20,
+                line + 20,
+            )
             .limit(1)
         )
 
@@ -436,12 +431,17 @@ def _check_websocket_auth(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, pattern in rows:
-        # Check if file has authentication-related calls
         auth_rows = db.query(
             Q("function_call_args")
             .select("callee_function")
-            .where("file = ? AND (callee_function LIKE ? OR callee_function LIKE ? OR callee_function LIKE ? OR callee_function LIKE ?)",
-                   file, "%auth%", "%verify%", "%current_user%", "%token%")
+            .where(
+                "file = ? AND (callee_function LIKE ? OR callee_function LIKE ? OR callee_function LIKE ? OR callee_function LIKE ?)",
+                file,
+                "%auth%",
+                "%verify%",
+                "%current_user%",
+                "%token%",
+            )
             .limit(1)
         )
 
@@ -467,7 +467,6 @@ def _check_debug_endpoints(db: RuleDB) -> list[StandardFinding]:
     """Check for debug endpoints exposed in production."""
     findings = []
 
-    # Check for exact matches and pattern matches
     debug_list = list(DEBUG_ENDPOINTS)
 
     for debug_pattern in debug_list:
@@ -544,7 +543,6 @@ def _check_missing_timeout(db: RuleDB, fastapi_files: list[str]) -> list[Standar
     """Check for missing request timeout configuration."""
     findings = []
 
-    # Check FastAPI constructor for timeout
     rows = db.query(
         Q("function_call_args")
         .select("callee_function", "argument_expr")
@@ -555,12 +553,8 @@ def _check_missing_timeout(db: RuleDB, fastapi_files: list[str]) -> list[Standar
     if has_timeout:
         return findings
 
-    # Check for timeout middleware
     rows = db.query(
-        Q("refs")
-        .select("value")
-        .where("value IN (?, ?)", "slowapi", "timeout_middleware")
-        .limit(1)
+        Q("refs").select("value").where("value IN (?, ?)", "slowapi", "timeout_middleware").limit(1)
     )
 
     if not list(rows) and fastapi_files:
@@ -628,7 +622,6 @@ def _check_pydantic_mass_assignment(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Look for Pydantic model definitions
     rows = db.query(
         Q("symbols")
         .select("file", "line", "name")
@@ -637,34 +630,36 @@ def _check_pydantic_mass_assignment(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, class_name in rows:
-        # First verify this is actually a Pydantic model
         base_rows = db.query(
             Q("refs")
             .select("value")
-            .where("src = ? AND value IN (?, ?, ?)",
-                   file, "BaseModel", "pydantic", "Pydantic")
+            .where("src = ? AND value IN (?, ?, ?)", file, "BaseModel", "pydantic", "Pydantic")
             .limit(1)
         )
         if not list(base_rows):
-            continue  # Not a Pydantic model
+            continue
 
         has_extra_forbid = False
 
-        # Check Pydantic v1: class Config with extra = "forbid"
         config_rows = db.query(
             Q("symbols")
             .select("name")
-            .where("file = ? AND line BETWEEN ? AND ? AND name = ?",
-                   file, line, line + 30, "Config")
+            .where(
+                "file = ? AND line BETWEEN ? AND ? AND name = ?", file, line, line + 30, "Config"
+            )
             .limit(1)
         )
         if list(config_rows):
-            # Config class exists - check for extra = "forbid" assignment nearby
             extra_rows = db.query(
                 Q("assignments")
                 .select("source_expr")
-                .where("file = ? AND line BETWEEN ? AND ? AND target_var = ?",
-                       file, line, line + 30, "extra")
+                .where(
+                    "file = ? AND line BETWEEN ? AND ? AND target_var = ?",
+                    file,
+                    line,
+                    line + 30,
+                    "extra",
+                )
                 .limit(1)
             )
             for (source_expr,) in extra_rows:
@@ -672,13 +667,17 @@ def _check_pydantic_mass_assignment(db: RuleDB) -> list[StandardFinding]:
                     has_extra_forbid = True
                     break
 
-        # Check Pydantic v2: model_config = ConfigDict(extra='forbid')
         if not has_extra_forbid:
             model_config_rows = db.query(
                 Q("assignments")
                 .select("source_expr")
-                .where("file = ? AND line BETWEEN ? AND ? AND target_var = ?",
-                       file, line, line + 30, "model_config")
+                .where(
+                    "file = ? AND line BETWEEN ? AND ? AND target_var = ?",
+                    file,
+                    line,
+                    line + 30,
+                    "model_config",
+                )
                 .limit(1)
             )
             for (source_expr,) in model_config_rows:
@@ -696,7 +695,7 @@ def _check_pydantic_mass_assignment(db: RuleDB) -> list[StandardFinding]:
                     severity=Severity.MEDIUM,
                     category="security",
                     confidence=Confidence.LOW,
-                    snippet=f"Add model_config = ConfigDict(extra='forbid') or class Config with extra='forbid'",
+                    snippet="Add model_config = ConfigDict(extra='forbid') or class Config with extra='forbid'",
                     cwe_id="CWE-915",
                 )
             )
@@ -708,11 +707,15 @@ def _check_insecure_deserialization(db: RuleDB) -> list[StandardFinding]:
     """Check for insecure deserialization vulnerabilities."""
     findings = []
 
-    # Dangerous deserialization functions
     dangerous_funcs = (
-        "pickle.loads", "pickle.load", "cPickle.loads", "cPickle.load",
-        "yaml.load", "yaml.unsafe_load",
-        "marshal.loads", "marshal.load",
+        "pickle.loads",
+        "pickle.load",
+        "cPickle.loads",
+        "cPickle.load",
+        "yaml.load",
+        "yaml.unsafe_load",
+        "marshal.loads",
+        "marshal.load",
         "shelve.open",
     )
     placeholders = ",".join("?" * len(dangerous_funcs))
@@ -727,7 +730,6 @@ def _check_insecure_deserialization(db: RuleDB) -> list[StandardFinding]:
     for file, line, callee, arg_expr in rows:
         arg_expr = arg_expr or ""
 
-        # Check if user input flows into deserialization
         user_input_patterns = ("request", "Body", "Query", "Path", "Form", "File", "Header")
         has_user_input = any(pattern in arg_expr for pattern in user_input_patterns)
 
@@ -746,7 +748,6 @@ def _check_insecure_deserialization(db: RuleDB) -> list[StandardFinding]:
                 )
             )
         elif "yaml.load" in callee and "Loader" not in arg_expr:
-            # yaml.load without safe Loader
             findings.append(
                 StandardFinding(
                     rule_name="fastapi-unsafe-yaml-load",
@@ -768,26 +769,33 @@ def _check_ssrf(db: RuleDB) -> list[StandardFinding]:
     """Check for Server-Side Request Forgery vulnerabilities."""
     findings = []
 
-    # HTTP request libraries commonly used with FastAPI
     http_funcs = (
-        "httpx.get", "httpx.post", "httpx.put", "httpx.delete", "httpx.request",
-        "requests.get", "requests.post", "requests.put", "requests.delete",
-        "aiohttp.ClientSession", "urllib.request.urlopen",
+        "httpx.get",
+        "httpx.post",
+        "httpx.put",
+        "httpx.delete",
+        "httpx.request",
+        "requests.get",
+        "requests.post",
+        "requests.put",
+        "requests.delete",
+        "aiohttp.ClientSession",
+        "urllib.request.urlopen",
     )
     placeholders = ",".join("?" * len(http_funcs))
 
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where(f"callee_function IN ({placeholders}) OR callee_function LIKE ?",
-               *http_funcs, "%http%")
+        .where(
+            f"callee_function IN ({placeholders}) OR callee_function LIKE ?", *http_funcs, "%http%"
+        )
         .order_by("file, line")
     )
 
     for file, line, callee, arg_expr in rows:
         arg_expr = arg_expr or ""
 
-        # Check if user input controls the URL
         user_input_patterns = ("request", "Query", "Path", "Body", "Header")
         for pattern in user_input_patterns:
             if pattern in arg_expr:
@@ -813,12 +821,10 @@ def _check_jwt_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
     """Check for JWT implementation vulnerabilities."""
     findings = []
 
-    # JWT decode functions
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
-        .where("callee_function LIKE ? OR callee_function LIKE ?",
-               "%jwt%decode%", "%decode%jwt%")
+        .where("callee_function LIKE ? OR callee_function LIKE ?", "%jwt%decode%", "%decode%jwt%")
         .order_by("file, line")
     )
 
@@ -828,17 +834,14 @@ def _check_jwt_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
 
         issues = []
 
-        # Check for algorithm confusion / none algorithm
         if "algorithms" not in arg_lower and "algorithm" not in arg_lower:
             issues.append("no algorithm specified (algorithm confusion attack)")
         if "none" in arg_lower:
             issues.append("'none' algorithm allowed")
 
-        # Check for verify=False
         if "verify=false" in arg_lower or "verify_signature=false" in arg_lower:
             issues.append("signature verification disabled")
 
-        # Check for missing options
         if "options" in arg_lower and "verify_exp" in arg_lower and "false" in arg_lower:
             issues.append("expiry verification disabled")
 
@@ -857,18 +860,16 @@ def _check_jwt_vulnerabilities(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check for weak secrets in JWT
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
-        .where("target_var LIKE ? OR target_var LIKE ?",
-               "%SECRET%", "%JWT%KEY%")
+        .where("target_var LIKE ? OR target_var LIKE ?", "%SECRET%", "%JWT%KEY%")
         .order_by("file, line")
     )
 
     for file, line, var, value in rows:
         value = value or ""
-        # Check for hardcoded weak secrets
+
         if ('"' in value or "'" in value) and "environ" not in value and "getenv" not in value:
             clean_value = value.strip("\"'")
             if len(clean_value) < 32:
@@ -893,7 +894,6 @@ def _check_missing_rate_limiting(db: RuleDB, fastapi_files: list[str]) -> list[S
     """Check for missing rate limiting on authentication endpoints."""
     findings = []
 
-    # Check for rate limiting middleware
     rows = db.query(
         Q("refs")
         .select("value")
@@ -903,12 +903,10 @@ def _check_missing_rate_limiting(db: RuleDB, fastapi_files: list[str]) -> list[S
     if list(rows):
         return findings
 
-    # Check for auth endpoints without rate limiting
     rows = db.query(
         Q("api_endpoints")
         .select("file", "line", "pattern", "method")
-        .where("pattern LIKE ? OR pattern LIKE ? OR pattern LIKE ?",
-               "%login%", "%auth%", "%token%")
+        .where("pattern LIKE ? OR pattern LIKE ? OR pattern LIKE ?", "%login%", "%auth%", "%token%")
         .order_by("file, line")
     )
 
@@ -935,30 +933,21 @@ def _check_missing_security_headers(db: RuleDB, fastapi_files: list[str]) -> lis
     """Check for missing security headers middleware."""
     findings = []
 
-    # Check for security headers middleware
     security_middleware = ("secure-headers", "starlette-secure-headers", "fastapi-security-headers")
     for middleware in security_middleware:
-        rows = db.query(
-            Q("refs")
-            .select("value")
-            .where("value = ?", middleware)
-            .limit(1)
-        )
+        rows = db.query(Q("refs").select("value").where("value = ?", middleware).limit(1))
         if list(rows):
             return findings
 
-    # Check for manual header configuration
     rows = db.query(
         Q("function_call_args")
         .select("argument_expr")
-        .where("callee_function LIKE ? AND argument_expr LIKE ?",
-               "%Middleware%", "%header%")
+        .where("callee_function LIKE ? AND argument_expr LIKE ?", "%Middleware%", "%header%")
         .limit(1)
     )
     if list(rows):
         return findings
 
-    # No security headers found
     if fastapi_files:
         findings.append(
             StandardFinding(
@@ -989,19 +978,12 @@ def _check_missing_csrf(db: RuleDB, fastapi_files: list[str]) -> list[StandardFi
     if not fastapi_files:
         return findings
 
-    # Check for CSRF middleware libraries
     csrf_libs = ("starlette-csrf", "fastapi-csrf-protect", "csrf", "CSRFProtect")
     for lib in csrf_libs:
-        rows = db.query(
-            Q("refs")
-            .select("value")
-            .where("value = ?", lib)
-            .limit(1)
-        )
+        rows = db.query(Q("refs").select("value").where("value = ?", lib).limit(1))
         if list(rows):
-            return findings  # CSRF protection present
+            return findings
 
-    # Check if app uses cookie-based authentication (indicators)
     cookie_auth_indicators = ("cookie", "session", "SESSION_COOKIE", "set_cookie")
     has_cookie_auth = False
 
@@ -1009,8 +991,9 @@ def _check_missing_csrf(db: RuleDB, fastapi_files: list[str]) -> list[StandardFi
         rows = db.query(
             Q("function_call_args")
             .select("callee_function")
-            .where("callee_function LIKE ? OR argument_expr LIKE ?",
-                   f"%{indicator}%", f"%{indicator}%")
+            .where(
+                "callee_function LIKE ? OR argument_expr LIKE ?", f"%{indicator}%", f"%{indicator}%"
+            )
             .limit(1)
         )
         if list(rows):
@@ -1018,20 +1001,16 @@ def _check_missing_csrf(db: RuleDB, fastapi_files: list[str]) -> list[StandardFi
             break
 
     if not has_cookie_auth:
-        # Also check assignments for cookie config
         rows = db.query(
             Q("assignments")
             .select("target_var")
-            .where("target_var LIKE ? OR source_expr LIKE ?",
-                   "%cookie%", "%cookie%")
+            .where("target_var LIKE ? OR source_expr LIKE ?", "%cookie%", "%cookie%")
             .limit(1)
         )
         if list(rows):
             has_cookie_auth = True
 
-    # Only flag if cookie auth is detected and no CSRF protection
     if has_cookie_auth:
-        # Check for state-changing endpoints
         rows = db.query(
             Q("api_endpoints")
             .select("file", "line", "method", "pattern")

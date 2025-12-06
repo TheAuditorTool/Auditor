@@ -173,8 +173,7 @@ def _check_dangerous_imports(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("rust_use_statements")
-        .select("file_path", "line", "import_path", "local_name")
+        Q("rust_use_statements").select("file_path", "line", "import_path", "local_name")
     )
 
     for row in rows:

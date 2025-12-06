@@ -60,120 +60,140 @@ METADATA = RuleMetadata(
     primary_table="orm_queries",
 )
 
-# Database URL variable name patterns for connection string detection
-DB_VAR_PATTERNS = frozenset([
-    "DATABASE_URL",
-    "DATABASE",
-    "POSTGRES",
-    "MYSQL",
-    "MONGODB",
-    "PRISMA",
-    "DB_URL",
-    "DB_CONNECTION",
-])
 
-# Methods that return unbounded result sets without pagination
-UNBOUNDED_METHODS = frozenset([
-    "findMany",
-    "findManyRaw",
-    "aggregateRaw",
-    "groupBy",
-])
+DB_VAR_PATTERNS = frozenset(
+    [
+        "DATABASE_URL",
+        "DATABASE",
+        "POSTGRES",
+        "MYSQL",
+        "MONGODB",
+        "PRISMA",
+        "DB_URL",
+        "DB_CONNECTION",
+    ]
+)
 
-# Write operations that may need transaction wrappers
-WRITE_METHODS = frozenset([
-    "create",
-    "createMany",
-    "createManyAndReturn",
-    "update",
-    "updateMany",
-    "delete",
-    "deleteMany",
-    "upsert",
-    "executeRaw",
-    "executeRawUnsafe",
-])
 
-# OrThrow methods that throw exceptions on not-found
-THROW_METHODS = frozenset([
-    "findUniqueOrThrow",
-    "findFirstOrThrow",
-])
+UNBOUNDED_METHODS = frozenset(
+    [
+        "findMany",
+        "findManyRaw",
+        "aggregateRaw",
+        "groupBy",
+    ]
+)
 
-# Raw query methods - security critical for SQL injection
-RAW_QUERY_METHODS = frozenset([
-    "$queryRaw",
-    "$queryRawUnsafe",
-    "$queryRawTyped",
-    "$executeRaw",
-    "$executeRawUnsafe",
-    "queryRaw",
-    "queryRawUnsafe",
-    "executeRaw",
-    "executeRawUnsafe",
-])
 
-# Common fields that should typically be indexed for performance
-COMMON_INDEX_FIELDS = frozenset([
-    "id",
-    "email",
-    "username",
-    "userId",
-    "user_id",
-    "createdAt",
-    "created_at",
-    "updatedAt",
-    "updated_at",
-    "status",
-    "type",
-    "slug",
-    "uuid",
-    "externalId",
-    "external_id",
-])
+WRITE_METHODS = frozenset(
+    [
+        "create",
+        "createMany",
+        "createManyAndReturn",
+        "update",
+        "updateMany",
+        "delete",
+        "deleteMany",
+        "upsert",
+        "executeRaw",
+        "executeRawUnsafe",
+    ]
+)
 
-# Connection limit patterns that indicate potential resource exhaustion
-CONNECTION_DANGER_PATTERNS = frozenset([
-    "connection_limit=100",
-    "connection_limit=50",
-    "connectionLimit=100",
-    "connectionLimit=50",
-    "pool_size=100",
-    "pool_size=50",
-])
 
-# Prisma method patterns for taint source registration
-PRISMA_SOURCES = frozenset([
-    "findMany",
-    "findFirst",
-    "findUnique",
-    "where",
-    "select",
-    "include",
-    "orderBy",
-])
+THROW_METHODS = frozenset(
+    [
+        "findUniqueOrThrow",
+        "findFirstOrThrow",
+    ]
+)
 
-# Unsafe input sources for mass assignment detection
-UNSAFE_INPUT_SOURCES = frozenset([
-    "req.body",
-    "request.body",
-    "body",
-    "params",
-    "req.params",
-    "request.params",
-    "req.query",
-    "request.query",
-    "input",
-])
 
-# Methods vulnerable to mass assignment in Prisma
-MASS_ASSIGNMENT_METHODS = frozenset([
-    "create",
-    "createMany",
-    "update",
-    "updateMany",
-    "upsert",
-])
+RAW_QUERY_METHODS = frozenset(
+    [
+        "$queryRaw",
+        "$queryRawUnsafe",
+        "$queryRawTyped",
+        "$executeRaw",
+        "$executeRawUnsafe",
+        "queryRaw",
+        "queryRawUnsafe",
+        "executeRaw",
+        "executeRawUnsafe",
+    ]
+)
+
+
+COMMON_INDEX_FIELDS = frozenset(
+    [
+        "id",
+        "email",
+        "username",
+        "userId",
+        "user_id",
+        "createdAt",
+        "created_at",
+        "updatedAt",
+        "updated_at",
+        "status",
+        "type",
+        "slug",
+        "uuid",
+        "externalId",
+        "external_id",
+    ]
+)
+
+
+CONNECTION_DANGER_PATTERNS = frozenset(
+    [
+        "connection_limit=100",
+        "connection_limit=50",
+        "connectionLimit=100",
+        "connectionLimit=50",
+        "pool_size=100",
+        "pool_size=50",
+    ]
+)
+
+
+PRISMA_SOURCES = frozenset(
+    [
+        "findMany",
+        "findFirst",
+        "findUnique",
+        "where",
+        "select",
+        "include",
+        "orderBy",
+    ]
+)
+
+
+UNSAFE_INPUT_SOURCES = frozenset(
+    [
+        "req.body",
+        "request.body",
+        "body",
+        "params",
+        "req.params",
+        "request.params",
+        "req.query",
+        "request.query",
+        "input",
+    ]
+)
+
+
+MASS_ASSIGNMENT_METHODS = frozenset(
+    [
+        "create",
+        "createMany",
+        "update",
+        "updateMany",
+        "upsert",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -291,11 +311,13 @@ def _check_missing_transactions(db: RuleDB, findings: list[StandardFinding]) -> 
         if file not in file_operations:
             file_operations[file] = []
 
-        file_operations[file].append({
-            "line": line,
-            "query": query_type,
-            "has_transaction": has_transaction,
-        })
+        file_operations[file].append(
+            {
+                "line": line,
+                "query": query_type,
+                "has_transaction": has_transaction,
+            }
+        )
 
     for file, operations in file_operations.items():
         for i in range(len(operations) - 1):
@@ -324,9 +346,7 @@ def _check_missing_transactions(db: RuleDB, findings: list[StandardFinding]) -> 
 def _check_unhandled_throw_methods(db: RuleDB, findings: list[StandardFinding]) -> None:
     """Detect OrThrow methods without visible error handling."""
     orm_rows = db.query(
-        Q("orm_queries")
-        .select("file", "line", "query_type")
-        .order_by("file, line")
+        Q("orm_queries").select("file", "line", "query_type").order_by("file, line")
     )
 
     for file, line, query_type in orm_rows:
@@ -386,13 +406,17 @@ def _check_sql_injection(db: RuleDB, findings: list[StandardFinding]) -> None:
         has_interpolation = False
 
         if args:
-            interpolation_patterns = ("${", "+", "`", "concat(", ".format(", "f\"", "f'")
+            interpolation_patterns = ("${", "+", "`", "concat(", ".format(", 'f"', "f'")
             has_interpolation = any(p in args for p in interpolation_patterns)
 
         if is_unsafe_method or has_interpolation:
             severity = Severity.CRITICAL if is_unsafe_method else Severity.HIGH
             confidence = Confidence.HIGH if is_unsafe_method else Confidence.MEDIUM
-            reason = "unsafe method allows arbitrary SQL" if is_unsafe_method else "string interpolation in query"
+            reason = (
+                "unsafe method allows arbitrary SQL"
+                if is_unsafe_method
+                else "string interpolation in query"
+            )
 
             findings.append(
                 StandardFinding(
@@ -427,9 +451,7 @@ def _check_missing_indexes(db: RuleDB, findings: list[StandardFinding]) -> None:
         return
 
     orm_rows = db.query(
-        Q("orm_queries")
-        .select("file", "line", "query_type")
-        .order_by("file, line")
+        Q("orm_queries").select("file", "line", "query_type").order_by("file, line")
     )
 
     reported_models: set[str] = set()
@@ -464,24 +486,17 @@ def _check_missing_indexes(db: RuleDB, findings: list[StandardFinding]) -> None:
 
 def _check_connection_config(db: RuleDB, findings: list[StandardFinding]) -> None:
     """Detect database connection configuration issues."""
-    file_rows = db.query(
-        Q("files")
-        .select("path")
-        .limit(500)
-    )
+    file_rows = db.query(Q("files").select("path").limit(500))
 
     has_prisma_schema = any(
-        "schema.prisma" in path or "prisma/schema" in path
-        for (path,) in file_rows
+        "schema.prisma" in path or "prisma/schema" in path for (path,) in file_rows
     )
 
     if not has_prisma_schema:
         return
 
     assignment_rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, var, expr in assignment_rows:
@@ -587,7 +602,9 @@ def _check_mass_assignment(db: RuleDB, findings: list[StandardFinding]) -> None:
         if not has_unsafe_input:
             continue
 
-        has_data_spread = "...req.body" in args_str or "...body" in args_str or "...request.body" in args_str
+        has_data_spread = (
+            "...req.body" in args_str or "...body" in args_str or "...request.body" in args_str
+        )
         has_data_direct = any(
             f"data: {source}" in args_str or f"data:{source}" in args_str.replace(" ", "")
             for source in UNSAFE_INPUT_SOURCES
@@ -606,7 +623,9 @@ def _check_mass_assignment(db: RuleDB, findings: list[StandardFinding]) -> None:
                     line=line,
                     severity=Severity.CRITICAL,
                     category="orm",
-                    snippet=f"{func}({{ data: ... }})" if len(args_str) > 60 else f"{func}({args_str})",
+                    snippet=f"{func}({{ data: ... }})"
+                    if len(args_str) > 60
+                    else f"{func}({args_str})",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-915",
                     additional_info={

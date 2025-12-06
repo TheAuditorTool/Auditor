@@ -47,70 +47,80 @@ METADATA = RuleMetadata(
 )
 
 
-COMPOSITION_LIFECYCLE = frozenset([
-    "onBeforeMount",
-    "onMounted",
-    "onBeforeUpdate",
-    "onUpdated",
-    "onBeforeUnmount",
-    "onUnmounted",
-    "onActivated",
-    "onDeactivated",
-    "onErrorCaptured",
-    "onRenderTracked",
-    "onRenderTriggered",
-    "onServerPrefetch",
-])
+COMPOSITION_LIFECYCLE = frozenset(
+    [
+        "onBeforeMount",
+        "onMounted",
+        "onBeforeUpdate",
+        "onUpdated",
+        "onBeforeUnmount",
+        "onUnmounted",
+        "onActivated",
+        "onDeactivated",
+        "onErrorCaptured",
+        "onRenderTracked",
+        "onRenderTriggered",
+        "onServerPrefetch",
+    ]
+)
 
 
-REACTIVITY_FUNCTIONS = frozenset([
-    "ref",
-    "reactive",
-    "computed",
-    "readonly",
-    "shallowRef",
-    "shallowReactive",
-    "shallowReadonly",
-    "toRef",
-    "toRefs",
-    "isRef",
-    "isReactive",
-    "isReadonly",
-    "isProxy",
-])
+REACTIVITY_FUNCTIONS = frozenset(
+    [
+        "ref",
+        "reactive",
+        "computed",
+        "readonly",
+        "shallowRef",
+        "shallowReactive",
+        "shallowReadonly",
+        "toRef",
+        "toRefs",
+        "isRef",
+        "isReactive",
+        "isReadonly",
+        "isProxy",
+    ]
+)
 
 
-WATCH_FUNCTIONS = frozenset([
-    "watch",
-    "watchEffect",
-    "watchPostEffect",
-    "watchSyncEffect",
-])
+WATCH_FUNCTIONS = frozenset(
+    [
+        "watch",
+        "watchEffect",
+        "watchPostEffect",
+        "watchSyncEffect",
+    ]
+)
 
 
-SETUP_ONLY_FUNCTIONS = frozenset([
-    "useStore",
-    "useRouter",
-    "useRoute",
-    "useMeta",
-    "useHead",
-    "useI18n",
-    "useNuxt",
-    "useFetch",
-])
+SETUP_ONLY_FUNCTIONS = frozenset(
+    [
+        "useStore",
+        "useRouter",
+        "useRoute",
+        "useMeta",
+        "useHead",
+        "useI18n",
+        "useNuxt",
+        "useFetch",
+    ]
+)
 
 
-MEMORY_LEAK_PATTERNS = frozenset([
-    "addEventListener",
-    "setInterval",
-    "setTimeout",
-    "ResizeObserver",
-    "IntersectionObserver",
-    "MutationObserver",
-    "WebSocket",
-    "EventSource",
-    "Worker",
-])
+MEMORY_LEAK_PATTERNS = frozenset(
+    [
+        "addEventListener",
+        "setInterval",
+        "setTimeout",
+        "ResizeObserver",
+        "IntersectionObserver",
+        "MutationObserver",
+        "WebSocket",
+        "EventSource",
+        "Worker",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -140,12 +150,7 @@ def _get_composition_api_files(db: RuleDB) -> set[str]:
     """Get all files using Vue Composition API."""
     vue_files: set[str] = set()
 
-    # Find files with Vue-related symbols
-    rows = db.query(
-        Q("symbols")
-        .select("path", "name")
-        .where("name IS NOT NULL")
-    )
+    rows = db.query(Q("symbols").select("path", "name").where("name IS NOT NULL"))
 
     vue_patterns = ("ref", "reactive", "computed", "watch", "setup")
     for path, name in rows:
@@ -153,11 +158,7 @@ def _get_composition_api_files(db: RuleDB) -> set[str]:
         if "vue" in name_lower and any(pattern in name_lower for pattern in vue_patterns):
             vue_files.add(path)
 
-    # Find files with Composition API function calls
-    rows = db.query(
-        Q("function_call_args")
-        .select("file", "callee_function")
-    )
+    rows = db.query(Q("function_call_args").select("file", "callee_function"))
 
     comp_api_funcs = COMPOSITION_LIFECYCLE | REACTIVITY_FUNCTIONS | WATCH_FUNCTIONS
     for file, callee in rows:
@@ -193,11 +194,9 @@ def _find_hooks_outside_setup(db: RuleDB, vue_files: set[str]) -> list[StandardF
         if hook not in setup_only:
             continue
 
-        # Check if called inside setup context
         if caller_context and "setup" in caller_context.lower():
             continue
 
-        # Vue 3 <script setup>: top-level hooks are valid (no caller_context)
         if not caller_context and file.endswith(".vue"):
             continue
 
@@ -236,14 +235,10 @@ def _find_missing_cleanup(db: RuleDB, vue_files: set[str]) -> list[StandardFindi
     if not vue_files:
         return findings
 
-    # Get all function calls
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
-    # Group by file
     file_calls: dict[str, list[tuple[int, str]]] = {}
     for file, line, callee in rows:
         if file not in vue_files:
@@ -256,12 +251,10 @@ def _find_missing_cleanup(db: RuleDB, vue_files: set[str]) -> list[StandardFindi
     cleanup_hooks = ("onUnmounted", "onDeactivated", "onBeforeUnmount")
 
     for file, calls in file_calls.items():
-        # Find mount hooks
         for line, callee in calls:
             if callee not in mount_hooks:
                 continue
 
-            # Check for leak patterns nearby (within 20 lines)
             has_leak_pattern = False
             for other_line, other_callee in calls:
                 if other_callee in MEMORY_LEAK_PATTERNS and abs(other_line - line) <= 20:
@@ -271,7 +264,6 @@ def _find_missing_cleanup(db: RuleDB, vue_files: set[str]) -> list[StandardFindi
             if not has_leak_pattern:
                 continue
 
-            # Check for cleanup hook after this mount hook
             has_cleanup = False
             for other_line, other_callee in calls:
                 if other_callee in cleanup_hooks and other_line > line:
@@ -307,7 +299,6 @@ def _find_watch_issues(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]
     if not vue_files:
         return findings
 
-    # Get watch function calls
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -321,11 +312,8 @@ def _find_watch_issues(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]
         if callee in WATCH_FUNCTIONS:
             watch_calls.append((file, line, callee, args))
 
-    # Get assignments to check for stop handle capture
     assignment_rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var")
-        .where("target_var IS NOT NULL")
+        Q("assignments").select("file", "line", "target_var").where("target_var IS NOT NULL")
     )
 
     assignments: dict[tuple[str, int], str] = {}
@@ -333,7 +321,6 @@ def _find_watch_issues(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]
         assignments[(file, line)] = target
 
     for file, line, watch_func, args in watch_calls:
-        # Check if result is captured (for stop handle)
         target = assignments.get((file, line))
         if not target or "stop" not in target.lower():
             findings.append(
@@ -350,7 +337,6 @@ def _find_watch_issues(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]
                 )
             )
 
-        # Check for deep watcher
         if args and "deep: true" in args:
             findings.append(
                 StandardFinding(
@@ -380,7 +366,6 @@ def _find_memory_leaks(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]
     if not vue_files:
         return findings
 
-    # Check for large objects in ref/reactive
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -395,7 +380,6 @@ def _find_memory_leaks(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]
         if callee in ("ref", "reactive"):
             ref_calls.append((file, line, callee))
 
-            # Check for large objects (args > 500 chars suggests large inline object)
             if args and len(args) > 500:
                 findings.append(
                     StandardFinding(
@@ -411,7 +395,6 @@ def _find_memory_leaks(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]
                     )
                 )
 
-    # Check for ref/reactive in loops
     loop_rows = db.query(
         Q("cfg_blocks")
         .select("file", "block_type", "start_line", "end_line")
@@ -465,9 +448,7 @@ def _find_incorrect_hook_order(db: RuleDB, vue_files: set[str]) -> list[Standard
     }
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     file_hooks: dict[str, list[tuple[int, str, int]]] = {}
@@ -480,7 +461,7 @@ def _find_incorrect_hook_order(db: RuleDB, vue_files: set[str]) -> list[Standard
             file_hooks[file].append((line, callee, hook_order[callee]))
 
     for file, hooks in file_hooks.items():
-        hooks.sort(key=lambda x: x[0])  # Sort by line number
+        hooks.sort(key=lambda x: x[0])
         for i in range(len(hooks) - 1):
             current_line, current_hook, current_order = hooks[i]
             next_line, next_hook, next_order = hooks[i + 1]
@@ -514,10 +495,7 @@ def _find_excessive_reactivity(db: RuleDB, vue_files: set[str]) -> list[Standard
     if not vue_files:
         return findings
 
-    rows = db.query(
-        Q("function_call_args")
-        .select("file", "callee_function")
-    )
+    rows = db.query(Q("function_call_args").select("file", "callee_function"))
 
     file_counts: dict[str, int] = {}
     for file, callee in rows:
@@ -555,10 +533,7 @@ def _find_missing_error_boundaries(db: RuleDB, vue_files: set[str]) -> list[Stan
     if not vue_files:
         return findings
 
-    rows = db.query(
-        Q("function_call_args")
-        .select("file", "callee_function")
-    )
+    rows = db.query(Q("function_call_args").select("file", "callee_function"))
 
     file_hooks: dict[str, set[str]] = {}
     for file, callee in rows:

@@ -25,215 +25,239 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# SQL execution methods
-SQL_METHODS = frozenset([
-    "execute",
-    "executemany",
-    "executescript",
-    "raw",
-    "connection.execute",
-    "cursor.execute",
-    "db.execute",
-    "query",
-    "run_query",
-    "session.execute",
-    "db.session.execute",
-    "select",
-    "insert",
-    "update",
-    "delete",
-    "create_table",
-])
 
-# String formatting patterns that indicate dynamic SQL
-STRING_FORMAT_PATTERNS = frozenset([
-    ".format(",
-    "% (",
-    'f"',
-    "f'",
-    "%%",
-    "+ request.",
-    "+ params.",
-    "+ args.",
-    "+ user_input",
-    "+ data[",
-    "+ input(",
-])
+SQL_METHODS = frozenset(
+    [
+        "execute",
+        "executemany",
+        "executescript",
+        "raw",
+        "connection.execute",
+        "cursor.execute",
+        "db.execute",
+        "query",
+        "run_query",
+        "session.execute",
+        "db.session.execute",
+        "select",
+        "insert",
+        "update",
+        "delete",
+        "create_table",
+    ]
+)
 
-# Command execution methods (full list including exec/spawn families)
-COMMAND_METHODS = frozenset([
-    "os.system",
-    "subprocess.call",
-    "subprocess.run",
-    "subprocess.Popen",
-    "subprocess.check_output",
-    "subprocess.check_call",
-    "subprocess.getoutput",
-    "subprocess.getstatusoutput",
-    "os.popen",
-    "os.popen2",
-    "os.popen3",
-    "os.popen4",
-    "popen",
-    "commands.getstatusoutput",
-    "commands.getoutput",
-    # exec family
-    "os.execl",
-    "os.execle",
-    "os.execlp",
-    "os.execlpe",
-    "os.execv",
-    "os.execve",
-    "os.execvp",
-    "os.execvpe",
-    # spawn family
-    "os.spawnl",
-    "os.spawnle",
-    "os.spawnlp",
-    "os.spawnlpe",
-    "os.spawnv",
-    "os.spawnve",
-    "os.spawnvp",
-    "os.spawnvpe",
-    "os.startfile",
-])
 
-# shell=True patterns
-SHELL_TRUE_PATTERNS = frozenset([
-    "shell=True",
-    "shell = True",
-    "shell= True",
-    "shell =True",
-])
+STRING_FORMAT_PATTERNS = frozenset(
+    [
+        ".format(",
+        "% (",
+        'f"',
+        "f'",
+        "%%",
+        "+ request.",
+        "+ params.",
+        "+ args.",
+        "+ user_input",
+        "+ data[",
+        "+ input(",
+    ]
+)
 
-# Code injection methods
-CODE_INJECTION = frozenset([
-    "eval",
-    "exec",
-    "compile",
-    "__import__",
-    "execfile",
-    "input",  # Python 2 input() == eval(raw_input())
-    "raw_input",
-])
 
-# Template injection patterns
-TEMPLATE_PATTERNS = frozenset([
-    "render_template_string",
-    "Environment",
-    "Template",
-    "jinja2.Template",
-    "django.template.Template",
-    "mako.template.Template",
-    "tornado.template.Template",
-])
+COMMAND_METHODS = frozenset(
+    [
+        "os.system",
+        "subprocess.call",
+        "subprocess.run",
+        "subprocess.Popen",
+        "subprocess.check_output",
+        "subprocess.check_call",
+        "subprocess.getoutput",
+        "subprocess.getstatusoutput",
+        "os.popen",
+        "os.popen2",
+        "os.popen3",
+        "os.popen4",
+        "popen",
+        "commands.getstatusoutput",
+        "commands.getoutput",
+        "os.execl",
+        "os.execle",
+        "os.execlp",
+        "os.execlpe",
+        "os.execv",
+        "os.execve",
+        "os.execvp",
+        "os.execvpe",
+        "os.spawnl",
+        "os.spawnle",
+        "os.spawnlp",
+        "os.spawnlpe",
+        "os.spawnv",
+        "os.spawnve",
+        "os.spawnvp",
+        "os.spawnvpe",
+        "os.startfile",
+    ]
+)
 
-# LDAP methods
-LDAP_METHODS = frozenset([
-    "search",
-    "search_s",
-    "search_ext",
-    "search_ext_s",
-    "ldap.search",
-    "ldap3.search",
-    "ldap_search",
-    "modify",
-    "modify_s",
-    "add",
-    "add_s",
-    "delete",
-    "delete_s",
-])
 
-# NoSQL (MongoDB) methods
-NOSQL_METHODS = frozenset([
-    "find",
-    "find_one",
-    "find_and_modify",
-    "update_one",
-    "update_many",
-    "delete_one",
-    "delete_many",
-    "aggregate",
-    "collection.find",
-    "collection.update",
-    "collection.delete",
-    "db.find",
-    "db.update",
-    "db.delete",
-])
+SHELL_TRUE_PATTERNS = frozenset(
+    [
+        "shell=True",
+        "shell = True",
+        "shell= True",
+        "shell =True",
+    ]
+)
 
-# XPath methods
-XPATH_METHODS = frozenset([
-    "xpath",
-    "findall",
-    "find",
-    "XPath",
-    "evaluate",
-    "selectNodes",
-    "selectSingleNode",
-    "query",
-])
 
-# User input sources (taint sources)
-USER_INPUTS = frozenset([
-    "request.args",
-    "request.form",
-    "request.values",
-    "request.data",
-    "request.json",
-    "request.files",
-    "request.GET",
-    "request.POST",
-    "request.REQUEST",
-    "input()",
-    "raw_input()",
-    "sys.argv",
-    "os.environ",
-    "flask.request",
-    "django.request",
-    "bottle.request",
-])
+CODE_INJECTION = frozenset(
+    [
+        "eval",
+        "exec",
+        "compile",
+        "__import__",
+        "execfile",
+        "input",
+        "raw_input",
+    ]
+)
 
-# Safe SQL patterns (parameterized queries)
-SAFE_PATTERNS = frozenset([
-    "paramstyle",
-    "params=",
-    "parameters=",
-    "?",
-    "%s",
-    "%(",
-    ":name",
-    "prepared",
-    "statement",
-    "placeholder",
-])
 
-# SQL keywords for detection confidence
-SQL_KEYWORDS = frozenset([
-    "SELECT",
-    "INSERT",
-    "UPDATE",
-    "DELETE",
-    "DROP",
-    "UNION",
-    "WHERE",
-    "ORDER BY",
-    "GROUP BY",
-    "CREATE",
-    "ALTER",
-    "EXEC",
-    "EXECUTE",
-])
+TEMPLATE_PATTERNS = frozenset(
+    [
+        "render_template_string",
+        "Environment",
+        "Template",
+        "jinja2.Template",
+        "django.template.Template",
+        "mako.template.Template",
+        "tornado.template.Template",
+    ]
+)
 
-# Dangerous NoSQL operators
-NOSQL_DANGEROUS_OPERATORS = frozenset([
-    "$where",
-    "$regex",
-    "$function",
-    "function()",
-    "eval(",
-])
+
+LDAP_METHODS = frozenset(
+    [
+        "search",
+        "search_s",
+        "search_ext",
+        "search_ext_s",
+        "ldap.search",
+        "ldap3.search",
+        "ldap_search",
+        "modify",
+        "modify_s",
+        "add",
+        "add_s",
+        "delete",
+        "delete_s",
+    ]
+)
+
+
+NOSQL_METHODS = frozenset(
+    [
+        "find",
+        "find_one",
+        "find_and_modify",
+        "update_one",
+        "update_many",
+        "delete_one",
+        "delete_many",
+        "aggregate",
+        "collection.find",
+        "collection.update",
+        "collection.delete",
+        "db.find",
+        "db.update",
+        "db.delete",
+    ]
+)
+
+
+XPATH_METHODS = frozenset(
+    [
+        "xpath",
+        "findall",
+        "find",
+        "XPath",
+        "evaluate",
+        "selectNodes",
+        "selectSingleNode",
+        "query",
+    ]
+)
+
+
+USER_INPUTS = frozenset(
+    [
+        "request.args",
+        "request.form",
+        "request.values",
+        "request.data",
+        "request.json",
+        "request.files",
+        "request.GET",
+        "request.POST",
+        "request.REQUEST",
+        "input()",
+        "raw_input()",
+        "sys.argv",
+        "os.environ",
+        "flask.request",
+        "django.request",
+        "bottle.request",
+    ]
+)
+
+
+SAFE_PATTERNS = frozenset(
+    [
+        "paramstyle",
+        "params=",
+        "parameters=",
+        "?",
+        "%s",
+        "%(",
+        ":name",
+        "prepared",
+        "statement",
+        "placeholder",
+    ]
+)
+
+
+SQL_KEYWORDS = frozenset(
+    [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE",
+        "DROP",
+        "UNION",
+        "WHERE",
+        "ORDER BY",
+        "GROUP BY",
+        "CREATE",
+        "ALTER",
+        "EXEC",
+        "EXECUTE",
+    ]
+)
+
+
+NOSQL_DANGEROUS_OPERATORS = frozenset(
+    [
+        "$where",
+        "$regex",
+        "$function",
+        "function()",
+        "eval(",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -280,7 +304,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                 )
             )
 
-        # Run all injection checks
         _check_sql_injection(db, add_finding)
         _check_command_injection(db, add_finding)
         _check_code_injection(db, add_finding)
@@ -330,25 +353,20 @@ def _check_sql_injection(db: RuleDB, add_finding) -> None:
 
         args_str = str(args)
 
-        # If argument is a variable name, trace back to its assignment
         assignment_expr = None
         if args_str.isidentifier():
             assignment_expr = _get_assignment_expr(db, file, args_str, line)
 
         expr_to_check = assignment_expr or args_str
 
-        # Check for string formatting
         has_formatting = any(fmt in expr_to_check for fmt in STRING_FORMAT_PATTERNS)
-        has_concatenation = (
-            "+" in expr_to_check
-            and any(inp in expr_to_check for inp in ["request.", "params.", "args.", "user_"])
+        has_concatenation = "+" in expr_to_check and any(
+            inp in expr_to_check for inp in ["request.", "params.", "args.", "user_"]
         )
 
-        # Check for safe parameterized patterns
         has_safe_params = any(safe in expr_to_check for safe in SAFE_PATTERNS)
 
         if (has_formatting or has_concatenation) and not has_safe_params:
-            # Higher confidence if SQL keywords present
             has_sql_keywords = any(kw.lower() in expr_to_check.lower() for kw in SQL_KEYWORDS)
             confidence = Confidence.HIGH if has_sql_keywords else Confidence.MEDIUM
 
@@ -362,7 +380,6 @@ def _check_sql_injection(db: RuleDB, add_finding) -> None:
                 cwe_id="CWE-89",
             )
 
-        # Check for f-strings specifically (very dangerous in SQL)
         is_fstring = 'f"' in expr_to_check or "f'" in expr_to_check
         if args_str.isidentifier() and assignment_expr:
             is_fstring = is_fstring or 'f"' in assignment_expr or "f'" in assignment_expr
@@ -396,12 +413,12 @@ def _check_command_injection(db: RuleDB, add_finding) -> None:
 
         args_str = str(args)
 
-        # Check for shell=True (always dangerous)
         has_shell_true = any(shell in args_str for shell in SHELL_TRUE_PATTERNS)
 
-        # Check for user input or string concatenation
         has_user_input = any(inp in args_str for inp in USER_INPUTS)
-        has_concatenation = "+" in args_str or ".format(" in args_str or 'f"' in args_str or "f'" in args_str
+        has_concatenation = (
+            "+" in args_str or ".format(" in args_str or 'f"' in args_str or "f'" in args_str
+        )
 
         if has_shell_true:
             add_finding(
@@ -441,7 +458,6 @@ def _check_code_injection(db: RuleDB, add_finding) -> None:
         severity = Severity.CRITICAL
         confidence = Confidence.HIGH
 
-        # Lower severity if argument is a hardcoded string literal
         if args:
             args_str = str(args)
             is_literal = args_str.startswith('"') or args_str.startswith("'")
@@ -478,7 +494,6 @@ def _check_template_injection(db: RuleDB, add_finding) -> None:
         args_str = str(args) if args else ""
         has_user_input = any(inp in args_str for inp in USER_INPUTS)
 
-        # render_template_string is always dangerous
         if "render_template_string" in method:
             add_finding(
                 file=file,
@@ -545,7 +560,6 @@ def _check_nosql_injection(db: RuleDB, add_finding) -> None:
 
         args_str = str(args) if args else ""
 
-        # Check for dangerous operators ($where, $regex, etc.)
         has_dangerous = any(op in args_str for op in NOSQL_DANGEROUS_OPERATORS)
         has_user_input = any(inp in args_str for inp in USER_INPUTS)
 
@@ -607,13 +621,11 @@ def _check_raw_sql_construction(db: RuleDB, add_finding) -> None:
     1. Variable name indicates SQL purpose (query, sql, stmt, etc.)
     2. Expression starts with SQL keyword (actually constructing SQL)
     """
-    # Variable name patterns that indicate SQL construction
+
     sql_var_patterns = {"query", "sql", "stmt", "statement", "cmd", "command", "script"}
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for row in rows:
@@ -625,19 +637,19 @@ def _check_raw_sql_construction(db: RuleDB, add_finding) -> None:
         expr_upper = expr_str.upper()
         var_lower = var.lower()
 
-        # Check for SQL keywords
         has_sql_keyword = any(kw in expr_upper for kw in ["SELECT", "INSERT", "UPDATE", "DELETE"])
         if not has_sql_keyword:
             continue
 
-        # Check for string formatting/concatenation
         has_formatting = any(pattern in expr_str for pattern in ["+", ".format(", 'f"', "f'"])
         if not has_formatting:
             continue
 
-        # Reduce false positives: require either SQL-ish variable name or SQL at start
         is_sql_var = any(p in var_lower for p in sql_var_patterns)
-        starts_with_sql = any(expr_upper.lstrip(' "\'f').startswith(kw) for kw in ["SELECT", "INSERT", "UPDATE", "DELETE"])
+        starts_with_sql = any(
+            expr_upper.lstrip(" \"'f").startswith(kw)
+            for kw in ["SELECT", "INSERT", "UPDATE", "DELETE"]
+        )
 
         if not is_sql_var and not starts_with_sql:
             continue

@@ -10,7 +10,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.error_handler import handle_exceptions
 
 
@@ -239,20 +239,34 @@ def query(
 
     pf_dir = Path.cwd() / ".pf"
     if not pf_dir.exists():
-        err_console.print("\n" + "=" * 60, )
-        err_console.print("[error]ERROR: No .pf directory found[/error]", )
+        err_console.print(
+            "\n" + "=" * 60,
+        )
+        err_console.print(
+            "[error]ERROR: No .pf directory found[/error]",
+        )
         console.rule()
-        err_console.print("[error]\nContext queries require indexed data.[/error]", )
-        err_console.print("[error]\nPlease run:[/error]", )
-        err_console.print("[error]    aud full[/error]", )
-        err_console.print("[error]\nThen try again:[/error]", )
+        err_console.print(
+            "[error]\nContext queries require indexed data.[/error]",
+        )
+        err_console.print(
+            "[error]\nPlease run:[/error]",
+        )
+        err_console.print(
+            "[error]    aud full[/error]",
+        )
+        err_console.print(
+            "[error]\nThen try again:[/error]",
+        )
         if symbol:
             err_console.print(
                 f"[error]    aud query --symbol {symbol} --show-callers\n[/error]",
                 highlight=False,
             )
         else:
-            err_console.print("[error]    aud query --help\n[/error]", )
+            err_console.print(
+                "[error]    aud query --help\n[/error]",
+            )
         raise click.Abort()
 
     if not any(
@@ -270,54 +284,88 @@ def query(
             list_symbols,
         ]
     ):
-        err_console.print("\n" + "=" * 60, )
-        err_console.print("[error]ERROR: No query target specified[/error]", )
+        err_console.print(
+            "\n" + "=" * 60,
+        )
+        err_console.print(
+            "[error]ERROR: No query target specified[/error]",
+        )
         console.rule()
-        err_console.print("[error]\nYou must specify what to query:[/error]", )
-        err_console.print("[error]    --symbol NAME       (query a symbol)[/error]", )
-        err_console.print("[error]    --file PATH         (query a file)[/error]", )
-        err_console.print("[error]    --api ROUTE         (query an API endpoint)[/error]", )
-        err_console.print("[error]    --component NAME    (query a component)[/error]", )
         err_console.print(
-            "[error]    --variable NAME     (query variable data flow)[/error]", )
+            "[error]\nYou must specify what to query:[/error]",
+        )
         err_console.print(
-            "[error]    --pattern PATTERN   (search symbols by pattern)[/error]", )
+            "[error]    --symbol NAME       (query a symbol)[/error]",
+        )
         err_console.print(
-            "[error]    --category CATEGORY (search by security category)[/error]", )
+            "[error]    --file PATH         (query a file)[/error]",
+        )
         err_console.print(
-            "[error]    --search TERM       (cross-table exploratory search)[/error]", )
+            "[error]    --api ROUTE         (query an API endpoint)[/error]",
+        )
+        err_console.print(
+            "[error]    --component NAME    (query a component)[/error]",
+        )
+        err_console.print(
+            "[error]    --variable NAME     (query variable data flow)[/error]",
+        )
+        err_console.print(
+            "[error]    --pattern PATTERN   (search symbols by pattern)[/error]",
+        )
+        err_console.print(
+            "[error]    --category CATEGORY (search by security category)[/error]",
+        )
+        err_console.print(
+            "[error]    --search TERM       (cross-table exploratory search)[/error]",
+        )
         err_console.print(
             "[error]    --list TYPE         (list symbols: functions, classes, imports, all)[/error]",
-            )
+        )
         err_console.print(
             "[error]    --list-symbols      (discovery mode: find symbols by pattern)[/error]",
-            )
+        )
         err_console.print(
-            "[error]    --show-api-coverage (query all API security coverage)[/error]", )
-        err_console.print("[error]\nExamples:[/error]", )
+            "[error]    --show-api-coverage (query all API security coverage)[/error]",
+        )
         err_console.print(
-            "[error]    aud query --symbol authenticateUser --show-callers[/error]", )
+            "[error]\nExamples:[/error]",
+        )
         err_console.print(
-            "[error]    aud query --file src/auth.ts --show-dependencies[/error]", )
-        err_console.print("[error]    aud query --api '/users' --format json[/error]", )
+            "[error]    aud query --symbol authenticateUser --show-callers[/error]",
+        )
         err_console.print(
-            "[error]    aud query --symbol createApp --show-data-deps[/error]", )
+            "[error]    aud query --file src/auth.ts --show-dependencies[/error]",
+        )
         err_console.print(
-            "[error]    aud query --variable userToken --show-flow --depth 3[/error]", )
+            "[error]    aud query --api '/users' --format json[/error]",
+        )
         err_console.print(
-            "[error]    aud query --pattern 'auth%' --type-filter function[/error]", )
-        err_console.print("[error]    aud query --category jwt --format json[/error]", )
+            "[error]    aud query --symbol createApp --show-data-deps[/error]",
+        )
+        err_console.print(
+            "[error]    aud query --variable userToken --show-flow --depth 3[/error]",
+        )
+        err_console.print(
+            "[error]    aud query --pattern 'auth%' --type-filter function[/error]",
+        )
+        err_console.print(
+            "[error]    aud query --category jwt --format json[/error]",
+        )
         err_console.print(
             "[error]    aud query --search payment --include-tables symbols,findings[/error]",
-            )
+        )
         err_console.print(
-            "[error]    aud query --file python_impl.py --list functions[/error]", )
+            "[error]    aud query --file python_impl.py --list functions[/error]",
+        )
         err_console.print(
-            "[error]    aud query --list-symbols --filter '*Controller*'[/error]", )
+            "[error]    aud query --list-symbols --filter '*Controller*'[/error]",
+        )
         err_console.print(
             "[error]    aud query --list-symbols --path 'services/' --filter '*'[/error]",
-            )
-        err_console.print("[error]    aud query --show-api-coverage\n[/error]", )
+        )
+        err_console.print(
+            "[error]    aud query --show-api-coverage\n[/error]",
+        )
         raise click.Abort()
 
     try:
@@ -385,10 +433,11 @@ def query(
         elif list_mode:
             if not file:
                 err_console.print(
-                    "[error]\nERROR: --list requires --file to be specified[/error]", )
+                    "[error]\nERROR: --list requires --file to be specified[/error]",
+                )
                 err_console.print(
                     "[error]Example: aud query --file python_impl.py --list functions\n[/error]",
-                    )
+                )
                 raise click.Abort()
 
             db_path = Path.cwd() / ".pf" / "repo_index.db"
@@ -435,7 +484,8 @@ def query(
                     highlight=False,
                 )
                 err_console.print(
-                    "[error]Valid types: functions, classes, imports, all\n[/error]", )
+                    "[error]Valid types: functions, classes, imports, all\n[/error]",
+                )
                 raise click.Abort()
 
             rows = cursor.fetchall()

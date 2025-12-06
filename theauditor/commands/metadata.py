@@ -3,7 +3,7 @@
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.logging import logger
 
 
@@ -110,7 +110,9 @@ def analyze_churn(root, days, output):
         result = collector.collect_churn(days=days, output_path=output)
 
         if "error" in result:
-            err_console.print(f"[warning]{result['error']}[/warning]", )
+            err_console.print(
+                f"[warning]{result['error']}[/warning]",
+            )
             if not result.get("files"):
                 return
 
@@ -176,7 +178,9 @@ def analyze_coverage(root, coverage_file, output):
         result = collector.collect_coverage(coverage_file=coverage_file, output_path=output)
 
         if "error" in result:
-            err_console.print(f"[error]{result['error']}[/error]", )
+            err_console.print(
+                f"[error]{result['error']}[/error]",
+            )
             if not result.get("files"):
                 raise click.ClickException(result["error"])
 
@@ -248,7 +252,8 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
 
             if "error" in churn_result:
                 err_console.print(
-                    f"[error]  \\[WARNING] Churn: {churn_result['error']}[/error]", )
+                    f"[error]  \\[WARNING] Churn: {churn_result['error']}[/error]",
+                )
             else:
                 total = churn_result.get("total_files_analyzed", 0)
                 console.print(f"  \\[OK] Churn: Analyzed {total} files")
@@ -264,7 +269,7 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
             if "error" in coverage_result:
                 err_console.print(
                     f"[error]  \\[WARNING] Coverage: {coverage_result['error']}[/error]",
-                    )
+                )
             else:
                 format_type = coverage_result.get("format_detected", "unknown")
                 total = coverage_result.get("total_files_analyzed", 0)

@@ -9,9 +9,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from theauditor.utils.logging import logger
 from theauditor.rules.base import convert_old_context, validate_rule_signature
 from theauditor.rules.fidelity import RuleResult, verify_fidelity
+from theauditor.utils.logging import logger
 
 
 @dataclass
@@ -90,7 +90,9 @@ class RulesOrchestrator:
                     module = importlib.import_module(module_name)
 
                     for name, obj in inspect.getmembers(module, inspect.isfunction):
-                        if (name.startswith("find_") or name == "analyze") and obj.__module__ == module_name:
+                        if (
+                            name.startswith("find_") or name == "analyze"
+                        ) and obj.__module__ == module_name:
                             rule_info = self._analyze_rule(name, obj, module, module_name, category)
                             rules_by_category[category].append(rule_info)
 
@@ -115,7 +117,9 @@ class RulesOrchestrator:
 
         execution_scope = "database" if is_standardized else "file"
         if metadata is not None:
-            execution_scope = getattr(metadata, "execution_scope", execution_scope) or execution_scope
+            execution_scope = (
+                getattr(metadata, "execution_scope", execution_scope) or execution_scope
+            )
 
         if execution_scope not in {"database", "file"}:
             execution_scope = "database" if is_standardized else "file"
@@ -140,7 +144,9 @@ class RulesOrchestrator:
 
         requires_ast = any(p in ["ast", "tree", "ast_tree", "python_ast"] for p in params)
         requires_db_param = any(p in ["db_path", "database", "conn"] for p in params)
-        requires_file_param = any(p in ["file_path", "filepath", "path", "filename"] for p in params)
+        requires_file_param = any(
+            p in ["file_path", "filepath", "path", "filename"] for p in params
+        )
         requires_content_param = any(p in ["content", "source", "code", "text"] for p in params)
 
         if execution_scope == "database":
@@ -208,7 +214,9 @@ class RulesOrchestrator:
                 if rule.execution_scope == "database":
                     continue
 
-                if rule.requires_db and not (rule.requires_file or rule.requires_ast or rule.requires_content):
+                if rule.requires_db and not (
+                    rule.requires_file or rule.requires_ast or rule.requires_content
+                ):
                     continue
 
                 if rule.requires_ast and not context.ast_tree:
@@ -242,7 +250,10 @@ class RulesOrchestrator:
                 if pattern in file_path_str:
                     return False
 
-        if metadata.target_extensions and file_path.suffix.lower() not in metadata.target_extensions:
+        if (
+            metadata.target_extensions
+            and file_path.suffix.lower() not in metadata.target_extensions
+        ):
             return False
 
         if metadata.target_file_patterns:
@@ -369,7 +380,6 @@ class RulesOrchestrator:
             std_context = convert_old_context(context, self.project_path)
             result = rule.function(std_context)
 
-            # Handle RuleResult (new) or list (legacy)
             if isinstance(result, RuleResult):
                 findings = result.findings
                 manifest = result.manifest
@@ -378,19 +388,19 @@ class RulesOrchestrator:
                 if not passed:
                     self._fidelity_failures.append((rule.name, errors))
             else:
-                findings = result  # Legacy: bare list
+                findings = result
 
             if findings and hasattr(findings[0], "to_dict"):
                 return [f.to_dict() for f in findings]
             return findings if findings else []
 
-        # Legacy rule execution
         kwargs = {}
 
         for param_name in rule.param_names:
             if param_name == "taint_registry":
                 if self.taint_registry is None:
                     from theauditor.taint import TaintRegistry
+
                     self.taint_registry = TaintRegistry()
                 kwargs["taint_registry"] = self.taint_registry
 
@@ -545,7 +555,7 @@ class RulesOrchestrator:
                 expected["expected_tables"] = [table_name]
                 conn.close()
         except Exception:
-            pass  # If we can't compute expected, use defaults
+            pass
 
         return expected
 
@@ -554,6 +564,19 @@ class RulesOrchestrator:
         return {
             "fidelity_failures": self._fidelity_failures,
             "failure_count": len(self._fidelity_failures),
+        }
+
+    def get_rule_stats(self) -> dict[str, Any]:
+        """Get statistics about discovered rules.
+
+        Returns:
+            Dict with total_rules, categories count, and breakdown by category.
+        """
+        total_rules = sum(len(rules) for rules in self.rules.values())
+        return {
+            "total_rules": total_rules,
+            "categories": len(self.rules),
+            "by_category": {cat: len(rules) for cat, rules in self.rules.items()},
         }
 
 

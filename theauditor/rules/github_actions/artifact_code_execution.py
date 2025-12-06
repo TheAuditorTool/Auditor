@@ -62,54 +62,90 @@ def find_artifact_code_execution(context: StandardRuleContext) -> list[StandardF
     return result.findings
 
 
-# =============================================================================
-# DETECTION LOGIC
-# =============================================================================
-
-# Triggers where artifact code execution is possible
 UNTRUSTED_ARTIFACT_TRIGGERS = frozenset(["pull_request_target", "workflow_run"])
 
-# Build/install commands that execute code from artifacts
-# These run postinstall scripts, Makefiles, setup.py, etc.
+
 CODE_EXECUTION_PATTERNS: dict[str, list[str]] = {
     "javascript": [
-        "npm install", "npm ci", "npm run", "npm test", "npm start",
-        "yarn install", "yarn", "yarn run", "yarn test", "yarn start",
-        "pnpm install", "pnpm run", "pnpm test",
-        "npx ", "bunx ",
+        "npm install",
+        "npm ci",
+        "npm run",
+        "npm test",
+        "npm start",
+        "yarn install",
+        "yarn",
+        "yarn run",
+        "yarn test",
+        "yarn start",
+        "pnpm install",
+        "pnpm run",
+        "pnpm test",
+        "npx ",
+        "bunx ",
     ],
     "python": [
-        "pip install", "pip install -e", "pip install .",
-        "python setup.py", "python -m pip install",
-        "poetry install", "pdm install", "uv pip install",
-        "pytest", "python -m pytest",
+        "pip install",
+        "pip install -e",
+        "pip install .",
+        "python setup.py",
+        "python -m pip install",
+        "poetry install",
+        "pdm install",
+        "uv pip install",
+        "pytest",
+        "python -m pytest",
     ],
     "make": [
-        "make", "make install", "make build", "make test",
-        "cmake --build", "ninja",
+        "make",
+        "make install",
+        "make build",
+        "make test",
+        "cmake --build",
+        "ninja",
     ],
     "ruby": [
-        "bundle install", "bundle exec", "gem install",
+        "bundle install",
+        "bundle exec",
+        "gem install",
         "rake",
     ],
     "rust": [
-        "cargo build", "cargo run", "cargo test", "cargo install",
+        "cargo build",
+        "cargo run",
+        "cargo test",
+        "cargo install",
     ],
     "go": [
-        "go build", "go run", "go test", "go install",
+        "go build",
+        "go run",
+        "go test",
+        "go install",
         "go generate",
     ],
     "dotnet": [
-        "dotnet build", "dotnet run", "dotnet test", "dotnet restore",
-        "nuget restore", "msbuild",
+        "dotnet build",
+        "dotnet run",
+        "dotnet test",
+        "dotnet restore",
+        "nuget restore",
+        "msbuild",
     ],
     "java": [
-        "mvn ", "mvn install", "mvn package", "mvn test",
-        "gradle ", "./gradlew", "ant ",
+        "mvn ",
+        "mvn install",
+        "mvn package",
+        "mvn test",
+        "gradle ",
+        "./gradlew",
+        "ant ",
     ],
     "shell": [
-        "bash ", "sh ", "chmod +x", "./",
-        "source ", ". ./",
+        "bash ",
+        "sh ",
+        "chmod +x",
+        "./",
+        "source ",
+        ". ./",
     ],
 }
 
@@ -118,7 +154,6 @@ def _find_artifact_code_execution(db: RuleDB) -> list[StandardFinding]:
     """Core detection logic for artifact code execution."""
     findings: list[StandardFinding] = []
 
-    # Get all workflows with untrusted triggers
     workflow_rows = db.query(
         Q("github_workflows")
         .select("workflow_path", "workflow_name", "on_triggers")
@@ -128,17 +163,14 @@ def _find_artifact_code_execution(db: RuleDB) -> list[StandardFinding]:
     for workflow_path, workflow_name, on_triggers in workflow_rows:
         on_triggers = on_triggers or ""
 
-        # Check for untrusted artifact contexts
         detected_triggers = [t for t in UNTRUSTED_ARTIFACT_TRIGGERS if t in on_triggers]
         if not detected_triggers:
             continue
 
-        # Find jobs that download artifacts (official action)
         download_jobs = _get_artifact_download_jobs(db, workflow_path)
         if not download_jobs:
             continue
 
-        # Check each download job for code execution patterns
         for job_id, job_key in download_jobs:
             execution_patterns = _check_code_execution_patterns(db, job_id)
 
@@ -165,7 +197,7 @@ def _get_artifact_download_jobs(db: RuleDB, workflow_path: str) -> list[tuple[st
         .where("workflow_path = ?", workflow_path)
         .where("github_steps.uses_action = ?", "actions/download-artifact")
     )
-    # Deduplicate
+
     seen: set[tuple[str, str]] = set()
     result: list[tuple[str, str]] = []
     for row in rows:
@@ -217,14 +249,13 @@ def _build_code_execution_finding(
 ) -> StandardFinding:
     """Build finding for artifact code execution vulnerability."""
 
-    # Multiple ecosystems = higher severity (broader attack surface)
     num_ecosystems = len(execution_patterns)
     if num_ecosystems >= 3:
         severity = Severity.CRITICAL
     elif num_ecosystems >= 2:
         severity = Severity.HIGH
     else:
-        severity = Severity.HIGH  # Single ecosystem still dangerous
+        severity = Severity.HIGH
 
     patterns_str = ", ".join(f"{cat}:{pat}" for cat, pat in execution_patterns)
     trigger_str = ", ".join(untrusted_triggers)
@@ -281,6 +312,6 @@ jobs:
         category="supply-chain",
         confidence="high",
         snippet=code_snippet.strip(),
-        cwe_id="CWE-94",  # Improper Control of Generation of Code
+        cwe_id="CWE-94",
         additional_info=details,
     )

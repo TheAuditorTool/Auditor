@@ -25,10 +25,6 @@ from theauditor.rules.fidelity import RuleDB
 from theauditor.rules.query import Q
 from theauditor.rules.sql.utils import register_regexp, truncate
 
-# =============================================================================
-# METADATA
-# =============================================================================
-
 METADATA = RuleMetadata(
     name="multi_tenant",
     category="security",
@@ -50,53 +46,101 @@ METADATA = RuleMetadata(
     primary_table="sql_queries",
 )
 
-# =============================================================================
-# DETECTION PATTERNS
-# =============================================================================
 
-# Tables that typically contain tenant-scoped data
-SENSITIVE_TABLES = frozenset([
-    "products", "orders", "inventory", "customers", "users",
-    "locations", "transfers", "invoices", "payments", "shipments",
-    "accounts", "transactions", "balances", "billing", "subscriptions",
-    "zones", "batches", "plants", "harvests", "workers", "facilities",
-    "documents", "files", "messages", "notifications", "settings",
-    "profiles", "permissions", "roles", "audit_logs", "events",
-])
-
-# Fields that indicate tenant scoping
-TENANT_FIELDS = frozenset([
-    "facility_id", "tenant_id", "organization_id", "company_id",
-    "store_id", "account_id", "org_id", "workspace_id", "client_id",
-    "team_id", "site_id", "branch_id", "merchant_id",
-])
-
-# RLS context setting patterns
-RLS_CONTEXT_PATTERNS = frozenset([
-    "SET LOCAL app.current_facility_id",
-    "SET LOCAL app.current_tenant_id",
-    "SET LOCAL app.current_account_id",
-    "SET LOCAL app.current_org_id",
-    "current_setting",
-    "set_config",
-])
-
-# Superuser names that bypass RLS
-SUPERUSER_NAMES = frozenset([
-    "postgres", "root", "admin", "superuser", "sa", "administrator",
-    "dba", "sysadmin", "master",
-])
-
-# Transaction keywords
-TRANSACTION_KEYWORDS = frozenset([
-    "transaction", "sequelize.transaction", "db.transaction",
-    "begin", "start_transaction", "withTransaction",
-])
+SENSITIVE_TABLES = frozenset(
+    [
+        "products",
+        "orders",
+        "inventory",
+        "customers",
+        "users",
+        "locations",
+        "transfers",
+        "invoices",
+        "payments",
+        "shipments",
+        "accounts",
+        "transactions",
+        "balances",
+        "billing",
+        "subscriptions",
+        "zones",
+        "batches",
+        "plants",
+        "harvests",
+        "workers",
+        "facilities",
+        "documents",
+        "files",
+        "messages",
+        "notifications",
+        "settings",
+        "profiles",
+        "permissions",
+        "roles",
+        "audit_logs",
+        "events",
+    ]
+)
 
 
-# =============================================================================
-# MAIN ENTRY POINT
-# =============================================================================
+TENANT_FIELDS = frozenset(
+    [
+        "facility_id",
+        "tenant_id",
+        "organization_id",
+        "company_id",
+        "store_id",
+        "account_id",
+        "org_id",
+        "workspace_id",
+        "client_id",
+        "team_id",
+        "site_id",
+        "branch_id",
+        "merchant_id",
+    ]
+)
+
+
+RLS_CONTEXT_PATTERNS = frozenset(
+    [
+        "SET LOCAL app.current_facility_id",
+        "SET LOCAL app.current_tenant_id",
+        "SET LOCAL app.current_account_id",
+        "SET LOCAL app.current_org_id",
+        "current_setting",
+        "set_config",
+    ]
+)
+
+
+SUPERUSER_NAMES = frozenset(
+    [
+        "postgres",
+        "root",
+        "admin",
+        "superuser",
+        "sa",
+        "administrator",
+        "dba",
+        "sysadmin",
+        "master",
+    ]
+)
+
+
+TRANSACTION_KEYWORDS = frozenset(
+    [
+        "transaction",
+        "sequelize.transaction",
+        "db.transaction",
+        "begin",
+        "start_transaction",
+        "withTransaction",
+    ]
+)
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect multi-tenant security issues in indexed codebase.
@@ -115,7 +159,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         register_regexp(db.conn)
 
-        # Run all detection checks
         findings.extend(_check_queries_without_tenant_filter(db))
         findings.extend(_check_rls_policies(db))
         findings.extend(_check_direct_id_access(db))
@@ -130,20 +173,13 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-# =============================================================================
-# DETECTION FUNCTIONS
-# =============================================================================
-
 def _check_queries_without_tenant_filter(db: RuleDB) -> list[StandardFinding]:
     """Find queries on sensitive tables without tenant filtering."""
     findings = []
 
-    # Build patterns for REGEXP
     sensitive_pattern = "|".join(re.escape(t) for t in SENSITIVE_TABLES)
     tenant_pattern = "|".join(re.escape(f) for f in TENANT_FIELDS)
 
-    # Query sql_queries table joined with sql_query_tables
-    # Using raw SQL via Q.raw() because this needs GROUP_CONCAT and complex join
     sql, params = Q.raw(
         """
         SELECT sq.file_path, sq.line_number, sq.query_text, sq.command,
@@ -172,11 +208,9 @@ def _check_queries_without_tenant_filter(db: RuleDB) -> list[StandardFinding]:
         query_lower = query_text.lower()
 
         if "where" in query_lower:
-            # Has WHERE but no tenant filter - could be valid single-record lookup
             severity = Severity.MEDIUM
             message = f"{command} on sensitive table ({tables or 'unknown'}) without explicit tenant filter (IDOR risk)"
         else:
-            # No WHERE clause at all - definitely dangerous
             severity = Severity.CRITICAL
             message = f"{command} on sensitive table ({tables or 'unknown'}) with NO WHERE clause - data leak"
 
@@ -211,7 +245,6 @@ def _check_rls_policies(db: RuleDB) -> list[StandardFinding]:
     for file_path, line_number, query_text in rows:
         query_upper = query_text.upper()
 
-        # Only check CREATE POLICY statements
         if "CREATE POLICY" not in query_upper:
             continue
 
@@ -229,7 +262,6 @@ def _check_rls_policies(db: RuleDB) -> list[StandardFinding]:
                 )
             )
         else:
-            # Has USING - check if it validates tenant field
             query_lower = query_text.lower()
             has_tenant_check = any(field in query_lower for field in TENANT_FIELDS)
             has_current_setting = "current_setting" in query_lower
@@ -358,12 +390,11 @@ def _check_cross_tenant_joins(db: RuleDB) -> list[StandardFinding]:
     for file_path, line_number, query_text, _command in rows:
         query_lower = query_text.lower()
 
-        # Extract ON clause
         on_start = query_lower.find(" on ")
         if on_start == -1:
             continue
 
-        on_clause = query_text[on_start:on_start + 200]
+        on_clause = query_text[on_start : on_start + 200]
         has_tenant_in_on = any(field in on_clause.lower() for field in TENANT_FIELDS)
 
         if not has_tenant_in_on:
@@ -403,7 +434,6 @@ def _check_subqueries(db: RuleDB) -> list[StandardFinding]:
     for file_path, line_number, query_text, _command in rows:
         query_lower = query_text.lower()
 
-        # Extract subquery
         subquery_start = query_lower.find("(select")
         if subquery_start == -1:
             continue
@@ -450,11 +480,10 @@ def _check_missing_rls_context(db: RuleDB) -> list[StandardFinding]:
     """Find transactions without SET LOCAL for RLS context."""
     findings = []
 
-    context_pattern = r"(?i)(set\s+local|current_setting|set_config).*(facility_id|tenant_id|account_id|org_id)"
+    context_pattern = (
+        r"(?i)(set\s+local|current_setting|set_config).*(facility_id|tenant_id|account_id|org_id)"
+    )
 
-    # CTE: Find transaction starts
-    # CTE: Find context setters
-    # Main: Find transactions without nearby context setters
     sql, params = Q.raw(
         """
         WITH transaction_starts AS (
@@ -519,11 +548,18 @@ def _check_superuser_connections(db: RuleDB) -> list[StandardFinding]:
     for file, line, var, expr in rows:
         var_upper = var.upper()
 
-        # Check if this is a DB user variable
-        is_db_user_var = any(kw in var_upper for kw in [
-            "DB_USER", "DATABASE_USER", "POSTGRES_USER", "PG_USER",
-            "MYSQL_USER", "DB_USERNAME", "DATABASE_USERNAME",
-        ])
+        is_db_user_var = any(
+            kw in var_upper
+            for kw in [
+                "DB_USER",
+                "DATABASE_USER",
+                "POSTGRES_USER",
+                "PG_USER",
+                "MYSQL_USER",
+                "DB_USERNAME",
+                "DATABASE_USERNAME",
+            ]
+        )
 
         if not is_db_user_var:
             continue
@@ -553,7 +589,6 @@ def _check_raw_query_outside_transaction(db: RuleDB) -> list[StandardFinding]:
     """Find raw SQL queries executed outside transaction context."""
     findings = []
 
-    # Find raw query calls
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -567,7 +602,6 @@ def _check_raw_query_outside_transaction(db: RuleDB) -> list[StandardFinding]:
     raw_queries = list(rows)
 
     for file, line, func, args in raw_queries:
-        # Check if there's a transaction nearby
         nearby_rows = db.query(
             Q("function_call_args")
             .select("callee_function")
@@ -577,14 +611,12 @@ def _check_raw_query_outside_transaction(db: RuleDB) -> list[StandardFinding]:
         )
 
         in_transaction = any(
-            "transaction" in row[0].lower() or "begin" in row[0].lower()
-            for row in nearby_rows
+            "transaction" in row[0].lower() or "begin" in row[0].lower() for row in nearby_rows
         )
 
         if in_transaction:
             continue
 
-        # Check if query touches sensitive tables
         args_lower = (args or "").lower()
         has_sensitive = any(table in args_lower for table in SENSITIVE_TABLES)
 

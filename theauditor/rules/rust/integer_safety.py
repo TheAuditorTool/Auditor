@@ -29,17 +29,24 @@ METADATA = RuleMetadata(
     primary_table="rust_functions",
 )
 
-# Regex patterns for truncating casts - handles variable whitespace
+
 TRUNCATING_CAST_TYPES = ["u8", "i8", "u16", "i16", "u32", "i32", "usize", "isize"]
 
-# Compiled regex for efficient matching - handles "x as u8", "x  as  u8", "(x)as u8" etc.
-CAST_PATTERN = re.compile(
-    r"\bas\s+(" + "|".join(TRUNCATING_CAST_TYPES) + r")\b", re.IGNORECASE
-)
+
+CAST_PATTERN = re.compile(r"\bas\s+(" + "|".join(TRUNCATING_CAST_TYPES) + r")\b", re.IGNORECASE)
 
 HIGH_RISK_FUNCTIONS = [
-    "transfer", "withdraw", "deposit", "balance",
-    "amount", "price", "fee", "reward", "stake", "mint", "burn",
+    "transfer",
+    "withdraw",
+    "deposit",
+    "balance",
+    "amount",
+    "price",
+    "fee",
+    "reward",
+    "stake",
+    "mint",
+    "burn",
 ]
 
 

@@ -35,9 +35,6 @@ class BashPipeStrategy(GraphStrategy):
             "pipelines_processed": 0,
         }
 
-        # =====================================================================
-        # 1. Build pipe flow edges from bash_pipes table
-        # =====================================================================
         cursor.execute("""
             SELECT file, line, pipeline_id, position, command_text, containing_function
             FROM bash_pipes
@@ -55,7 +52,6 @@ class BashPipeStrategy(GraphStrategy):
             command_text = row["command_text"]
             containing_function = row["containing_function"]
 
-            # Reset on new pipeline
             if (file, pipeline_id) != current_pipeline:
                 current_pipeline = (file, pipeline_id)
                 prev_node_id = None
@@ -63,7 +59,6 @@ class BashPipeStrategy(GraphStrategy):
 
             node_id = f"bash:pipe:{file}:{line}:{position}"
 
-            # Create node for this pipeline position
             if node_id not in nodes:
                 label = command_text[:50] + "..." if len(command_text) > 50 else command_text
                 nodes[node_id] = DFGNode(
@@ -81,7 +76,6 @@ class BashPipeStrategy(GraphStrategy):
                     },
                 )
 
-            # Create edge from previous command to this one
             if prev_node_id:
                 new_edges = create_bidirectional_edges(
                     source=prev_node_id,
@@ -98,9 +92,6 @@ class BashPipeStrategy(GraphStrategy):
 
             prev_node_id = node_id
 
-        # =====================================================================
-        # 2. Build source include edges from bash_sources table
-        # =====================================================================
         cursor.execute("""
             SELECT file, line, sourced_path, syntax, has_variable_expansion, containing_function
             FROM bash_sources
@@ -117,7 +108,6 @@ class BashPipeStrategy(GraphStrategy):
             source_node_id = f"bash:source:{file}:{line}"
             target_node_id = f"bash:file:{sourced_path}"
 
-            # Create source statement node
             if source_node_id not in nodes:
                 label = f"{syntax} {sourced_path}"
                 nodes[source_node_id] = DFGNode(
@@ -135,7 +125,6 @@ class BashPipeStrategy(GraphStrategy):
                     },
                 )
 
-            # Create target file node (if not already present)
             if target_node_id not in nodes:
                 nodes[target_node_id] = DFGNode(
                     id=target_node_id,
@@ -149,7 +138,6 @@ class BashPipeStrategy(GraphStrategy):
                     },
                 )
 
-            # Create edge linking source to target
             new_edges = create_bidirectional_edges(
                 source=source_node_id,
                 target=target_node_id,
@@ -166,9 +154,6 @@ class BashPipeStrategy(GraphStrategy):
             edges.extend(new_edges)
             stats["source_edges"] += len(new_edges)
 
-        # =====================================================================
-        # 3. Build subshell capture edges from bash_subshells table
-        # =====================================================================
         cursor.execute("""
             SELECT file, line, syntax, command_text, capture_target, containing_function
             FROM bash_subshells
@@ -186,7 +171,6 @@ class BashPipeStrategy(GraphStrategy):
             subshell_node_id = f"bash:subshell:{file}:{line}"
             variable_node_id = f"bash:var:{file}:{containing_function or 'global'}:{capture_target}"
 
-            # Create subshell node
             if subshell_node_id not in nodes:
                 if syntax == "backtick":
                     label = (
@@ -215,7 +199,6 @@ class BashPipeStrategy(GraphStrategy):
                     },
                 )
 
-            # Create variable node (if not already present)
             if variable_node_id not in nodes:
                 nodes[variable_node_id] = DFGNode(
                     id=variable_node_id,
@@ -229,7 +212,6 @@ class BashPipeStrategy(GraphStrategy):
                     },
                 )
 
-            # Create edge linking subshell output to variable
             new_edges = create_bidirectional_edges(
                 source=subshell_node_id,
                 target=variable_node_id,

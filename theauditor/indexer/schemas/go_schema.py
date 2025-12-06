@@ -358,7 +358,6 @@ GO_MIDDLEWARE = TableSchema(
 )
 
 
-# Go module (go.mod) package manager tables
 GO_MODULE_CONFIGS = TableSchema(
     name="go_module_configs",
     columns=[

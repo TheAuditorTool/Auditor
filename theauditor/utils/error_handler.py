@@ -29,14 +29,12 @@ def handle_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
             error_msg = str(e)
             tb = traceback.format_exc()
 
-            # Log via loguru for console/Rich/Pino-NDJSON output
             logger.opt(exception=True).error(
                 "Command '{cmd}' failed: {err}",
                 cmd=func.__name__,
                 err=error_msg,
             )
 
-            # Also write to error.log file for persistent debugging
             with open(error_log_path, "a", encoding="utf-8") as f:
                 f.write("\n" + "=" * 80 + "\n")
                 f.write(f"[{datetime.now().isoformat()}] Error in command: {func.__name__}\n")
@@ -46,8 +44,7 @@ def handle_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
                 f.write("=" * 80 + "\n\n")
 
             user_message = (
-                f"{error_type}: {error_msg}\n\n"
-                f"Full traceback logged to: {error_log_path}"
+                f"{error_type}: {error_msg}\n\nFull traceback logged to: {error_log_path}"
             )
 
             raise click.ClickException(user_message) from e

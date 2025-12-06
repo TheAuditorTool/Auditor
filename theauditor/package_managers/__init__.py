@@ -29,17 +29,16 @@ from .base import Dependency
 if TYPE_CHECKING:
     from .base import BasePackageManager
 
-# Lazy imports to avoid circular dependencies
+
 _REGISTRY: dict[str, type[BasePackageManager]] | None = None
 
-# Pre-computed file dispatch tables for O(1) lookup
-# Exact matches (most common case)
+
 _EXACT_FILE_MAP: dict[str, str] = {
     "cargo.toml": "cargo",
     "go.mod": "go",
 }
 
-# Glob patterns that require fnmatch (docker variants only)
+
 _GLOB_PATTERNS: list[tuple[str, str]] = [
     ("docker-compose*.yml", "docker"),
     ("docker-compose*.yaml", "docker"),
@@ -102,11 +101,9 @@ def get_manager_for_file(file_path: str) -> BasePackageManager | None:
     """
     file_name = Path(file_path).name.lower()
 
-    # O(1) exact match (cargo.toml, go.mod)
     if file_name in _EXACT_FILE_MAP:
         return get_manager(_EXACT_FILE_MAP[file_name])
 
-    # O(patterns) glob match (docker variants only)
     for pattern, mgr_name in _GLOB_PATTERNS:
         if fnmatch.fnmatch(file_name, pattern):
             return get_manager(mgr_name)

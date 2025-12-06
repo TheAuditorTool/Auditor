@@ -239,9 +239,7 @@ class UniversalPatternDetector:
         for finding in db_findings:
             findings.append(
                 Finding(
-                    pattern_name=finding.get(
-                        "rule", finding.get("pattern_name", "DATABASE_RULE")
-                    ),
+                    pattern_name=finding.get("rule", finding.get("pattern_name", "DATABASE_RULE")),
                     message=finding.get("message", "Database issue detected"),
                     file=finding.get("file", ""),
                     line=finding.get("line") or 0,

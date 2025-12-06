@@ -47,13 +47,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     findings: list[StandardFinding] = []
     manifest: dict = {}
 
-    # --- Function-level dead code detection (uses RuleDB + Q) ---
     with RuleDB(context.db_path, METADATA.name) as db:
         func_findings = _find_unused_functions(db)
         findings.extend(func_findings)
         manifest["functions_checked"] = db.get_manifest()
 
-    # --- Module-level dead code detection (uses graphs.db) ---
     graphs_db = Path(context.db_path).parent / "graphs.db"
 
     if graphs_db.exists():
@@ -88,39 +86,70 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     return RuleResult(findings=findings, manifest=manifest)
 
 
-# =============================================================================
-# FUNCTION-LEVEL DEAD CODE DETECTION
-# =============================================================================
+ENTRY_POINT_PATTERNS = frozenset(
+    [
+        "main",
+        "__main__",
+        "__init__",
+        "__new__",
+        "__del__",
+        "__enter__",
+        "__exit__",
+        "__call__",
+        "__iter__",
+        "__next__",
+        "__getattr__",
+        "__setattr__",
+        "__getitem__",
+        "__setitem__",
+        "__len__",
+        "__str__",
+        "__repr__",
+        "__eq__",
+        "__hash__",
+        "__lt__",
+        "__le__",
+        "__gt__",
+        "__ge__",
+        "__add__",
+        "__sub__",
+        "__mul__",
+        "__truediv__",
+        "__floordiv__",
+        "__mod__",
+        "__pow__",
+        "setUp",
+        "tearDown",
+        "setUpClass",
+        "tearDownClass",
+        "setUpModule",
+        "tearDownModule",
+        "configure",
+        "setup",
+        "teardown",
+        "initialize",
+        "shutdown",
+        "on_startup",
+        "on_shutdown",
+        "lifespan",
+        "cli",
+        "app",
+        "run",
+        "execute",
+        "handle",
+        "default",
+        "module.exports",
+    ]
+)
 
-# Entry points and special functions that should never be flagged as unused
-ENTRY_POINT_PATTERNS = frozenset([
-    # Python entry points
-    "main", "__main__", "__init__", "__new__", "__del__",
-    "__enter__", "__exit__", "__call__", "__iter__", "__next__",
-    "__getattr__", "__setattr__", "__getitem__", "__setitem__",
-    "__len__", "__str__", "__repr__", "__eq__", "__hash__",
-    "__lt__", "__le__", "__gt__", "__ge__", "__add__", "__sub__",
-    "__mul__", "__truediv__", "__floordiv__", "__mod__", "__pow__",
-    # Test functions
-    "setUp", "tearDown", "setUpClass", "tearDownClass",
-    "setUpModule", "tearDownModule",
-    # Framework hooks
-    "configure", "setup", "teardown", "initialize", "shutdown",
-    "on_startup", "on_shutdown", "lifespan",
-    # CLI entry points
-    "cli", "app", "run", "execute", "handle",
-    # JS/TS exports
-    "default", "module.exports",
-])
 
-# Patterns that indicate a function is likely an entry point
 ENTRY_POINT_PREFIXES = (
-    "test_",      # pytest
-    "Test",       # unittest
-    "handle_",    # event handlers
-    "on_",        # event callbacks
-    "get_",       # property-like getters often called dynamically
-    "set_",       # property-like setters often called dynamically
+    "test_",
+    "Test",
+    "handle_",
+    "on_",
+    "get_",
+    "set_",
 )
 
 
@@ -139,7 +168,6 @@ def _find_unused_functions(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Get all defined TOP-LEVEL FUNCTIONS only (exclude methods to avoid name collisions)
     defined_rows = db.query(
         Q("symbols")
         .select("path", "name", "line", "type")
@@ -147,71 +175,50 @@ def _find_unused_functions(db: RuleDB) -> list[StandardFinding]:
         .order_by("path, line")
     )
 
-    # Build set of (file, function_name) -> (line, type) for defined functions
     defined_funcs: dict[tuple[str, str], tuple[int, str]] = {}
     for file_path, func_name, line, func_type in defined_rows:
-        # Skip entry points and magic methods
         if func_name in ENTRY_POINT_PATTERNS:
             continue
         if any(func_name.startswith(prefix) for prefix in ENTRY_POINT_PREFIXES):
             continue
-        # Skip lambda and anonymous functions
+
         if func_name in ("<lambda>", "<anonymous>", "anonymous"):
             continue
 
         key = (file_path, func_name)
-        # Keep first definition (in case of overloads)
+
         if key not in defined_funcs:
             defined_funcs[key] = (line, func_type)
 
-    # Get all function calls (exact callee names only - no stripping context)
-    called_rows = db.query(
-        Q("function_call_args")
-        .select("callee_function")
-    )
+    called_rows = db.query(Q("function_call_args").select("callee_function"))
 
-    # Build set of called function names (exact matches only)
     called_names: set[str] = set()
     for (callee,) in called_rows:
         if callee:
             called_names.add(callee)
 
-    # Get all identifier references (catches callbacks passed as arguments)
-    ref_rows = db.query(
-        Q("refs")
-        .select("value")
-        .where("kind = ?", "ref")
-    )
+    ref_rows = db.query(Q("refs").select("value").where("kind = ?", "ref"))
 
-    # Build set of referenced identifiers
     referenced_names: set[str] = set()
     for (ref_value,) in ref_rows:
         if ref_value:
-            # Extract the simple name from qualified refs
-            # e.g., "module.function" -> "function"
             if "." in ref_value:
                 referenced_names.add(ref_value.split(".")[-1])
             referenced_names.add(ref_value)
 
-    # Find unused functions
     for (file_path, func_name), (line, func_type) in defined_funcs.items():
-        # Skip if called directly
         if func_name in called_names:
             continue
 
-        # Skip if referenced as callback/identifier
         if func_name in referenced_names:
             continue
 
-        # Determine confidence based on naming conventions
         is_private = func_name.startswith("_") and not func_name.startswith("__")
 
         if is_private:
-            # Private functions are less likely to be called dynamically
             confidence = Confidence.MEDIUM
             severity = Severity.LOW
         else:
-            # Public functions could be entry points we don't detect
             confidence = Confidence.LOW
             severity = Severity.INFO
 

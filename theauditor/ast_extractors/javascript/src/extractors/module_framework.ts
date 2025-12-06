@@ -628,7 +628,11 @@ export function extractImportStyles(
   const resolveModulePath = (modulePath: string): string | null => {
     if (!program || !sourceFile) return null;
 
-    const resolvedModule = (program as any).getResolvedModule?.(sourceFile, modulePath, undefined);
+    const resolvedModule = (program as any).getResolvedModule?.(
+      sourceFile,
+      modulePath,
+      undefined,
+    );
 
     if (resolvedModule?.resolvedFileName) {
       let resolved = resolvedModule.resolvedFileName;
@@ -712,17 +716,13 @@ export function extractRefs(
     if (!modulePath) continue;
     lineToModule.set(imp.line, modulePath);
 
-    // Use full path as key to avoid collisions (e.g., utils/index.ts vs auth/index.ts)
-    // Also add short name for backward compatibility, but full path takes precedence
     const parts = modulePath.split("/");
     const fileName = parts.pop()?.replace(/\.(js|ts|jsx|tsx)$/, "") || "";
     if (fileName) {
-      // If it's index.ts, use parent/index as key to avoid collision
       if (fileName === "index" && parts.length > 0) {
         const parent = parts[parts.length - 1];
         resolved[`${parent}/${fileName}`] = modulePath;
       }
-      // Always add the simple name (may be overwritten, that's ok for non-index files)
       resolved[fileName] = modulePath;
     }
   }

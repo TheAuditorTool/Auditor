@@ -594,10 +594,9 @@ export const FidelityManifestSchema = z.object({
   bytes: z.number(),
 });
 
-export const ExtractionManifestSchema = z.record(
-  z.string(),
-  FidelityManifestSchema
-).optional();
+export const ExtractionManifestSchema = z
+  .record(z.string(), FidelityManifestSchema)
+  .optional();
 
 export const ExtractedDataSchema = z.object({
   symbols: z.array(SymbolSchema).optional(),
@@ -659,7 +658,6 @@ export const ExtractedDataSchema = z.object({
   api_endpoints: z.array(APIEndpointSchema).optional(),
   middleware_chains: z.array(MiddlewareChainSchema).optional(),
   validation_calls: z.array(ValidationCallSchema).optional(),
-  // Note: schema_definitions are merged into validation_calls (see main.ts:717)
   sql_queries: z.array(SQLQuerySchema).optional(),
   cdk_constructs: z.array(CDKConstructSchema).optional(),
   cdk_construct_properties: z.array(CDKConstructPropertySchema).optional(),

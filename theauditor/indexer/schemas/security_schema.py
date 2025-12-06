@@ -153,7 +153,12 @@ RESOLVED_FLOW_AUDIT = TableSchema(
         Column("hops", "INTEGER", nullable=False),
         Column("path_json", "TEXT", nullable=False),
         Column("flow_sensitive", "INTEGER", nullable=False, default="1"),
-        Column("status", "TEXT", nullable=False, check="status IN ('VULNERABLE', 'SANITIZED', 'REACHABLE')"),
+        Column(
+            "status",
+            "TEXT",
+            nullable=False,
+            check="status IN ('VULNERABLE', 'SANITIZED', 'REACHABLE')",
+        ),
         Column("sanitizer_file", "TEXT", nullable=True),
         Column("sanitizer_line", "INTEGER", nullable=True),
         Column("sanitizer_method", "TEXT", nullable=True),

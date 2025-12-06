@@ -70,7 +70,6 @@ if TYPE_CHECKING:
     from theauditor.rules.query import Q
 
 
-# Environment variable for strict mode
 STRICT_FIDELITY = os.environ.get("THEAUDITOR_FIDELITY_STRICT", "0") == "1"
 
 
@@ -219,7 +218,7 @@ class RuleDB:
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         """Context manager exit - always close connection."""
         self.close()
-        return False  # Don't suppress exceptions
+        return False
 
 
 def verify_fidelity(manifest: dict, expected: dict) -> tuple[bool, list[str]]:
@@ -246,11 +245,8 @@ def verify_fidelity(manifest: dict, expected: dict) -> tuple[bool, list[str]]:
     items_scanned = manifest.get("items_scanned", 0)
     table_row_count = expected.get("table_row_count", 0)
 
-    # Check for silent failure: table has data but rule scanned nothing
     if items_scanned == 0 and table_row_count > 0:
-        errors.append(
-            f"Rule scanned 0 items but table has {table_row_count} rows"
-        )
+        errors.append(f"Rule scanned 0 items but table has {table_row_count} rows")
 
     passed = len(errors) == 0
 

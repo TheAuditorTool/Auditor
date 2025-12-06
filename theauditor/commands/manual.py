@@ -11,7 +11,6 @@ from theauditor.commands.manual_lib01 import EXPLANATIONS_01
 from theauditor.commands.manual_lib02 import EXPLANATIONS_02
 from theauditor.pipeline.ui import console
 
-# Merge both explanation libraries into single dict
 EXPLANATIONS: dict[str, dict[str, str]] = {**EXPLANATIONS_01, **EXPLANATIONS_02}
 
 
@@ -19,14 +18,11 @@ def _render_rich_explanation(info: dict) -> None:
     """Render a manual entry with Rich formatting."""
     console.print()
 
-    # Title panel
     title_text = Text(info["title"].upper(), style="bold cyan")
     console.print(Panel(title_text, border_style="cyan", padding=(0, 2)))
 
-    # Summary
     console.print(f"\n[bold yellow]Summary:[/bold yellow] {info['summary']}\n")
 
-    # Parse and render explanation with Rich markup
     explanation = info.get("explanation", "")
     lines = explanation.strip().split("\n")
 
@@ -37,9 +33,7 @@ def _render_rich_explanation(info: dict) -> None:
     for line in lines:
         stripped = line.strip()
 
-        # Detect section headers (UPPERCASE followed by colon)
         if stripped and stripped.endswith(":") and stripped[:-1].isupper():
-            # Flush any pending code block
             if in_code_block and code_block:
                 _render_code_block(code_block)
                 code_block = []
@@ -49,23 +43,21 @@ def _render_rich_explanation(info: dict) -> None:
             console.print(f"\n[bold cyan]{current_section}:[/bold cyan]")
             continue
 
-        # Detect code blocks (indented lines starting with common code patterns)
-        if stripped.startswith(("aud ", "python ", "import ", "def ", "class ", "$", ">>>", "cursor.", "conn.")):
+        if stripped.startswith(
+            ("aud ", "python ", "import ", "def ", "class ", "$", ">>>", "cursor.", "conn.")
+        ):
             if not in_code_block:
                 in_code_block = True
             code_block.append(line)
             continue
 
-        # If we were in a code block but this line doesn't look like code
         if in_code_block and code_block:
             if not stripped or not line.startswith("    "):
                 _render_code_block(code_block)
                 code_block = []
                 in_code_block = False
 
-        # Handle bullet points
         if stripped.startswith("- "):
-            # Check for term:definition pattern
             if ": " in stripped[2:]:
                 term, definition = stripped[2:].split(": ", 1)
                 console.print(f"  [yellow]{term}:[/yellow] {definition}")
@@ -73,13 +65,11 @@ def _render_rich_explanation(info: dict) -> None:
                 console.print(f"  [dim]-[/dim] {stripped[2:]}")
             continue
 
-        # Handle numbered lists
         if stripped and stripped[0].isdigit() and ". " in stripped[:4]:
             num, rest = stripped.split(". ", 1)
             console.print(f"  [bold]{num}.[/bold] {rest}")
             continue
 
-        # Handle example commands with comments
         if "# " in stripped and stripped.strip().startswith("aud "):
             parts = stripped.split("# ", 1)
             cmd = parts[0].strip()
@@ -87,18 +77,15 @@ def _render_rich_explanation(info: dict) -> None:
             console.print(f"    [green]{cmd}[/green]  [dim]# {comment}[/dim]")
             continue
 
-        # Handle standalone commands
         if stripped.startswith("aud "):
             console.print(f"    [green]{stripped}[/green]")
             continue
 
-        # Regular text
         if stripped:
             console.print(f"  {stripped}")
         elif not in_code_block:
             console.print()
 
-    # Flush any remaining code block
     if in_code_block and code_block:
         _render_code_block(code_block)
 
@@ -109,8 +96,9 @@ def _render_code_block(lines: list[str]) -> None:
     """Render a code block with syntax highlighting."""
     code = "\n".join(line.strip() for line in lines if line.strip())
 
-    # Detect language
-    if any(line.strip().startswith(("def ", "import ", "class ", "cursor.", "conn.")) for line in lines):
+    if any(
+        line.strip().startswith(("def ", "import ", "class ", "cursor.", "conn.")) for line in lines
+    ):
         lang = "python"
     elif any(line.strip().startswith("aud ") for line in lines):
         lang = "bash"
@@ -121,7 +109,6 @@ def _render_code_block(lines: list[str]) -> None:
         syntax = Syntax(code, lang, theme="monokai", line_numbers=False, padding=1)
         console.print(syntax)
     except Exception:
-        # Fallback to plain text
         for line in lines:
             console.print(f"    [green]{line.strip()}[/green]")
 
@@ -294,16 +281,16 @@ def manual(concept, list_concepts):
         return
 
     if not concept:
-        # Styled welcome page like aud --help
         console.print()
-        console.print(Panel.fit(
-            "[bold cyan]TheAuditor Manual[/bold cyan]\n"
-            "[dim]Interactive documentation for security analysis concepts[/dim]",
-            border_style="cyan"
-        ))
+        console.print(
+            Panel.fit(
+                "[bold cyan]TheAuditor Manual[/bold cyan]\n"
+                "[dim]Interactive documentation for security analysis concepts[/dim]",
+                border_style="cyan",
+            )
+        )
         console.print()
 
-        # Topic categories
         categories = {
             "SECURITY ANALYSIS": [
                 ("taint", "Data flow from sources to sinks"),
@@ -334,7 +321,9 @@ def manual(concept, list_concepts):
             console.print(Panel(table, title=f"[bold]{cat_name}[/bold]", border_style="blue"))
 
         console.print()
-        console.print("[dim]Usage:[/dim]  aud manual <topic>     [dim]Example:[/dim] aud manual taint")
+        console.print(
+            "[dim]Usage:[/dim]  aud manual <topic>     [dim]Example:[/dim] aud manual taint"
+        )
         console.print("[dim]List all:[/dim] aud manual --list")
         console.print()
         return

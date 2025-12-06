@@ -33,60 +33,40 @@ METADATA = RuleMetadata(
 )
 
 
-# Untrusted paths that can be controlled by attacker
-# These are GitHub Actions context variables that can contain arbitrary user input
-UNTRUSTED_PATHS = frozenset([
-    # Pull request data (attacker creates PR)
-    "github.event.pull_request.title",
-    "github.event.pull_request.body",
-    "github.event.pull_request.head.ref",
-    "github.event.pull_request.head.label",
-    "github.event.pull_request.head.repo.default_branch",
-    "github.head_ref",
-    "github.ref_name",  # Can be PR branch name
-
-    # Issue data (attacker creates issue)
-    "github.event.issue.title",
-    "github.event.issue.body",
-
-    # Comment data (attacker posts comment)
-    "github.event.comment.body",
-    "github.event.review.body",
-    "github.event.review_comment.body",
-
-    # Discussion data (attacker creates discussion/comment)
-    "github.event.discussion.title",
-    "github.event.discussion.body",
-    "github.event.discussion_comment.body",
-
-    # Commit data (attacker controls commit messages)
-    "github.event.head_commit.message",
-    "github.event.head_commit.author.email",
-    "github.event.head_commit.author.name",
-    "github.event.commits",  # Array of commits with messages
-
-    # Release data (if attacker can create releases)
-    "github.event.release.name",
-    "github.event.release.body",
-    "github.event.release.tag_name",
-
-    # workflow_dispatch inputs (user-provided form inputs)
-    "inputs.",  # Prefix match for any input
-    "github.event.inputs.",  # Alternative path
-
-    # repository_dispatch payload (webhook payload)
-    "github.event.client_payload.",  # Prefix match for any payload field
-
-    # workflow_run data (triggered workflow can have untrusted context)
-    "github.event.workflow_run.head_branch",
-    "github.event.workflow_run.head_commit.message",
-
-    # Pages/wiki data
-    "github.event.pages",  # Wiki page names
-])
+UNTRUSTED_PATHS = frozenset(
+    [
+        "github.event.pull_request.title",
+        "github.event.pull_request.body",
+        "github.event.pull_request.head.ref",
+        "github.event.pull_request.head.label",
+        "github.event.pull_request.head.repo.default_branch",
+        "github.head_ref",
+        "github.ref_name",
+        "github.event.issue.title",
+        "github.event.issue.body",
+        "github.event.comment.body",
+        "github.event.review.body",
+        "github.event.review_comment.body",
+        "github.event.discussion.title",
+        "github.event.discussion.body",
+        "github.event.discussion_comment.body",
+        "github.event.head_commit.message",
+        "github.event.head_commit.author.email",
+        "github.event.head_commit.author.name",
+        "github.event.commits",
+        "github.event.release.name",
+        "github.event.release.body",
+        "github.event.release.tag_name",
+        "inputs.",
+        "github.event.inputs.",
+        "github.event.client_payload.",
+        "github.event.workflow_run.head_branch",
+        "github.event.workflow_run.head_commit.message",
+        "github.event.pages",
+    ]
+)
 
 
-# Sinks where command execution occurs
 GITHUB_SINKS = frozenset(["run", "shell", "bash"])
 
 
@@ -122,22 +102,20 @@ def find_pull_request_injection(context: StandardRuleContext) -> list[StandardFi
     return result.findings
 
 
-# =============================================================================
-# DETECTION LOGIC
-# =============================================================================
-
-
 def _find_script_injections(db: RuleDB) -> list[StandardFinding]:
     """Core detection logic for script injection."""
     findings: list[StandardFinding] = []
 
-    # Get all steps with run scripts (JOIN to get workflow context)
     step_rows = db.query(
         Q("github_steps")
         .alias("s")
         .select(
-            "s.step_id", "s.step_name", "s.run_script",
-            "github_jobs.workflow_path", "github_jobs.job_key", "github_workflows.workflow_name"
+            "s.step_id",
+            "s.step_name",
+            "s.run_script",
+            "github_jobs.workflow_path",
+            "github_jobs.job_key",
+            "github_workflows.workflow_name",
         )
         .join("github_jobs", on=[("job_id", "job_id")])
         .join("github_workflows", on="github_jobs.workflow_path = github_workflows.workflow_path")
@@ -145,7 +123,6 @@ def _find_script_injections(db: RuleDB) -> list[StandardFinding]:
     )
 
     for step_id, step_name, run_script, workflow_path, job_key, workflow_name in step_rows:
-        # Get references used in this step's run script
         ref_rows = db.query(
             Q("github_step_references")
             .select("reference_path")
@@ -153,7 +130,6 @@ def _find_script_injections(db: RuleDB) -> list[StandardFinding]:
             .where("reference_location = ?", "run")
         )
 
-        # Check for untrusted paths in references
         untrusted_refs = []
         for (ref_path,) in ref_rows:
             if any(ref_path.startswith(unsafe) for unsafe in UNTRUSTED_PATHS):
@@ -162,11 +138,8 @@ def _find_script_injections(db: RuleDB) -> list[StandardFinding]:
         if not untrusted_refs:
             continue
 
-        # Get workflow triggers to determine severity
         trigger_rows = db.query(
-            Q("github_workflows")
-            .select("on_triggers")
-            .where("workflow_path = ?", workflow_path)
+            Q("github_workflows").select("on_triggers").where("workflow_path = ?", workflow_path)
         )
 
         triggers = []
@@ -178,7 +151,6 @@ def _find_script_injections(db: RuleDB) -> list[StandardFinding]:
                 except json.JSONDecodeError:
                     pass
 
-        # CRITICAL if running with elevated privileges in untrusted context
         critical_triggers = {"pull_request_target", "issue_comment", "workflow_run"}
         has_critical_trigger = bool(critical_triggers & set(triggers))
         severity = Severity.CRITICAL if has_critical_trigger else Severity.HIGH

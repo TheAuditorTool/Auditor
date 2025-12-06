@@ -22,8 +22,8 @@ from graphql.language.ast import (
 
 from theauditor.utils.logging import logger
 
-from . import BaseExtractor
 from ..fidelity_utils import FidelityToken
+from . import BaseExtractor
 
 
 class GraphQLExtractor(BaseExtractor):

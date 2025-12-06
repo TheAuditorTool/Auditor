@@ -6,9 +6,9 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import err_console, console
-from theauditor.utils.error_handler import handle_exceptions
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.constants import ExitCodes
+from theauditor.utils.error_handler import handle_exceptions
 
 
 @click.command("docker-analyze", cls=RichCommand)
@@ -204,7 +204,9 @@ def docker_analyze(db_path, output, severity, check_vulns):
 
     Run 'aud full' to perform Docker security analysis as part of the complete pipeline.
     """
-    console.print("[DEPRECATED] Docker analysis is now part of 'aud full' pipeline.", highlight=False)
+    console.print(
+        "[DEPRECATED] Docker analysis is now part of 'aud full' pipeline.", highlight=False
+    )
     console.print("", highlight=False)
     console.print("Docker security analysis runs automatically via rules:", highlight=False)
     console.print("  - rules/deployment/docker_analyze.py", highlight=False)
@@ -215,10 +217,10 @@ def docker_analyze(db_path, output, severity, check_vulns):
     console.print("", highlight=False)
 
     if not Path(db_path).exists():
+        err_console.print(f"[error]Error: Database not found at {db_path}[/error]", highlight=False)
         err_console.print(
-            f"[error]Error: Database not found at {db_path}[/error]", highlight=False
+            "[error]Run 'aud full' first to create the database[/error]",
         )
-        err_console.print("[error]Run 'aud full' first to create the database[/error]", )
         return ExitCodes.TASK_INCOMPLETE
 
     import sqlite3
@@ -240,7 +242,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
 
     conn.close()
 
-    console.print(f"Database contains:", highlight=False)
+    console.print("Database contains:", highlight=False)
     console.print(f"  - {image_count} Docker images", highlight=False)
     console.print(f"  - {instruction_count} Dockerfile instructions", highlight=False)
     console.print("", highlight=False)

@@ -36,12 +36,11 @@ class ClippyLinter(BaseLinter):
         Returns:
             LinterResult with status and findings (filtered to requested files)
         """
-        # Check for Cargo.toml
+
         cargo_toml = self.root / "Cargo.toml"
         if not cargo_toml.exists():
             return LinterResult.skipped(self.name, "No Cargo.toml found")
 
-        # Check cargo is available
         if not shutil.which("cargo"):
             return LinterResult.skipped(self.name, "Cargo not found")
 
@@ -61,7 +60,6 @@ class ClippyLinter(BaseLinter):
         except TimeoutError:
             return LinterResult.failed(self.name, "Timed out", time.perf_counter() - start_time)
 
-        # Build set of requested files for O(1) filtering
         requested_files = set(files) if files else set()
 
         all_findings = []
@@ -74,7 +72,6 @@ class ClippyLinter(BaseLinter):
             except json.JSONDecodeError:
                 continue
 
-            # Only process compiler messages
             if msg.get("reason") != "compiler-message":
                 continue
 
@@ -82,7 +79,6 @@ class ClippyLinter(BaseLinter):
             if finding:
                 all_findings.append(finding)
 
-        # Filter to requested files only
         if requested_files:
             findings = [f for f in all_findings if f.file in requested_files]
             logger.info(
@@ -111,18 +107,15 @@ class ClippyLinter(BaseLinter):
         if not spans:
             return None
 
-        # Get primary span, or first span
         primary_span = next((s for s in spans if s.get("is_primary")), spans[0])
 
         file_name = primary_span.get("file_name", "")
         line = primary_span.get("line_start", 0)
         column = primary_span.get("column_start", 0)
 
-        # Extract rule code
         code = message.get("code", {})
         rule = code.get("code", "") if code else "clippy"
 
-        # Map severity
         level = message.get("level", "warning")
         severity_map = {
             "error": "error",

@@ -59,20 +59,17 @@ class GenericExtractor(BaseExtractor):
         file_path_str = str(file_info["path"])
         file_name = Path(file_path_str).name.lower()
 
-        # Initialize result with standard empty keys
         result: dict[str, Any] = {
             "imports": [],
             "routes": [],
             "sql_queries": [],
             "symbols": [],
-            # Compose data keys
             "compose_services": [],
             "compose_service_ports": [],
             "compose_service_volumes": [],
             "compose_service_envs": [],
             "compose_service_capabilities": [],
             "compose_service_deps": [],
-            # Nginx data keys
             "nginx_configs": [],
         }
 
@@ -84,9 +81,7 @@ class GenericExtractor(BaseExtractor):
 
         return FidelityToken.attach_manifest(result)
 
-    def _extract_compose(
-        self, file_path: str, content: str, result: dict[str, Any]
-    ) -> None:
+    def _extract_compose(self, file_path: str, content: str, result: dict[str, Any]) -> None:
         """Extract Docker Compose services into result data lists."""
         try:
             compose_data = yaml.safe_load(content)
@@ -117,11 +112,9 @@ class GenericExtractor(BaseExtractor):
                 healthcheck = service_config.get("healthcheck")
                 read_only = service_config.get("read_only", False)
 
-                # Extract resource limits (v2 style: mem_limit, cpus)
                 mem_limit = service_config.get("mem_limit")
                 cpus = service_config.get("cpus")
 
-                # Extract resource limits (v3 style: deploy.resources.limits)
                 deploy = service_config.get("deploy", {})
                 if isinstance(deploy, dict):
                     resources = deploy.get("resources", {})
@@ -141,99 +134,107 @@ class GenericExtractor(BaseExtractor):
                 if isinstance(user, int):
                     user = str(user)
 
-                # Add to compose_services list
-                result["compose_services"].append({
-                    "file_path": file_path,
-                    "service_name": service_name,
-                    "image": image,
-                    "is_privileged": is_privileged,
-                    "network_mode": network_mode,
-                    "user": user,
-                    "security_opt": security_opt if security_opt else None,
-                    "restart": restart,
-                    "command": command,
-                    "entrypoint": entrypoint,
-                    "healthcheck": healthcheck,
-                    "mem_limit": str(mem_limit) if mem_limit else None,
-                    "cpus": str(cpus) if cpus else None,
-                    "read_only": bool(read_only),
-                })
+                result["compose_services"].append(
+                    {
+                        "file_path": file_path,
+                        "service_name": service_name,
+                        "image": image,
+                        "is_privileged": is_privileged,
+                        "network_mode": network_mode,
+                        "user": user,
+                        "security_opt": security_opt if security_opt else None,
+                        "restart": restart,
+                        "command": command,
+                        "entrypoint": entrypoint,
+                        "healthcheck": healthcheck,
+                        "mem_limit": str(mem_limit) if mem_limit else None,
+                        "cpus": str(cpus) if cpus else None,
+                        "read_only": bool(read_only),
+                    }
+                )
 
-                # Add port mappings
                 for port_mapping in ports or []:
                     parsed = self._parse_port_mapping(port_mapping)
                     if parsed:
-                        result["compose_service_ports"].append({
-                            "file_path": file_path,
-                            "service_name": service_name,
-                            "host_port": parsed.get("host_port"),
-                            "container_port": parsed["container_port"],
-                            "protocol": parsed.get("protocol", "tcp"),
-                        })
+                        result["compose_service_ports"].append(
+                            {
+                                "file_path": file_path,
+                                "service_name": service_name,
+                                "host_port": parsed.get("host_port"),
+                                "container_port": parsed["container_port"],
+                                "protocol": parsed.get("protocol", "tcp"),
+                            }
+                        )
 
-                # Add volume mappings
                 for volume_mapping in volumes or []:
                     parsed = self._parse_volume_mapping(volume_mapping)
                     if parsed:
-                        result["compose_service_volumes"].append({
+                        result["compose_service_volumes"].append(
+                            {
+                                "file_path": file_path,
+                                "service_name": service_name,
+                                "host_path": parsed.get("host_path"),
+                                "container_path": parsed["container_path"],
+                                "mode": parsed.get("mode", "rw"),
+                            }
+                        )
+
+                for var_name, var_value in (environment or {}).items():
+                    result["compose_service_envs"].append(
+                        {
                             "file_path": file_path,
                             "service_name": service_name,
-                            "host_path": parsed.get("host_path"),
-                            "container_path": parsed["container_path"],
-                            "mode": parsed.get("mode", "rw"),
-                        })
+                            "var_name": var_name,
+                            "var_value": str(var_value) if var_value is not None else None,
+                        }
+                    )
 
-                # Add environment variables
-                for var_name, var_value in (environment or {}).items():
-                    result["compose_service_envs"].append({
-                        "file_path": file_path,
-                        "service_name": service_name,
-                        "var_name": var_name,
-                        "var_value": str(var_value) if var_value is not None else None,
-                    })
-
-                # Add capabilities (cap_add)
                 for cap in cap_add or []:
-                    result["compose_service_capabilities"].append({
-                        "file_path": file_path,
-                        "service_name": service_name,
-                        "capability": cap,
-                        "is_add": True,
-                    })
+                    result["compose_service_capabilities"].append(
+                        {
+                            "file_path": file_path,
+                            "service_name": service_name,
+                            "capability": cap,
+                            "is_add": True,
+                        }
+                    )
 
-                # Add capabilities (cap_drop)
                 for cap in cap_drop or []:
-                    result["compose_service_capabilities"].append({
-                        "file_path": file_path,
-                        "service_name": service_name,
-                        "capability": cap,
-                        "is_add": False,
-                    })
+                    result["compose_service_capabilities"].append(
+                        {
+                            "file_path": file_path,
+                            "service_name": service_name,
+                            "capability": cap,
+                            "is_add": False,
+                        }
+                    )
 
-                # Add dependencies
                 if depends_on:
                     if isinstance(depends_on, dict):
                         for dep_service, dep_config in depends_on.items():
                             condition = "service_started"
                             if isinstance(dep_config, dict):
                                 condition = dep_config.get("condition", "service_started")
-                            result["compose_service_deps"].append({
-                                "file_path": file_path,
-                                "service_name": service_name,
-                                "depends_on_service": dep_service,
-                                "condition": condition,
-                            })
+                            result["compose_service_deps"].append(
+                                {
+                                    "file_path": file_path,
+                                    "service_name": service_name,
+                                    "depends_on_service": dep_service,
+                                    "condition": condition,
+                                }
+                            )
                     elif isinstance(depends_on, list):
                         for dep_service in depends_on:
-                            result["compose_service_deps"].append({
-                                "file_path": file_path,
-                                "service_name": service_name,
-                                "depends_on_service": dep_service,
-                                "condition": "service_started",
-                            })
+                            result["compose_service_deps"].append(
+                                {
+                                    "file_path": file_path,
+                                    "service_name": service_name,
+                                    "depends_on_service": dep_service,
+                                    "condition": "service_started",
+                                }
+                            )
 
         except (yaml.YAMLError, ValueError, TypeError) as e:
-            # ZERO FALLBACK FIX: Log error instead of silent swallow
             logger.error(f"[GenericExtractor] Failed to parse {file_path}: {e}")
 
     def _parse_port_mapping(self, port_str: str) -> dict | None:
@@ -369,14 +370,14 @@ class GenericExtractor(BaseExtractor):
 
         return {}
 
-    def _extract_nginx(
-        self, file_path: str, content: str, result: dict[str, Any]
-    ) -> None:
+    def _extract_nginx(self, file_path: str, content: str, result: dict[str, Any]) -> None:
         """Extract Nginx config into result data lists."""
-        result["nginx_configs"].append({
-            "file_path": file_path,
-            "block_type": "detected",
-            "block_context": "minimal",
-            "directives": {"status": "parsed_minimally", "reason": "regex_cancer_eliminated"},
-            "level": 0,
-        })
+        result["nginx_configs"].append(
+            {
+                "file_path": file_path,
+                "block_type": "detected",
+                "block_context": "minimal",
+                "directives": {"status": "parsed_minimally", "reason": "regex_cancer_eliminated"},
+                "level": 0,
+            }
+        )

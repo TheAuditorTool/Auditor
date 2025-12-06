@@ -39,49 +39,53 @@ METADATA = RuleMetadata(
 )
 
 
-SENSITIVE_ENV_PATTERNS = frozenset([
-    "PASSWORD",
-    "PASS",
-    "PWD",
-    "SECRET",
-    "TOKEN",
-    "KEY",
-    "API_KEY",
-    "ACCESS_KEY",
-    "PRIVATE",
-    "CREDENTIAL",
-    "AUTH",
-    "MYSQL_ROOT_PASSWORD",
-    "POSTGRES_PASSWORD",
-    "MONGO_INITDB_ROOT_PASSWORD",
-    "REDIS_PASSWORD",
-    "RABBITMQ_DEFAULT_PASS",
-    "ELASTIC_PASSWORD",
-])
+SENSITIVE_ENV_PATTERNS = frozenset(
+    [
+        "PASSWORD",
+        "PASS",
+        "PWD",
+        "SECRET",
+        "TOKEN",
+        "KEY",
+        "API_KEY",
+        "ACCESS_KEY",
+        "PRIVATE",
+        "CREDENTIAL",
+        "AUTH",
+        "MYSQL_ROOT_PASSWORD",
+        "POSTGRES_PASSWORD",
+        "MONGO_INITDB_ROOT_PASSWORD",
+        "REDIS_PASSWORD",
+        "RABBITMQ_DEFAULT_PASS",
+        "ELASTIC_PASSWORD",
+    ]
+)
 
 
-WEAK_PASSWORDS = frozenset([
-    "password",
-    "123456",
-    "admin",
-    "root",
-    "test",
-    "demo",
-    "secret",
-    "changeme",
-    "password123",
-    "admin123",
-    "letmein",
-    "welcome",
-    "monkey",
-    "dragon",
-    "master",
-    "qwerty",
-    "abc123",
-    "iloveyou",
-    "password1",
-    "sunshine",
-])
+WEAK_PASSWORDS = frozenset(
+    [
+        "password",
+        "123456",
+        "admin",
+        "root",
+        "test",
+        "demo",
+        "secret",
+        "changeme",
+        "password123",
+        "admin123",
+        "letmein",
+        "welcome",
+        "monkey",
+        "dragon",
+        "master",
+        "qwerty",
+        "abc123",
+        "iloveyou",
+        "password1",
+        "sunshine",
+    ]
+)
 
 
 DATABASE_PORTS = {
@@ -124,17 +128,19 @@ ADMIN_PORTS = {
 }
 
 
-DANGEROUS_MOUNTS = frozenset([
-    "docker.sock",
-    "/var/run/docker.sock",
-    "/etc/shadow",
-    "/etc/passwd",
-    "/root",
-    "/.ssh",
-    "/proc",
-    "/sys",
-    "/dev",
-])
+DANGEROUS_MOUNTS = frozenset(
+    [
+        "docker.sock",
+        "/var/run/docker.sock",
+        "/etc/shadow",
+        "/etc/passwd",
+        "/root",
+        "/.ssh",
+        "/proc",
+        "/sys",
+        "/dev",
+    ]
+)
 
 
 VULNERABLE_IMAGES = {
@@ -156,33 +162,37 @@ VULNERABLE_IMAGES = {
 }
 
 
-DANGEROUS_CAPABILITIES = frozenset([
-    "SYS_ADMIN",
-    "NET_ADMIN",
-    "SYS_PTRACE",
-    "SYS_MODULE",
-    "DAC_OVERRIDE",
-    "DAC_READ_SEARCH",
-    "SYS_RAWIO",
-    "SYS_BOOT",
-    "SYS_TIME",
-    "SYS_RESOURCE",
-])
+DANGEROUS_CAPABILITIES = frozenset(
+    [
+        "SYS_ADMIN",
+        "NET_ADMIN",
+        "SYS_PTRACE",
+        "SYS_MODULE",
+        "DAC_OVERRIDE",
+        "DAC_READ_SEARCH",
+        "SYS_RAWIO",
+        "SYS_BOOT",
+        "SYS_TIME",
+        "SYS_RESOURCE",
+    ]
+)
 
 
-INSECURE_SECURITY_OPTS = frozenset([
-    "apparmor=unconfined",
-    "apparmor:unconfined",
-    "seccomp=unconfined",
-    "seccomp:unconfined",
-    "label=disable",
-    "label:disable",
-])
+INSECURE_SECURITY_OPTS = frozenset(
+    [
+        "apparmor=unconfined",
+        "apparmor:unconfined",
+        "seccomp=unconfined",
+        "seccomp:unconfined",
+        "label=disable",
+        "label:disable",
+    ]
+)
 
 
-SHELL_METACHARACTERS = frozenset([
-    ";", "&", "|", "$", "`", "\n", ">", "<", "*", "?", "[", "]", "{", "}", "(", ")"
-])
+SHELL_METACHARACTERS = frozenset(
+    [";", "&", "|", "$", "`", "\n", ">", "<", "*", "?", "[", "]", "{", "}", "(", ")"]
+)
 
 
 ROOT_USER_IDS = frozenset(["root", "0"])
@@ -196,18 +206,15 @@ def find_compose_issues(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Load all compose data into memory for efficient cross-referencing
         services = _load_services(db)
         ports_by_service = _load_ports(db)
         volumes_by_service = _load_volumes(db)
         env_by_service = _load_environment(db)
         caps_by_service = _load_capabilities(db)
 
-        # Analyze each service
         for service_key, service_data in services.items():
             file_path, service_name = service_key
 
-            # Get related data for this service
             ports = ports_by_service.get(service_key, [])
             volumes = volumes_by_service.get(service_key, [])
             environment = env_by_service.get(service_key, {})
@@ -254,7 +261,22 @@ def _load_services(db: RuleDB) -> dict[tuple[str, str], dict]:
     )
 
     for row in rows:
-        file_path, service_name, image, is_privileged, network_mode, user, security_opt, restart, command, entrypoint, healthcheck, mem_limit, cpus, read_only = row
+        (
+            file_path,
+            service_name,
+            image,
+            is_privileged,
+            network_mode,
+            user,
+            security_opt,
+            restart,
+            command,
+            entrypoint,
+            healthcheck,
+            mem_limit,
+            cpus,
+            read_only,
+        ) = row
         services[(file_path, service_name)] = {
             "image": image,
             "is_privileged": bool(is_privileged),
@@ -278,19 +300,22 @@ def _load_ports(db: RuleDB) -> dict[tuple[str, str], list[dict]]:
     ports_by_service = {}
 
     rows = db.query(
-        Q("compose_service_ports")
-        .select("file_path", "service_name", "host_port", "container_port", "protocol")
+        Q("compose_service_ports").select(
+            "file_path", "service_name", "host_port", "container_port", "protocol"
+        )
     )
 
     for file_path, service_name, host_port, container_port, protocol in rows:
         key = (file_path, service_name)
         if key not in ports_by_service:
             ports_by_service[key] = []
-        ports_by_service[key].append({
-            "host_port": host_port,
-            "container_port": container_port,
-            "protocol": protocol,
-        })
+        ports_by_service[key].append(
+            {
+                "host_port": host_port,
+                "container_port": container_port,
+                "protocol": protocol,
+            }
+        )
 
     return ports_by_service
 
@@ -300,19 +325,22 @@ def _load_volumes(db: RuleDB) -> dict[tuple[str, str], list[dict]]:
     volumes_by_service = {}
 
     rows = db.query(
-        Q("compose_service_volumes")
-        .select("file_path", "service_name", "host_path", "container_path", "mode")
+        Q("compose_service_volumes").select(
+            "file_path", "service_name", "host_path", "container_path", "mode"
+        )
     )
 
     for file_path, service_name, host_path, container_path, mode in rows:
         key = (file_path, service_name)
         if key not in volumes_by_service:
             volumes_by_service[key] = []
-        volumes_by_service[key].append({
-            "host_path": host_path,
-            "container_path": container_path,
-            "mode": mode,
-        })
+        volumes_by_service[key].append(
+            {
+                "host_path": host_path,
+                "container_path": container_path,
+                "mode": mode,
+            }
+        )
 
     return volumes_by_service
 
@@ -322,8 +350,7 @@ def _load_environment(db: RuleDB) -> dict[tuple[str, str], dict[str, str]]:
     env_by_service = {}
 
     rows = db.query(
-        Q("compose_service_env")
-        .select("file_path", "service_name", "var_name", "var_value")
+        Q("compose_service_env").select("file_path", "service_name", "var_name", "var_value")
     )
 
     for file_path, service_name, var_name, var_value in rows:
@@ -340,8 +367,9 @@ def _load_capabilities(db: RuleDB) -> dict[tuple[str, str], tuple[list[str], lis
     caps_by_service = {}
 
     rows = db.query(
-        Q("compose_service_capabilities")
-        .select("file_path", "service_name", "capability", "is_add")
+        Q("compose_service_capabilities").select(
+            "file_path", "service_name", "capability", "is_add"
+        )
     )
 
     for file_path, service_name, capability, is_add in rows:
@@ -379,7 +407,6 @@ def _analyze_service(
     command = service_data.get("command")
     entrypoint = service_data.get("entrypoint")
 
-    # Check: Privileged container
     if is_privileged:
         findings.append(
             StandardFinding(
@@ -394,7 +421,6 @@ def _analyze_service(
             )
         )
 
-    # Check: Host network mode
     if network_mode == "host":
         findings.append(
             StandardFinding(
@@ -409,7 +435,6 @@ def _analyze_service(
             )
         )
 
-    # Check: Dangerous volume mounts
     for vol in volumes:
         host_path = vol.get("host_path") or ""
         container_path = vol.get("container_path") or ""
@@ -445,14 +470,12 @@ def _analyze_service(
                     )
                 break
 
-    # Check: Environment variables for secrets
     for key, value in environment.items():
         if value:
             key_upper = key.upper()
             is_sensitive = any(pattern in key_upper for pattern in SENSITIVE_ENV_PATTERNS)
 
             if is_sensitive:
-                # Skip if it's a variable reference
                 if not value.startswith("${") and not value.startswith("$"):
                     if value.lower() in WEAK_PASSWORDS:
                         findings.append(
@@ -481,12 +504,10 @@ def _analyze_service(
                             )
                         )
 
-    # Check: Port exposure
     for port_info in ports:
         host_port = port_info.get("host_port")
         container_port = port_info.get("container_port")
 
-        # If host_port is set and not bound to localhost, it's exposed
         if host_port is not None and container_port:
             if container_port in DATABASE_PORTS:
                 db_type = DATABASE_PORTS[container_port]
@@ -517,13 +538,9 @@ def _analyze_service(
                     )
                 )
 
-    # Check: Image security
     if image:
         findings.extend(_check_image_security(file_path, service_name, image))
 
-    # Check: Root user
-    # Note: "user not set" is MEDIUM because many official images (nginx, redis, postgres)
-    # already run as non-root by default. Only explicit root is CRITICAL.
     if user in ROOT_USER_IDS or (isinstance(user, str) and user.lower() in ROOT_USER_IDS):
         findings.append(
             StandardFinding(
@@ -551,7 +568,6 @@ def _analyze_service(
             )
         )
 
-    # Check: Dangerous capabilities
     for capability in cap_add:
         if capability in DANGEROUS_CAPABILITIES:
             findings.append(
@@ -567,7 +583,6 @@ def _analyze_service(
                 )
             )
 
-    # Check: Disabled security options
     if security_opt:
         for opt in INSECURE_SECURITY_OPTS:
             if opt in security_opt:
@@ -584,12 +599,15 @@ def _analyze_service(
                     )
                 )
 
-    # Check: Command/entrypoint injection risk
     for cmd_field, cmd_value in [("command", command), ("entrypoint", entrypoint)]:
         if cmd_value and isinstance(cmd_value, str):
             has_metachar = any(char in cmd_value for char in SHELL_METACHARACTERS)
             if has_metachar:
-                snippet = f"{cmd_field}: {cmd_value[:60]}..." if len(cmd_value) > 60 else f"{cmd_field}: {cmd_value}"
+                snippet = (
+                    f"{cmd_field}: {cmd_value[:60]}..."
+                    if len(cmd_value) > 60
+                    else f"{cmd_field}: {cmd_value}"
+                )
                 findings.append(
                     StandardFinding(
                         rule_name="compose-command-injection-risk",
@@ -603,7 +621,6 @@ def _analyze_service(
                     )
                 )
 
-    # Check: Missing cap_drop ALL
     if not cap_drop or "ALL" not in cap_drop:
         findings.append(
             StandardFinding(
@@ -618,8 +635,6 @@ def _analyze_service(
             )
         )
 
-    # Check: Missing healthcheck
-    # Services should define healthcheck for proper orchestration and monitoring
     healthcheck = service_data.get("healthcheck")
     if not healthcheck:
         findings.append(
@@ -635,8 +650,6 @@ def _analyze_service(
             )
         )
 
-    # Check: Missing restart policy
-    # Services without restart policy may not recover from crashes
     restart = service_data.get("restart")
     if not restart:
         findings.append(
@@ -652,8 +665,6 @@ def _analyze_service(
             )
         )
 
-    # Check: Missing resource limits
-    # Containers without CPU/memory limits can DoS the host
     mem_limit = service_data.get("mem_limit")
     cpus = service_data.get("cpus")
     if not mem_limit and not cpus:
@@ -670,8 +681,6 @@ def _analyze_service(
             )
         )
 
-    # Check: Writable root filesystem
-    # Read-only root filesystem is a security best practice
     read_only = service_data.get("read_only", False)
     if not read_only:
         findings.append(
@@ -694,9 +703,6 @@ def _check_image_security(file_path: str, service_name: str, image: str) -> list
     """Check Docker image for security issues."""
     findings = []
 
-    # Check: Unpinned image version
-    # An image is unpinned if it uses :latest OR has no tag at all (e.g., "nginx", "myrepo/myimage")
-    # Images with digest (@sha256:...) are considered pinned
     has_digest = "@" in image
     has_explicit_tag = ":" in image and not image.endswith(":latest")
     if not has_digest and not has_explicit_tag:
@@ -713,7 +719,6 @@ def _check_image_security(file_path: str, service_name: str, image: str) -> list
             )
         )
 
-    # Check: Vulnerable/deprecated images
     for vuln_pattern in VULNERABLE_IMAGES:
         if image.startswith(vuln_pattern):
             findings.append(
@@ -730,7 +735,6 @@ def _check_image_security(file_path: str, service_name: str, image: str) -> list
             )
             break
 
-    # Check: Unofficial images (no namespace and not official base images)
     image_name = image.split(":")[0] if ":" in image else image
     official_images = {"alpine", "ubuntu", "debian", "centos", "fedora", "busybox", "scratch"}
 

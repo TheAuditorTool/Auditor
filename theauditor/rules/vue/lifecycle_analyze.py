@@ -47,123 +47,139 @@ METADATA = RuleMetadata(
 )
 
 
-VUE2_LIFECYCLE = frozenset([
-    "beforeCreate",
-    "created",
-    "beforeMount",
-    "mounted",
-    "beforeUpdate",
-    "updated",
-    "beforeDestroy",
-    "destroyed",
-    "activated",
-    "deactivated",
-    "errorCaptured",
-])
+VUE2_LIFECYCLE = frozenset(
+    [
+        "beforeCreate",
+        "created",
+        "beforeMount",
+        "mounted",
+        "beforeUpdate",
+        "updated",
+        "beforeDestroy",
+        "destroyed",
+        "activated",
+        "deactivated",
+        "errorCaptured",
+    ]
+)
 
 
-VUE3_LIFECYCLE = frozenset([
-    "beforeCreate",
-    "created",
-    "beforeMount",
-    "mounted",
-    "beforeUpdate",
-    "updated",
-    "beforeUnmount",
-    "unmounted",
-    "activated",
-    "deactivated",
-    "errorCaptured",
-    "renderTracked",
-    "renderTriggered",
-    "serverPrefetch",
-])
+VUE3_LIFECYCLE = frozenset(
+    [
+        "beforeCreate",
+        "created",
+        "beforeMount",
+        "mounted",
+        "beforeUpdate",
+        "updated",
+        "beforeUnmount",
+        "unmounted",
+        "activated",
+        "deactivated",
+        "errorCaptured",
+        "renderTracked",
+        "renderTriggered",
+        "serverPrefetch",
+    ]
+)
 
 
-COMPOSITION_LIFECYCLE = frozenset([
-    "onBeforeMount",
-    "onMounted",
-    "onBeforeUpdate",
-    "onUpdated",
-    "onBeforeUnmount",
-    "onUnmounted",
-    "onActivated",
-    "onDeactivated",
-    "onErrorCaptured",
-    "onRenderTracked",
-    "onRenderTriggered",
-    "onServerPrefetch",
-])
+COMPOSITION_LIFECYCLE = frozenset(
+    [
+        "onBeforeMount",
+        "onMounted",
+        "onBeforeUpdate",
+        "onUpdated",
+        "onBeforeUnmount",
+        "onUnmounted",
+        "onActivated",
+        "onDeactivated",
+        "onErrorCaptured",
+        "onRenderTracked",
+        "onRenderTriggered",
+        "onServerPrefetch",
+    ]
+)
 
 
-MOUNT_OPERATIONS = frozenset([
-    "addEventListener",
-    "querySelector",
-    "getElementById",
-    "getElementsByClassName",
-    "document.",
-    "window.",
-    "ResizeObserver",
-    "IntersectionObserver",
-    "MutationObserver",
-])
+MOUNT_OPERATIONS = frozenset(
+    [
+        "addEventListener",
+        "querySelector",
+        "getElementById",
+        "getElementsByClassName",
+        "document.",
+        "window.",
+        "ResizeObserver",
+        "IntersectionObserver",
+        "MutationObserver",
+    ]
+)
 
 
-CLEANUP_REQUIRED = frozenset([
-    "addEventListener",
-    "setInterval",
-    "setTimeout",
-    "ResizeObserver",
-    "IntersectionObserver",
-    "MutationObserver",
-    "WebSocket",
-    "EventSource",
-    "Worker",
-    "subscribe",
-])
+CLEANUP_REQUIRED = frozenset(
+    [
+        "addEventListener",
+        "setInterval",
+        "setTimeout",
+        "ResizeObserver",
+        "IntersectionObserver",
+        "MutationObserver",
+        "WebSocket",
+        "EventSource",
+        "Worker",
+        "subscribe",
+    ]
+)
 
 
-CLEANUP_FUNCTIONS = frozenset([
-    "removeEventListener",
-    "clearInterval",
-    "clearTimeout",
-    "unsubscribe",
-    "disconnect",
-    "close",
-    "abort",
-    "terminate",
-    "destroyed",
-    "beforeDestroy",
-    "unmounted",
-    "beforeUnmount",
-    "onUnmounted",
-    "onBeforeUnmount",
-])
+CLEANUP_FUNCTIONS = frozenset(
+    [
+        "removeEventListener",
+        "clearInterval",
+        "clearTimeout",
+        "unsubscribe",
+        "disconnect",
+        "close",
+        "abort",
+        "terminate",
+        "destroyed",
+        "beforeDestroy",
+        "unmounted",
+        "beforeUnmount",
+        "onUnmounted",
+        "onBeforeUnmount",
+    ]
+)
 
 
-DATA_FETCH_OPS = frozenset([
-    "fetch",
-    "axios",
-    "ajax",
-    "$http",
-    "get",
-    "post",
-    "api.",
-    "request",
-    "load",
-    "query",
-])
+DATA_FETCH_OPS = frozenset(
+    [
+        "fetch",
+        "axios",
+        "ajax",
+        "$http",
+        "get",
+        "post",
+        "api.",
+        "request",
+        "load",
+        "query",
+    ]
+)
 
 
-SIDE_EFFECTS = frozenset([
-    "console.",
-    "alert",
-    "confirm",
-    "localStorage",
-    "sessionStorage",
-    "document.title",
-    "window.location",
-])
+SIDE_EFFECTS = frozenset(
+    [
+        "console.",
+        "alert",
+        "confirm",
+        "localStorage",
+        "sessionStorage",
+        "document.title",
+        "window.location",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -194,23 +210,16 @@ def _get_vue_files(db: RuleDB) -> set[str]:
     """Get all Vue-related files from the database."""
     vue_files: set[str] = set()
 
-    # Get .vue files and component files
     rows = db.query(
-        Q("files")
-        .select("path", "ext")
-        .where("ext IN (?, ?, ?)", ".vue", ".js", ".ts")
+        Q("files").select("path", "ext").where("ext IN (?, ?, ?)", ".vue", ".js", ".ts")
     )
 
     for path, ext in rows:
         if ext == ".vue" or (ext in (".js", ".ts") and "component" in path.lower()):
             vue_files.add(path)
 
-    # Find files using lifecycle hooks
     all_hooks = VUE2_LIFECYCLE | VUE3_LIFECYCLE | COMPOSITION_LIFECYCLE
-    rows = db.query(
-        Q("function_call_args")
-        .select("file", "callee_function")
-    )
+    rows = db.query(Q("function_call_args").select("file", "callee_function"))
 
     for file, callee in rows:
         if callee in all_hooks:
@@ -230,11 +239,8 @@ def _find_dom_before_mount(db: RuleDB, vue_files: set[str]) -> list[StandardFind
     if not vue_files:
         return findings
 
-    # Get all function calls grouped by file
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     file_calls: dict[str, list[tuple[int, str]]] = {}
@@ -252,7 +258,6 @@ def _find_dom_before_mount(db: RuleDB, vue_files: set[str]) -> list[StandardFind
             if callee not in early_hooks:
                 continue
 
-            # Look for DOM operations within 20 lines after the hook
             for other_line, other_callee in calls:
                 if other_line <= line or other_line > line + 20:
                     continue
@@ -286,11 +291,8 @@ def _find_missing_cleanup(db: RuleDB, vue_files: set[str]) -> list[StandardFindi
     if not vue_files:
         return findings
 
-    # Get all function calls grouped by file
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     file_calls: dict[str, list[tuple[int, str]]] = {}
@@ -306,14 +308,12 @@ def _find_missing_cleanup(db: RuleDB, vue_files: set[str]) -> list[StandardFindi
     for file, calls in file_calls.items():
         callee_set = {c for _, c in calls}
 
-        # Check if file has any cleanup hooks/functions
         has_cleanup = bool(callee_set & CLEANUP_FUNCTIONS)
 
         for line, callee in calls:
             if callee not in CLEANUP_REQUIRED:
                 continue
 
-            # Check if this is near a mount hook
             near_mount = False
             for other_line, other_callee in calls:
                 if other_callee in mount_hooks and abs(other_line - line) <= 20:
@@ -350,9 +350,7 @@ def _find_wrong_data_fetch(db: RuleDB, vue_files: set[str]) -> list[StandardFind
         return findings
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     file_calls: dict[str, list[tuple[int, str]]] = {}
@@ -377,7 +375,6 @@ def _find_wrong_data_fetch(db: RuleDB, vue_files: set[str]) -> list[StandardFind
 
             suggestion, severity = bad_hooks[callee]
 
-            # Look for fetch operations within 20 lines after the hook
             for other_line, other_callee in calls:
                 if other_line <= line or other_line > line + 20:
                     continue
@@ -411,11 +408,8 @@ def _find_infinite_updates(db: RuleDB, vue_files: set[str]) -> list[StandardFind
     if not vue_files:
         return findings
 
-    # Get function calls
     call_rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     file_calls: dict[str, list[tuple[int, str]]] = {}
@@ -426,7 +420,6 @@ def _find_infinite_updates(db: RuleDB, vue_files: set[str]) -> list[StandardFind
             file_calls[file] = []
         file_calls[file].append((line, callee))
 
-    # Get assignments
     assignment_rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var")
@@ -452,13 +445,10 @@ def _find_infinite_updates(db: RuleDB, vue_files: set[str]) -> list[StandardFind
             if hook not in update_hooks:
                 continue
 
-            # Look for reactive state assignments within 20 lines after hook
             for assign_line, target in assignments:
                 if assign_line <= hook_line or assign_line > hook_line + 20:
                     continue
 
-                # Options API: this.x, data.x, state.x
-                # Composition API: x.value (ref mutation)
                 is_options_mutation = target.startswith(reactive_prefixes)
                 is_ref_mutation = ".value" in target
 
@@ -491,11 +481,8 @@ def _find_timer_leaks(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
     if not vue_files:
         return findings
 
-    # Get timer calls
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     timer_calls: list[tuple[str, int, str]] = []
@@ -505,11 +492,8 @@ def _find_timer_leaks(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
         if callee in ("setInterval", "setTimeout"):
             timer_calls.append((file, line, callee))
 
-    # Get assignments to check if timer is stored
     assignment_rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var")
-        .where("target_var IS NOT NULL")
+        Q("assignments").select("file", "line", "target_var").where("target_var IS NOT NULL")
     )
 
     assignments: dict[tuple[str, int], str] = {}
@@ -519,7 +503,6 @@ def _find_timer_leaks(db: RuleDB, vue_files: set[str]) -> list[StandardFinding]:
     for file, line, timer_func in timer_calls:
         target = assignments.get((file, line))
 
-        # Check if timer is stored for cleanup
         has_timer_var = False
         if target:
             target_lower = target.lower()
@@ -555,12 +538,7 @@ def _find_computed_side_effects(db: RuleDB, vue_files: set[str]) -> list[Standar
     if not vue_files:
         return findings
 
-    # Get symbols (to find computed properties)
-    symbol_rows = db.query(
-        Q("symbols")
-        .select("path", "line", "name")
-        .where("name IS NOT NULL")
-    )
+    symbol_rows = db.query(Q("symbols").select("path", "line", "name").where("name IS NOT NULL"))
 
     computed_locations: list[tuple[str, int, str]] = []
     for path, line, name in symbol_rows:
@@ -569,11 +547,7 @@ def _find_computed_side_effects(db: RuleDB, vue_files: set[str]) -> list[Standar
         if "computed" in name.lower():
             computed_locations.append((path, line, name))
 
-    # Get function calls
-    call_rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-    )
+    call_rows = db.query(Q("function_call_args").select("file", "line", "callee_function"))
 
     file_calls: dict[str, list[tuple[int, str]]] = {}
     for file, line, callee in call_rows:
@@ -586,7 +560,6 @@ def _find_computed_side_effects(db: RuleDB, vue_files: set[str]) -> list[Standar
     for file, computed_line, name in computed_locations:
         calls = file_calls.get(file, [])
 
-        # Look for side effects within 10 lines after computed property
         for call_line, callee in calls:
             if call_line <= computed_line or call_line > computed_line + 10:
                 continue
@@ -640,9 +613,7 @@ def _find_incorrect_hook_order(db: RuleDB, vue_files: set[str]) -> list[Standard
     }
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     file_hooks: dict[str, list[tuple[int, str, int]]] = {}
@@ -655,7 +626,7 @@ def _find_incorrect_hook_order(db: RuleDB, vue_files: set[str]) -> list[Standard
             file_hooks[file].append((line, callee, hook_order[callee]))
 
     for file, hooks in file_hooks.items():
-        hooks.sort(key=lambda x: x[0])  # Sort by line number
+        hooks.sort(key=lambda x: x[0])
 
         for i in range(len(hooks) - 1):
             current_line, current_hook, current_order = hooks[i]
@@ -695,9 +666,7 @@ def _find_unhandled_async(db: RuleDB, vue_files: set[str]) -> list[StandardFindi
     error_handlers = {"catch", "finally", "try"}
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     file_calls: dict[str, list[tuple[int, str]]] = {}
@@ -711,14 +680,12 @@ def _find_unhandled_async(db: RuleDB, vue_files: set[str]) -> list[StandardFindi
     for file, calls in file_calls.items():
         callee_set = {c for _, c in calls}
 
-        # Check if file has error handling
         has_error_handling = bool(callee_set & error_handlers)
 
         for line, callee in calls:
             if callee not in all_hooks:
                 continue
 
-            # Check for async operations within 20 lines after the hook
             has_async = False
             for other_line, other_callee in calls:
                 if other_line <= line or other_line > line + 20:

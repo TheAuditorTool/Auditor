@@ -32,27 +32,43 @@ METADATA = RuleMetadata(
 OAUTH_URL_KEYWORDS = frozenset(["oauth", "authorize", "callback", "redirect", "auth", "login"])
 
 
-STATE_KEYWORDS = frozenset([
-    "state", "csrf", "oauthState", "csrfToken", "oauthstate", "csrftoken",
-    "nonce", "oauth_nonce",  # OIDC replay protection
-])
-
-# PKCE (Proof Key for Code Exchange) - Required for SPAs/mobile apps (RFC 7636)
-PKCE_KEYWORDS = frozenset([
-    "code_challenge", "codechallenge", "codeChallenge",
-    "code_verifier", "codeverifier", "codeVerifier",
-    "pkce", "S256", "plain",  # S256 is recommended, plain is weak but present
-])
-
-
-REDIRECT_KEYWORDS = frozenset([
-    "redirect", "returnUrl", "return_url", "redirectUri", "redirect_uri", "redirect_url"
-])
+STATE_KEYWORDS = frozenset(
+    [
+        "state",
+        "csrf",
+        "oauthState",
+        "csrfToken",
+        "oauthstate",
+        "csrftoken",
+        "nonce",
+        "oauth_nonce",
+    ]
+)
 
 
-USER_INPUT_SOURCES = frozenset([
-    "req.query", "req.params", "request.query", "request.params", "request.args"
-])
+PKCE_KEYWORDS = frozenset(
+    [
+        "code_challenge",
+        "codechallenge",
+        "codeChallenge",
+        "code_verifier",
+        "codeverifier",
+        "codeVerifier",
+        "pkce",
+        "S256",
+        "plain",
+    ]
+)
+
+
+REDIRECT_KEYWORDS = frozenset(
+    ["redirect", "returnUrl", "return_url", "redirectUri", "redirect_uri", "redirect_url"]
+)
+
+
+USER_INPUT_SOURCES = frozenset(
+    ["req.query", "req.params", "request.query", "request.params", "request.args"]
+)
 
 
 VALIDATION_KEYWORDS = frozenset(["validate", "whitelist", "allowed", "check", "verify"])
@@ -93,10 +109,7 @@ def _check_missing_oauth_state(db: RuleDB) -> list[StandardFinding]:
 
     for file, line, method, pattern in oauth_endpoints:
         func_args_rows = db.query(
-            Q("function_call_args")
-            .select("argument_expr")
-            .where("file = ?", file)
-            .limit(100)
+            Q("function_call_args").select("argument_expr").where("file = ?", file).limit(100)
         )
 
         has_state = False
@@ -117,15 +130,18 @@ def _check_missing_oauth_state(db: RuleDB) -> list[StandardFinding]:
             for target_var, source_expr in assign_rows:
                 target_lower = target_var.lower()
                 source_lower = source_expr.lower() if source_expr else ""
-                # Check variable names AND source expressions
+
                 if any(
-                    keyword in target_lower or keyword in source_lower
-                    for keyword in STATE_KEYWORDS
+                    keyword in target_lower or keyword in source_lower for keyword in STATE_KEYWORDS
                 ):
                     has_state = True
                     break
-                # Check for property access patterns: config.state, params.state, .state:
-                if ".state" in target_lower or ": state" in source_lower or '"state"' in source_lower:
+
+                if (
+                    ".state" in target_lower
+                    or ": state" in source_lower
+                    or '"state"' in source_lower
+                ):
                     has_state = True
                     break
 
@@ -157,35 +173,27 @@ def _check_missing_pkce(db: RuleDB) -> list[StandardFinding]:
 
     # Look for authorization code flows (response_type=code) without PKCE
     assign_rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
-    code_flow_files = {}  # file -> (line, snippet)
+    code_flow_files = {}
 
     for file, line, target_var, source_expr in assign_rows:
         expr_lower = source_expr.lower() if source_expr else ""
         target_lower = target_var.lower()
 
-        # Detect authorization code flow setup
         if "response_type" in expr_lower and "code" in expr_lower:
             if file not in code_flow_files:
                 code_flow_files[file] = (line, source_expr[:60])
-        # Also detect OAuth config objects
+
         if any(kw in target_lower for kw in ["oauth", "auth", "oidc"]) and "config" in target_lower:
             if "code" in expr_lower:
                 if file not in code_flow_files:
                     code_flow_files[file] = (line, source_expr[:60])
 
-    # For each file with code flow, check if PKCE is present
     for file, (first_line, snippet) in code_flow_files.items():
-        # Check function args for PKCE keywords
         func_args_rows = db.query(
-            Q("function_call_args")
-            .select("argument_expr")
-            .where("file = ?", file)
-            .limit(200)
+            Q("function_call_args").select("argument_expr").where("file = ?", file).limit(200)
         )
 
         has_pkce = False
@@ -196,7 +204,6 @@ def _check_missing_pkce(db: RuleDB) -> list[StandardFinding]:
                 break
 
         if not has_pkce:
-            # Check assignments for PKCE
             file_assigns = db.query(
                 Q("assignments")
                 .select("target_var", "source_expr")
@@ -208,12 +215,11 @@ def _check_missing_pkce(db: RuleDB) -> list[StandardFinding]:
                 target_lower = target_var.lower()
                 source_lower = source_expr.lower() if source_expr else ""
                 if any(
-                    keyword in target_lower or keyword in source_lower
-                    for keyword in PKCE_KEYWORDS
+                    keyword in target_lower or keyword in source_lower for keyword in PKCE_KEYWORDS
                 ):
                     has_pkce = True
                     break
-                # Check property access patterns
+
                 if ".code_challenge" in target_lower or ".codechallenge" in target_lower:
                     has_pkce = True
                     break
@@ -290,9 +296,7 @@ def _check_redirect_validation(db: RuleDB) -> list[StandardFinding]:
             )
 
     assign_rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     redirect_assignments = []
@@ -334,7 +338,9 @@ def _check_redirect_validation(db: RuleDB) -> list[StandardFinding]:
                     category="authentication",
                     cwe_id="CWE-601",
                     confidence=Confidence.LOW,
-                    snippet=f"{var} = {expr[:40]}" if len(expr) <= 40 else f"{var} = {expr[:40]}...",
+                    snippet=f"{var} = {expr[:40]}"
+                    if len(expr) <= 40
+                    else f"{var} = {expr[:40]}...",
                 )
             )
 
@@ -346,9 +352,7 @@ def _check_token_in_url(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     all_assignments = list(rows)

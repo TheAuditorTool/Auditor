@@ -60,14 +60,6 @@ def find_artifact_poisoning_risk(context: StandardRuleContext) -> list[StandardF
     return result.findings
 
 
-# =============================================================================
-# DETECTION LOGIC
-# =============================================================================
-
-
-# Triggers where artifact poisoning is possible
-# - pull_request_target: Runs in target repo context but can checkout PR code
-# - workflow_run: Can download artifacts from untrusted PR workflows
 UNTRUSTED_ARTIFACT_TRIGGERS = frozenset(["pull_request_target", "workflow_run"])
 
 
@@ -75,7 +67,6 @@ def _find_artifact_poisoning(db: RuleDB) -> list[StandardFinding]:
     """Core detection logic for artifact poisoning."""
     findings: list[StandardFinding] = []
 
-    # Get all workflows with triggers
     workflow_rows = db.query(
         Q("github_workflows")
         .select("workflow_path", "workflow_name", "on_triggers")
@@ -85,26 +76,21 @@ def _find_artifact_poisoning(db: RuleDB) -> list[StandardFinding]:
     for workflow_path, workflow_name, on_triggers in workflow_rows:
         on_triggers = on_triggers or ""
 
-        # Check for untrusted artifact contexts (pull_request_target OR workflow_run)
         detected_triggers = [t for t in UNTRUSTED_ARTIFACT_TRIGGERS if t in on_triggers]
         if not detected_triggers:
             continue
 
-        # Find jobs that upload artifacts
         upload_jobs = _get_upload_jobs(db, workflow_path)
         if not upload_jobs:
             continue
 
-        # Find jobs that download artifacts
         download_jobs = _get_download_jobs(db, workflow_path)
 
         for download_job_id, download_job_key, permissions_json in download_jobs:
-            # Check if download depends on upload (explicit dependency chain)
             has_dependency = _check_job_dependency(
                 db, download_job_id, [uj[0] for uj in upload_jobs]
             )
 
-            # Check for dangerous operations on downloaded artifacts
             dangerous_ops = _check_dangerous_operations(db, download_job_id)
 
             if dangerous_ops:
@@ -131,11 +117,11 @@ def _get_upload_jobs(db: RuleDB, workflow_path: str) -> list[tuple[str, str]]:
     rows = db.query(
         Q("github_jobs")
         .select("job_id", "job_key")
-        .join("github_steps")  # Auto-detects FK: github_steps.job_id -> github_jobs.job_id
+        .join("github_steps")
         .where("workflow_path = ?", workflow_path)
         .where("github_steps.uses_action = ?", "actions/upload-artifact")
     )
-    # Deduplicate in Python - Q doesn't support DISTINCT
+
     seen: set[tuple[str, str]] = set()
     result: list[tuple[str, str]] = []
     for row in rows:
@@ -151,11 +137,11 @@ def _get_download_jobs(db: RuleDB, workflow_path: str) -> list[tuple[str, str, s
     rows = db.query(
         Q("github_jobs")
         .select("job_id", "job_key", "permissions")
-        .join("github_steps")  # Auto-detects FK: github_steps.job_id -> github_jobs.job_id
+        .join("github_steps")
         .where("workflow_path = ?", workflow_path)
         .where("github_steps.uses_action = ?", "actions/download-artifact")
     )
-    # Deduplicate in Python - Q doesn't support DISTINCT
+
     seen: set[tuple[str, str, str]] = set()
     result: list[tuple[str, str, str]] = []
     for row in rows:
@@ -169,9 +155,7 @@ def _get_download_jobs(db: RuleDB, workflow_path: str) -> list[tuple[str, str, s
 def _check_job_dependency(db: RuleDB, download_job_id: str, upload_job_ids: list[str]) -> bool:
     """Check if download job depends on any upload job."""
     rows = db.query(
-        Q("github_job_dependencies")
-        .select("needs_job_id")
-        .where("job_id = ?", download_job_id)
+        Q("github_job_dependencies").select("needs_job_id").where("job_id = ?", download_job_id)
     )
 
     dependencies = {row[0] for row in rows}
@@ -187,53 +171,67 @@ def _check_dangerous_operations(db: RuleDB, job_id: str) -> list[str]:
         .where("run_script IS NOT NULL")
     )
 
-    # Comprehensive dangerous operation patterns
-    # Each category represents operations that could be exploited via poisoned artifacts
     dangerous_patterns = {
         "deploy": [
-            # Cloud providers
-            "aws s3 sync", "aws s3 cp", "aws cloudformation deploy",
-            "kubectl apply", "kubectl create", "kubectl replace",
-            "helm install", "helm upgrade",
-            "terraform apply", "terraform plan -out", "tofu apply",
-            "gcloud app deploy", "gcloud run deploy", "gcloud functions deploy",
-            "az deployment", "az webapp deploy", "az functionapp deploy",
-            # Platform deployments
-            "vercel deploy", "vercel --prod",
+            "aws s3 sync",
+            "aws s3 cp",
+            "aws cloudformation deploy",
+            "kubectl apply",
+            "kubectl create",
+            "kubectl replace",
+            "helm install",
+            "helm upgrade",
+            "terraform apply",
+            "terraform plan -out",
+            "tofu apply",
+            "gcloud app deploy",
+            "gcloud run deploy",
+            "gcloud functions deploy",
+            "az deployment",
+            "az webapp deploy",
+            "az functionapp deploy",
+            "vercel deploy",
+            "vercel --prod",
             "netlify deploy",
             "firebase deploy",
             "fly deploy",
-            "heroku container:push", "heroku deploy",
+            "heroku container:push",
+            "heroku deploy",
             "railway up",
-            # File-based deployment
-            "rsync", "scp ",  # space after scp to avoid false matches
+            "rsync",
+            "scp ",
         ],
         "sign": [
-            "cosign sign", "cosign attest",
-            "gpg --sign", "gpg --detach-sign", "gpg -s",
+            "cosign sign",
+            "cosign attest",
+            "gpg --sign",
+            "gpg --detach-sign",
+            "gpg -s",
             "signtool sign",
             "codesign -s",
             "jarsigner",
             "apksigner sign",
         ],
         "publish": [
-            # JavaScript/Node
-            "npm publish", "yarn publish", "pnpm publish",
-            # Python
-            "twine upload", "pip upload", "flit publish", "poetry publish",
-            # Docker
-            "docker push", "docker buildx build --push", "podman push",
-            # GitHub
-            "gh release create", "gh release upload",
-            # Rust
+            "npm publish",
+            "yarn publish",
+            "pnpm publish",
+            "twine upload",
+            "pip upload",
+            "flit publish",
+            "poetry publish",
+            "docker push",
+            "docker buildx build --push",
+            "podman push",
+            "gh release create",
+            "gh release upload",
             "cargo publish",
-            # Ruby
             "gem push",
-            # .NET
-            "nuget push", "dotnet nuget push",
-            # Java
-            "mvn deploy", "gradle publish", "./gradlew publish",
-            # Go
+            "nuget push",
+            "dotnet nuget push",
+            "mvn deploy",
+            "gradle publish",
+            "./gradlew publish",
             "go-release",
         ],
     }
@@ -298,7 +296,6 @@ def _build_artifact_poisoning_finding(
         f"Attacker can poison artifacts via {trigger_str} trigger."
     )
 
-    # Use the first detected trigger for the snippet
     primary_trigger = untrusted_triggers[0] if untrusted_triggers else "pull_request_target"
 
     code_snippet = f"""

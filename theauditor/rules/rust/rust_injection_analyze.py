@@ -59,26 +59,17 @@ def register_taint_patterns(taint_registry):
     source_count = 0
     sink_count = 0
 
-    # ==========================================================================
-    # SOURCE PATTERNS - User Input Entry Points
-    # ==========================================================================
-
-    # Standard Input (category: user_input)
-    # Verified in database: io::stdin
-    # NOTE: "read_line" removed - too generic, matches any buffered reader
     stdin_sources = [
         "io::stdin",
         "std::io::stdin",
-        "std::io::Stdin::read_line",  # Specific stdin read_line
+        "std::io::Stdin::read_line",
         "read_user_input",
-        "BufReader::new",  # Often wraps stdin
+        "BufReader::new",
     ]
     for pattern in stdin_sources:
         taint_registry.register_source(pattern, "user_input", "rust")
         source_count += 1
 
-    # Environment Variables (category: user_input)
-    # Verified in database: std::env::args, std::env::var, env::var, args, getenv
     env_sources = [
         "std::env::args",
         "args",
@@ -92,8 +83,6 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_source(pattern, "user_input", "rust")
         source_count += 1
 
-    # File Read (category: user_input)
-    # Verified in database: std::fs::read_to_string, fs::read_to_string, read_file
     file_sources = [
         "std::fs::read_to_string",
         "fs::read_to_string",
@@ -105,8 +94,6 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_source(pattern, "user_input", "rust")
         source_count += 1
 
-    # Actix-web Framework (category: http_request)
-    # Verified in database: Json (partially)
     actix_sources = [
         "Json",
         "web::Json",
@@ -121,8 +108,6 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_source(pattern, "http_request", "rust")
         source_count += 1
 
-    # Axum Framework (category: http_request)
-    # For external project coverage
     axum_sources = [
         "axum::extract::Json",
         "axum::extract::Path",
@@ -134,8 +119,6 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_source(pattern, "http_request", "rust")
         source_count += 1
 
-    # Rocket Framework (category: http_request)
-    # For external project coverage
     rocket_sources = [
         "rocket::request",
         "rocket::form",
@@ -146,8 +129,6 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_source(pattern, "http_request", "rust")
         source_count += 1
 
-    # Warp Framework (category: http_request)
-    # For external project coverage
     warp_sources = [
         "warp::body::json",
         "warp::path::param",
@@ -158,12 +139,6 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_source(pattern, "http_request", "rust")
         source_count += 1
 
-    # ==========================================================================
-    # SINK PATTERNS - Dangerous Operations
-    # ==========================================================================
-
-    # Command Execution (category: command)
-    # Verified in database: Command::new, execute_command, command
     command_sinks = [
         "Command::new",
         "execute_command",
@@ -176,9 +151,6 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_sink(pattern, "command", "rust")
         sink_count += 1
 
-    # SQL Queries (category: sql)
-    # Verified in database: sqlx::query, sqlx::query_as, execute_sql
-    # NOTE: Generic "execute" removed - too broad (matches Command::execute, Task::execute, etc.)
     sql_sinks = [
         "sqlx::query",
         "sqlx::query_as",
@@ -188,16 +160,14 @@ def register_taint_patterns(taint_registry):
         "diesel::insert_into",
         "diesel::update",
         "diesel::delete",
-        "rusqlite::Connection::execute",  # Specific SQLite execute
-        "postgres::Client::execute",  # Specific PostgreSQL execute
-        "tokio_postgres::Client::execute",  # Async PostgreSQL
+        "rusqlite::Connection::execute",
+        "postgres::Client::execute",
+        "tokio_postgres::Client::execute",
     ]
     for pattern in sql_sinks:
         taint_registry.register_sink(pattern, "sql", "rust")
         sink_count += 1
 
-    # File Write (category: path)
-    # Verified in database: std::fs::write, fs::write, write_file
     file_sinks = [
         "std::fs::write",
         "fs::write",
@@ -210,8 +180,6 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_sink(pattern, "path", "rust")
         sink_count += 1
 
-    # Unsafe Pointer Operations (category: code_injection)
-    # Verified in database: ptr::write, ptr::write_volatile, ptr::read, ptr::read_volatile
     unsafe_sinks = [
         "ptr::write",
         "ptr::write_volatile",
@@ -227,8 +195,6 @@ def register_taint_patterns(taint_registry):
         taint_registry.register_sink(pattern, "code_injection", "rust")
         sink_count += 1
 
-    # Network Operations (category: ssrf)
-    # Verified in database: connect
     network_sinks = [
         "connect",
         "TcpStream::connect",

@@ -38,93 +38,205 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-WEAK_RANDOM_FUNCTIONS = frozenset([
-    "Math.random",
-    "random.random",
-    "random.randint",
-    "random.choice",
-    "random.randbytes",
-    "random.randrange",
-    "random.getrandbits",
-    "random.uniform",
-    "random.sample",
-    "random.shuffle",
-    "rand",
-    "mt_rand",
-    "lcg_value",
-])
+WEAK_RANDOM_FUNCTIONS = frozenset(
+    [
+        "Math.random",
+        "random.random",
+        "random.randint",
+        "random.choice",
+        "random.randbytes",
+        "random.randrange",
+        "random.getrandbits",
+        "random.uniform",
+        "random.sample",
+        "random.shuffle",
+        "rand",
+        "mt_rand",
+        "lcg_value",
+    ]
+)
 
-SECURE_RANDOM_FUNCTIONS = frozenset([
-    "secrets.token_hex",
-    "secrets.token_bytes",
-    "secrets.token_urlsafe",
-    "secrets.randbits",
-    "secrets.choice",
-    "crypto.randomBytes",
-    "crypto.getRandomValues",
-    "crypto.randomFillSync",
-    "crypto.randomUUID",
-    "os.urandom",
-    "SystemRandom",
-])
+SECURE_RANDOM_FUNCTIONS = frozenset(
+    [
+        "secrets.token_hex",
+        "secrets.token_bytes",
+        "secrets.token_urlsafe",
+        "secrets.randbits",
+        "secrets.choice",
+        "crypto.randomBytes",
+        "crypto.getRandomValues",
+        "crypto.randomFillSync",
+        "crypto.randomUUID",
+        "os.urandom",
+        "SystemRandom",
+    ]
+)
 
-WEAK_HASH_ALGORITHMS = frozenset([
-    "md5", "MD5", "sha1", "SHA1", "sha-1", "SHA-1",
-    "md4", "MD4", "md2", "MD2", "sha0", "SHA0",
-    "ripemd", "RIPEMD",
-])
+WEAK_HASH_ALGORITHMS = frozenset(
+    [
+        "md5",
+        "MD5",
+        "sha1",
+        "SHA1",
+        "sha-1",
+        "SHA-1",
+        "md4",
+        "MD4",
+        "md2",
+        "MD2",
+        "sha0",
+        "SHA0",
+        "ripemd",
+        "RIPEMD",
+    ]
+)
 
-STRONG_HASH_ALGORITHMS = frozenset([
-    "sha256", "SHA256", "sha-256", "SHA-256",
-    "sha384", "SHA384", "sha-384", "SHA-384",
-    "sha512", "SHA512", "sha-512", "SHA-512",
-    "sha3-256", "SHA3-256", "sha3-384", "SHA3-384", "sha3-512", "SHA3-512",
-    "blake2b", "BLAKE2B", "blake2s", "BLAKE2S",
-])
+STRONG_HASH_ALGORITHMS = frozenset(
+    [
+        "sha256",
+        "SHA256",
+        "sha-256",
+        "SHA-256",
+        "sha384",
+        "SHA384",
+        "sha-384",
+        "SHA-384",
+        "sha512",
+        "SHA512",
+        "sha-512",
+        "SHA-512",
+        "sha3-256",
+        "SHA3-256",
+        "sha3-384",
+        "SHA3-384",
+        "sha3-512",
+        "SHA3-512",
+        "blake2b",
+        "BLAKE2B",
+        "blake2s",
+        "BLAKE2S",
+    ]
+)
 
-WEAK_ENCRYPTION_ALIASES = frozenset([
-    "des", "3des", "tripledes", "des-ede3", "des-ede", "des3",
-    "rc4", "arcfour", "rc2", "blowfish", "cast", "cast5",
-    "idea", "tea", "xtea",
-])
+WEAK_ENCRYPTION_ALIASES = frozenset(
+    [
+        "des",
+        "3des",
+        "tripledes",
+        "des-ede3",
+        "des-ede",
+        "des3",
+        "rc4",
+        "arcfour",
+        "rc2",
+        "blowfish",
+        "cast",
+        "cast5",
+        "idea",
+        "tea",
+        "xtea",
+    ]
+)
 
-STRONG_ENCRYPTION_ALGORITHMS = frozenset([
-    "aes", "AES", "aes-128-gcm", "AES-128-GCM",
-    "aes-256-gcm", "AES-256-GCM", "chacha20", "ChaCha20",
-    "chacha20-poly1305", "ChaCha20-Poly1305", "xchacha20", "XChaCha20",
-])
+STRONG_ENCRYPTION_ALGORITHMS = frozenset(
+    [
+        "aes",
+        "AES",
+        "aes-128-gcm",
+        "AES-128-GCM",
+        "aes-256-gcm",
+        "AES-256-GCM",
+        "chacha20",
+        "ChaCha20",
+        "chacha20-poly1305",
+        "ChaCha20-Poly1305",
+        "xchacha20",
+        "XChaCha20",
+    ]
+)
 
 INSECURE_MODES = frozenset(["ecb", "ECB", "cbc", "CBC"])
 
 SECURE_MODES = frozenset(["gcm", "GCM", "ccm", "CCM", "eax", "EAX", "ocb", "OCB", "ctr", "CTR"])
 
-SECURITY_KEYWORDS = frozenset([
-    "password", "passwd", "pwd", "secret", "key", "token",
-    "auth", "authentication", "authorization", "session", "cookie",
-    "jwt", "api_key", "apikey", "access_token", "refresh_token",
-    "bearer", "credential", "credentials", "salt", "nonce", "iv",
-    "pin", "otp", "totp", "private", "priv", "encryption",
-    "signature", "sign", "verify", "certificate", "cert",
-])
+SECURITY_KEYWORDS = frozenset(
+    [
+        "password",
+        "passwd",
+        "pwd",
+        "secret",
+        "key",
+        "token",
+        "auth",
+        "authentication",
+        "authorization",
+        "session",
+        "cookie",
+        "jwt",
+        "api_key",
+        "apikey",
+        "access_token",
+        "refresh_token",
+        "bearer",
+        "credential",
+        "credentials",
+        "salt",
+        "nonce",
+        "iv",
+        "pin",
+        "otp",
+        "totp",
+        "private",
+        "priv",
+        "encryption",
+        "signature",
+        "sign",
+        "verify",
+        "certificate",
+        "cert",
+    ]
+)
 
-NON_SECURITY_KEYWORDS = frozenset([
-    "checksum", "etag", "cache", "hash_table", "hashmap", "hashtable",
-    "test", "mock", "example", "demo", "sample", "placeholder",
-    "file", "content", "data", "index", "offset", "length",
-])
+NON_SECURITY_KEYWORDS = frozenset(
+    [
+        "checksum",
+        "etag",
+        "cache",
+        "hash_table",
+        "hashmap",
+        "hashtable",
+        "test",
+        "mock",
+        "example",
+        "demo",
+        "sample",
+        "placeholder",
+        "file",
+        "content",
+        "data",
+        "index",
+        "offset",
+        "length",
+    ]
+)
 
-DEPRECATED_LIBRARIES = frozenset([
-    "pycrypto", "mcrypt", "openssl_encrypt", "openssl_decrypt", "CryptoJS.enc.Base64"
-])
+DEPRECATED_LIBRARIES = frozenset(
+    ["pycrypto", "mcrypt", "openssl_encrypt", "openssl_decrypt", "CryptoJS.enc.Base64"]
+)
 
-TIMING_VULNERABLE_COMPARISONS = frozenset([
-    "==", "===", "strcmp", "strcasecmp", ".equals", ".compare"
-])
+TIMING_VULNERABLE_COMPARISONS = frozenset(
+    ["==", "===", "strcmp", "strcasecmp", ".equals", ".compare"]
+)
 
-CONSTANT_TIME_COMPARISONS = frozenset([
-    "hmac.compare_digest", "secrets.compare_digest",
-    "crypto.timingSafeEqual", "hash_equals", "MessageDigest.isEqual",
-])
+CONSTANT_TIME_COMPARISONS = frozenset(
+    [
+        "hmac.compare_digest",
+        "secrets.compare_digest",
+        "crypto.timingSafeEqual",
+        "hash_equals",
+        "MessageDigest.isEqual",
+    ]
+)
 
 _CAMEL_CASE_TOKEN_RE = re.compile(r"[A-Z]+(?=[A-Z][a-z]|[0-9]|$)|[A-Z]?[a-z]+|[0-9]+")
 
@@ -201,7 +313,6 @@ def _determine_confidence(db: RuleDB, file: str, line: int, func_name: str) -> C
     if func_name and any(kw in func_name.lower() for kw in NON_SECURITY_KEYWORDS):
         return Confidence.LOW
 
-    # Check for security operations nearby
     rows = db.query(
         Q("function_call_args")
         .select("callee_function", "line")
@@ -216,7 +327,6 @@ def _determine_confidence(db: RuleDB, file: str, line: int, func_name: str) -> C
             if any(op in callee_lower for op in security_operations):
                 return Confidence.HIGH
 
-    # Check for security-related variable names
     var_rows = db.query(
         Q("assignments")
         .select("target_var")
@@ -236,7 +346,6 @@ def _find_weak_random_generation(db: RuleDB) -> list[StandardFinding]:
     """Find usage of weak random number generators for security purposes."""
     findings: list[StandardFinding] = []
 
-    # Build IN clause for weak random functions
     funcs_list = list(WEAK_RANDOM_FUNCTIONS)
     placeholders = ",".join(["?"] * len(funcs_list))
 
@@ -393,7 +502,6 @@ def _find_missing_salt(db: RuleDB) -> list[StandardFinding]:
         if not any(pw in args_lower for pw in password_keywords):
             continue
 
-        # Check for salt in nearby assignments
         assign_rows = db.query(
             Q("assignments")
             .select("target_var", "source_expr", "line")
@@ -403,9 +511,8 @@ def _find_missing_salt(db: RuleDB) -> list[StandardFinding]:
 
         has_salt_nearby = False
         for var, expr, assign_line in assign_rows:
-            if (
-                abs(assign_line - line) <= 10
-                and ("salt" in (var or "").lower() or "salt" in (expr or "").lower())
+            if abs(assign_line - line) <= 10 and (
+                "salt" in (var or "").lower() or "salt" in (expr or "").lower()
             ):
                 has_salt_nearby = True
                 break
@@ -526,7 +633,6 @@ def _find_ecb_mode(db: RuleDB) -> list[StandardFinding]:
     """Find usage of ECB mode in encryption."""
     findings: list[StandardFinding] = []
 
-    # Check function calls for ECB mode
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -560,7 +666,6 @@ def _find_ecb_mode(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check assignments for ECB mode configuration
     assign_rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -616,7 +721,6 @@ def _find_missing_iv(db: RuleDB) -> list[StandardFinding]:
             has_iv_in_args = any(term in args_lower for term in ["iv", "nonce", "initialization"])
 
         if not has_iv_in_args:
-            # Check for IV in nearby assignments
             assign_rows = db.query(
                 Q("assignments")
                 .select("target_var", "source_expr", "line")
@@ -702,11 +806,16 @@ def _find_predictable_seeds(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     timestamp_functions = [
-        "time.time", "datetime.now", "Date.now", "Date.getTime",
-        "timestamp", "time()", "microtime", "performance.now",
+        "time.time",
+        "datetime.now",
+        "Date.now",
+        "Date.getTime",
+        "timestamp",
+        "time()",
+        "microtime",
+        "performance.now",
     ]
 
-    # Check assignments for predictable seeds
     rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
@@ -743,7 +852,6 @@ def _find_predictable_seeds(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-    # Check function calls for seed with timestamp args
     func_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -789,8 +897,14 @@ def _find_hardcoded_keys(db: RuleDB) -> list[StandardFinding]:
     )
 
     key_keywords = [
-        "key", "secret", "cipher_key", "encryption_key",
-        "aes_key", "des_key", "private_key", "priv_key",
+        "key",
+        "secret",
+        "cipher_key",
+        "encryption_key",
+        "aes_key",
+        "des_key",
+        "private_key",
+        "priv_key",
     ]
     literal_starts = ['"', "'", 'b"', "b'"]
     secure_patterns = ["env", "config", "random", "generate"]
@@ -932,7 +1046,6 @@ def _find_timing_vulnerable_compare(db: RuleDB) -> list[StandardFinding]:
     """Find timing-vulnerable string comparisons for secrets."""
     findings: list[StandardFinding] = []
 
-    # Check symbols for comparison operations
     rows = db.query(
         Q("symbols")
         .select("path", "name", "line", "type")
@@ -962,7 +1075,6 @@ def _find_timing_vulnerable_compare(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check for strcmp/strcasecmp/memcmp with secrets
     func_rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -1039,8 +1151,14 @@ def register_taint_patterns(taint_registry) -> None:
         taint_registry.register_source(func, "weak_random", "any")
 
     crypto_sinks = [
-        "encrypt", "decrypt", "sign", "verify",
-        "generateKey", "deriveKey", "hash", "digest",
+        "encrypt",
+        "decrypt",
+        "sign",
+        "verify",
+        "generateKey",
+        "deriveKey",
+        "hash",
+        "digest",
     ]
     for sink in crypto_sinks:
         taint_registry.register_sink(sink, "crypto_operation", "any")

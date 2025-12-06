@@ -31,7 +31,6 @@ class RustStorage(BaseStorage):
             "rust_trait_methods": self._store_rust_trait_methods,
             "rust_extern_functions": self._store_rust_extern_functions,
             "rust_extern_blocks": self._store_rust_extern_blocks,
-            # Cargo package manager handlers
             "cargo_package_configs": self._store_cargo_package_configs,
             "cargo_dependencies": self._store_cargo_dependencies,
         }
@@ -394,7 +393,6 @@ class RustStorage(BaseStorage):
                 self.counts["rust_extern_blocks"] = 0
             self.counts["rust_extern_blocks"] += 1
 
-    # Cargo package manager handlers
     def _store_cargo_package_configs(
         self, file_path: str, cargo_package_configs: list, jsx_pass: bool
     ) -> None:

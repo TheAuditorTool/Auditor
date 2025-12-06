@@ -295,12 +295,8 @@ def taint_analyze(
 
     db_path = Path(db)
     if not db_path.exists():
-        console.print(
-            f"[error]Error: Database not found at {db}[/error]", highlight=False
-        )
-        console.print(
-            "[error]Run 'aud full' first to build the repository index[/error]"
-        )
+        console.print(f"[error]Error: Database not found at {db}[/error]", highlight=False)
+        console.print("[error]Run 'aud full' first to build the repository index[/error]")
         raise click.ClickException(f"Database not found: {db}")
 
     console.print("[error]Validating database schema...[/error]")
@@ -319,12 +315,8 @@ def taint_analyze(
             console.rule()
             console.print("[error] SCHEMA VALIDATION FAILED [/error]")
             console.rule()
-            console.print(
-                "[error]Database schema does not match expected definitions.[/error]"
-            )
-            console.print(
-                "[error]This will cause incorrect results or failures.\n[/error]"
-            )
+            console.print("[error]Database schema does not match expected definitions.[/error]")
+            console.print("[error]This will cause incorrect results or failures.\n[/error]")
 
             for table_name, errors in list(mismatches.items())[:5]:
                 console.print(f"[error]Table: {table_name}[/error]", highlight=False)
@@ -345,9 +337,7 @@ def taint_analyze(
         else:
             console.print("[error]Schema validation passed.[/error]")
     except ImportError:
-        console.print(
-            "[error]Schema validation skipped (schema module not available)[/error]"
-        )
+        console.print("[error]Schema validation skipped (schema module not available)[/error]")
     except Exception as e:
         console.print(f"[error]Schema validation error: {e}[/error]", highlight=False)
         console.print("[error]Continuing anyway...[/error]")

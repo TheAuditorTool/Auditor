@@ -59,7 +59,6 @@ class PathCorrelator:
             if not raw_path or line <= 0:
                 continue
 
-            # Normalize path to forward slashes to match storage layer
             file_path = raw_path.replace("\\", "/")
 
             cursor.execute(

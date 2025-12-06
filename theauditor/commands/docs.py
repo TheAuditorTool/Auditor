@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 
 
 @click.command("docs", cls=RichCommand)

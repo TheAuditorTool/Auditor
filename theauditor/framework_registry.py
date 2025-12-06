@@ -406,10 +406,10 @@ FRAMEWORK_REGISTRY = {
     "net_http": {
         "language": "go",
         "detection_sources": {
-            "go.mod": "exists",  # Standard library - always available
+            "go.mod": "exists",
         },
         "import_patterns": ["net/http"],
-        "file_markers": ["*.go"],  # Any Go file using net/http
+        "file_markers": ["*.go"],
     },
     "gorm": {
         "language": "go",
@@ -802,7 +802,6 @@ FRAMEWORK_REGISTRY = {
         "directory_markers": ["tests/"],
         "content_patterns": ["#[test]", "#[cfg(test)]"],
     },
-    # Bash/Shell patterns
     "bash": {
         "language": "bash",
         "detection_sources": {},

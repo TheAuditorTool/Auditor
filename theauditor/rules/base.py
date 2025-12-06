@@ -97,9 +97,13 @@ class StandardFinding:
             "file": self.file_path,
             "line": self.line,
             "column": self.column,
-            "severity": self.severity.value if isinstance(self.severity, Severity) else self.severity,
+            "severity": self.severity.value
+            if isinstance(self.severity, Severity)
+            else self.severity,
             "category": self.category,
-            "confidence": self.confidence.value if isinstance(self.confidence, Confidence) else self.confidence,
+            "confidence": self.confidence.value
+            if isinstance(self.confidence, Confidence)
+            else self.confidence,
             "code_snippet": self.snippet,
         }
 
@@ -109,6 +113,7 @@ class StandardFinding:
             result["cwe"] = self.cwe_id
         if self.additional_info:
             import json
+
             result["details_json"] = json.dumps(self.additional_info)
 
         return result
@@ -139,8 +144,6 @@ class RuleMetadata:
 
     execution_scope: Literal["database", "file"] | None = None
 
-    # Fidelity: Primary table for silent failure detection.
-    # If set, orchestrator checks that rule scanned rows when table has data.
     primary_table: str | None = None
 
 

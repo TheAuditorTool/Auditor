@@ -7,10 +7,12 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.session.activity_metrics import (
     ActivityClassifier,
     analyze_activity,
+)
+from theauditor.session.activity_metrics import (
     analyze_multiple_sessions as analyze_activity_multiple,
 )
 from theauditor.session.analysis import Finding, SessionAnalysis, SessionStats
@@ -148,7 +150,7 @@ def analyze(session_dir):
             except Exception as e:
                 err_console.print(
                     f"[warning]Failed to analyze session {session.session_id}: {e}[/warning]",
-                    )
+                )
                 continue
 
         console.print(
@@ -156,7 +158,9 @@ def analyze(session_dir):
         )
 
     except Exception as e:
-        err_console.print(f"[error]Session analysis failed: {e}[/error]", )
+        err_console.print(
+            f"[error]Session analysis failed: {e}[/error]",
+        )
         raise
 
 
@@ -350,14 +354,25 @@ def inspect(session_file, db_path):
     console.print(f"Bash commands: {stats.bash_commands}", highlight=False)
     console.print(f"Avg tokens/turn: {stats.avg_tokens_per_turn:.0f}", highlight=False)
 
-    
     activity = analyze_activity(session_obj)
     console.print("\n=== Activity Breakdown ===")
-    console.print(f"Planning:     {activity.planning_turns:3d} turns ({activity.planning_ratio:5.1%})  |  {activity.planning_tokens:,} tokens ({activity.planning_token_ratio:5.1%})", highlight=False)
-    console.print(f"Working:      {activity.working_turns:3d} turns ({activity.working_ratio:5.1%})  |  {activity.working_tokens:,} tokens ({activity.working_token_ratio:5.1%})", highlight=False)
-    console.print(f"Research:     {activity.research_turns:3d} turns ({activity.research_ratio:5.1%})  |  {activity.research_tokens:,} tokens ({activity.research_token_ratio:5.1%})", highlight=False)
-    console.print(f"Conversation: {activity.conversation_turns:3d} turns ({activity.conversation_ratio:5.1%})  |  {activity.conversation_tokens:,} tokens ({activity.conversation_token_ratio:5.1%})", highlight=False)
-    console.print(f"\nEfficiency:", highlight=False)
+    console.print(
+        f"Planning:     {activity.planning_turns:3d} turns ({activity.planning_ratio:5.1%})  |  {activity.planning_tokens:,} tokens ({activity.planning_token_ratio:5.1%})",
+        highlight=False,
+    )
+    console.print(
+        f"Working:      {activity.working_turns:3d} turns ({activity.working_ratio:5.1%})  |  {activity.working_tokens:,} tokens ({activity.working_token_ratio:5.1%})",
+        highlight=False,
+    )
+    console.print(
+        f"Research:     {activity.research_turns:3d} turns ({activity.research_ratio:5.1%})  |  {activity.research_tokens:,} tokens ({activity.research_token_ratio:5.1%})",
+        highlight=False,
+    )
+    console.print(
+        f"Conversation: {activity.conversation_turns:3d} turns ({activity.conversation_ratio:5.1%})  |  {activity.conversation_tokens:,} tokens ({activity.conversation_token_ratio:5.1%})",
+        highlight=False,
+    )
+    console.print("\nEfficiency:", highlight=False)
     console.print(f"  Work/Talk ratio:    {activity.work_to_talk_ratio:.2f}", highlight=False)
     console.print(f"  Research/Work ratio: {activity.research_to_work_ratio:.2f}", highlight=False)
     console.print(f"  Tokens per edit:    {activity.tokens_per_edit:.0f}", highlight=False)
@@ -437,7 +452,6 @@ def activity(project_path, limit, json_output):
         console.print("[warning]No session files found[/warning]")
         return
 
-    
     recent_files = session_files[-limit:] if limit else session_files
     console.print(f"Analyzing {len(recent_files)} sessions...", highlight=False)
 
@@ -455,22 +469,32 @@ def activity(project_path, limit, json_output):
     results = analyze_activity_multiple(sessions)
 
     if json_output:
-        
         output = {k: v for k, v in results.items() if k != "per_session"}
         console.print(json.dumps(output, indent=2))
         return
 
-    
     console.rule("Activity Analysis")
     console.print(f"Sessions analyzed: {results['session_count']}", highlight=False)
 
     console.print("\n[bold]Token Distribution[/bold]")
     ratios = results["ratios"]
     agg = results["aggregate"]
-    console.print(f"  Planning:     {ratios['planning']:5.1%}  ({agg['planning_tokens']:,} tokens)", highlight=False)
-    console.print(f"  Working:      {ratios['working']:5.1%}  ({agg['working_tokens']:,} tokens)", highlight=False)
-    console.print(f"  Research:     {ratios['research']:5.1%}  ({agg['research_tokens']:,} tokens)", highlight=False)
-    console.print(f"  Conversation: {ratios['conversation']:5.1%}  ({agg['conversation_tokens']:,} tokens)", highlight=False)
+    console.print(
+        f"  Planning:     {ratios['planning']:5.1%}  ({agg['planning_tokens']:,} tokens)",
+        highlight=False,
+    )
+    console.print(
+        f"  Working:      {ratios['working']:5.1%}  ({agg['working_tokens']:,} tokens)",
+        highlight=False,
+    )
+    console.print(
+        f"  Research:     {ratios['research']:5.1%}  ({agg['research_tokens']:,} tokens)",
+        highlight=False,
+    )
+    console.print(
+        f"  Conversation: {ratios['conversation']:5.1%}  ({agg['conversation_tokens']:,} tokens)",
+        highlight=False,
+    )
     console.print(f"  [dim]Total: {agg['total_tokens']:,} tokens[/dim]", highlight=False)
 
     console.print("\n[bold]Efficiency Averages[/bold]")
@@ -478,17 +502,25 @@ def activity(project_path, limit, json_output):
     console.print(f"  Work/Talk ratio:    {avgs['work_to_talk_ratio']:.2f}", highlight=False)
     console.print(f"  Tokens per edit:    {avgs['tokens_per_edit']:.0f}", highlight=False)
 
-    
     console.print("\n[bold]Interpretation[/bold]")
     work_pct = ratios["working"] * 100
     talk_pct = (ratios["planning"] + ratios["conversation"]) * 100
 
     if work_pct > 50:
-        console.print(f"  [green]Highly productive[/green] - {work_pct:.0f}% of tokens go to actual work", highlight=False)
+        console.print(
+            f"  [green]Highly productive[/green] - {work_pct:.0f}% of tokens go to actual work",
+            highlight=False,
+        )
     elif work_pct > 30:
-        console.print(f"  [yellow]Balanced[/yellow] - {work_pct:.0f}% work, {talk_pct:.0f}% planning/conversation", highlight=False)
+        console.print(
+            f"  [yellow]Balanced[/yellow] - {work_pct:.0f}% work, {talk_pct:.0f}% planning/conversation",
+            highlight=False,
+        )
     else:
-        console.print(f"  [red]High overhead[/red] - Only {work_pct:.0f}% of tokens produce code changes", highlight=False)
+        console.print(
+            f"  [red]High overhead[/red] - Only {work_pct:.0f}% of tokens produce code changes",
+            highlight=False,
+        )
 
 
 @session.command(cls=RichCommand)

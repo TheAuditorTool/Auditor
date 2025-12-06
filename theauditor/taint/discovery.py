@@ -146,7 +146,6 @@ class TaintDiscovery:
             if extraction_source == "migration_file":
                 continue
 
-            # First, get the containing function for scope-aware lookup
             cursor.execute(
                 """
                 SELECT name FROM symbols
@@ -159,7 +158,6 @@ class TaintDiscovery:
             func_row = cursor.fetchone()
             containing_function = func_row["name"] if func_row else None
 
-            # Scope-based query: Find assignment in same function scope, before this line
             cursor.execute(
                 """
                 SELECT target_var, in_function
@@ -225,11 +223,8 @@ class TaintDiscovery:
                 line_number = call.get("line", 0)
                 caller_function = call.get("caller_function")
 
-                # Extract variable name from argument expression
-                # Handle cases like "sql", "query_string", or "sql, params"
                 target_variable = arg_expr.split(",")[0].strip() if arg_expr else None
 
-                # Scope-based query: Match variable name AND function scope
                 if target_variable and not (
                     target_variable.startswith('"') or target_variable.startswith("'")
                 ):
@@ -248,7 +243,6 @@ class TaintDiscovery:
                     )
                     result_row = cursor2.fetchone()
                 else:
-                    # Literal string argument - no variable lookup needed
                     result_row = None
 
                 pattern = result_row["target_var"] if result_row else func_name
@@ -279,7 +273,6 @@ class TaintDiscovery:
         for row in cursor2.fetchall():
             model_names.add(row["model_name"])
 
-        # Rust structs can act as ORM models (diesel, sqlx, sea-orm)
         cursor2.execute("SELECT name FROM rust_structs")
         for row in cursor2.fetchall():
             model_names.add(row["name"])
@@ -416,7 +409,9 @@ class TaintDiscovery:
                         "pattern": "dangerouslySetInnerHTML",
                         "category": "xss",
                         "risk": "high",
-                        "vulnerability_type": self._get_vulnerability_type("xss", "dangerouslySetInnerHTML"),
+                        "vulnerability_type": self._get_vulnerability_type(
+                            "xss", "dangerouslySetInnerHTML"
+                        ),
                         "metadata": hook,
                     }
                 )
@@ -525,7 +520,6 @@ class TaintDiscovery:
         if not self.registry:
             raise ValueError("Registry is MANDATORY. NO FALLBACKS.")
 
-        # Pattern lookup first, then category
         if pattern:
             info = self.registry.get_sink_info(pattern)
             if info.get("category") != "unknown":

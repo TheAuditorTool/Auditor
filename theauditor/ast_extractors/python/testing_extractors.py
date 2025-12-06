@@ -3,9 +3,10 @@
 import ast
 from typing import Any
 
+from theauditor.utils.logging import logger
+
 from ..base import get_node_name
 from .utils.context import FileContext
-from theauditor.utils.logging import logger
 
 
 def extract_pytest_fixtures(context: FileContext) -> list[dict[str, Any]]:
@@ -64,16 +65,13 @@ def extract_pytest_parametrize(context: FileContext) -> list[dict[str, Any]]:
 
             if "parametrize" in decorator_name:
                 param_names = []
-                params = []  # List of {name, value} for junction table
+                params = []
 
                 if isinstance(dec, ast.Call) and dec.args:
-                    # First arg: parameter names (e.g., "x,y" or ["x", "y"])
                     first_arg = dec.args[0]
                     if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
-                        # Split comma-separated names: "x,y" -> ["x", "y"]
                         param_names = [n.strip() for n in first_arg.value.split(",")]
 
-                    # Second arg: parameter values list
                     if len(dec.args) >= 2:
                         second_arg = dec.args[1]
                         if isinstance(second_arg, (ast.List, ast.Tuple)):
@@ -82,7 +80,7 @@ def extract_pytest_parametrize(context: FileContext) -> list[dict[str, Any]]:
                                     value_str = ast.unparse(elt)
                                 except Exception:
                                     value_str = "<complex>"
-                                # Use param name if available, else index
+
                                 name = param_names[0] if param_names else str(idx)
                                 params.append({"name": name, "value": value_str})
 
@@ -91,7 +89,7 @@ def extract_pytest_parametrize(context: FileContext) -> list[dict[str, Any]]:
                         "line": node.lineno,
                         "test_name": node.name,
                         "param_names": param_names,
-                        "params": params,  # For junction table
+                        "params": params,
                     }
                 )
 

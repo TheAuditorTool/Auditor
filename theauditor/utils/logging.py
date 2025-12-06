@@ -24,10 +24,9 @@ from pathlib import Path
 
 from loguru import logger
 
-# Remove default handler
 logger.remove()
 
-# Pino-compatible numeric levels
+
 PINO_LEVELS = {
     "TRACE": 10,
     "DEBUG": 20,
@@ -37,11 +36,11 @@ PINO_LEVELS = {
     "CRITICAL": 60,
 }
 
-# Get configuration from environment
+
 _log_level = os.environ.get("THEAUDITOR_LOG_LEVEL", "INFO").upper()
 _json_mode = os.environ.get("THEAUDITOR_LOG_JSON", "0") == "1"
 _log_file_raw = os.environ.get("THEAUDITOR_LOG_FILE")
-_log_file = str(Path(_log_file_raw).resolve()) if _log_file_raw else None  # Force absolute path
+_log_file = str(Path(_log_file_raw).resolve()) if _log_file_raw else None
 _request_id = os.environ.get("THEAUDITOR_REQUEST_ID") or str(uuid.uuid4())
 
 
@@ -61,26 +60,20 @@ def pino_compatible_sink(message):
         "request_id": record["extra"].get("request_id", _request_id),
     }
 
-    # Add any extra context fields
     for key, value in record["extra"].items():
         if key not in ("request_id",):
             pino_log[key] = value
 
-    # Add exception info if present (Pino err format)
     if record["exception"]:
         pino_log["err"] = {
             "type": record["exception"].type.__name__ if record["exception"].type else "Error",
             "message": str(record["exception"].value) if record["exception"].value else "",
         }
 
-    # Write to stdout (Pino convention: machine logs to stdout)
-    # CRITICAL: Never call logger.* inside a sink - causes infinite recursion
     sys.stdout.write(json.dumps(pino_log) + "\n")
     sys.stdout.flush()
 
 
-# Human-readable format (no emojis - Windows CP1252 compatibility)
-# Note: <level> tag uses loguru's default colors (INFO=white, ERROR=red, etc.)
 _human_format = (
     "<green>{time:HH:mm:ss}</green> | "
     "<level>{level: <8}</level> | "
@@ -88,18 +81,17 @@ _human_format = (
     "<level>{message}</level>"
 )
 
-# Custom level colors - make ERROR/WARNING more visible
-# This overrides loguru's defaults
+
 logger.level("DEBUG", color="<blue>")
 logger.level("INFO", color="<white>")
 logger.level("WARNING", color="<yellow>")
 logger.level("ERROR", color="<red>")
 logger.level("CRITICAL", color="<red><bold>")
 
-# Track the human-mode handler ID so it can be swapped for Rich integration
+
 _human_handler_id: int | None = None
 
-# Console handler - choose format based on JSON mode
+
 if _json_mode:
     logger.add(
         pino_compatible_sink,
@@ -111,11 +103,12 @@ else:
         sys.stderr,
         level=_log_level,
         format=_human_format,
-        colorize=None,  # Auto-detect: colors if TTY, plain if piped
+        colorize=None,
     )
 
-# Optional file handler (always NDJSON for machine parsing)
+
 if _log_file:
+
     def _file_pino_sink(message):
         """Write Pino-format JSON to the configured log file."""
         record = message.record
@@ -134,13 +127,13 @@ if _log_file:
                 "type": record["exception"].type.__name__ if record["exception"].type else "Error",
                 "message": str(record["exception"].value) if record["exception"].value else "",
             }
-        # Write directly to file - never call logger.* inside a sink
+
         with open(_log_file, "a", encoding="utf-8") as f:
             f.write(json.dumps(pino_log) + "\n")
 
     logger.add(
         _file_pino_sink,
-        level="DEBUG",  # File always captures everything
+        level="DEBUG",
     )
 
 
@@ -151,11 +144,10 @@ def configure_file_logging(log_dir: Path, level: str = "DEBUG") -> None:
         log_dir: Directory for log files (e.g., Path(".pf"))
         level: Minimum log level for file output
     """
-    log_dir = log_dir.resolve()  # Force absolute path for Windows compatibility
+    log_dir = log_dir.resolve()
     log_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "theauditor.log"
 
-    # File logging uses human-readable format (for manual inspection)
     logger.add(
         log_file,
         rotation="10 MB",
@@ -193,21 +185,17 @@ def swap_to_rich_sink(rich_sink_fn) -> int | None:
     """
     global _human_handler_id
 
-    # In JSON mode, we don't use stderr for human output - no swap needed
     if _json_mode or _human_handler_id is None:
         return None
 
-    # Remove the stderr handler
     logger.remove(_human_handler_id)
     _human_handler_id = None
 
-    # Add the Rich sink with ANSI color codes preserved
-    # Rich's Console.print() can render ANSI escape sequences
     new_handler_id = logger.add(
         rich_sink_fn,
         level=_log_level,
         format=_human_format,
-        colorize=True,  # Preserve ANSI codes - Rich handles them
+        colorize=True,
     )
 
     return new_handler_id
@@ -221,20 +209,17 @@ def restore_stderr_sink(rich_handler_id: int | None) -> None:
     """
     global _human_handler_id
 
-    # In JSON mode, nothing to restore
     if _json_mode:
         return
 
-    # Remove the Rich handler if it exists
     if rich_handler_id is not None:
         logger.remove(rich_handler_id)
 
-    # Restore stderr handler
     _human_handler_id = logger.add(
         sys.stderr,
         level=_log_level,
         format=_human_format,
-        colorize=None,  # Auto-detect: colors if TTY, plain if piped
+        colorize=None,
     )
 
 

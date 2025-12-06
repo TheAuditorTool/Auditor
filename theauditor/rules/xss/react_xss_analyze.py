@@ -65,11 +65,7 @@ def _is_react_app(db: RuleDB) -> bool:
     if len(list(framework_rows)) > 0:
         return True
 
-    component_rows = db.query(
-        Q("react_components")
-        .select("name")
-        .limit(1)
-    )
+    component_rows = db.query(Q("react_components").select("name").limit(1))
 
     return len(list(component_rows)) > 0
 
@@ -123,7 +119,9 @@ def _check_dangerous_html_prop(db: RuleDB) -> list[StandardFinding]:
         .where("argument_expr IS NOT NULL")
         .where(
             "callee_function LIKE ? OR callee_function LIKE ? OR callee_function LIKE ?",
-            "%createMarkup%", "%getRawMarkup%", "%getHTML%"
+            "%createMarkup%",
+            "%getRawMarkup%",
+            "%getHTML%",
         )
     )
 
@@ -163,8 +161,7 @@ def _check_javascript_urls(db: RuleDB) -> list[StandardFinding]:
 
     for file, line, prop, value in rows:
         has_dangerous_protocol = any(
-            proto in value.lower()
-            for proto in ["javascript:", "vbscript:", "data:text/html"]
+            proto in value.lower() for proto in ["javascript:", "vbscript:", "data:text/html"]
         )
         has_user_input = _has_user_input(value)
 
@@ -177,7 +174,9 @@ def _check_javascript_urls(db: RuleDB) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.HIGH,
                     category="xss",
-                    snippet=f"{prop}={{{value[:40]}...}}" if len(value) > 40 else f"{prop}={{{value}}}",
+                    snippet=f"{prop}={{{value[:40]}...}}"
+                    if len(value) > 40
+                    else f"{prop}={{{value}}}",
                     cwe_id="CWE-79",
                 )
             )
@@ -209,7 +208,9 @@ def _check_ref_innerhtml(db: RuleDB) -> list[StandardFinding]:
         .where("source_expr IS NOT NULL")
         .where(
             "target_var LIKE ? OR target_var LIKE ? OR target_var LIKE ?",
-            "%ref.current.innerHTML%", "%.current.innerHTML%", "%Ref.current.innerHTML%"
+            "%ref.current.innerHTML%",
+            "%.current.innerHTML%",
+            "%Ref.current.innerHTML%",
         )
     )
 
@@ -228,7 +229,9 @@ def _check_ref_innerhtml(db: RuleDB) -> list[StandardFinding]:
                     line=line,
                     severity=Severity.CRITICAL,
                     category="xss",
-                    snippet=f"{target} = {source[:50]}..." if len(source) > 50 else f"{target} = {source}",
+                    snippet=f"{target} = {source[:50]}..."
+                    if len(source) > 50
+                    else f"{target} = {source}",
                     cwe_id="CWE-79",
                 )
             )
@@ -302,8 +305,10 @@ def _check_server_side_rendering(db: RuleDB) -> list[StandardFinding]:
         .select("file", "line", "callee_function", "argument_expr")
         .where(
             "callee_function IN (?, ?, ?, ?)",
-            "renderToString", "renderToStaticMarkup",
-            "ReactDOMServer.renderToString", "ReactDOMServer.renderToStaticMarkup"
+            "renderToString",
+            "renderToStaticMarkup",
+            "ReactDOMServer.renderToString",
+            "ReactDOMServer.renderToStaticMarkup",
         )
         .order_by("file, line")
     )
@@ -333,7 +338,10 @@ def _check_server_side_rendering(db: RuleDB) -> list[StandardFinding]:
         .select("file", "line", "callee_function")
         .where(
             "callee_function IN (?, ?, ?, ?)",
-            "hydrate", "ReactDOM.hydrate", "hydrateRoot", "ReactDOM.hydrateRoot"
+            "hydrate",
+            "ReactDOM.hydrate",
+            "hydrateRoot",
+            "ReactDOM.hydrateRoot",
         )
         .order_by("file, line")
     )

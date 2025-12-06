@@ -8,7 +8,7 @@ import click
 
 from theauditor.cli import RichCommand
 from theauditor.linters import LinterOrchestrator
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils import load_json_file
 from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.logging import logger

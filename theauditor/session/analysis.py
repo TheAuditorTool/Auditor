@@ -18,8 +18,6 @@ from theauditor.session.store import SessionExecution, SessionExecutionStore
 from theauditor.session.workflow_checker import WorkflowChecker
 from theauditor.utils.logging import logger
 
-
-
 COMMENT_REFERENCE_PATTERNS = [
     r"(?:this|the|that)\s+comment\s+(?:says?|said|states?|stated|indicates?|indicated|explains?|explained|mentions?|mentioned|suggests?|suggested)",
     r"according\s+to\s+(?:the|this|that)\s+comment",
@@ -86,26 +84,21 @@ class SessionAnalysis:
         self.db_path = db_path or (self.project_root / ".pf" / "repo_index.db")
         self.workflow_path = workflow_path
 
-        
         self.diff_scorer = DiffScorer(self.db_path, self.project_root)
         self.workflow_checker = WorkflowChecker(workflow_path)
         self.activity_classifier = ActivityClassifier()
         self.store = SessionExecutionStore()
 
-        
         self.conn = None
         if self.db_path and Path(self.db_path).exists():
             self.conn = sqlite3.connect(self.db_path)
 
         logger.info("SessionAnalysis initialized")
 
-    def analyze_session(
-        self, session: Session
-    ) -> tuple[SessionExecution, ActivityMetrics]:
+    def analyze_session(self, session: Session) -> tuple[SessionExecution, ActivityMetrics]:
         """Analyze session: score diffs + check workflow + activity + store."""
         logger.info(f"Analyzing session: {session.session_id}")
 
-        
         activity_metrics = self.activity_classifier.classify_session(session)
 
         files_read = set()
@@ -187,13 +180,10 @@ class SessionAnalysis:
         findings.extend(self._detect_blind_edits(session))
         findings.extend(self._detect_duplicate_reads(session))
         findings.extend(self._detect_missing_searches(session))
-        findings.extend(
-            self._detect_comment_hallucinations(session, comment_graveyard_path)
-        )
+        findings.extend(self._detect_comment_hallucinations(session, comment_graveyard_path))
 
         if self.conn:
             findings.extend(self._detect_duplicate_implementations(session))
-            
 
         return stats, findings
 
@@ -220,9 +210,7 @@ class SessionAnalysis:
         logger.info(f"Batch analysis complete: {len(executions)} sessions analyzed")
         return executions, all_activity_metrics
 
-    def analyze_multiple_sessions_with_findings(
-        self, sessions: list[Session]
-    ) -> dict[str, Any]:
+    def analyze_multiple_sessions_with_findings(self, sessions: list[Session]) -> dict[str, Any]:
         """Analyze patterns across multiple sessions (for reports)."""
         all_findings = []
         all_stats = []
@@ -246,9 +234,7 @@ class SessionAnalysis:
                 "total_tool_calls": total_tool_calls,
                 "total_reads": total_reads,
                 "total_edits": total_edits,
-                "avg_tool_calls_per_session": total_tool_calls / len(sessions)
-                if sessions
-                else 0,
+                "avg_tool_calls_per_session": total_tool_calls / len(sessions) if sessions else 0,
                 "edit_to_read_ratio": total_edits / total_reads if total_reads > 0 else 0,
             },
             "top_findings": sorted(
@@ -286,12 +272,10 @@ class SessionAnalysis:
             },
             "averages": {
                 "work_to_talk_ratio": (
-                    sum(m.work_to_talk_ratio for m in activity_metrics)
-                    / len(activity_metrics)
+                    sum(m.work_to_talk_ratio for m in activity_metrics) / len(activity_metrics)
                 ),
                 "tokens_per_edit": (
-                    sum(m.tokens_per_edit for m in activity_metrics)
-                    / len(activity_metrics)
+                    sum(m.tokens_per_edit for m in activity_metrics) / len(activity_metrics)
                 ),
             },
         }
@@ -323,10 +307,6 @@ class SessionAnalysis:
 
         return stats
 
-    
-    
-    
-
     def _compute_stats(self, session: Session) -> SessionStats:
         """Compute basic statistics about the session."""
         tool_counts = Counter(call.tool_name for call in session.all_tool_calls)
@@ -335,9 +315,7 @@ class SessionAnalysis:
             msg.tokens_used.get("output_tokens", 0) for msg in session.assistant_messages
         )
         avg_tokens = (
-            total_tokens / len(session.assistant_messages)
-            if session.assistant_messages
-            else 0
+            total_tokens / len(session.assistant_messages) if session.assistant_messages else 0
         )
 
         return SessionStats(
@@ -569,9 +547,7 @@ class SessionAnalysis:
                             evidence={
                                 "symbol": symbol,
                                 "new_file": file_path,
-                                "existing_locations": [
-                                    {"path": p, "type": t} for p, t in existing
-                                ],
+                                "existing_locations": [{"path": p, "type": t} for p, t in existing],
                             },
                         )
                     )

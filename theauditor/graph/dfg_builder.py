@@ -320,24 +320,17 @@ class DFGBuilder:
 
                 stats["calls_with_metadata"] += 1
 
-                # GRAPH FIX G3: Resolve call-site name to definition name
-                # Instead of guessing with string splits, ask the database.
-                # This bridges 'accountService.createAccount' -> 'AccountService.createAccount'
                 resolved_func_name = self._resolve_definition_name(
                     cursor, callee_file, callee_function
                 )
 
-                # GRAPH FIX G4: Resolve positional arg name to actual parameter name
-                # Convert 'arg0' to 'data' so the graph connects inside the function.
                 resolved_param_name = self._resolve_parameter_name(
                     cursor, callee_file, resolved_func_name, param_name
                 )
 
-                # Construct nodes with RESOLVED names
                 caller_scope = caller_function if caller_function else "global"
                 source_id = f"{caller_file}::{caller_scope}::{arg_var}"
 
-                # Use resolved names for the target - this stitches the universes together
                 target_id = f"{callee_file}::{resolved_func_name}::{resolved_param_name}"
 
                 if source_id not in nodes:
@@ -642,8 +635,7 @@ class DFGBuilder:
 
         for strategy in self.strategies:
             logger.info(f"Running strategy: {strategy.name}...")
-            # ZERO FALLBACK: Strategy failures must CRASH, not silently continue
-            # A "successful" build with missing strategy data is worse than a crash
+
             result = strategy.build(str(self.db_path), root)
             strategy_graphs.append(result)
             strategy_stats[strategy.name] = result.get("metadata", {}).get("stats", {})
@@ -752,17 +744,12 @@ class DFGBuilder:
         This bridges the "Two Universes" problem where call-site and definition-site
         use different namespaces (camelCase instance vs PascalCase class).
         """
-        # If it's just 'doThing', nothing to split.
+
         if "." not in call_site_name:
             return call_site_name
 
-        # Get 'doThing' from 'service.doThing'
         short_name = call_site_name.split(".")[-1]
 
-        # QUERY LOGIC:
-        # Look in the file where the function lives (file_path).
-        # Find a symbol of type function/method.
-        # Match EITHER exact name OR a name ending in .short_name (handling Class.method)
         cursor.execute(
             """
             SELECT name FROM symbols
@@ -776,9 +763,9 @@ class DFGBuilder:
 
         result = cursor.fetchone()
         if result:
-            return result["name"]  # Return "AccountService.createAccount"
+            return result["name"]
 
-        return call_site_name  # Fallback: keep original if not found
+        return call_site_name
 
     def _resolve_parameter_name(
         self, cursor: sqlite3.Cursor, file_path: str, func_name: str, param_name: str
@@ -791,17 +778,15 @@ class DFGBuilder:
         This ensures the target node of call edges matches the source node of
         internal assignment edges, stitching the graph together.
         """
-        # If it's not a generated argument name like 'arg0', 'arg1', we trust it.
+
         if not param_name.startswith("arg") or not param_name[3:].isdigit():
             return param_name
 
         try:
-            arg_index = int(param_name[3:])  # Extract 0 from arg0
+            arg_index = int(param_name[3:])
         except ValueError:
             return param_name
 
-        # QUERY LOGIC:
-        # 1. Try exact match (Function Name + Index)
         cursor.execute(
             """
             SELECT param_name FROM func_params
@@ -814,7 +799,6 @@ class DFGBuilder:
         if result:
             return result["param_name"]
 
-        # 2. Try suffix match (Handle the Class.method vs instance.method mismatch)
         if "." in func_name:
             short_name = func_name.split(".")[-1]
             cursor.execute(
@@ -828,7 +812,7 @@ class DFGBuilder:
             if result:
                 return result["param_name"]
 
-        return param_name  # Fallback: stuck with arg0
+        return param_name
 
     def _parse_argument_variable(self, arg_expr: str) -> str | None:
         """Parse an argument expression to extract the variable name.
@@ -860,9 +844,6 @@ class DFGBuilder:
                     if result:
                         return result
 
-                # GRAPH FIX G2: Return None instead of "complex_expression"
-                # "complex_expression" caused intra-function collisions when multiple
-                # complex args in same call got identical node IDs. Better no edge than false edge.
                 return None
 
         if "(" in expr and expr.endswith(")"):
@@ -873,7 +854,6 @@ class DFGBuilder:
             if inner and all(c.isalnum() or c in "._$?" for c in inner):
                 return inner
 
-            # GRAPH FIX G2: Return None instead of "complex_expression"
             return None
 
         if expr and expr[0] in "\"'`":
@@ -883,7 +863,6 @@ class DFGBuilder:
             return expr[:-1]
 
         if " " in expr:
-            # GRAPH FIX G2: Return None instead of "complex_expression"
             return None
 
         return expr

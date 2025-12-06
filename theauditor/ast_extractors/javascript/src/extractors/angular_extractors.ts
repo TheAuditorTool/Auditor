@@ -61,7 +61,9 @@ export function extractAngularDefinitions(
         for (const arg of decoratorArgs) {
           const argValue = arg.arg_value;
           if (argValue.includes(":")) {
-            const [key, value] = argValue.split(":").map((s: string) => s.trim());
+            const [key, value] = argValue
+              .split(":")
+              .map((s: string) => s.trim());
             if (key === "selector") {
               selector = value.replace(/['"]/g, "");
             } else if (key === "templateUrl") {

@@ -414,7 +414,6 @@ class RustDatabaseMixin:
         """Add a Rust extern block to the batch."""
         self.generic_batches["rust_extern_blocks"].append((file_path, line, end_line, abi))
 
-    # Cargo package manager methods
     def add_cargo_package_config(
         self,
         file_path: str,

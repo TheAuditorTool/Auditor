@@ -32,8 +32,6 @@ TABLES: dict[str, TableSchema] = {
 }
 
 
-# Tables that are flushed during indexing - MUST exist in TABLES
-# This is the authoritative list - base_database.py imports this
 FLUSH_ORDER: list[tuple[str, str]] = [
     ("files", "INSERT OR REPLACE"),
     ("config_files", "INSERT OR REPLACE"),
@@ -134,7 +132,6 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("github_steps", "INSERT"),
     ("github_step_outputs", "INSERT"),
     ("github_step_references", "INSERT"),
-    # Rust tables
     ("rust_modules", "INSERT"),
     ("rust_use_statements", "INSERT"),
     ("rust_functions", "INSERT"),
@@ -156,10 +153,8 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("rust_trait_methods", "INSERT"),
     ("rust_extern_functions", "INSERT"),
     ("rust_extern_blocks", "INSERT"),
-    # Cargo package manager tables
     ("cargo_package_configs", "INSERT"),
     ("cargo_dependencies", "INSERT"),
-    # Go tables
     ("go_packages", "INSERT"),
     ("go_imports", "INSERT"),
     ("go_structs", "INSERT"),
@@ -182,10 +177,8 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("go_type_params", "INSERT"),
     ("go_captured_vars", "INSERT"),
     ("go_middleware", "INSERT"),
-    # Go module (go.mod) package manager tables
     ("go_module_configs", "INSERT"),
     ("go_module_dependencies", "INSERT"),
-    # Bash tables
     ("bash_functions", "INSERT"),
     ("bash_variables", "INSERT"),
     ("bash_sources", "INSERT"),
@@ -238,15 +231,12 @@ FLUSH_ORDER: list[tuple[str, str]] = [
     ("sequelize_models", "INSERT"),
     ("sequelize_model_fields", "INSERT"),
     ("sequelize_associations", "INSERT"),
-    # Angular framework tables
     ("angular_components", "INSERT"),
     ("angular_modules", "INSERT"),
     ("angular_services", "INSERT"),
     ("angular_guards", "INSERT"),
-    # Planning tables
     ("plan_jobs", "INSERT"),
     ("plan_phases", "INSERT"),
-    # Framework metadata (must be last - populated by framework detector)
     ("frameworks", "INSERT OR IGNORE"),
     ("framework_safe_sinks", "INSERT OR IGNORE"),
     ("framework_taint_patterns", "INSERT OR IGNORE"),
@@ -260,7 +250,6 @@ def validate_schema_contract() -> list[str]:
     """
     errors = []
 
-    # Check all flush_order tables have schemas
     for table_name, _ in FLUSH_ORDER:
         if table_name not in TABLES:
             errors.append(f"FLUSH_ORDER table '{table_name}' missing from TABLES schema")
@@ -268,7 +257,6 @@ def validate_schema_contract() -> list[str]:
     return errors
 
 
-# Run validation on import - raises if broken
 _contract_errors = validate_schema_contract()
 if _contract_errors:
     raise RuntimeError(

@@ -361,7 +361,6 @@ RUST_EXTERN_BLOCKS = TableSchema(
 )
 
 
-# Cargo package manager tables
 CARGO_PACKAGE_CONFIGS = TableSchema(
     name="cargo_package_configs",
     columns=[
@@ -383,7 +382,7 @@ CARGO_DEPENDENCIES = TableSchema(
         Column("name", "TEXT", nullable=False),
         Column("version_spec", "TEXT"),
         Column("is_dev", "BOOLEAN", default="0"),
-        Column("features", "TEXT"),  # JSON array
+        Column("features", "TEXT"),
     ],
     indexes=[
         ("idx_cargo_deps_file", ["file_path"]),

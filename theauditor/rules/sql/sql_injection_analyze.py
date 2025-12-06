@@ -22,10 +22,6 @@ from theauditor.rules.fidelity import RuleDB
 from theauditor.rules.query import Q
 from theauditor.rules.sql.utils import register_regexp, truncate
 
-# =============================================================================
-# METADATA
-# =============================================================================
-
 METADATA = RuleMetadata(
     name="sql_injection",
     category="security",
@@ -45,107 +41,121 @@ METADATA = RuleMetadata(
     primary_table="sql_queries",
 )
 
-# =============================================================================
-# DETECTION PATTERNS
-# =============================================================================
 
-# SQL keywords that indicate a SQL statement
-SQL_KEYWORDS = frozenset([
-    "SELECT", "INSERT", "UPDATE", "DELETE", "DROP", "CREATE", "ALTER",
-    "TRUNCATE", "EXEC", "EXECUTE", "UNION", "MERGE", "REPLACE", "UPSERT",
-])
-
-# Patterns indicating string interpolation/concatenation (dangerous in SQL)
-INTERPOLATION_PATTERNS = frozenset([
-    "${",           # JS template literal interpolation
-    ".format(",     # Python str.format()
-    "% ",           # Python % formatting (with space to avoid %s params)
-    "%(",           # Python % formatting with named params
-    '+ "',          # String concatenation
-    '" +',          # String concatenation
-    "+ '",          # String concatenation (single quotes)
-    "' +",          # String concatenation (single quotes)
-    'f"',           # Python f-string (double quotes)
-    "f'",           # Python f-string (single quotes)
-    "`",            # JS template literal
-    "String.format",  # Java String.format
-    "sprintf",      # C-style sprintf
-    "concat(",      # SQL CONCAT or string concat method
-])
-
-# ORM and database raw query methods that bypass parameterization
-RAW_QUERY_METHODS = frozenset([
-    # Node.js ORMs
-    "sequelize.query",
-    "knex.raw",
-    "db.raw",
-    "typeorm.query",
-    "prisma.$queryRaw",
-    "prisma.$executeRaw",
-    "prisma.$queryRawUnsafe",
-    "prisma.$executeRawUnsafe",
-    "mongoose.aggregate",
-    # Python ORMs
-    "session.execute",
-    "engine.execute",
-    "connection.execute",
-    "cursor.execute",
-    "cursor.executemany",
-    "cursor.executescript",
-    "execute_sql",
-    "raw_sql",
-    # Java
-    "createStatement",
-    "prepareStatement",
-    "executeQuery",
-    "executeUpdate",
-    # General
-    "raw(",
-    "executeSql",
-    "exec(",
-])
-
-# User input sources that should never reach SQL sinks unsanitized
-USER_INPUT_PATTERNS = frozenset([
-    "request.",
-    "req.",
-    "params.",
-    "query.",
-    "body.",
-    "args.",
-    "form.",
-    "headers.",
-    "cookies.",
-    "input(",
-    "argv",
-    "stdin",
-    "getParameter",
-    "getQueryString",
-])
-
-# Stored procedure patterns
-STORED_PROC_PATTERNS = frozenset([
-    "CALL ",
-    "EXEC ",
-    "EXECUTE ",
-    "sp_executesql",
-    "xp_cmdshell",
-    "sp_",
-])
-
-# Patterns that indicate safe parameterization (filter these out)
-SAFE_PARAM_INDICATORS = frozenset([
-    "?",            # Positional placeholder
-    ":1", ":2",     # Oracle-style numbered params
-    "$1", "$2",     # PostgreSQL-style numbered params
-    "@",            # SQL Server named params
-    ":param",       # Named parameter
-])
+SQL_KEYWORDS = frozenset(
+    [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE",
+        "DROP",
+        "CREATE",
+        "ALTER",
+        "TRUNCATE",
+        "EXEC",
+        "EXECUTE",
+        "UNION",
+        "MERGE",
+        "REPLACE",
+        "UPSERT",
+    ]
+)
 
 
-# =============================================================================
-# MAIN ENTRY POINT
-# =============================================================================
+INTERPOLATION_PATTERNS = frozenset(
+    [
+        "${",
+        ".format(",
+        "% ",
+        "%(",
+        '+ "',
+        '" +',
+        "+ '",
+        "' +",
+        'f"',
+        "f'",
+        "`",
+        "String.format",
+        "sprintf",
+        "concat(",
+    ]
+)
+
+
+RAW_QUERY_METHODS = frozenset(
+    [
+        "sequelize.query",
+        "knex.raw",
+        "db.raw",
+        "typeorm.query",
+        "prisma.$queryRaw",
+        "prisma.$executeRaw",
+        "prisma.$queryRawUnsafe",
+        "prisma.$executeRawUnsafe",
+        "mongoose.aggregate",
+        "session.execute",
+        "engine.execute",
+        "connection.execute",
+        "cursor.execute",
+        "cursor.executemany",
+        "cursor.executescript",
+        "execute_sql",
+        "raw_sql",
+        "createStatement",
+        "prepareStatement",
+        "executeQuery",
+        "executeUpdate",
+        "raw(",
+        "executeSql",
+        "exec(",
+    ]
+)
+
+
+USER_INPUT_PATTERNS = frozenset(
+    [
+        "request.",
+        "req.",
+        "params.",
+        "query.",
+        "body.",
+        "args.",
+        "form.",
+        "headers.",
+        "cookies.",
+        "input(",
+        "argv",
+        "stdin",
+        "getParameter",
+        "getQueryString",
+    ]
+)
+
+
+STORED_PROC_PATTERNS = frozenset(
+    [
+        "CALL ",
+        "EXEC ",
+        "EXECUTE ",
+        "sp_executesql",
+        "xp_cmdshell",
+        "sp_",
+    ]
+)
+
+
+SAFE_PARAM_INDICATORS = frozenset(
+    [
+        "?",
+        ":1",
+        ":2",
+        "$1",
+        "$2",
+        "@",
+        ":param",
+    ]
+)
+
 
 def analyze(context: StandardRuleContext) -> RuleResult:
     """Detect SQL injection vulnerabilities in indexed codebase.
@@ -164,7 +174,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         register_regexp(db.conn)
 
-        # Run all detection checks
         findings.extend(_check_interpolated_sql_queries(db))
         findings.extend(_check_dynamic_execute_calls(db))
         findings.extend(_check_orm_raw_queries(db))
@@ -176,10 +185,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest=db.get_manifest())
 
 
-# =============================================================================
-# DETECTION FUNCTIONS
-# =============================================================================
-
 def _check_interpolated_sql_queries(db: RuleDB) -> list[StandardFinding]:
     """Check sql_queries table for queries with string interpolation.
 
@@ -188,7 +193,6 @@ def _check_interpolated_sql_queries(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Build regex pattern for interpolation detection
     interpolation_tokens = [re.escape(p) for p in INTERPOLATION_PATTERNS]
     interpolation_regex = "|".join(interpolation_tokens)
 
@@ -208,11 +212,9 @@ def _check_interpolated_sql_queries(db: RuleDB) -> list[StandardFinding]:
         if not query_text:
             continue
 
-        # Check if query matches interpolation patterns
         if not re.search(interpolation_regex, query_text, re.IGNORECASE):
             continue
 
-        # Skip if query appears to use safe parameterization
         if _has_safe_params(query_text):
             continue
 
@@ -250,20 +252,16 @@ def _check_dynamic_execute_calls(db: RuleDB) -> list[StandardFinding]:
         if not args:
             continue
 
-        # Must be SQL-related function
         func_lower = func.lower()
         if not any(kw in func_lower for kw in ["execute", "query", "sql", "db", "cursor", "conn"]):
             continue
 
-        # Check for string construction patterns
         if not _has_interpolation(args):
             continue
 
-        # Skip if appears to have safe parameterization
         if _has_safe_params(args):
             continue
 
-        # Deduplicate by location
         key = f"{file}:{line}"
         if key in seen:
             continue
@@ -289,7 +287,6 @@ def _check_orm_raw_queries(db: RuleDB) -> list[StandardFinding]:
     """Check for ORM raw query methods with dynamic SQL."""
     findings = []
 
-    # Query for each raw query method pattern
     for method in RAW_QUERY_METHODS:
         rows = db.query(
             Q("function_call_args")
@@ -303,11 +300,9 @@ def _check_orm_raw_queries(db: RuleDB) -> list[StandardFinding]:
             if not args:
                 continue
 
-            # Check for interpolation patterns
             if not _has_interpolation(args):
                 continue
 
-            # Skip if has safe params
             if _has_safe_params(args):
                 continue
 
@@ -334,10 +329,8 @@ def _check_user_input_to_sql(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Build user input pattern regex
     user_input_patterns = "|".join(re.escape(p) for p in USER_INPUT_PATTERNS)
 
-    # CTE: Find assignments where source is user input and target looks like SQL variable
     tainted_vars = (
         Q("assignments")
         .select("file", "target_var", "source_expr")
@@ -347,7 +340,6 @@ def _check_user_input_to_sql(db: RuleDB) -> list[StandardFinding]:
         .where("file NOT LIKE ?", "%migration%")
     )
 
-    # Main query: Find SQL execution calls using tainted variables
     rows = db.query(
         Q("function_call_args")
         .with_cte("tainted_vars", tainted_vars)
@@ -360,17 +352,18 @@ def _check_user_input_to_sql(db: RuleDB) -> list[StandardFinding]:
             "tainted_vars.source_expr",
         )
         .join("tainted_vars", on=[("file", "file")])
-        .where("function_call_args.callee_function LIKE ? OR function_call_args.callee_function LIKE ?",
-               "%execute%", "%query%")
+        .where(
+            "function_call_args.callee_function LIKE ? OR function_call_args.callee_function LIKE ?",
+            "%execute%",
+            "%query%",
+        )
     )
 
     for file, line, func, arg_expr, var, source in rows:
-        # Verify tainted variable actually appears in function arguments
         if not arg_expr or var not in arg_expr:
             continue
 
-        # Word boundary check to avoid "id" matching "width", "valid", etc.
-        if not re.search(r'\b' + re.escape(var) + r'\b', arg_expr):
+        if not re.search(r"\b" + re.escape(var) + r"\b", arg_expr):
             continue
 
         findings.append(
@@ -404,16 +397,13 @@ def _check_template_literal_sql(db: RuleDB) -> list[StandardFinding]:
         if not content:
             continue
 
-        # Check if content contains SQL keywords
         content_upper = content.upper()
         if not any(kw in content_upper for kw in SQL_KEYWORDS):
             continue
 
-        # Check for interpolation in template literal
         if "${" not in content:
             continue
 
-        # Skip if appears to be parameterized
         if _has_safe_params(content):
             continue
 
@@ -441,8 +431,11 @@ def _check_stored_procedure_injection(db: RuleDB) -> list[StandardFinding]:
         rows = db.query(
             Q("function_call_args")
             .select("file", "line", "callee_function", "argument_expr")
-            .where("callee_function LIKE ? OR argument_expr LIKE ?",
-                   f"%{sp_pattern}%", f"%{sp_pattern}%")
+            .where(
+                "callee_function LIKE ? OR argument_expr LIKE ?",
+                f"%{sp_pattern}%",
+                f"%{sp_pattern}%",
+            )
             .where("file NOT LIKE ?", "%test%")
             .order_by("file, line")
         )
@@ -451,7 +444,6 @@ def _check_stored_procedure_injection(db: RuleDB) -> list[StandardFinding]:
             if not args:
                 continue
 
-            # Check for dynamic construction
             if not _has_interpolation(args):
                 continue
 
@@ -488,15 +480,12 @@ def _check_dynamic_query_construction(db: RuleDB) -> list[StandardFinding]:
         if not query_text:
             continue
 
-        # Check for interpolation patterns
         if not _has_interpolation(query_text):
             continue
 
-        # Skip if has safe parameterization
         if _has_safe_params(query_text):
             continue
 
-        # Deduplicate
         key = f"{file_path}:{line_number}"
         if key in seen:
             continue
@@ -518,10 +507,6 @@ def _check_dynamic_query_construction(db: RuleDB) -> list[StandardFinding]:
     return findings
 
 
-# =============================================================================
-# HELPER FUNCTIONS
-# =============================================================================
-
 def _has_interpolation(text: str) -> bool:
     """Check if text contains string interpolation/concatenation patterns."""
     return any(pattern in text for pattern in INTERPOLATION_PATTERNS)
@@ -532,35 +517,58 @@ def _has_safe_params(text: str) -> bool:
     return any(param in text for param in SAFE_PARAM_INDICATORS)
 
 
-# =============================================================================
-# TAINT REGISTRY (Called by taint analysis engine)
-# =============================================================================
-
 def register_taint_patterns(taint_registry) -> None:
     """Register SQL injection sinks and sources for taint analysis.
 
     Called by the taint analysis engine during initialization.
     """
-    # SQL execution sinks
+
     sql_sinks = [
-        "execute", "query", "exec", "executemany", "executescript",
-        "executeQuery", "executeUpdate", "cursor.execute", "conn.execute",
-        "db.execute", "session.execute", "engine.execute", "db.query",
-        "connection.query", "pool.query", "client.query", "knex.raw",
-        "sequelize.query", "prepareStatement", "createStatement",
-        "prepareCall", "prisma.$queryRaw", "prisma.$executeRaw",
+        "execute",
+        "query",
+        "exec",
+        "executemany",
+        "executescript",
+        "executeQuery",
+        "executeUpdate",
+        "cursor.execute",
+        "conn.execute",
+        "db.execute",
+        "session.execute",
+        "engine.execute",
+        "db.query",
+        "connection.query",
+        "pool.query",
+        "client.query",
+        "knex.raw",
+        "sequelize.query",
+        "prepareStatement",
+        "createStatement",
+        "prepareCall",
+        "prisma.$queryRaw",
+        "prisma.$executeRaw",
     ]
 
     for pattern in sql_sinks:
         for lang in ["python", "javascript", "java", "typescript", "go"]:
             taint_registry.register_sink(pattern, "sql", lang)
 
-    # User input sources
     user_sources = [
-        "request.query", "request.params", "request.body", "req.query",
-        "req.params", "req.body", "req.headers", "request.headers",
-        "args.get", "form.get", "request.args", "request.form",
-        "request.values", "request.cookies", "getParameter",
+        "request.query",
+        "request.params",
+        "request.body",
+        "req.query",
+        "req.params",
+        "req.body",
+        "req.headers",
+        "request.headers",
+        "args.get",
+        "form.get",
+        "request.args",
+        "request.form",
+        "request.values",
+        "request.cookies",
+        "getParameter",
     ]
 
     for pattern in user_sources:

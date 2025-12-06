@@ -48,7 +48,6 @@ class ModuleResolver:
             """)
             configs = cursor.fetchall()
         except sqlite3.OperationalError:
-            # Table doesn't exist yet (first run before indexing)
             conn.close()
             return
         finally:
@@ -60,7 +59,6 @@ class ModuleResolver:
             if config is None:
                 continue
 
-            # Skip root configs that are just references
             if context_dir is None:
                 if config.get("references"):
                     continue
@@ -70,7 +68,6 @@ class ModuleResolver:
             mappings = self._extract_path_mappings(config, context_dir)
             self.path_mappings_by_context[context_dir] = mappings
 
-            # Use first valid mappings as default
             if not self.path_mappings and mappings:
                 self.path_mappings = mappings
                 self.base_url = config.get("compilerOptions", {}).get("baseUrl", ".")
@@ -84,24 +81,21 @@ class ModuleResolver:
                 logger.debug(f"json5 failed to parse {path}: {e}")
                 return None
 
-        # Manual comment stripping for standard json
         lines = content.split("\n")
         cleaned_lines = []
         for line in lines:
             comment_pos = line.find("//")
             if comment_pos >= 0:
                 before_comment = line[:comment_pos]
-                # Only strip if not inside a string
+
                 if before_comment.count('"') % 2 == 0:
                     line = before_comment
             cleaned_lines.append(line)
         content = "\n".join(cleaned_lines)
 
-        # Remove block comments
         if "/*" in content and "*/" in content:
             content = re.sub(r"(?<!@)/\*.*?\*/", "", content, flags=re.DOTALL)
 
-        # Remove trailing commas
         content = re.sub(r",(\s*[}\]])", r"\1", content)
 
         try:
@@ -124,7 +118,6 @@ class ModuleResolver:
             for target in targets:
                 target = target.rstrip("*")
 
-                # Context-aware path resolution
                 if context_dir == "backend" and base_url == "./src":
                     full_target = f"{context_dir}/src/{target}"
                 elif context_dir == "frontend" and base_url == ".":
@@ -137,7 +130,9 @@ class ModuleResolver:
                 normalized_targets.append(full_target)
 
             mappings[normalized_alias] = normalized_targets
-            logger.debug(f"{normalized_alias} -> {normalized_targets[0] if normalized_targets else 'None'}")
+            logger.debug(
+                f"{normalized_alias} -> {normalized_targets[0] if normalized_targets else 'None'}"
+            )
 
         return mappings
 
@@ -146,12 +141,11 @@ class ModuleResolver:
         try:
             return str(absolute_path.relative_to(self.project_root)).replace("\\", "/")
         except ValueError:
-            # Path not under project root - return as-is with forward slashes
             return str(absolute_path).replace("\\", "/")
 
     def resolve(self, import_path: str, containing_file_path: str) -> str:
         """Resolve an import path to its actual file location."""
-        # Relative imports pass through unchanged
+
         if import_path.startswith("."):
             return import_path
 
@@ -159,7 +153,7 @@ class ModuleResolver:
             if not import_path.startswith(alias_prefix):
                 continue
 
-            suffix = import_path[len(alias_prefix):]
+            suffix = import_path[len(alias_prefix) :]
 
             for target_pattern in target_patterns:
                 if self.base_url:
@@ -168,14 +162,12 @@ class ModuleResolver:
                 else:
                     resolved_path = self.project_root / target_pattern / suffix
 
-                # Try with extensions if no suffix
                 if not resolved_path.suffix:
                     for ext in [".ts", ".tsx", ".js", ".jsx", ".d.ts"]:
                         test_path = resolved_path.with_suffix(ext)
                         if test_path.exists():
                             return self._to_relative_path(test_path)
 
-                    # Try index files
                     for index_name in ["index.ts", "index.tsx", "index.js", "index.jsx"]:
                         test_path = resolved_path / index_name
                         if test_path.exists():
@@ -184,10 +176,8 @@ class ModuleResolver:
                 if resolved_path.exists():
                     return self._to_relative_path(resolved_path)
 
-                # File doesn't exist - return computed path anyway
                 return self._to_relative_path(resolved_path)
 
-        # No alias matched - return unchanged
         return import_path
 
     def resolve_with_context(self, import_path: str, source_file: str, context: str) -> str:
@@ -199,7 +189,7 @@ class ModuleResolver:
 
         for alias_prefix, target_patterns in mappings.items():
             if import_path.startswith(alias_prefix):
-                suffix = import_path[len(alias_prefix):]
+                suffix = import_path[len(alias_prefix) :]
                 if target_patterns:
                     resolved = target_patterns[0] + suffix
                     logger.debug(f"Resolved: {import_path} -> {resolved} (context: {context})")

@@ -51,10 +51,6 @@ class IndexerOrchestrator:
         self.generic_extractor = GenericExtractor(root_path, self.ast_parser)
         self.github_workflow_extractor = GitHubWorkflowExtractor(root_path, self.ast_parser)
 
-        # NOTE: db_manager injection REMOVED as part of standardize-extractor-fidelity
-        # Extractors now return data dicts; storage layer handles all DB writes.
-        # Any extractor accessing self.db_manager will raise AttributeError (good - exposes bugs)
-
         self.counts = {
             "files": 0,
             "refs": 0,
@@ -284,7 +280,9 @@ class IndexerOrchestrator:
                     built_hash = lines[1].split("SCHEMA_HASH:")[1].strip()
 
         if current_hash != built_hash:
-            logger.error("[SCHEMA STALE] Schema files have changed but generated code is out of date!")
+            logger.error(
+                "[SCHEMA STALE] Schema files have changed but generated code is out of date!"
+            )
             logger.error("[SCHEMA STALE] Regenerating code automatically...")
 
             try:
@@ -409,20 +407,22 @@ class IndexerOrchestrator:
         logger.debug("[INDEXER] PHASE 6.11: Resolving Rust module paths...")
         rust_stats = resolve_rust_modules(self.db_manager.db_path)
         if rust_stats.get("use_statements", {}).get("updated", 0) > 0:
-            logger.info(f"Rust resolution: {rust_stats['use_statements']['updated']} use statements, "
-                       f"{rust_stats['impl_blocks']['updated']} impl blocks resolved")
+            logger.info(
+                f"Rust resolution: {rust_stats['use_statements']['updated']} use statements, "
+                f"{rust_stats['impl_blocks']['updated']} impl blocks resolved"
+            )
         self.db_manager.commit()
 
-        # PHASE 7: Schema Normalization
-        # Bridge language-specific tables to canonical tables for Graph Builder
         logger.debug("[INDEXER] PHASE 7: Running Schema Normalization...")
         normalization_results = run_normalization_pass(self.db_manager.db_path)
         self.db_manager.commit()
 
         if normalization_results.get("python_routes", 0) > 0:
-            logger.info(f"Normalization: {normalization_results['python_routes']} Python routes promoted to API endpoints")
+            logger.info(
+                f"Normalization: {normalization_results['python_routes']} Python routes promoted to API endpoints"
+            )
 
-        total_routes = self.counts['routes'] + self.counts.get('python_routes', 0)
+        total_routes = self.counts["routes"] + self.counts.get("python_routes", 0)
         base_msg = (
             f"[Indexer] Indexed {self.counts['files']} files, "
             f"{self.counts['symbols']} symbols, {self.counts['refs']} imports, "
@@ -520,7 +520,9 @@ class IndexerOrchestrator:
         jsx_files = [f for f in files if f["ext"] in jsx_extensions]
 
         if jsx_files:
-            logger.info(f"Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)...")
+            logger.info(
+                f"Second pass: Processing {len(jsx_files)} JSX/TSX files (preserved mode)..."
+            )
 
             jsx_file_paths = [self.root_path / f["path"] for f in jsx_files]
 
@@ -559,7 +561,9 @@ class IndexerOrchestrator:
                             has_ast = tree["ast"] is not None
                         elif "tree" in tree and isinstance(tree["tree"], dict):
                             has_ast = tree["tree"].get("ast") is not None
-                    logger.debug(f"JSX pass - {Path(file_path).name}: has_ast={has_ast}, tree_keys={list(tree.keys())[:5] if isinstance(tree, dict) else 'not_dict'}")
+                    logger.debug(
+                        f"JSX pass - {Path(file_path).name}: has_ast={has_ast}, tree_keys={list(tree.keys())[:5] if isinstance(tree, dict) else 'not_dict'}"
+                    )
 
                 try:
                     with open(file_path, encoding="utf-8", errors="ignore") as f:
@@ -581,19 +585,22 @@ class IndexerOrchestrator:
                             partial_data = actual_tree.get("extracted_data")
 
                     if partial_data and isinstance(partial_data, dict):
-                        logger.info(f"JavaScript PARTIAL extraction for {file_path}: "
-                            f"{tree.get('error')} - processing {len(partial_data)} data keys")
+                        logger.info(
+                            f"JavaScript PARTIAL extraction for {file_path}: "
+                            f"{tree.get('error')} - processing {len(partial_data)} data keys"
+                        )
 
                     else:
-                        logger.info(f"JavaScript extraction FAILED for {file_path}: {tree.get('error')}")
+                        logger.info(
+                            f"JavaScript extraction FAILED for {file_path}: {tree.get('error')}"
+                        )
                         continue
 
                 try:
                     extracted = extractor.extract(file_info, content, tree)
                 except Exception as e:
-                    # ZERO FALLBACK FIX: Always log errors visibly and record in database
                     logger.info(f"JSX extraction FAILED for {file_path}: {e}")
-                    # Record the failure as a finding (visible evidence, not silent)
+
                     self.db_manager.flush_batch()
                     self.db_manager.write_findings_batch(
                         [
@@ -629,9 +636,11 @@ class IndexerOrchestrator:
             self.db_manager.flush_batch()
             self.db_manager.commit()
 
-            logger.info(f"Second pass complete: {jsx_counts['symbols']} symbols, "
+            logger.info(
+                f"Second pass complete: {jsx_counts['symbols']} symbols, "
                 f"{jsx_counts['assignments']} assignments, {jsx_counts['calls']} calls, "
-                f"{jsx_counts['returns']} returns stored to _jsx tables")
+                f"{jsx_counts['returns']} returns stored to _jsx tables"
+            )
 
         self.db_manager.commit()
 
@@ -685,9 +694,8 @@ class IndexerOrchestrator:
         try:
             extracted = extractor.extract(file_info, content, tree)
         except Exception as e:
-            # ZERO FALLBACK: Log error visibly and record in database
             logger.info(f"Extraction FAILED for {file_path}: {e}")
-            # Record the failure as a finding (visible evidence, not silent)
+
             self.db_manager.flush_batch()
             self.db_manager.write_findings_batch(
                 [
@@ -707,33 +715,31 @@ class IndexerOrchestrator:
 
         if os.environ.get("THEAUDITOR_TRACE_DUPLICATES"):
             num_assignments = len(extracted.get("assignments", []))
-            logger.trace(f"_store_extracted_data() called for {file_info['path']}: {num_assignments} assignments")
+            logger.trace(
+                f"_store_extracted_data() called for {file_info['path']}: {num_assignments} assignments"
+            )
         self._store_extracted_data(file_info["path"], extracted)
 
     def _get_or_parse_ast(
         self, file_info: dict[str, Any], file_path: Path, js_ts_cache: dict[str, Any]
     ) -> dict | None:
         """Get AST from cache or parse the file."""
-        # 1. Check extension support
+
         if file_info["ext"] not in SUPPORTED_AST_EXTENSIONS:
             return None
 
-        # 2. Check JS/TS cache (from batch processing)
         file_str = str(file_path).replace("\\", "/")
         if file_str in js_ts_cache:
             return js_ts_cache[file_str]
 
-        # 3. Check persistent AST cache (disk)
         cached_tree = self.ast_cache.get(file_info["sha256"])
         if cached_tree:
             return cached_tree
 
-        # 4. PARSE THE FILE (This is the changed part)
         try:
             tree = self.ast_parser.parse_file(file_path, root_path=str(self.root_path))
 
         except ParseError as e:
-            # Structured parse error - use e.line directly (no regex needed)
             self.db_manager.flush_batch()
             self.db_manager.write_findings_batch(
                 [
@@ -752,7 +758,6 @@ class IndexerOrchestrator:
             return None
 
         except RuntimeError as e:
-            # Legacy RuntimeError - line info not structured, default to line 1
             self.db_manager.flush_batch()
             self.db_manager.write_findings_batch(
                 [
@@ -770,7 +775,6 @@ class IndexerOrchestrator:
             )
             return None
 
-        # 5. Cache successful results
         if tree and isinstance(tree, dict):
             self.ast_cache.set(file_info["sha256"], tree)
 

@@ -33,23 +33,85 @@ METADATA = RuleMetadata(
     primary_table="import_styles",
 )
 
-# Popular packages to check against (high download counts, common attack targets)
-POPULAR_PACKAGES: frozenset[str] = frozenset([
-    # JavaScript - npm top packages
-    "lodash", "express", "react", "axios", "moment", "chalk", "commander",
-    "request", "debug", "async", "bluebird", "underscore", "uuid", "mkdirp",
-    "glob", "minimist", "yargs", "inquirer", "semver", "body-parser",
-    "webpack", "babel", "typescript", "eslint", "prettier", "jest", "mocha",
-    "vue", "angular", "jquery", "bootstrap", "tailwindcss", "next", "nuxt",
-    "socket.io", "mongoose", "sequelize", "knex", "pg", "mysql", "redis",
-    "jsonwebtoken", "bcrypt", "passport", "helmet", "cors", "dotenv",
-    # Python - PyPI top packages
-    "requests", "numpy", "pandas", "scipy", "matplotlib", "pillow",
-    "django", "flask", "fastapi", "sqlalchemy", "celery", "redis",
-    "boto3", "tensorflow", "pytorch", "scikit-learn", "keras",
-    "pyyaml", "pydantic", "httpx", "aiohttp", "beautifulsoup4",
-    "cryptography", "paramiko", "fabric", "ansible", "pytest",
-])
+
+POPULAR_PACKAGES: frozenset[str] = frozenset(
+    [
+        "lodash",
+        "express",
+        "react",
+        "axios",
+        "moment",
+        "chalk",
+        "commander",
+        "request",
+        "debug",
+        "async",
+        "bluebird",
+        "underscore",
+        "uuid",
+        "mkdirp",
+        "glob",
+        "minimist",
+        "yargs",
+        "inquirer",
+        "semver",
+        "body-parser",
+        "webpack",
+        "babel",
+        "typescript",
+        "eslint",
+        "prettier",
+        "jest",
+        "mocha",
+        "vue",
+        "angular",
+        "jquery",
+        "bootstrap",
+        "tailwindcss",
+        "next",
+        "nuxt",
+        "socket.io",
+        "mongoose",
+        "sequelize",
+        "knex",
+        "pg",
+        "mysql",
+        "redis",
+        "jsonwebtoken",
+        "bcrypt",
+        "passport",
+        "helmet",
+        "cors",
+        "dotenv",
+        "requests",
+        "numpy",
+        "pandas",
+        "scipy",
+        "matplotlib",
+        "pillow",
+        "django",
+        "flask",
+        "fastapi",
+        "sqlalchemy",
+        "celery",
+        "redis",
+        "boto3",
+        "tensorflow",
+        "pytorch",
+        "scikit-learn",
+        "keras",
+        "pyyaml",
+        "pydantic",
+        "httpx",
+        "aiohttp",
+        "beautifulsoup4",
+        "cryptography",
+        "paramiko",
+        "fabric",
+        "ansible",
+        "pytest",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -72,13 +134,10 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Check declared JavaScript dependencies
         findings.extend(_check_js_declared_packages(db))
 
-        # Check declared Python dependencies
         findings.extend(_check_python_declared_packages(db))
 
-        # Check actual imports in source code
         findings.extend(_check_imported_packages(db))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
@@ -90,9 +149,7 @@ def _check_js_declared_packages(db: RuleDB) -> list[StandardFinding]:
     seen: set[str] = set()
 
     rows = db.query(
-        Q("package_dependencies")
-        .select("file_path", "name", "is_dev")
-        .order_by("file_path, name")
+        Q("package_dependencies").select("file_path", "name", "is_dev").order_by("file_path, name")
     )
 
     for file_path, pkg_name, is_dev in rows:
@@ -172,9 +229,7 @@ def _check_imported_packages(db: RuleDB) -> list[StandardFinding]:
     seen: set[str] = set()
 
     rows = db.query(
-        Q("import_styles")
-        .select("file", "line", "package")
-        .order_by("package, file, line")
+        Q("import_styles").select("file", "line", "package").order_by("package, file, line")
     )
 
     for file_path, line, package in rows:
@@ -215,24 +270,20 @@ def _detect_typosquat(pkg_name: str) -> tuple[str, str] | None:
     Returns:
         Tuple of (correct_name, detection_method) if typosquat detected, None otherwise
     """
-    # Method 1: Known typosquat patterns (highest confidence)
+
     if pkg_name in TYPOSQUATTING_MAP:
         return (TYPOSQUATTING_MAP[pkg_name], "known pattern")
 
-    # Skip if it's an exact match to a popular package
     if pkg_name in POPULAR_PACKAGES:
         return None
 
-    # Method 2: Levenshtein distance check against popular packages
     for popular in POPULAR_PACKAGES:
         distance = _levenshtein_distance(pkg_name, popular)
-        # Only flag if very close (1-2 edits) and not too short
+
         if len(popular) >= 4 and 0 < distance <= 2:
-            # Additional check: length should be similar
             if abs(len(pkg_name) - len(popular)) <= 2:
                 return (popular, f"similar name (edit distance: {distance})")
 
-    # Method 3: Pattern-based detection
     pattern_match = _check_typosquat_patterns(pkg_name)
     if pattern_match:
         return pattern_match
@@ -260,7 +311,6 @@ def _levenshtein_distance(s1: str, s2: str) -> int:
     for i, c1 in enumerate(s1):
         current_row = [i + 1]
         for j, c2 in enumerate(s2):
-            # j+1 instead of j since previous_row and current_row are one character longer
             insertions = previous_row[j + 1] + 1
             deletions = current_row[j] + 1
             substitutions = previous_row[j] + (c1 != c2)
@@ -285,13 +335,12 @@ def _check_typosquat_patterns(pkg_name: str) -> tuple[str, str] | None:
     Returns:
         Tuple of (correct_name, pattern_description) if match found
     """
-    # Check for doubled last character
+
     if len(pkg_name) > 3 and pkg_name[-1] == pkg_name[-2]:
         potential = pkg_name[:-1]
         if potential in POPULAR_PACKAGES:
             return (potential, "doubled character")
 
-    # Check hyphen vs underscore variants
     if "-" in pkg_name:
         underscore_variant = pkg_name.replace("-", "_")
         if underscore_variant in POPULAR_PACKAGES:
@@ -301,18 +350,16 @@ def _check_typosquat_patterns(pkg_name: str) -> tuple[str, str] | None:
         if hyphen_variant in POPULAR_PACKAGES:
             return (hyphen_variant, "hyphen/underscore confusion")
 
-    # Check missing hyphen (bodyparser -> body-parser)
     for popular in POPULAR_PACKAGES:
         if "-" in popular:
             no_hyphen = popular.replace("-", "")
             if pkg_name == no_hyphen:
                 return (popular, "missing hyphen")
 
-    # Check suspicious prefixes
     suspicious_prefixes = ("python-", "py-", "node-", "js-", "npm-")
     for prefix in suspicious_prefixes:
         if pkg_name.startswith(prefix):
-            base = pkg_name[len(prefix):]
+            base = pkg_name[len(prefix) :]
             if base in POPULAR_PACKAGES:
                 return (base, f"suspicious prefix '{prefix}'")
 
@@ -328,13 +375,12 @@ def _get_base_package(package: str) -> str:
     Returns:
         Base package name in lowercase (e.g., "lodash")
     """
-    # Handle scoped packages (@org/pkg)
+
     if package.startswith("@"):
         parts = package.split("/", 2)
         if len(parts) >= 2:
             return "/".join(parts[:2]).lower()
         return package.lower()
 
-    # Get base package (before / or .)
     base = package.split("/")[0].split(".")[0]
     return base.lower()

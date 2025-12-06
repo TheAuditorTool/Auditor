@@ -9,7 +9,7 @@ import click
 import yaml
 
 from theauditor.cli import RichCommand
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils import handle_exceptions
 from theauditor.utils.constants import ExitCodes
 
@@ -132,7 +132,8 @@ def rules_command(summary: bool) -> None:
     """
     if not summary:
         err_console.print(
-            "[error]Please specify --summary to generate a capability report[/error]", )
+            "[error]Please specify --summary to generate a capability report[/error]",
+        )
         raise SystemExit(ExitCodes.TASK_INCOMPLETE)
 
     base_path = Path(__file__).parent.parent

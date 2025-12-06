@@ -64,147 +64,167 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# Methods that return unbounded result sets
-UNBOUNDED_METHODS = frozenset([
-    "find",
-    "findAndCount",
-    "getMany",
-    "getManyAndCount",
-    "getRawMany",
-    "getRawAndEntities",
-])
 
-# Write operations that may need transaction wrappers
-WRITE_METHODS = frozenset([
-    "save",
-    "insert",
-    "update",
-    "delete",
-    "remove",
-    "softDelete",
-    "restore",
-    "upsert",
-    "increment",
-    "decrement",
-    "create",
-])
+UNBOUNDED_METHODS = frozenset(
+    [
+        "find",
+        "findAndCount",
+        "getMany",
+        "getManyAndCount",
+        "getRawMany",
+        "getRawAndEntities",
+    ]
+)
 
-# QueryBuilder methods that return multiple results
-QUERYBUILDER_MANY = frozenset([
-    "getMany",
-    "getManyAndCount",
-    "getRawMany",
-    "getRawAndEntities",
-])
 
-# Raw query methods - security critical for SQL injection
-RAW_QUERY_METHODS = frozenset([
-    "query",
-    "createQueryBuilder",
-    "getQuery",
-    "getSql",
-    "manager.query",
-    "connection.query",
-    "entityManager.query",
-    "dataSource.query",
-    "queryRunner.query",
-])
+WRITE_METHODS = frozenset(
+    [
+        "save",
+        "insert",
+        "update",
+        "delete",
+        "remove",
+        "softDelete",
+        "restore",
+        "upsert",
+        "increment",
+        "decrement",
+        "create",
+    ]
+)
 
-# Transaction-related methods
-TRANSACTION_METHODS = frozenset([
-    "transaction",
-    "startTransaction",
-    "commitTransaction",
-    "rollbackTransaction",
-    "queryRunner.startTransaction",
-])
 
-# Common fields that should typically be indexed
-COMMON_INDEXED_FIELDS = frozenset([
-    "id",
-    "email",
-    "username",
-    "userId",
-    "user_id",
-    "createdAt",
-    "created_at",
-    "updatedAt",
-    "updated_at",
-    "deletedAt",
-    "deleted_at",
-    "status",
-    "type",
-    "slug",
-    "code",
-    "uuid",
-    "tenantId",
-    "tenant_id",
-])
+QUERYBUILDER_MANY = frozenset(
+    [
+        "getMany",
+        "getManyAndCount",
+        "getRawMany",
+        "getRawAndEntities",
+    ]
+)
 
-# TypeORM methods for taint source registration
-TYPEORM_SOURCES = frozenset([
-    "find",
-    "findOne",
-    "findOneBy",
-    "findBy",
-    "where",
-    "andWhere",
-    "orWhere",
-    "having",
-])
 
-# Unsafe input sources for mass assignment detection
-UNSAFE_INPUT_SOURCES = frozenset([
-    "req.body",
-    "request.body",
-    "body",
-    "params",
-    "req.params",
-    "request.params",
-    "req.query",
-    "request.query",
-    "input",
-    "data",
-])
+RAW_QUERY_METHODS = frozenset(
+    [
+        "query",
+        "createQueryBuilder",
+        "getQuery",
+        "getSql",
+        "manager.query",
+        "connection.query",
+        "entityManager.query",
+        "dataSource.query",
+        "queryRunner.query",
+    ]
+)
 
-# Methods vulnerable to mass assignment
-MASS_ASSIGNMENT_METHODS = frozenset([
-    "save",
-    "insert",
-    "update",
-    "create",
-    "upsert",
-])
 
-# Sensitive field names that should have select:false
-SENSITIVE_FIELD_NAMES = frozenset([
-    "password",
-    "passwordHash",
-    "password_hash",
-    "hashedPassword",
-    "hashed_password",
-    "secret",
-    "secretKey",
-    "secret_key",
-    "apiKey",
-    "api_key",
-    "apiSecret",
-    "api_secret",
-    "token",
-    "accessToken",
-    "access_token",
-    "refreshToken",
-    "refresh_token",
-    "privateKey",
-    "private_key",
-    "encryptionKey",
-    "encryption_key",
-    "salt",
-    "pin",
-    "ssn",
-    "creditCard",
-    "credit_card",
-])
+TRANSACTION_METHODS = frozenset(
+    [
+        "transaction",
+        "startTransaction",
+        "commitTransaction",
+        "rollbackTransaction",
+        "queryRunner.startTransaction",
+    ]
+)
+
+
+COMMON_INDEXED_FIELDS = frozenset(
+    [
+        "id",
+        "email",
+        "username",
+        "userId",
+        "user_id",
+        "createdAt",
+        "created_at",
+        "updatedAt",
+        "updated_at",
+        "deletedAt",
+        "deleted_at",
+        "status",
+        "type",
+        "slug",
+        "code",
+        "uuid",
+        "tenantId",
+        "tenant_id",
+    ]
+)
+
+
+TYPEORM_SOURCES = frozenset(
+    [
+        "find",
+        "findOne",
+        "findOneBy",
+        "findBy",
+        "where",
+        "andWhere",
+        "orWhere",
+        "having",
+    ]
+)
+
+
+UNSAFE_INPUT_SOURCES = frozenset(
+    [
+        "req.body",
+        "request.body",
+        "body",
+        "params",
+        "req.params",
+        "request.params",
+        "req.query",
+        "request.query",
+        "input",
+        "data",
+    ]
+)
+
+
+MASS_ASSIGNMENT_METHODS = frozenset(
+    [
+        "save",
+        "insert",
+        "update",
+        "create",
+        "upsert",
+    ]
+)
+
+
+SENSITIVE_FIELD_NAMES = frozenset(
+    [
+        "password",
+        "passwordHash",
+        "password_hash",
+        "hashedPassword",
+        "hashed_password",
+        "secret",
+        "secretKey",
+        "secret_key",
+        "apiKey",
+        "api_key",
+        "apiSecret",
+        "api_secret",
+        "token",
+        "accessToken",
+        "access_token",
+        "refreshToken",
+        "refresh_token",
+        "privateKey",
+        "private_key",
+        "encryptionKey",
+        "encryption_key",
+        "salt",
+        "pin",
+        "ssn",
+        "creditCard",
+        "credit_card",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -328,9 +348,7 @@ def _check_n_plus_one_patterns(db: RuleDB, findings: list[StandardFinding]) -> N
 def _check_missing_transactions(db: RuleDB, findings: list[StandardFinding]) -> None:
     """Detect multiple write operations without transaction wrapper."""
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     file_operations: dict[str, list[dict]] = {}
@@ -352,9 +370,7 @@ def _check_missing_transactions(db: RuleDB, findings: list[StandardFinding]) -> 
             op2 = operations[i + 1]
 
             if op2["line"] - op1["line"] <= 20:
-                has_transaction = _check_transaction_between(
-                    db, file, op1["line"], op2["line"]
-                )
+                has_transaction = _check_transaction_between(db, file, op1["line"], op2["line"])
 
                 if not has_transaction:
                     findings.append(
@@ -449,9 +465,7 @@ def _check_querybuilder_no_limit(db: RuleDB, findings: list[StandardFinding]) ->
             continue
 
         method_lower = method.lower()
-        is_get_many = any(
-            m in method_lower for m in ["getmany", "getrawmany", "getmanyandcount"]
-        )
+        is_get_many = any(m in method_lower for m in ["getmany", "getrawmany", "getmanyandcount"])
 
         if not is_get_many:
             continue
@@ -486,10 +500,7 @@ def _check_querybuilder_no_limit(db: RuleDB, findings: list[StandardFinding]) ->
 
 def _check_cascade_true(db: RuleDB, findings: list[StandardFinding]) -> None:
     """Detect cascade:true which can cause unintended data deletion."""
-    rows = db.query(
-        Q("assignments")
-        .select("file", "line", "source_expr")
-    )
+    rows = db.query(Q("assignments").select("file", "line", "source_expr"))
 
     for file, line, expr in rows:
         if not expr:
@@ -519,10 +530,7 @@ def _check_cascade_true(db: RuleDB, findings: list[StandardFinding]) -> None:
 
 def _check_synchronize_true(db: RuleDB, findings: list[StandardFinding]) -> None:
     """Detect synchronize:true which should NEVER be used in production."""
-    rows = db.query(
-        Q("assignments")
-        .select("file", "line", "source_expr")
-    )
+    rows = db.query(Q("assignments").select("file", "line", "source_expr"))
 
     for file, line, expr in rows:
         if not expr:
@@ -556,10 +564,7 @@ def _check_synchronize_true(db: RuleDB, findings: list[StandardFinding]) -> None
 
 def _check_missing_indexes(db: RuleDB, findings: list[StandardFinding]) -> None:
     """Detect common lookup fields without indexes in entity files."""
-    file_rows = db.query(
-        Q("files")
-        .select("path")
-    )
+    file_rows = db.query(Q("files").select("path"))
 
     entity_files: list[str] = []
     for (path,) in file_rows:
@@ -643,9 +648,7 @@ def _check_complex_joins(db: RuleDB, findings: list[StandardFinding]) -> None:
             continue
 
         method_lower = method.lower()
-        is_join = any(
-            j in method_lower for j in ["leftjoin", "innerjoin", "leftjoinandselect"]
-        )
+        is_join = any(j in method_lower for j in ["leftjoin", "innerjoin", "leftjoinandselect"])
 
         if not is_join:
             continue
@@ -690,9 +693,7 @@ def _check_complex_joins(db: RuleDB, findings: list[StandardFinding]) -> None:
 def _check_entity_manager_overuse(db: RuleDB, findings: list[StandardFinding]) -> None:
     """Detect heavy EntityManager usage instead of Repository pattern."""
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     manager_usage: list[tuple[str, int, str]] = []
@@ -706,10 +707,7 @@ def _check_entity_manager_overuse(db: RuleDB, findings: list[StandardFinding]) -
     if len(manager_usage) <= 20:
         return
 
-    all_rows = db.query(
-        Q("function_call_args")
-        .select("callee_function")
-    )
+    all_rows = db.query(Q("function_call_args").select("callee_function"))
 
     repo_count = 0
     for (callee,) in all_rows:
@@ -777,7 +775,9 @@ def _check_mass_assignment(db: RuleDB, findings: list[StandardFinding]) -> None:
                     line=line,
                     severity=Severity.CRITICAL,
                     category="orm",
-                    snippet=f"{func}({args_str[:50]}...)" if len(args_str) > 50 else f"{func}({args_str})",
+                    snippet=f"{func}({args_str[:50]}...)"
+                    if len(args_str) > 50
+                    else f"{func}({args_str})",
                     confidence=Confidence.HIGH,
                     cwe_id="CWE-915",
                     additional_info={
@@ -794,10 +794,7 @@ def _check_exposed_secrets(db: RuleDB, findings: list[StandardFinding]) -> None:
     password, secret, token should use @Column({ select: false }) to prevent
     accidental exposure in API responses.
     """
-    file_rows = db.query(
-        Q("files")
-        .select("path")
-    )
+    file_rows = db.query(Q("files").select("path"))
 
     entity_files: list[str] = []
     for (path,) in file_rows:
@@ -827,7 +824,10 @@ def _check_exposed_secrets(db: RuleDB, findings: list[StandardFinding]) -> None:
             field_name_lower = field_name.lower()
             matching_sensitive = None
             for sensitive_field in SENSITIVE_FIELD_NAMES:
-                if sensitive_field.lower() == field_name_lower or sensitive_field.lower() in field_name_lower:
+                if (
+                    sensitive_field.lower() == field_name_lower
+                    or sensitive_field.lower() in field_name_lower
+                ):
                     matching_sensitive = sensitive_field
                     break
 

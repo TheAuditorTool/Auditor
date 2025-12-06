@@ -92,11 +92,7 @@ def _get_installed_versions(db: RuleDB) -> dict[str, str]:
     """Get installed package versions from regular (non-peer) dependencies."""
     installed = {}
 
-    rows = db.query(
-        Q("package_dependencies")
-        .select("name", "version_spec")
-        .where("is_peer = 0")
-    )
+    rows = db.query(Q("package_dependencies").select("name", "version_spec").where("is_peer = 0"))
 
     for name, version in rows:
         if version:
@@ -128,14 +124,13 @@ def _check_version_mismatch(requirement: str, actual: str) -> str | None:
     """
     requirement = requirement.strip()
 
-    # Handle OR ranges (||)
     if "||" in requirement:
         ranges = [r.strip() for r in requirement.split("||")]
         mismatches = []
         for r in ranges:
             mismatch = _check_single_range(r, actual)
             if mismatch is None:
-                return None  # At least one range matches
+                return None
             mismatches.append(mismatch)
         return f"no matching range (tried: {', '.join(ranges)})"
 
@@ -152,18 +147,16 @@ def _check_single_range(requirement: str, actual: str) -> str | None:
     Returns:
         Mismatch reason string if incompatible, None if compatible
     """
-    # Parse actual version
+
     actual_parts = _parse_version(actual)
     if actual_parts is None:
-        return None  # Can't parse, assume OK
+        return None
 
     actual_major, actual_minor, actual_patch = actual_parts
 
-    # Handle wildcards
     if requirement in ("*", "x", "X", ""):
         return None
 
-    # Handle caret range (^): compatible with major version
     if requirement.startswith("^"):
         req_parts = _parse_version(requirement[1:])
         if req_parts is None:
@@ -172,13 +165,12 @@ def _check_single_range(requirement: str, actual: str) -> str | None:
 
         if actual_major != req_major:
             return f"major version {actual_major} != {req_major}"
-        # For 0.x versions, caret is more restrictive
+
         if req_major == 0:
             if actual_minor < req_minor:
                 return f"minor version {actual_minor} < {req_minor} (0.x range)"
         return None
 
-    # Handle tilde range (~): compatible with major.minor
     if requirement.startswith("~"):
         req_parts = _parse_version(requirement[1:])
         if req_parts is None:
@@ -191,7 +183,6 @@ def _check_single_range(requirement: str, actual: str) -> str | None:
             return f"minor version {actual_minor} != {req_minor}"
         return None
 
-    # Handle >=
     if requirement.startswith(">="):
         req_parts = _parse_version(requirement[2:])
         if req_parts is None:
@@ -202,7 +193,6 @@ def _check_single_range(requirement: str, actual: str) -> str | None:
             return f"version {actual} < {requirement[2:]}"
         return None
 
-    # Handle >
     if requirement.startswith(">") and not requirement.startswith(">="):
         req_parts = _parse_version(requirement[1:])
         if req_parts is None:
@@ -213,7 +203,6 @@ def _check_single_range(requirement: str, actual: str) -> str | None:
             return f"version {actual} <= {requirement[1:]}"
         return None
 
-    # Handle <=
     if requirement.startswith("<="):
         req_parts = _parse_version(requirement[2:])
         if req_parts is None:
@@ -224,7 +213,6 @@ def _check_single_range(requirement: str, actual: str) -> str | None:
             return f"version {actual} > {requirement[2:]}"
         return None
 
-    # Handle <
     if requirement.startswith("<") and not requirement.startswith("<="):
         req_parts = _parse_version(requirement[1:])
         if req_parts is None:
@@ -235,13 +223,11 @@ def _check_single_range(requirement: str, actual: str) -> str | None:
             return f"version {actual} >= {requirement[1:]}"
         return None
 
-    # Handle exact version or implicit caret (npm default)
     req_parts = _parse_version(requirement)
     if req_parts is None:
         return None
     req_major, _req_minor, _req_patch = req_parts
 
-    # Default: treat as major version requirement
     if actual_major != req_major:
         return f"major version {actual_major} != {req_major}"
 
@@ -263,13 +249,11 @@ def _parse_version(version: str) -> tuple[int, int, int] | None:
     Returns:
         Tuple of (major, minor, patch) or None if unparseable
     """
-    # Strip v prefix
+
     version = version.lstrip("vV").strip()
 
-    # Remove prerelease and build metadata
     version = re.split(r"[-+]", version)[0]
 
-    # Split into parts
     parts = version.split(".")
 
     try:

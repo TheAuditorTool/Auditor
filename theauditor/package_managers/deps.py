@@ -12,10 +12,11 @@ from typing import Any
 import yaml
 
 from theauditor import __version__
-from . import get_manager, Dependency
 from theauditor.pipeline.ui import console
 from theauditor.utils.logging import logger
 from theauditor.utils.rate_limiter import RATE_LIMIT_BACKOFF, get_rate_limiter
+
+from . import Dependency, get_manager
 
 
 def _validate_package_name(name: str, manager: str) -> bool:
@@ -29,6 +30,7 @@ def _validate_package_name(name: str, manager: str) -> bool:
     elif manager == "docker":
         return bool(re.match(r"^[a-z0-9][\w./:-]*$", name))
     return False
+
 
 IS_WINDOWS = platform.system() == "Windows"
 
@@ -79,14 +81,15 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
             )
         deps.extend(python_deps)
 
-    
     docker_mgr = get_manager("docker")
     if docker_mgr:
         docker_compose_files = list(root.glob("docker-compose*.yml")) + list(
             root.glob("docker-compose*.yaml")
         )
         if debug and docker_compose_files:
-            console.print(f"Debug: Found Docker Compose files: {docker_compose_files}", highlight=False)
+            console.print(
+                f"Debug: Found Docker Compose files: {docker_compose_files}", highlight=False
+            )
         for compose_file in docker_compose_files:
             deps.extend(d.to_dict() for d in docker_mgr.parse_manifest(compose_file))
 
@@ -102,7 +105,6 @@ def parse_dependencies(root_path: str = ".") -> list[dict[str, Any]]:
             console.print(f"Debug: Found {cargo_toml}", highlight=False)
         deps.extend(_parse_cargo_toml(cargo_toml))
 
-    
     go_mgr = get_manager("go")
     if go_mgr:
         go_mod_files = list(root.glob("**/go.mod"))
@@ -181,7 +183,15 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
 
         deps = []
 
-        for file_path, name, version_spec, is_dev, group_name, extras_json, git_url in cursor.fetchall():
+        for (
+            file_path,
+            name,
+            version_spec,
+            is_dev,
+            group_name,
+            extras_json,
+            git_url,
+        ) in cursor.fetchall():
             if not name:
                 continue
 
@@ -218,7 +228,9 @@ def _read_python_deps_from_database(db_path: Path, root: Path, debug: bool) -> l
 
         if "no such table" in str(e):
             if debug:
-                console.print("Debug: python_package_dependencies table not found (run indexer first)")
+                console.print(
+                    "Debug: python_package_dependencies table not found (run indexer first)"
+                )
             return []
 
         raise
@@ -404,11 +416,12 @@ async def _check_latest_batch_async(
                         elif manager == "py":
                             latest = await _fetch_pypi_async(client, dep["name"], allow_prerelease)
                         elif manager in ("docker", "cargo", "go"):
-                            
                             mgr = get_manager(manager)
                             if mgr:
                                 dep_obj = Dependency.from_dict(dep)
-                                latest = await mgr.fetch_latest_async(client, dep_obj, allow_prerelease)
+                                latest = await mgr.fetch_latest_async(
+                                    client, dep_obj, allow_prerelease
+                                )
 
                         return key, latest, None
 
@@ -693,7 +706,7 @@ def _parse_pypi_version(version_str: str) -> tuple:
 
 def _calculate_version_delta(locked: str, latest: str) -> str:
     """Calculate semantic version delta."""
-    
+
     docker_mgr = get_manager("docker")
     if docker_mgr:
         locked_parsed = docker_mgr._parse_docker_tag(locked)
@@ -850,7 +863,6 @@ def upgrade_all_deps(
                 )
                 upgraded["pyproject.toml"] += count
 
-    
     if "docker" in ecosystems:
         docker_mgr = get_manager("docker")
         if docker_mgr:
@@ -870,7 +882,9 @@ def upgrade_all_deps(
                 for source_key_check in [source_key, compose_file.name]:
                     if source_key_check in deps_by_source:
                         docker_deps = [
-                            d for d in deps_by_source[source_key_check] if d.get("manager") == "docker"
+                            d
+                            for d in deps_by_source[source_key_check]
+                            if d.get("manager") == "docker"
                         ]
                         break
 
@@ -902,7 +916,6 @@ def upgrade_all_deps(
                     count = docker_mgr.upgrade_file(dockerfile, latest_info, dep_objs)
                     upgraded["dockerfile"] += count
 
-    
     if "cargo" in ecosystems:
         cargo_mgr = get_manager("cargo")
         if cargo_mgr:
@@ -932,7 +945,6 @@ def upgrade_all_deps(
                     count = cargo_mgr.upgrade_file(cargo_toml, latest_info, dep_objs)
                     upgraded["Cargo.toml"] += count
 
-    
     if "go" in ecosystems:
         go_mgr = get_manager("go")
         if go_mgr:
@@ -948,9 +960,7 @@ def upgrade_all_deps(
 
                 go_deps = []
                 if source_key in deps_by_source:
-                    go_deps = [
-                        d for d in deps_by_source[source_key] if d.get("manager") == "go"
-                    ]
+                    go_deps = [d for d in deps_by_source[source_key] if d.get("manager") == "go"]
 
                 if go_deps:
                     _create_versioned_backup(go_mod)

@@ -8,7 +8,7 @@ from pathlib import Path
 import click
 
 from theauditor.cli import RichCommand, RichGroup
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.planning import verification
 from theauditor.planning.manager import PlanningManager
 from theauditor.utils.error_handler import handle_exceptions
@@ -200,9 +200,7 @@ def show(plan_id, tasks, verbose, format):
 
     plan = manager.get_plan(plan_id)
     if not plan:
-        err_console.print(
-            f"[error]Error: Plan {plan_id} not found[/error]", highlight=False
-        )
+        err_console.print(f"[error]Error: Plan {plan_id} not found[/error]", highlight=False)
         return
 
     console.rule()
@@ -613,7 +611,8 @@ def verify_task(plan_id, task_number, verbose, auto_update):
 
     if not repo_index_db.exists():
         err_console.print(
-            "[error]Error: repo_index.db not found. Run 'aud full' first.[/error]", )
+            "[error]Error: repo_index.db not found. Run 'aud full' first.[/error]",
+        )
         return
 
     manager = PlanningManager(db_path)
@@ -652,14 +651,16 @@ def verify_task(plan_id, task_number, verbose, auto_update):
         console.print(f"  Total violations: {total_violations}", highlight=False)
 
         if is_regression:
-            err_console.print("[error]\n  WARNING: REGRESSION DETECTED[/error]", )
+            err_console.print(
+                "[error]\n  WARNING: REGRESSION DETECTED[/error]",
+            )
             err_console.print(
                 f"[error]  Task {task_number} was previously completed but now has {total_violations} violation(s)[/error]",
                 highlight=False,
             )
             err_console.print(
                 "[error]  Code changes since completion have broken verification[/error]",
-                )
+            )
 
         if verbose and total_violations > 0:
             console.print("\nViolations by rule:")
@@ -713,13 +714,9 @@ def verify_task(plan_id, task_number, verbose, auto_update):
                 console.print(f"Sequence: {snapshot['sequence']}", highlight=False)
 
     except ValueError as e:
-        err_console.print(
-            f"[error]Error: Invalid verification spec: {e}[/error]", highlight=False
-        )
+        err_console.print(f"[error]Error: Invalid verification spec: {e}[/error]", highlight=False)
     except Exception as e:
-        err_console.print(
-            f"[error]Error during verification: {e}[/error]", highlight=False
-        )
+        err_console.print(f"[error]Error during verification: {e}[/error]", highlight=False)
         raise
 
 
@@ -741,9 +738,7 @@ def archive(plan_id, notes):
 
     plan = manager.get_plan(plan_id)
     if not plan:
-        err_console.print(
-            f"[error]Error: Plan {plan_id} not found[/error]", highlight=False
-        )
+        err_console.print(f"[error]Error: Plan {plan_id} not found[/error]", highlight=False)
         return
 
     all_tasks = manager.list_tasks(plan_id)
@@ -817,9 +812,7 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
 
     plan = manager.get_plan(plan_id)
     if not plan:
-        err_console.print(
-            f"[error]Error: Plan {plan_id} not found[/error]", highlight=False
-        )
+        err_console.print(f"[error]Error: Plan {plan_id} not found[/error]", highlight=False)
         return
 
     cursor = manager.conn.cursor()
@@ -1162,18 +1155,19 @@ def validate_plan(plan_id, session_id, format):
     if not session_db_path.exists():
         err_console.print(
             "[error]Error: Session database not found (.pf/ml/session_history.db)[/error]",
-            )
+        )
         err_console.print(
-            "[error]Run 'aud session analyze' to create session database[/error]", )
-        err_console.print("[error]Planning validation requires session logs[/error]", )
+            "[error]Run 'aud session analyze' to create session database[/error]",
+        )
+        err_console.print(
+            "[error]Planning validation requires session logs[/error]",
+        )
         raise click.ClickException("Session logging not enabled")
 
     manager = PlanningManager(db_path)
     plan = manager.get_plan(plan_id)
     if not plan:
-        err_console.print(
-            f"[error]Error: Plan {plan_id} not found[/error]", highlight=False
-        )
+        err_console.print(f"[error]Error: Plan {plan_id} not found[/error]", highlight=False)
         raise click.ClickException(f"Plan {plan_id} not found")
 
     session_conn = sqlite3.connect(session_db_path)
@@ -1328,10 +1322,14 @@ def validate_plan(plan_id, session_id, format):
 
     if validation_passed:
         manager.update_task(plan_id, 1, status="completed")
-        err_console.print("[error]\nPlan status updated to: completed[/error]", )
+        err_console.print(
+            "[error]\nPlan status updated to: completed[/error]",
+        )
     else:
         manager.update_task(plan_id, 1, status="needs-revision")
-        err_console.print("[error]\nPlan status updated to: needs-revision[/error]", )
+        err_console.print(
+            "[error]\nPlan status updated to: needs-revision[/error]",
+        )
 
     session_conn.close()
 

@@ -89,12 +89,14 @@ class DockerPackageManager(BasePackageManager):
 
                 name = self._normalize_image_name(name)
 
-                deps.append(Dependency(
-                    name=name,
-                    version=tag,
-                    manager="docker",
-                    source=path.name,
-                ))
+                deps.append(
+                    Dependency(
+                        name=name,
+                        version=tag,
+                        manager="docker",
+                        source=path.name,
+                    )
+                )
 
         return deps
 
@@ -128,18 +130,19 @@ class DockerPackageManager(BasePackageManager):
 
                     name = self._normalize_image_name(name)
 
-                    # Use resolved path for relative_to, or just path.name as fallback
                     try:
                         source = str(path.resolve().relative_to(Path.cwd()))
                     except ValueError:
                         source = str(path)
 
-                    deps.append(Dependency(
-                        name=name,
-                        version=tag,
-                        manager="docker",
-                        source=source,
-                    ))
+                    deps.append(
+                        Dependency(
+                            name=name,
+                            version=tag,
+                            manager="docker",
+                            source=source,
+                        )
+                    )
 
         return deps
 
@@ -209,17 +212,13 @@ class DockerPackageManager(BasePackageManager):
         if current_tag:
             base_preference = self._extract_base_preference(current_tag)
             if base_preference:
-                matching_base = [
-                    t for t in candidates if base_preference in t["variant"].lower()
-                ]
+                matching_base = [t for t in candidates if base_preference in t["variant"].lower()]
                 if matching_base:
                     candidates = matching_base
                 else:
                     return None
 
-        candidates.sort(
-            key=lambda x: (x["version"], x["is_clean"], -len(x["tag"])), reverse=True
-        )
+        candidates.sort(key=lambda x: (x["version"], x["is_clean"], -len(x["tag"])), reverse=True)
 
         return candidates[0]["tag"] if candidates else None
 
@@ -297,7 +296,6 @@ class DockerPackageManager(BasePackageManager):
                 if ":" in image_spec:
                     name_part, tag = image_spec.rsplit(":", 1)
 
-                    # Skip variable tags
                     if "$" in tag or "{" in tag:
                         updated_lines.append(original_line)
                         continue
@@ -371,7 +369,6 @@ class DockerPackageManager(BasePackageManager):
             if stripped.startswith("FROM "):
                 image_spec = line[5:].strip()
 
-                # Handle AS clause
                 if " AS " in image_spec.upper():
                     image_part, as_part = image_spec.split(" AS ", 1)
                     image_spec = image_part.strip()
@@ -383,7 +380,6 @@ class DockerPackageManager(BasePackageManager):
                 else:
                     as_clause = ""
 
-                # Skip scratch and builder references
                 if image_spec.lower() in ["scratch", "builder"]:
                     updated_lines.append(original_line)
                     continue
@@ -391,7 +387,6 @@ class DockerPackageManager(BasePackageManager):
                 if ":" in image_spec:
                     name_part, tag = image_spec.rsplit(":", 1)
 
-                    # Skip variable tags
                     if "$" in tag or "{" in tag:
                         updated_lines.append(original_line)
                         continue
@@ -452,7 +447,7 @@ class DockerPackageManager(BasePackageManager):
         minor = int(match.group(2) or 0)
         patch = int(match.group(3) or 0)
 
-        variant = clean_tag[match.end():].lstrip("-")
+        variant = clean_tag[match.end() :].lstrip("-")
 
         return {
             "tag": tag,
@@ -499,24 +494,19 @@ class DockerPackageManager(BasePackageManager):
         """
         v = variant.lower()
 
-        # Date-based builds = dev
         if re.search(r"\d{8,}", v):
             return "dev"
 
-        # Explicit dev markers
         if any(m in v for m in ("nightly", "dev", "snapshot", "edge")):
             return "dev"
 
-        # Release candidate
         if "rc" in v:
             return "rc"
 
-        # Beta (excluding Debian codenames starting with 'b')
         debian_b = ("bookworm", "bullseye", "buster")
         if ("beta" in v or re.match(r"b\d", v)) and not any(v.startswith(d) for d in debian_b):
             return "beta"
 
-        # Alpha (excluding alpine)
         if ("alpha" in v or re.match(r"a\d", v)) and not v.startswith("alpine"):
             return "alpha"
 

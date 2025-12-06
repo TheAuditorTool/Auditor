@@ -85,11 +85,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
 def _get_typescript_files(db: RuleDB) -> set[str]:
     """Get set of TypeScript file paths from database."""
-    rows = db.query(
-        Q("files")
-        .select("path")
-        .where("ext IN ('.ts', '.tsx')")
-    )
+    rows = db.query(Q("files").select("path").where("ext IN ('.ts', '.tsx')"))
     return {row[0] for row in rows}
 
 
@@ -158,17 +154,19 @@ def _find_missing_return_types(db: RuleDB, ts_files: set[str]) -> list[StandardF
         .where("(return_type IS NULL OR return_type = '')")
     )
 
-    known_exceptions = frozenset([
-        "constructor",
-        "render",
-        "componentDidMount",
-        "componentDidUpdate",
-        "componentWillUnmount",
-        "componentWillMount",
-        "shouldComponentUpdate",
-        "getSnapshotBeforeUpdate",
-        "componentDidCatch",
-    ])
+    known_exceptions = frozenset(
+        [
+            "constructor",
+            "render",
+            "componentDidMount",
+            "componentDidUpdate",
+            "componentWillUnmount",
+            "componentWillMount",
+            "shouldComponentUpdate",
+            "getSnapshotBeforeUpdate",
+            "componentDidCatch",
+        ]
+    )
 
     for file, line, name, _return_type in rows:
         if file not in ts_files:
@@ -265,9 +263,7 @@ def _find_non_null_assertions(db: RuleDB, ts_files: set[str]) -> list[StandardFi
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "source_expr")
-        .where("source_expr IS NOT NULL")
+        Q("assignments").select("file", "line", "source_expr").where("source_expr IS NOT NULL")
     )
 
     for file, line, expr in rows:
@@ -346,7 +342,6 @@ def _find_untyped_json_parse(db: RuleDB, ts_files: set[str]) -> list[StandardFin
         .where("callee_function IS NOT NULL")
     )
 
-    # Collect JSON.parse locations grouped by file
     json_parse_by_file: dict[str, list[int]] = {}
     for file, line, func in rows:
         if file not in ts_files:
@@ -359,7 +354,6 @@ def _find_untyped_json_parse(db: RuleDB, ts_files: set[str]) -> list[StandardFin
     if not json_parse_by_file:
         return findings
 
-    # Pre-fetch ALL assignments for relevant files in ONE query
     assignment_rows = db.query(
         Q("assignments")
         .select("file", "line", "source_expr")
@@ -367,14 +361,12 @@ def _find_untyped_json_parse(db: RuleDB, ts_files: set[str]) -> list[StandardFin
         .where("source_expr IS NOT NULL")
     )
 
-    # Index by (file, line) for O(1) lookup
     assignments_by_file_line: dict[str, dict[int, str]] = {}
     for file, line, source_expr in assignment_rows:
         if file not in assignments_by_file_line:
             assignments_by_file_line[file] = {}
         assignments_by_file_line[file][line] = source_expr
 
-    # Check proximity in Python - NO queries in loop
     validation_patterns = ("as ", "zod", "joi", "validate")
     for file, json_lines in json_parse_by_file.items():
         file_assignments = assignments_by_file_line.get(file, {})
@@ -419,7 +411,6 @@ def _find_untyped_api_responses(db: RuleDB, ts_files: set[str]) -> list[Standard
         .where("callee_function IS NOT NULL")
     )
 
-    # Collect API call locations grouped by file
     api_calls_by_file: dict[str, list[tuple[int, str]]] = {}
     for file, line, func in rows:
         if file not in ts_files:
@@ -434,21 +425,18 @@ def _find_untyped_api_responses(db: RuleDB, ts_files: set[str]) -> list[Standard
     if not api_calls_by_file:
         return findings
 
-    # Pre-fetch ALL assignments for relevant files in ONE query
     assignment_rows = db.query(
         Q("assignments")
         .select("file", "line", "target_var", "source_expr")
         .where_in("file", list(api_calls_by_file.keys()))
     )
 
-    # Index by file for range lookups
     assignments_by_file: dict[str, list[tuple[int, str, str]]] = {}
     for file, line, target_var, source_expr in assignment_rows:
         if file not in assignments_by_file:
             assignments_by_file[file] = []
         assignments_by_file[file].append((line, target_var or "", source_expr or ""))
 
-    # Check proximity in Python - NO queries in loop
     for file, api_calls in api_calls_by_file.items():
         file_assignments = assignments_by_file.get(file, [])
         for api_line, pattern in api_calls:
@@ -459,7 +447,9 @@ def _find_untyped_api_responses(db: RuleDB, ts_files: set[str]) -> list[Standard
                 if ": " in target_var:
                     has_typing = True
                     break
-                if source_expr and ("as " in source_expr or ("<" in source_expr and ">" in source_expr)):
+                if source_expr and (
+                    "as " in source_expr or ("<" in source_expr and ">" in source_expr)
+                ):
                     has_typing = True
                     break
 
@@ -563,11 +553,7 @@ def _find_untyped_catch_blocks(db: RuleDB, ts_files: set[str]) -> list[StandardF
     """Find catch blocks without typed errors."""
     findings = []
 
-    rows = db.query(
-        Q("symbols")
-        .select("path", "line", "name")
-        .where("type = 'catch'")
-    )
+    rows = db.query(Q("symbols").select("path", "line", "name").where("type = 'catch'"))
 
     for file, line, name in rows:
         if file not in ts_files:
@@ -634,8 +620,7 @@ def _find_untyped_event_handlers(db: RuleDB, ts_files: set[str]) -> list[Standar
     event_patterns = ("onClick", "onChange", "onSubmit", "addEventListener", "on(")
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function", "argument_expr")
+        Q("function_call_args").select("file", "line", "callee_function", "argument_expr")
     )
 
     for file, line, func, args in rows:
@@ -672,11 +657,7 @@ def _find_unsafe_property_access(db: RuleDB, ts_files: set[str]) -> list[Standar
     """Find unsafe property access patterns."""
     findings = []
 
-    rows = db.query(
-        Q("symbols")
-        .select("path", "line", "name")
-        .where("name IS NOT NULL")
-    )
+    rows = db.query(Q("symbols").select("path", "line", "name").where("name IS NOT NULL"))
 
     for file, line, name in rows:
         if file not in ts_files:

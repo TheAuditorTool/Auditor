@@ -20,11 +20,27 @@ METADATA = RuleMetadata(
     primary_table="bash_command_args",
 )
 
-# Commands where unquoted variables are particularly dangerous
-DANGEROUS_COMMANDS = frozenset([
-    "rm", "mv", "cp", "chmod", "chown", "chgrp", "mkdir", "rmdir",
-    "touch", "cat", "grep", "find", "xargs", "exec", "eval", "source",
-])
+
+DANGEROUS_COMMANDS = frozenset(
+    [
+        "rm",
+        "mv",
+        "cp",
+        "chmod",
+        "chown",
+        "chgrp",
+        "mkdir",
+        "rmdir",
+        "touch",
+        "cat",
+        "grep",
+        "find",
+        "xargs",
+        "exec",
+        "eval",
+        "source",
+    ]
+)
 
 
 def find_bash_quoting_issues(context: StandardRuleContext) -> RuleResult:
@@ -69,13 +85,10 @@ def find_bash_quoting_issues(context: StandardRuleContext) -> RuleResult:
         )
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Check unquoted expansion
         _check_unquoted_expansion(db, add_finding)
 
-        # Check dangerous unquoted commands
         _check_dangerous_unquoted_commands(db, add_finding)
 
-        # Check unquoted array expansion
         _check_unquoted_array_expansion(db, add_finding)
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
@@ -92,11 +105,9 @@ def _check_unquoted_expansion(db: RuleDB, add_finding) -> None:
     for file, command_line, arg_value, is_quoted, has_expansion in rows:
         arg = arg_value or ""
 
-        # Skip arithmetic contexts
         if "$((" in arg:
             continue
 
-        # Get the command name for this argument
         cmd_rows = db.query(
             Q("bash_commands")
             .select("command_name")
@@ -108,12 +119,9 @@ def _check_unquoted_expansion(db: RuleDB, add_finding) -> None:
             command_name = cmd or ""
             break
 
-        # Skip quoting checks for double-bracket tests - they safely handle unquoted vars
-        # Unlike POSIX [ or test, [[ does not perform word splitting or glob expansion
         if command_name == "[[":
             continue
 
-        # Higher severity for dangerous commands
         if command_name in DANGEROUS_COMMANDS:
             add_finding(
                 file=file,
@@ -160,9 +168,7 @@ def _check_dangerous_unquoted_commands(db: RuleDB, add_finding) -> None:
         file, line, command_name, all_args = row
         args = all_args or ""
 
-        # Check for glob patterns in rm/mv/cp
         if command_name in ("rm", "mv", "cp") and "*" in args:
-            # Unquoted glob with variable is especially dangerous
             if "$" in args:
                 add_finding(
                     file=file,
@@ -184,7 +190,7 @@ def _check_unquoted_array_expansion(db: RuleDB, add_finding) -> None:
         BAD:  for f in ${files[@]}; do ...   # splits on spaces, expands globs
         GOOD: for f in "${files[@]}"; do ... # preserves each element
     """
-    # Check command arguments for unquoted array expansion
+
     rows = db.query(
         Q("bash_command_args")
         .select("file", "command_line", "arg_value", "is_quoted")
@@ -193,7 +199,7 @@ def _check_unquoted_array_expansion(db: RuleDB, add_finding) -> None:
 
     for file, line, arg_value, is_quoted in rows:
         arg = arg_value or ""
-        # Confirm it's actually an array expansion pattern
+
         if "${" in arg and ("[@]" in arg or "[*]" in arg):
             add_finding(
                 file=file,
@@ -204,7 +210,6 @@ def _check_unquoted_array_expansion(db: RuleDB, add_finding) -> None:
                 confidence=Confidence.HIGH,
             )
 
-    # Also check variable assignments
     rows = db.query(
         Q("bash_variables")
         .select("file", "line", "value_expr")
@@ -213,10 +218,8 @@ def _check_unquoted_array_expansion(db: RuleDB, add_finding) -> None:
 
     for file, line, value_expr in rows:
         value = value_expr or ""
-        # Check if array expansion is unquoted (not inside double quotes)
-        # This is a heuristic - if the value contains ${...[@]} without surrounding quotes
+
         if "${" in value and ("[@]" in value or "[*]" in value):
-            # Simple heuristic: if value doesn't start with " it's likely unquoted
             if not value.startswith('"'):
                 add_finding(
                     file=file,

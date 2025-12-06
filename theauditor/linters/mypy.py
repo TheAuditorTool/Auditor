@@ -45,7 +45,6 @@ class MypyLinter(BaseLinter):
 
         start_time = time.perf_counter()
 
-        # No batching - Mypy needs full project context
         cmd = [
             str(mypy_bin),
             "--config-file",
@@ -65,7 +64,6 @@ class MypyLinter(BaseLinter):
             logger.debug(f"[{self.name}] No issues found")
             return LinterResult.success(self.name, [], duration)
 
-        # Mypy outputs JSONL (one JSON object per line)
         findings = []
         for line in stdout.splitlines():
             if not line.strip():
@@ -81,7 +79,9 @@ class MypyLinter(BaseLinter):
                 findings.append(finding)
 
         duration = time.perf_counter() - start_time
-        logger.info(f"[{self.name}] Found {len(findings)} issues in {len(files)} files ({duration:.2f}s)")
+        logger.info(
+            f"[{self.name}] Found {len(findings)} issues in {len(files)} files ({duration:.2f}s)"
+        )
         return LinterResult.success(self.name, findings, duration)
 
     def _parse_mypy_item(self, item: dict) -> Finding | None:
@@ -101,7 +101,6 @@ class MypyLinter(BaseLinter):
         if not rule_code:
             rule_code = "mypy-note" if raw_severity == "note" else "mypy-unknown"
 
-        # Sanitize line/column numbers
         line_no = item.get("line", 0)
         if isinstance(line_no, int) and line_no < 0:
             line_no = 0
@@ -110,7 +109,6 @@ class MypyLinter(BaseLinter):
         if isinstance(column_no, int) and column_no < 0:
             column_no = 0
 
-        # Map severity: note -> info, error/warning stay as-is
         if raw_severity == "note":
             mapped_severity = "info"
             category = "lint-meta"
@@ -118,7 +116,6 @@ class MypyLinter(BaseLinter):
             mapped_severity = raw_severity if raw_severity in {"error", "warning"} else "error"
             category = "type"
 
-        # Build additional info
         additional = {}
         if item.get("hint"):
             additional["hint"] = item["hint"]

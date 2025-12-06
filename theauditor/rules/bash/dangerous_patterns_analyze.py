@@ -20,7 +20,7 @@ METADATA = RuleMetadata(
     primary_table="bash_commands",
 )
 
-# Credential variable name patterns
+
 CREDENTIAL_PATTERNS = (
     "PASSWORD",
     "PASSWD",
@@ -38,16 +38,26 @@ CREDENTIAL_PATTERNS = (
     "REDIS_PASS",
 )
 
-# Network fetching commands
+
 NETWORK_COMMANDS = frozenset(["curl", "wget", "nc", "netcat", "fetch"])
 
-# Shell execution commands (pipe targets)
+
 SHELL_COMMANDS = frozenset(["bash", "sh", "zsh", "ksh", "dash", "eval", "source"])
 
-# Security-sensitive commands that should use absolute paths
+
 SENSITIVE_COMMANDS = (
-    "rm", "chmod", "chown", "kill", "pkill", "mount", "umount",
-    "iptables", "ip6tables", "systemctl", "service", "dd",
+    "rm",
+    "chmod",
+    "chown",
+    "kill",
+    "pkill",
+    "mount",
+    "umount",
+    "iptables",
+    "ip6tables",
+    "systemctl",
+    "service",
+    "dd",
 )
 
 
@@ -94,52 +104,36 @@ def find_bash_dangerous_patterns(context: StandardRuleContext) -> RuleResult:
         )
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Check curl/wget piped to bash
         _check_curl_pipe_bash(db, add_finding)
 
-        # Check hardcoded credentials
         _check_hardcoded_credentials(db, add_finding)
 
-        # Check unsafe temp files
         _check_unsafe_temp_files(db, add_finding)
 
-        # Check missing safety flags
         _check_missing_safety_flags(db, add_finding)
 
-        # Check sudo with variable expansion
         _check_sudo_abuse(db, add_finding)
 
-        # Check chmod 777
         _check_chmod_777(db, add_finding)
 
-        # Check weak crypto
         _check_weak_crypto(db, add_finding)
 
-        # Check PATH manipulation
         _check_path_manipulation(db, add_finding)
 
-        # Check IFS manipulation
         _check_ifs_manipulation(db, add_finding)
 
-        # Check relative command paths
         _check_relative_command_paths(db, add_finding)
 
-        # Check security-sensitive commands
         _check_security_sensitive_commands(db, add_finding)
 
-        # Check dangerous environment variable manipulation (LD_PRELOAD, etc.)
         _check_dangerous_environment_vars(db, add_finding)
 
-        # Check read without -r flag (backslash escape injection)
         _check_read_without_raw(db, add_finding)
 
-        # Check SSL/TLS certificate validation bypass (CWE-295)
         _check_ssl_bypass(db, add_finding)
 
-        # Check debug mode secret leakage (CWE-532)
         _check_debug_mode_leak(db, add_finding)
 
-        # Check SSH StrictHostKeyChecking bypass (CWE-300)
         _check_ssh_hostkey_bypass(db, add_finding)
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
@@ -147,11 +141,10 @@ def find_bash_dangerous_patterns(context: StandardRuleContext) -> RuleResult:
 
 def _check_curl_pipe_bash(db: RuleDB, add_finding) -> None:
     """Detect curl/wget piped directly to bash - critical security risk."""
-    # Get all pipe connections where network command feeds shell command
+
     network_list = ", ".join(f"'{cmd}'" for cmd in NETWORK_COMMANDS)
     shell_list = ", ".join(f"'{cmd}'" for cmd in SHELL_COMMANDS)
 
-    # Use raw SQL for complex join with pipeline logic
     sql, params = Q.raw(
         f"""
         SELECT
@@ -189,7 +182,7 @@ def _check_curl_pipe_bash(db: RuleDB, add_finding) -> None:
 
 def _check_hardcoded_credentials(db: RuleDB, add_finding) -> None:
     """Detect hardcoded credentials in variable assignments."""
-    # Build LIKE conditions for credential patterns
+
     like_conditions = " OR ".join(
         f"UPPER(name) LIKE '%{pattern}%'" for pattern in CREDENTIAL_PATTERNS
     )
@@ -209,10 +202,10 @@ def _check_hardcoded_credentials(db: RuleDB, add_finding) -> None:
     for row in db.execute(sql, params):
         file, line, name, value_expr, scope = row
         value = value_expr or ""
-        # Skip environment variable references
+
         if value.startswith("$") or value.startswith("${"):
             continue
-        # Skip empty quoted strings
+
         if value in ('""', "''"):
             continue
 
@@ -236,7 +229,6 @@ def _check_unsafe_temp_files(db: RuleDB, add_finding) -> None:
     )
 
     for file, line, target, direction in rows:
-        # Check if it's a predictable name (no random component)
         if "$$" not in target and "$RANDOM" not in target and "mktemp" not in target.lower():
             add_finding(
                 file=file,
@@ -251,21 +243,13 @@ def _check_unsafe_temp_files(db: RuleDB, add_finding) -> None:
 
 def _check_missing_safety_flags(db: RuleDB, add_finding) -> None:
     """Check if script has set -e, set -u, set -o pipefail."""
-    # Get all unique files with bash content
-    rows = db.query(
-        Q("bash_commands")
-        .select("file")
-    )
+
+    rows = db.query(Q("bash_commands").select("file"))
 
     files = set(file for (file,) in rows)
 
     for file in files:
-        # Check for safety set commands via set options
-        set_rows = db.query(
-            Q("bash_set_options")
-            .select("options")
-            .where("file = ?", file)
-        )
+        set_rows = db.query(Q("bash_set_options").select("options").where("file = ?", file))
 
         has_set_e = False
         has_set_u = False
@@ -300,11 +284,7 @@ def _check_missing_safety_flags(db: RuleDB, add_finding) -> None:
 
 def _check_sudo_abuse(db: RuleDB, add_finding) -> None:
     """Detect sudo with variable arguments."""
-    rows = db.query(
-        Q("bash_commands")
-        .select("file", "line")
-        .where("command_name = ?", "sudo")
-    )
+    rows = db.query(Q("bash_commands").select("file", "line").where("command_name = ?", "sudo"))
 
     for file, line in rows:
         arg_rows = db.query(
@@ -329,11 +309,7 @@ def _check_sudo_abuse(db: RuleDB, add_finding) -> None:
 
 def _check_chmod_777(db: RuleDB, add_finding) -> None:
     """Detect chmod 777 and other overly permissive modes."""
-    rows = db.query(
-        Q("bash_commands")
-        .select("file", "line")
-        .where("command_name = ?", "chmod")
-    )
+    rows = db.query(Q("bash_commands").select("file", "line").where("command_name = ?", "chmod"))
 
     for file, line in rows:
         arg_rows = db.query(
@@ -383,7 +359,7 @@ def _check_weak_crypto(db: RuleDB, add_finding) -> None:
             line=line,
             rule_name="bash-weak-crypto",
             message=f"Weak hash algorithm: {command_name} (verify not used for security)",
-            severity=Severity.LOW,  # Downgraded: usually integrity checks, not security
+            severity=Severity.LOW,
             confidence=Confidence.MEDIUM,
             cwe_id="CWE-328",
         )
@@ -399,7 +375,7 @@ def _check_path_manipulation(db: RuleDB, add_finding) -> None:
 
     for file, line, name, value_expr, scope in rows:
         value = value_expr or ""
-        # Check for prepending to PATH (can hijack commands)
+
         if value.startswith(".") or value.startswith("$PWD"):
             add_finding(
                 file=file,
@@ -491,7 +467,7 @@ def _check_relative_command_paths(db: RuleDB, add_finding) -> None:
 
 def _check_security_sensitive_commands(db: RuleDB, add_finding) -> None:
     """Flag security-sensitive commands that need careful review."""
-    # Commands with variable arguments (detected via wrapped_command)
+
     rows = db.query(
         Q("bash_commands")
         .select("file", "line", "command_name", "wrapped_command")
@@ -509,11 +485,8 @@ def _check_security_sensitive_commands(db: RuleDB, add_finding) -> None:
             cwe_id="CWE-78",
         )
 
-    # Check for commands that execute variable names
     rows = db.query(
-        Q("bash_commands")
-        .select("file", "line", "command_name")
-        .where("command_name LIKE ?", "$%")
+        Q("bash_commands").select("file", "line", "command_name").where("command_name LIKE ?", "$%")
     )
 
     for file, line, command_name in rows:
@@ -569,14 +542,9 @@ def _check_read_without_raw(db: RuleDB, add_finding) -> None:
 
     CWE-78: Improper Neutralization of Special Elements used in an OS Command
     """
-    rows = db.query(
-        Q("bash_commands")
-        .select("file", "line")
-        .where("command_name = ?", "read")
-    )
+    rows = db.query(Q("bash_commands").select("file", "line").where("command_name = ?", "read"))
 
     for file, line in rows:
-        # Check if -r flag is present in arguments
         arg_rows = db.query(
             Q("bash_command_args")
             .select("arg_value", "normalized_flags")
@@ -587,7 +555,7 @@ def _check_read_without_raw(db: RuleDB, add_finding) -> None:
         for arg_value, normalized_flags in arg_rows:
             flags = normalized_flags or ""
             arg = arg_value or ""
-            # Check for -r in normalized flags or as standalone arg
+
             if "r" in flags or arg == "-r" or (arg.startswith("-") and "r" in arg):
                 has_raw_flag = True
                 break
@@ -649,14 +617,11 @@ def _check_debug_mode_leak(db: RuleDB, add_finding) -> None:
 
     CWE-532: Insertion of Sensitive Information into Log File
     """
-    rows = db.query(
-        Q("bash_set_options")
-        .select("file", "line", "options")
-    )
+    rows = db.query(Q("bash_set_options").select("file", "line", "options"))
 
     for file, line, options in rows:
         opts = options or ""
-        # Check for -x flag or xtrace option
+
         if "-x" in opts or "xtrace" in opts:
             add_finding(
                 file=file,
@@ -692,7 +657,7 @@ def _check_ssh_hostkey_bypass(db: RuleDB, add_finding) -> None:
 
         for (arg_value,) in arg_rows:
             arg = arg_value or ""
-            # Check for StrictHostKeyChecking=no or StrictHostKeyChecking=accept-new
+
             if "StrictHostKeyChecking=no" in arg or "StrictHostKeyChecking=accept-new" in arg:
                 add_finding(
                     file=file,
@@ -704,7 +669,7 @@ def _check_ssh_hostkey_bypass(db: RuleDB, add_finding) -> None:
                     cwe_id="CWE-300",
                 )
                 break
-            # Also check for UserKnownHostsFile=/dev/null pattern
+
             if "UserKnownHostsFile=/dev/null" in arg:
                 add_finding(
                     file=file,

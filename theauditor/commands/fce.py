@@ -8,11 +8,9 @@ import click
 from theauditor.cli import RichCommand
 from theauditor.fce.formatter import FCEFormatter
 from theauditor.fce.schema import ConvergencePoint, Fact, Vector
-from theauditor.pipeline.ui import err_console, console
+from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.error_handler import handle_exceptions
 
-
-# Vector display config
 VECTOR_LABELS = {
     Vector.STATIC: "STATIC",
     Vector.FLOW: "FLOW",
@@ -33,12 +31,10 @@ def _render_convergence_report(points: list[ConvergencePoint], detailed: bool = 
         console.print("[dim]Tip: Try --min-vectors 1 to see single-vector files[/dim]")
         return
 
-    # Header
     console.print()
     console.rule("[bold cyan]FCE CONVERGENCE REPORT[/bold cyan]")
     console.print()
 
-    # Summary stats
     max_density = max(p.signal.density for p in points)
     by_density: dict[int, int] = {0: 0, 1: 0, 2: 0, 3: 0, 4: 0}
     for p in points:
@@ -51,7 +47,6 @@ def _render_convergence_report(points: list[ConvergencePoint], detailed: bool = 
     )
     console.print()
 
-    # Distribution
     console.print("[bold]Distribution:[/bold]")
     for count in [4, 3, 2, 1]:
         if by_density.get(count, 0) > 0:
@@ -59,12 +54,10 @@ def _render_convergence_report(points: list[ConvergencePoint], detailed: bool = 
             console.print(f"  {count}/4 vectors: {label}{by_density[count]}[/] files")
     console.print()
 
-    # Legend
     console.print("[dim]Legend: S=Static, F=Flow, P=Process, T=Structural[/dim]")
     console.rule()
     console.print()
 
-    # Convergence points
     if detailed:
         _render_detailed_list(points[:20])
         if len(points) > 20:
@@ -97,7 +90,6 @@ def _render_compact_list(points: list[ConvergencePoint]) -> None:
         density = point.signal.vector_count
         style = _get_density_style(density)
 
-        # Format: "  1. [3/4] [SF-T] src/auth/login.py"
         console.print(
             f"  {i:3}. {style}[{density}/4][/] "
             f"[dim]\\[[/dim]{_colorize_vector_codes(vector_codes)}[dim]\\][/dim] "
@@ -110,10 +102,10 @@ def _colorize_vector_codes(codes: str) -> str:
     """Colorize vector code string (S, F, P, T or -)."""
     result = []
     colors = {
-        "S": "green",      # Static - linters
-        "F": "red",        # Flow - taint
-        "P": "yellow",     # Process - churn
-        "T": "magenta",    # Structural - complexity
+        "S": "green",
+        "F": "red",
+        "P": "yellow",
+        "T": "magenta",
     }
     for char in codes:
         if char in colors:
@@ -138,21 +130,18 @@ def _render_detailed_list(points: list[ConvergencePoint]) -> None:
             highlight=False,
         )
 
-        # Line range
         if point.line_start and point.line_end:
             if point.line_start == point.line_end:
                 console.print(f"   [dim]Line:[/dim] {point.line_start}")
             else:
                 console.print(f"   [dim]Lines:[/dim] {point.line_start}-{point.line_end}")
 
-        # Group facts by vector
         facts_by_vector: dict[Vector, list[Fact]] = {}
         for fact in point.facts:
             if fact.vector not in facts_by_vector:
                 facts_by_vector[fact.vector] = []
             facts_by_vector[fact.vector].append(fact)
 
-        # Output facts in vector order
         for vector in [Vector.STATIC, Vector.FLOW, Vector.PROCESS, Vector.STRUCTURAL]:
             if vector in facts_by_vector:
                 vec_style = {
@@ -164,7 +153,7 @@ def _render_detailed_list(points: list[ConvergencePoint]) -> None:
 
                 console.print(f"   [{vec_style}]{VECTOR_LABELS[vector]}:[/{vec_style}]")
 
-                for fact in facts_by_vector[vector][:5]:  # Limit to 5 per vector
+                for fact in facts_by_vector[vector][:5]:
                     line_info = f"L{fact.line}" if fact.line else ""
                     observation = fact.observation
                     if len(observation) > 60:
@@ -288,30 +277,33 @@ def fce(root, output_format, min_vectors, detailed, write):
     from theauditor.fce.engine import get_fce_json, run_fce, write_fce_report
 
     if write:
-        # Write mode: generate JSON report file
         try:
             output_path = write_fce_report(root, min_vectors=min_vectors)
             console.print(f"[success]FCE report written to:[/success] {output_path}")
             return
         except FileNotFoundError as e:
-            err_console.print(f"[error]Error:[/error] {e}", )
+            err_console.print(
+                f"[error]Error:[/error] {e}",
+            )
             raise click.ClickException(str(e))
         except RuntimeError as e:
-            err_console.print(f"[error]Error:[/error] {e}", )
+            err_console.print(
+                f"[error]Error:[/error] {e}",
+            )
             raise click.ClickException(str(e))
 
     if output_format == "json":
-        # JSON mode: output raw JSON
         json_output = get_fce_json(root_path=root, min_vectors=min_vectors)
         console.print(json_output, markup=False, highlight=False)
         return
 
-    # Text mode: Rich-formatted output
     result = run_fce(root_path=root, min_vectors=min_vectors)
 
     if result["success"]:
         points = result["convergence_points"]
         _render_convergence_report(points, detailed=detailed)
     else:
-        err_console.print(f"[error]Error:[/error] {result['error']}", )
+        err_console.print(
+            f"[error]Error:[/error] {result['error']}",
+        )
         raise click.ClickException(result["error"])

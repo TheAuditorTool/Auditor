@@ -32,27 +32,33 @@ METADATA = RuleMetadata(
     primary_table="package_dependencies",
 )
 
-# Patterns that indicate non-registry sources (bypass lockfile entirely)
-GIT_PREFIXES: frozenset[str] = frozenset([
-    "git://",
-    "git+ssh://",
-    "git+https://",
-    "git+http://",
-    "github:",
-    "gitlab:",
-    "bitbucket:",
-])
 
-URL_PREFIXES: frozenset[str] = frozenset([
-    "http://",
-    "https://",
-])
+GIT_PREFIXES: frozenset[str] = frozenset(
+    [
+        "git://",
+        "git+ssh://",
+        "git+https://",
+        "git+http://",
+        "github:",
+        "gitlab:",
+        "bitbucket:",
+    ]
+)
 
-FILE_PREFIXES: frozenset[str] = frozenset([
-    "file:",
-    "link:",
-    "portal:",  # pnpm portal protocol
-])
+URL_PREFIXES: frozenset[str] = frozenset(
+    [
+        "http://",
+        "https://",
+    ]
+)
+
+FILE_PREFIXES: frozenset[str] = frozenset(
+    [
+        "file:",
+        "link:",
+        "portal:",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -81,13 +87,10 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Check for lockfile presence - affects severity of range findings
         has_lockfile = _has_lockfile(db)
 
-        # Check JavaScript/Node package dependencies
         findings.extend(_check_js_dependencies(db, has_lockfile))
 
-        # Check Python package dependencies
         findings.extend(_check_python_dependencies(db, has_lockfile))
 
         return RuleResult(findings=findings, manifest=db.get_manifest())
@@ -106,12 +109,7 @@ def _has_lockfile(db: RuleDB) -> bool:
         True if any lockfile is found in the files table
     """
     for lockfile in LOCK_FILES:
-        rows = db.query(
-            Q("files")
-            .select("path")
-            .where("path LIKE ?", f"%/{lockfile}")
-            .limit(1)
-        )
+        rows = db.query(Q("files").select("path").where("path LIKE ?", f"%/{lockfile}").limit(1))
         if rows:
             return True
     return False
@@ -145,15 +143,11 @@ def _check_js_dependencies(db: RuleDB, has_lockfile: bool) -> list[StandardFindi
         if issue:
             issue_type, severity_boost, description = issue
 
-            # Lockfile context: ranges are acceptable if lockfile exists
-            # Git/URL/file deps still bypass lockfile, keep original severity
             if issue_type == "range" and has_lockfile:
                 severity = Severity.LOW
             elif severity_boost:
-                # HIGH severity issues (git, url, alias)
                 severity = Severity.MEDIUM if (is_dev or is_peer) else Severity.HIGH
             else:
-                # MEDIUM severity issues (file, workspace, range without lockfile)
                 severity = Severity.LOW if (is_dev or is_peer) else Severity.MEDIUM
 
             dep_type = "dev" if is_dev else ("peer" if is_peer else "production")
@@ -193,8 +187,6 @@ def _check_python_dependencies(db: RuleDB, has_lockfile: bool) -> list[StandardF
     )
 
     for file_path, pkg_name, version_spec, is_dev, git_url in rows:
-        # Check git_url column directly (Python package schema has it)
-        # Git URLs bypass lockfile entirely - keep HIGH severity
         if git_url:
             severity = Severity.MEDIUM if is_dev else Severity.HIGH
             dep_type = "dev" if is_dev else "production"
@@ -222,7 +214,6 @@ def _check_python_dependencies(db: RuleDB, has_lockfile: bool) -> list[StandardF
         if issue:
             issue_type, severity_boost, description = issue
 
-            # Lockfile context: ranges are acceptable if lockfile exists
             if issue_type == "range" and has_lockfile:
                 severity = Severity.LOW
             elif severity_boost:
@@ -259,35 +250,34 @@ def _classify_version_issue(version_str: str) -> tuple[str, bool, str] | None:
     """
     version_lower = version_str.lower()
 
-    # Check for git URLs (HIGH severity - bypasses lockfile entirely)
     for prefix in GIT_PREFIXES:
         if version_lower.startswith(prefix):
-            return ("git", True, f"uses git URL '{version_str[:40]}...' (bypasses registry lockfile)")
+            return (
+                "git",
+                True,
+                f"uses git URL '{version_str[:40]}...' (bypasses registry lockfile)",
+            )
 
-    # Check for HTTP URLs (HIGH severity - content can change)
     for prefix in URL_PREFIXES:
         if version_lower.startswith(prefix):
-            return ("url", True, f"uses HTTP URL (content may change without version bump)")
+            return ("url", True, "uses HTTP URL (content may change without version bump)")
 
-    # Check for file references (MEDIUM severity - local but untracked)
     for prefix in FILE_PREFIXES:
         if version_lower.startswith(prefix):
-            return ("file", False, f"uses local file reference '{version_str}' (not version controlled)")
+            return (
+                "file",
+                False,
+                f"uses local file reference '{version_str}' (not version controlled)",
+            )
 
-    # Check for npm: alias protocol
     if version_lower.startswith("npm:"):
-        # npm:package@version is actually okay if version is pinned
-        # but npm:package without version is dangerous
         if "@" not in version_str[4:]:
             return ("alias", True, f"uses npm alias without version '{version_str}'")
 
-    # Check for workspace protocol (usually okay but flag it)
     if version_lower.startswith("workspace:"):
-        # workspace:* is unpinned, workspace:^1.0.0 has range
         if "*" in version_str or "^" in version_str or "~" in version_str:
             return ("workspace", False, f"uses unpinned workspace reference '{version_str}'")
 
-    # Check for range prefixes (MEDIUM severity - allows auto-updates)
     for prefix in RANGE_PREFIXES:
         if version_str.startswith(prefix):
             return ("range", False, f"uses unpinned version '{version_str}'")

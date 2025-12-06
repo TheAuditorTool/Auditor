@@ -12,8 +12,8 @@ from rich.text import Text
 
 from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console, print_status_panel
-from theauditor.utils.error_handler import handle_exceptions
 from theauditor.utils.constants import ExitCodes
+from theauditor.utils.error_handler import handle_exceptions
 
 
 def print_audit_complete_panel(
@@ -218,7 +218,6 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     low = findings.get("low", 0)
     is_index_only = result.get("index_only", False)
 
-    # === AUDIT COMPLETE Panel (fancy box) ===
     console.print()
     print_audit_complete_panel(
         total_phases=result["total_phases"],
@@ -228,7 +227,6 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
         index_only=is_index_only,
     )
 
-    # === Files Created Stats ===
     created_files = result.get("created_files", [])
     pf_files = [f for f in created_files if f.startswith(".pf/")]
     raw_files = [f for f in created_files if f.startswith(".pf/raw/")]
@@ -241,7 +239,6 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
         f"[dim].pf/raw/:[/dim] [cyan]{len(raw_files)}[/cyan]"
     )
 
-    # === Key Artifacts ===
     console.print()
     console.print("[bold]Key Artifacts[/bold]")
     if is_index_only:
@@ -249,7 +246,9 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
         console.print("  [cyan].pf/graphs.db[/cyan]         [dim]Call/data flow graphs[/dim]")
         console.print("  [cyan].pf/pipeline.log[/cyan]      [dim]Execution log[/dim]")
         console.print()
-        console.print("[dim]Database ready. Run 'aud full' for complete analysis (taint, patterns, fce)[/dim]")
+        console.print(
+            "[dim]Database ready. Run 'aud full' for complete analysis (taint, patterns, fce)[/dim]"
+        )
     else:
         console.print("  [cyan].pf/repo_index.db[/cyan]     [dim]Symbol database (queryable)[/dim]")
         console.print("  [cyan].pf/graphs.db[/cyan]         [dim]Call/data flow graphs[/dim]")
@@ -258,7 +257,6 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
         console.print("  [cyan].pf/pipeline.log[/cyan]      [dim]Full execution log[/dim]")
         console.print("  [cyan].pf/fce.log[/cyan]           [dim]FCE detailed output[/dim]")
 
-    # === AUDIT FINAL STATUS Section ===
     console.print()
     console.rule("[bold]AUDIT FINAL STATUS[/bold]")
     console.print()
@@ -267,11 +265,9 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     failed_phase_names = result.get("failed_phase_names", [])
 
     if result["failed_phases"] > 0:
-        # Build a concise description of what failed
         if failed_phase_names:
-            # Extract just the phase description (strip "N. " prefix)
             phase_descs = []
-            for name in failed_phase_names[:3]:  # Max 3 to keep it brief
+            for name in failed_phase_names[:3]:
                 desc = name.split(". ", 1)[-1] if ". " in name else name
                 phase_descs.append(desc)
             failed_summary = ", ".join(phase_descs)

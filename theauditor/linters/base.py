@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 LINTER_TIMEOUT = 300
 
-# Status type for linter execution results
+
 LinterStatus = Literal["SUCCESS", "SKIPPED", "FAILED"]
 
 

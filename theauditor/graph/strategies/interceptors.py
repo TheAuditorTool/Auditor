@@ -346,7 +346,6 @@ class InterceptorStrategy:
         if not views:
             return
 
-        # Create entry point node for request pipeline
         entry_node_id = "Django::Request::Entry"
         if entry_node_id not in nodes:
             nodes[entry_node_id] = DFGNode(
@@ -358,7 +357,6 @@ class InterceptorStrategy:
                 metadata={"is_entry": True, "framework": "django"},
             )
 
-        # Chain middlewares sequentially: Entry -> MW1 -> MW2 -> ... -> MWn
         previous_node_id = entry_node_id
 
         for mw in middlewares:
@@ -376,7 +374,6 @@ class InterceptorStrategy:
                     metadata={"middleware_class": mw_class},
                 )
 
-            # Link previous node -> current middleware
             new_edges = create_bidirectional_edges(
                 source=previous_node_id,
                 target=mw_node_id,
@@ -390,11 +387,8 @@ class InterceptorStrategy:
             edges.extend(new_edges)
             stats["django_middleware_edges_created"] += len(new_edges)
 
-            # Update previous for next iteration
             previous_node_id = mw_node_id
 
-        # Connect LAST middleware to all views (V edges)
-        # This preserves precision: only data that passed through ALL middlewares reaches views
         last_middleware_node = previous_node_id
 
         for view in views:
@@ -470,8 +464,7 @@ class InterceptorStrategy:
                 for sym in candidates:
                     if "controller" in sym["path"].lower():
                         return (sym["name"], sym["path"])
-                # GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback
-                # If "controller" in path didn't match, don't guess
+
             return (method_name, None)
 
         full_method_name = f"{object_name}.{method_name}"
@@ -482,8 +475,6 @@ class InterceptorStrategy:
             for sym in candidates:
                 if self._path_matches(import_package, sym["path"]):
                     return (sym["name"], sym["path"])
-            # GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback
-            # If path matching failed, don't guess - fall through to method_name lookup
 
         if method_name in symbols_by_name:
             candidates = symbols_by_name[method_name]
@@ -495,12 +486,7 @@ class InterceptorStrategy:
             for sym in candidates:
                 if "controller" in sym["path"].lower():
                     return (sym["name"], sym["path"])
-            # GRAPH FIX G3: Removed candidates[0] fallback - violates Zero Fallback
-            # If "controller" in path didn't match, don't guess
 
-        # FIX #18: Handle TypeScript class methods stored as "ClassName.methodName"
-        # When handler is "controller.list", we need to find "AccountController.list"
-        # by searching for symbols ending with ".list" in the matching file path.
         method_suffix = f".{method_name}"
         for sym_name, syms in symbols_by_name.items():
             if sym_name.endswith(method_suffix):

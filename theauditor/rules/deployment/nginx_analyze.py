@@ -46,89 +46,85 @@ CRITICAL_HEADERS = {
     "Permissions-Policy": "Control browser features",
 }
 
-SENSITIVE_PATHS = frozenset([
-    # Version control
-    ".git",
-    ".svn",
-    ".hg",
-    ".bzr",
-    # Configuration files
-    ".env",
-    ".htaccess",
-    ".htpasswd",
-    ".npmrc",
-    ".pypirc",
-    ".aws",
-    # IDE/Editor settings
-    ".DS_Store",
-    "Thumbs.db",
-    ".idea",
-    ".vscode",
-    ".settings",
-    # Admin interfaces
-    "wp-admin",
-    "phpmyadmin",
-    "admin",
-    "adminer",
-    # Backup files
-    "backup",
-    ".backup",
-    ".bak",
-    ".sql",
-    ".dump",
-    # Dependencies
-    "node_modules",
-    "vendor",
-    # Deployment artifacts
-    ".dockerignore",
-    "Dockerfile",
-    "docker-compose",
-    "deploy",
-    "deployment",
-    ".deploy",
-    # Secrets and keys
-    "id_rsa",
-    "id_ed25519",
-    "id_ecdsa",
-    "credentials",
-    "secrets",
-    ".pem",
-    ".key",
-    # Config files
-    "database.yml",
-    "secrets.yml",
-    "config.php",
-    "wp-config",
-])
+SENSITIVE_PATHS = frozenset(
+    [
+        ".git",
+        ".svn",
+        ".hg",
+        ".bzr",
+        ".env",
+        ".htaccess",
+        ".htpasswd",
+        ".npmrc",
+        ".pypirc",
+        ".aws",
+        ".DS_Store",
+        "Thumbs.db",
+        ".idea",
+        ".vscode",
+        ".settings",
+        "wp-admin",
+        "phpmyadmin",
+        "admin",
+        "adminer",
+        "backup",
+        ".backup",
+        ".bak",
+        ".sql",
+        ".dump",
+        "node_modules",
+        "vendor",
+        ".dockerignore",
+        "Dockerfile",
+        "docker-compose",
+        "deploy",
+        "deployment",
+        ".deploy",
+        "id_rsa",
+        "id_ed25519",
+        "id_ecdsa",
+        "credentials",
+        "secrets",
+        ".pem",
+        ".key",
+        "database.yml",
+        "secrets.yml",
+        "config.php",
+        "wp-config",
+    ]
+)
 
-DEPRECATED_PROTOCOLS = frozenset([
-    "SSLv2", "SSLv3", "TLSv1", "TLSv1.0", "TLSv1.1", "TLS1", "TLS1.0", "TLS1.1"
-])
+DEPRECATED_PROTOCOLS = frozenset(
+    ["SSLv2", "SSLv3", "TLSv1", "TLSv1.0", "TLSv1.1", "TLS1", "TLS1.0", "TLS1.1"]
+)
 
-WEAK_CIPHERS = frozenset([
-    "RC4",
-    "DES",
-    "3DES",
-    "MD5",
-    "NULL",
-    "EXPORT",
-    "aNULL",
-    "eNULL",
-    "ADH",
-    "AECDH",
-    "PSK",
-    "SRP",
-    "CAMELLIA",
-    "SEED",      # Korean cipher, deprecated
-    "IDEA",      # Deprecated, patent issues
-    "RC2",       # Very weak
-    "ARIA",      # Korean cipher, less tested
-])
+WEAK_CIPHERS = frozenset(
+    [
+        "RC4",
+        "DES",
+        "3DES",
+        "MD5",
+        "NULL",
+        "EXPORT",
+        "aNULL",
+        "eNULL",
+        "ADH",
+        "AECDH",
+        "PSK",
+        "SRP",
+        "CAMELLIA",
+        "SEED",
+        "IDEA",
+        "RC2",
+        "ARIA",
+    ]
+)
 
 
 @dataclass
 class NginxProxyConfig:
     """Represents a proxy_pass configuration."""
+
     file_path: str
     block_type: str
     context: str
@@ -139,6 +135,7 @@ class NginxProxyConfig:
 @dataclass
 class NginxRateLimit:
     """Represents a rate limiting configuration."""
+
     file_path: str
     context: str
     zone: str
@@ -148,6 +145,7 @@ class NginxRateLimit:
 @dataclass
 class NginxSSLConfig:
     """Represents SSL/TLS configuration."""
+
     file_path: str
     context: str
     protocols: str
@@ -157,6 +155,7 @@ class NginxSSLConfig:
 @dataclass
 class NginxLocationBlock:
     """Represents a location block configuration."""
+
     file_path: str
     context: str
     directives: dict[str, Any]
@@ -170,10 +169,8 @@ def find_nginx_issues(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Load all nginx config blocks
         configs = _load_nginx_configs(db)
 
-        # Parse config blocks into structured data
         proxy_configs = []
         rate_limits = []
         security_headers = {}
@@ -192,7 +189,6 @@ def find_nginx_issues(context: StandardRuleContext) -> RuleResult:
                 server_tokens,
             )
 
-        # Run all security checks
         findings.extend(_check_proxy_rate_limiting(proxy_configs, rate_limits))
         findings.extend(_check_security_headers(security_headers, proxy_configs))
         findings.extend(_check_exposed_paths(location_blocks))
@@ -220,13 +216,15 @@ def _load_nginx_configs(db: RuleDB) -> list[dict]:
         except json.JSONDecodeError:
             directives = {}
 
-        configs.append({
-            "file_path": file_path,
-            "block_type": block_type,
-            "block_context": block_context,
-            "directives": directives,
-            "level": level,
-        })
+        configs.append(
+            {
+                "file_path": file_path,
+                "block_type": block_type,
+                "block_context": block_context,
+                "directives": directives,
+                "level": level,
+            }
+        )
 
     return configs
 
@@ -246,7 +244,6 @@ def _parse_config_block(
     block_context = config["block_context"]
     directives = config["directives"]
 
-    # Extract proxy configurations
     if "proxy_pass" in directives:
         proxy_configs.append(
             NginxProxyConfig(
@@ -258,7 +255,6 @@ def _parse_config_block(
             )
         )
 
-    # Extract rate limit zones
     if "limit_req_zone" in directives:
         rate_limits.append(
             NginxRateLimit(
@@ -269,7 +265,6 @@ def _parse_config_block(
             )
         )
 
-    # Extract rate limit usage
     if "limit_req" in directives:
         rate_limits.append(
             NginxRateLimit(
@@ -280,11 +275,9 @@ def _parse_config_block(
             )
         )
 
-    # Extract security headers
     if "add_header" in directives:
         _parse_headers(file_path, directives["add_header"], security_headers)
 
-    # Extract SSL configurations
     if "ssl_protocols" in directives or "ssl_ciphers" in directives:
         ssl_configs.append(
             NginxSSLConfig(
@@ -295,7 +288,6 @@ def _parse_config_block(
             )
         )
 
-    # Extract location blocks
     if block_type == "location":
         location_blocks.append(
             NginxLocationBlock(
@@ -305,7 +297,6 @@ def _parse_config_block(
             )
         )
 
-    # Extract server_tokens setting
     if "server_tokens" in directives:
         server_tokens[file_path] = directives["server_tokens"]
 
@@ -334,11 +325,8 @@ def _check_proxy_rate_limiting(
 
     for proxy in proxy_configs:
         if not proxy.has_rate_limit:
-            # Check if there's a rate limit defined for the same context
             has_external_limit = any(
-                rl.file_path == proxy.file_path
-                and rl.context == proxy.context
-                and not rl.is_zone
+                rl.file_path == proxy.file_path and rl.context == proxy.context and not rl.is_zone
                 for rl in rate_limits
             )
 
@@ -367,7 +355,6 @@ def _check_security_headers(
     findings = []
     processed_files = set()
 
-    # Check all files that have headers or proxy configs
     all_files = set(security_headers.keys()) | {p.file_path for p in proxy_configs}
 
     for file_path in all_files:
@@ -417,7 +404,7 @@ def _check_exposed_paths(location_blocks: list[NginxLocationBlock]) -> list[Stan
                         cwe_id="CWE-552",
                     )
                 )
-                break  # One finding per location is enough
+                break
 
     return findings
 
@@ -544,7 +531,6 @@ def _check_client_body_size(configs: list[dict]) -> list[StandardFinding]:
         if client_body_size:
             size_str = str(client_body_size).lower().strip()
 
-            # Check for unlimited (0 means unlimited in nginx)
             if size_str == "0":
                 findings.append(
                     StandardFinding(
@@ -559,7 +545,6 @@ def _check_client_body_size(configs: list[dict]) -> list[StandardFinding]:
                     )
                 )
             else:
-                # Parse size and check if too large (>100MB)
                 size_bytes = _parse_nginx_size(size_str)
                 if size_bytes and size_bytes > 100 * 1024 * 1024:
                     findings.append(
@@ -606,13 +591,11 @@ def _is_path_protected(location: NginxLocationBlock) -> bool:
     """Check if location block properly denies access."""
     directives = location.directives
 
-    # Check for explicit deny all
     if "deny" in directives:
         deny_value = str(directives["deny"]).lower()
         if "all" in deny_value:
             return True
 
-    # Check for return 403/404
     if "return" in directives:
         return_value = str(directives["return"])
         if "403" in return_value or "404" in return_value:

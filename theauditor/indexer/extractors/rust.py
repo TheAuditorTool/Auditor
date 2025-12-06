@@ -50,14 +50,12 @@ class RustExtractor(BaseExtractor):
         root = ts_tree.root_node
         check_tree_sitter_parse_quality(root, file_path, logger)
 
-        # Extract Rust-specific data
         rust_functions = rust_core.extract_rust_functions(root, file_path)
         rust_structs = rust_core.extract_rust_structs(root, file_path)
         rust_enums = rust_core.extract_rust_enums(root, file_path)
         rust_traits = rust_core.extract_rust_traits(root, file_path)
         rust_use_statements = rust_core.extract_rust_use_statements(root, file_path)
 
-        # Build unified symbols list for cross-language queries
         symbols = []
         for func in rust_functions:
             symbols.append(
@@ -105,7 +103,6 @@ class RustExtractor(BaseExtractor):
                 }
             )
 
-        # Build imports list in format expected by _store_imports
         imports_for_refs = []
         for use_stmt in rust_use_statements:
             imports_for_refs.append(
@@ -117,10 +114,8 @@ class RustExtractor(BaseExtractor):
             )
 
         result = {
-            # Unified tables (for cross-language queries)
             "symbols": symbols,
-            "imports": imports_for_refs,  # For refs table population
-            # Rust-specific tables
+            "imports": imports_for_refs,
             "rust_modules": rust_core.extract_rust_modules(root, file_path),
             "rust_use_statements": rust_use_statements,
             "rust_functions": rust_functions,
@@ -142,8 +137,6 @@ class RustExtractor(BaseExtractor):
             "rust_trait_methods": rust_core.extract_rust_trait_methods(root, file_path),
             "rust_extern_functions": rust_core.extract_rust_extern_functions(root, file_path),
             "rust_extern_blocks": rust_core.extract_rust_extern_blocks(root, file_path),
-            # Language-agnostic tables (for graph integration)
-            # Keys MUST match storage handler dict in core_storage.py
             "assignments": rust_core.extract_rust_assignments(root, file_path),
             "function_calls": rust_core.extract_rust_function_calls(root, file_path),
             "returns": rust_core.extract_rust_returns(root, file_path),

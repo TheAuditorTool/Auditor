@@ -36,16 +36,13 @@ class ASTCache:
         temp_file = self.cache_dir / f"{key}.tmp"
         try:
             if isinstance(value, dict):
-                # Atomic write: temp file first, then rename
                 with open(temp_file, "w", encoding="utf-8") as f:
                     json.dump(value, f)
                 os.replace(temp_file, cache_file)
 
-                # Probabilistic eviction: only 1% of writes trigger full scan
                 if random.random() < 0.01:
                     self._evict_if_needed()
         except (OSError, PermissionError, TypeError):
-            # Clean up temp file on failure
             try:
                 if temp_file.exists():
                     temp_file.unlink()

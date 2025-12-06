@@ -50,7 +50,6 @@ class LinterOrchestrator:
         self.db = DatabaseManager(db_path)
         self.toolbox = Toolbox(self.root)
 
-        # Verify toolbox is set up
         if not self.toolbox.sandbox.exists():
             raise RuntimeError(
                 f"Toolbox not found at {self.toolbox.sandbox}. "
@@ -81,10 +80,9 @@ class LinterOrchestrator:
         Returns:
             List of finding dictionaries
         """
-        # Single DB query - fetch all source files with extensions
+
         all_files = self._get_all_source_files()
 
-        # Python-side partitioning (O(N) in-memory, not O(5N) DB roundtrips)
         js_extensions = {".js", ".jsx", ".ts", ".tsx", ".mjs"}
         js_files = [p for p, ext in all_files if ext in js_extensions]
         py_files = [p for p, ext in all_files if ext == ".py"]
@@ -92,7 +90,6 @@ class LinterOrchestrator:
         go_files = [p for p, ext in all_files if ext == ".go"]
         sh_files = [p for p, ext in all_files if ext in {".sh", ".bash"}]
 
-        # Filter to workset if provided
         if workset_files:
             workset_set = set(workset_files)
             js_files = [f for f in js_files if f in workset_set]
@@ -101,7 +98,6 @@ class LinterOrchestrator:
             go_files = [f for f in go_files if f in workset_set]
             sh_files = [f for f in sh_files if f in workset_set]
 
-        # Create linter instances
         linters = []
 
         if js_files:
@@ -131,20 +127,17 @@ class LinterOrchestrator:
             logger.info("No files to lint")
             return []
 
-        # Run all linters in parallel
         logger.info(f"Running {len(linters)} linters in parallel...")
 
         tasks = [linter.run(files) for name, linter, files in linters]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
-        # Collect findings, handling LinterResult status
         all_findings: list[Finding] = []
         for (name, linter, files), result in zip(linters, results, strict=True):
             if isinstance(result, Exception):
                 logger.error(f"[{name}] Failed with exception: {result}")
                 continue
 
-            # result is now LinterResult
             linter_result: LinterResult = result
 
             if linter_result.status == "SKIPPED":
@@ -152,13 +145,10 @@ class LinterOrchestrator:
             elif linter_result.status == "FAILED":
                 logger.error(f"[{name}] FAILED: {linter_result.error_message}")
             else:
-                # SUCCESS - collect findings
                 all_findings.extend(linter_result.findings)
 
-        # Convert Finding objects to dicts for backward compatibility
         findings_dicts = [f.to_dict() for f in all_findings]
 
-        # Write to database and JSON
         if findings_dicts:
             logger.info(f"Writing {len(findings_dicts)} findings to database")
             self.db.write_findings_batch(findings_dicts, "lint")
@@ -177,11 +167,9 @@ class LinterOrchestrator:
             sqlite3.OperationalError: If database is locked or table missing.
                 This is intentional - infrastructure failures must crash loud.
         """
-        # NO try-except. If DB is broken, we crash. Zero Fallback policy.
+
         cursor = self.db.conn.cursor()
-        cursor.execute(
-            "SELECT path, ext FROM files WHERE file_category = 'source' ORDER BY path"
-        )
+        cursor.execute("SELECT path, ext FROM files WHERE file_category = 'source' ORDER BY path")
         files = cursor.fetchall()
         logger.debug(f"Fetched {len(files)} source files from database")
         return files

@@ -31,30 +31,32 @@ METADATA = RuleMetadata(
     primary_table="go_variables",
 )
 
-# Common Go functions known to return errors
-ERROR_RETURNING_FUNCS = frozenset({
-    "Close",
-    "Write",
-    "Read",
-    "Scan",
-    "Exec",
-    "Query",
-    "QueryRow",
-    "Prepare",
-    "Begin",
-    "Commit",
-    "Rollback",
-    "Marshal",
-    "Unmarshal",
-    "Decode",
-    "Encode",
-    "Parse",
-    "Open",
-    "Create",
-    "Remove",
-    "Rename",
-    "Mkdir",
-})
+
+ERROR_RETURNING_FUNCS = frozenset(
+    {
+        "Close",
+        "Write",
+        "Read",
+        "Scan",
+        "Exec",
+        "Query",
+        "QueryRow",
+        "Prepare",
+        "Begin",
+        "Commit",
+        "Rollback",
+        "Marshal",
+        "Unmarshal",
+        "Decode",
+        "Encode",
+        "Parse",
+        "Open",
+        "Create",
+        "Remove",
+        "Rename",
+        "Mkdir",
+    }
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -90,7 +92,6 @@ def _check_ignored_errors(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Find all blank identifier assignments with function calls
     blank_rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "name", "initial_value")
@@ -147,23 +148,21 @@ def _check_panic_in_library(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Get all non-main package files
-    lib_package_rows = db.query(
-        Q("go_packages")
-        .select("file_path")
-        .where("name != ?", "main")
-    )
+    lib_package_rows = db.query(Q("go_packages").select("file_path").where("name != ?", "main"))
     library_files = {file_path for (file_path,) in lib_package_rows}
 
     if not library_files:
         return findings
 
-    # Check variables with panic(), log.Fatal, log.Panic in initial value
     termination_rows = db.query(
         Q("go_variables")
         .select("file_path", "line", "initial_value")
-        .where("initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
-               "%panic(%", "%log.Fatal%", "%log.Panic%")
+        .where(
+            "initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
+            "%panic(%",
+            "%log.Fatal%",
+            "%log.Panic%",
+        )
     )
 
     for file_path, line, initial_value in termination_rows:
@@ -191,12 +190,15 @@ def _check_panic_in_library(db: RuleDB) -> list[StandardFinding]:
             )
         )
 
-    # Check defer statements with termination calls
     defer_termination_rows = db.query(
         Q("go_defer_statements")
         .select("file_path", "line", "deferred_expr")
-        .where("deferred_expr LIKE ? OR deferred_expr LIKE ? OR deferred_expr LIKE ?",
-               "%panic(%", "%log.Fatal%", "%log.Panic%")
+        .where(
+            "deferred_expr LIKE ? OR deferred_expr LIKE ? OR deferred_expr LIKE ?",
+            "%panic(%",
+            "%log.Fatal%",
+            "%log.Panic%",
+        )
     )
 
     for file_path, line, deferred_expr in defer_termination_rows:
@@ -235,15 +237,10 @@ def _check_defer_without_recover(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    # Get files with defer statements
-    defer_file_rows = db.query(
-        Q("go_defer_statements")
-        .select("file_path")
-    )
+    defer_file_rows = db.query(Q("go_defer_statements").select("file_path"))
     files_with_defer = {file_path for (file_path,) in defer_file_rows}
 
     for file_path in files_with_defer:
-        # Check if file has recover()
         recover_rows = db.query(
             Q("go_defer_statements")
             .select("file_path")
@@ -256,7 +253,6 @@ def _check_defer_without_recover(db: RuleDB) -> list[StandardFinding]:
         if has_recover:
             continue
 
-        # Check for type assertions without comma-ok pattern
         type_assert_rows = db.query(
             Q("go_type_assertions")
             .select("file_path")

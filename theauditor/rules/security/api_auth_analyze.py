@@ -319,7 +319,6 @@ class ApiAuthAnalyzer:
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
         public_patterns_lower = [p.lower() for p in self.patterns.PUBLIC_ENDPOINT_PATTERNS]
 
-        # Q.raw() acceptable here - GROUP_CONCAT aggregate not expressible in Q
         sql, params = Q.raw(
             """
             SELECT
@@ -375,7 +374,6 @@ class ApiAuthAnalyzer:
         sensitive_patterns_lower = [p.lower() for p in self.patterns.SENSITIVE_OPERATIONS]
         auth_patterns_lower = [p.lower() for p in self.patterns.AUTH_MIDDLEWARE]
 
-        # Q.raw() acceptable here - GROUP_CONCAT aggregate not expressible in Q
         sql, params = Q.raw(
             """
             SELECT
@@ -423,10 +421,7 @@ class ApiAuthAnalyzer:
 
     def _check_graphql_mutations(self):
         """Check GraphQL mutations for authentication using database queries."""
-        # NO TABLE EXISTENCE CHECK - Zero Fallback Policy
-        # If table doesn't exist, let SQLite throw OperationalError
 
-        # Q.raw() acceptable here - complex JOIN with GraphQL tables
         sql, params = Q.raw(
             """
             SELECT
@@ -447,8 +442,6 @@ class ApiAuthAnalyzer:
         try:
             rows = self.db.execute(sql, params)
         except Exception:
-            # Table doesn't exist in this codebase - no GraphQL schema
-            # This is NOT a fallback - it's handling absence of GraphQL
             return
 
         for (
@@ -497,7 +490,7 @@ class ApiAuthAnalyzer:
 
     def _check_weak_auth_patterns(self):
         """Check for weak authentication patterns."""
-        # Q.raw() acceptable here - GROUP_CONCAT with HAVING not expressible in Q
+
         sql, params = Q.raw(
             """
             SELECT
@@ -553,7 +546,6 @@ class ApiAuthAnalyzer:
         """Check if state-changing endpoints have CSRF protection."""
         csrf_patterns_lower = [p.lower() for p in self.patterns.CSRF_PATTERNS]
 
-        # Q.raw() acceptable here - GROUP_CONCAT aggregate not expressible in Q
         sql, params = Q.raw(
             """
             SELECT
@@ -603,7 +595,6 @@ class ApiAuthAnalyzer:
         auth_patterns = list(self.patterns.AUTH_MIDDLEWARE)
         placeholders = ",".join(["?"] * len(auth_patterns))
 
-        # Use Q for simple COUNT query with IN clause
         rows = self.db.query(
             Q("function_call_args")
             .select("COUNT(*)")

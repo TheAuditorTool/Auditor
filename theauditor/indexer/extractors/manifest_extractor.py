@@ -34,11 +34,9 @@ def _parse_python_dep_spec(spec: str) -> dict[str, Any]:
     """
     result = {"name": "", "version": "", "extras": [], "git_url": ""}
 
-    # Handle editable installs
     if spec.startswith("-e "):
         spec = spec[3:].strip()
 
-    # Handle git URLs
     if spec.startswith("git+"):
         result["git_url"] = spec
         if "#egg=" in spec:
@@ -46,7 +44,6 @@ def _parse_python_dep_spec(spec: str) -> dict[str, Any]:
             result["name"] = egg_part.split("&")[0].strip()
         return result
 
-    # Handle extras: package[extra1,extra2]>=version
     if "[" in spec and "]" in spec:
         match = re.match(r"^([a-zA-Z0-9_-]+)\[([^\]]+)\](.*)$", spec)
         if match:
@@ -57,7 +54,6 @@ def _parse_python_dep_spec(spec: str) -> dict[str, Any]:
         else:
             version_part = spec
     else:
-        # No extras - parse version operators
         for op in ["===", "==", "!=", "~=", ">=", "<=", ">", "<"]:
             if op in spec:
                 parts = spec.split(op, 1)
@@ -65,7 +61,6 @@ def _parse_python_dep_spec(spec: str) -> dict[str, Any]:
                 result["version"] = f"{op}{parts[1].strip()}"
                 return result
 
-        # No version constraint
         result["name"] = spec.strip()
         version_part = ""
 
@@ -84,7 +79,6 @@ class ManifestExtractor(BaseExtractor):
     - requirements.txt -> python_package_configs + python_package_dependencies
     """
 
-    # Patterns this extractor handles
     PACKAGE_JSON = frozenset(["package.json"])
     PYPROJECT = frozenset(["pyproject.toml"])
 
@@ -97,23 +91,18 @@ class ManifestExtractor(BaseExtractor):
         path = Path(file_path)
         file_name = path.name.lower()
 
-        # package.json
         if file_name == "package.json":
             return True
 
-        # pyproject.toml
         if file_name == "pyproject.toml":
             return True
 
-        # Cargo.toml
         if file_name == "cargo.toml":
             return True
 
-        # go.mod
         if file_name == "go.mod":
             return True
 
-        # requirements*.txt
         return file_name.startswith("requirements") and path.suffix == ".txt"
 
     def extract(
@@ -123,26 +112,21 @@ class ManifestExtractor(BaseExtractor):
         file_path = str(file_info["path"])
         file_name = Path(file_path).name.lower()
 
-        # Initialize result with standard empty keys
         result: dict[str, Any] = {
             "imports": [],
             "routes": [],
             "sql_queries": [],
             "symbols": [],
-            # Node.js package data keys
             "package_configs": [],
             "package_dependencies": [],
             "package_scripts": [],
             "package_engines": [],
             "package_workspaces": [],
-            # Python package data keys
             "python_package_configs": [],
             "python_package_dependencies": [],
             "python_build_requires": [],
-            # Cargo (Rust) package data keys
             "cargo_package_configs": [],
             "cargo_dependencies": [],
-            # Go module data keys
             "go_module_configs": [],
             "go_module_dependencies": [],
         }
@@ -160,94 +144,95 @@ class ManifestExtractor(BaseExtractor):
 
         return FidelityToken.attach_manifest(result)
 
-    def _extract_package_json(
-        self, file_path: str, content: str, result: dict[str, Any]
-    ) -> None:
+    def _extract_package_json(self, file_path: str, content: str, result: dict[str, Any]) -> None:
         """Extract package.json into result data lists."""
         try:
             pkg_data = json.loads(content)
         except json.JSONDecodeError as e:
-            # ZERO FALLBACK: Log parse errors visibly
             logger.error(f"[ManifestExtractor] Failed to parse {file_path}: {e}")
             return
 
-        # Main package config
-        result["package_configs"].append({
-            "file_path": file_path,
-            "package_name": pkg_data.get("name", "unknown"),
-            "version": pkg_data.get("version", "unknown"),
-            "is_private": pkg_data.get("private", False),
-        })
+        result["package_configs"].append(
+            {
+                "file_path": file_path,
+                "package_name": pkg_data.get("name", "unknown"),
+                "version": pkg_data.get("version", "unknown"),
+                "is_private": pkg_data.get("private", False),
+            }
+        )
 
-        # Dependencies
         deps = pkg_data.get("dependencies") or {}
         for name, version_spec in deps.items():
-            result["package_dependencies"].append({
-                "file_path": file_path,
-                "name": name,
-                "version_spec": version_spec,
-                "is_dev": False,
-                "is_peer": False,
-            })
+            result["package_dependencies"].append(
+                {
+                    "file_path": file_path,
+                    "name": name,
+                    "version_spec": version_spec,
+                    "is_dev": False,
+                    "is_peer": False,
+                }
+            )
 
-        # Dev dependencies
         dev_deps = pkg_data.get("devDependencies") or {}
         for name, version_spec in dev_deps.items():
-            result["package_dependencies"].append({
-                "file_path": file_path,
-                "name": name,
-                "version_spec": version_spec,
-                "is_dev": True,
-                "is_peer": False,
-            })
+            result["package_dependencies"].append(
+                {
+                    "file_path": file_path,
+                    "name": name,
+                    "version_spec": version_spec,
+                    "is_dev": True,
+                    "is_peer": False,
+                }
+            )
 
-        # Peer dependencies
         peer_deps = pkg_data.get("peerDependencies") or {}
         for name, version_spec in peer_deps.items():
-            result["package_dependencies"].append({
-                "file_path": file_path,
-                "name": name,
-                "version_spec": version_spec,
-                "is_dev": False,
-                "is_peer": True,
-            })
+            result["package_dependencies"].append(
+                {
+                    "file_path": file_path,
+                    "name": name,
+                    "version_spec": version_spec,
+                    "is_dev": False,
+                    "is_peer": True,
+                }
+            )
 
-        # Scripts
         scripts = pkg_data.get("scripts") or {}
         for script_name, script_command in scripts.items():
-            result["package_scripts"].append({
-                "file_path": file_path,
-                "script_name": script_name,
-                "script_command": script_command,
-            })
+            result["package_scripts"].append(
+                {
+                    "file_path": file_path,
+                    "script_name": script_name,
+                    "script_command": script_command,
+                }
+            )
 
-        # Engines
         engines = pkg_data.get("engines") or {}
         for engine_name, version_spec in engines.items():
-            result["package_engines"].append({
-                "file_path": file_path,
-                "engine_name": engine_name,
-                "version_spec": version_spec,
-            })
+            result["package_engines"].append(
+                {
+                    "file_path": file_path,
+                    "engine_name": engine_name,
+                    "version_spec": version_spec,
+                }
+            )
 
-        # Workspaces
         workspaces = pkg_data.get("workspaces") or []
         if isinstance(workspaces, dict):
             workspaces = workspaces.get("packages", [])
         for workspace_path in workspaces:
-            result["package_workspaces"].append({
-                "file_path": file_path,
-                "workspace_path": workspace_path,
-            })
+            result["package_workspaces"].append(
+                {
+                    "file_path": file_path,
+                    "workspace_path": workspace_path,
+                }
+            )
 
-    def _extract_pyproject(
-        self, file_path: str, content: str, result: dict[str, Any]
-    ) -> None:
+    def _extract_pyproject(self, file_path: str, content: str, result: dict[str, Any]) -> None:
         """Extract pyproject.toml into result data lists."""
         try:
             data = tomllib.loads(content)
         except tomllib.TOMLDecodeError as e:
-            # ZERO FALLBACK: Log parse errors visibly
             logger.error(f"[ManifestExtractor] Failed to parse {file_path}: {e}")
             return
 
@@ -255,31 +240,32 @@ class ManifestExtractor(BaseExtractor):
         project_name = project.get("name")
         project_version = project.get("version")
 
-        # Main package config
-        result["python_package_configs"].append({
-            "file_path": file_path,
-            "file_type": "pyproject",
-            "project_name": project_name,
-            "project_version": project_version,
-        })
+        result["python_package_configs"].append(
+            {
+                "file_path": file_path,
+                "file_type": "pyproject",
+                "project_name": project_name,
+                "project_version": project_version,
+            }
+        )
 
-        # Regular dependencies
         deps_list = project.get("dependencies", [])
         for dep_spec in deps_list:
             dep_info = _parse_python_dep_spec(dep_spec)
             if dep_info["name"]:
                 extras_json = json.dumps(dep_info["extras"]) if dep_info["extras"] else None
-                result["python_package_dependencies"].append({
-                    "file_path": file_path,
-                    "name": dep_info["name"],
-                    "version_spec": dep_info["version"] or None,
-                    "is_dev": False,
-                    "group_name": None,
-                    "extras": extras_json,
-                    "git_url": dep_info["git_url"] or None,
-                })
+                result["python_package_dependencies"].append(
+                    {
+                        "file_path": file_path,
+                        "name": dep_info["name"],
+                        "version_spec": dep_info["version"] or None,
+                        "is_dev": False,
+                        "group_name": None,
+                        "extras": extras_json,
+                        "git_url": dep_info["git_url"] or None,
+                    }
+                )
 
-        # Optional dependencies (grouped)
         optional_deps = project.get("optional-dependencies", {})
         for group_name, group_deps in optional_deps.items():
             is_dev = group_name.lower() in ("dev", "development", "test", "testing")
@@ -287,53 +273,52 @@ class ManifestExtractor(BaseExtractor):
                 dep_info = _parse_python_dep_spec(dep_spec)
                 if dep_info["name"]:
                     extras_json = json.dumps(dep_info["extras"]) if dep_info["extras"] else None
-                    result["python_package_dependencies"].append({
-                        "file_path": file_path,
-                        "name": dep_info["name"],
-                        "version_spec": dep_info["version"] or None,
-                        "is_dev": is_dev,
-                        "group_name": group_name,
-                        "extras": extras_json,
-                        "git_url": dep_info["git_url"] or None,
-                    })
+                    result["python_package_dependencies"].append(
+                        {
+                            "file_path": file_path,
+                            "name": dep_info["name"],
+                            "version_spec": dep_info["version"] or None,
+                            "is_dev": is_dev,
+                            "group_name": group_name,
+                            "extras": extras_json,
+                            "git_url": dep_info["git_url"] or None,
+                        }
+                    )
 
-        # Build system requirements
         build_sys = data.get("build-system", {})
         build_requires = build_sys.get("requires", [])
         for req_spec in build_requires:
             dep_info = _parse_python_dep_spec(req_spec)
             if dep_info["name"]:
-                result["python_build_requires"].append({
-                    "file_path": file_path,
-                    "name": dep_info["name"],
-                    "version_spec": dep_info["version"] or None,
-                })
+                result["python_build_requires"].append(
+                    {
+                        "file_path": file_path,
+                        "name": dep_info["name"],
+                        "version_spec": dep_info["version"] or None,
+                    }
+                )
 
-    def _extract_requirements(
-        self, file_path: str, content: str, result: dict[str, Any]
-    ) -> None:
+    def _extract_requirements(self, file_path: str, content: str, result: dict[str, Any]) -> None:
         """Extract requirements.txt into result data lists."""
-        # Main package config (no project name/version for requirements.txt)
-        result["python_package_configs"].append({
-            "file_path": file_path,
-            "file_type": "requirements",
-            "project_name": None,
-            "project_version": None,
-        })
 
-        # Parse each line
+        result["python_package_configs"].append(
+            {
+                "file_path": file_path,
+                "file_type": "requirements",
+                "project_name": None,
+                "project_version": None,
+            }
+        )
+
         for line in content.splitlines():
             line = line.strip()
 
-            # Skip empty lines and comments
             if not line or line.startswith("#"):
                 continue
 
-            # Skip -r and -c includes
             if line.startswith("-r") or line.startswith("-c"):
                 continue
 
-            # Remove inline comments (but not in git URLs)
             if "#" in line and not line.startswith("git+"):
                 line = line.split("#")[0].strip()
 
@@ -343,19 +328,19 @@ class ManifestExtractor(BaseExtractor):
             dep_info = _parse_python_dep_spec(line)
             if dep_info["name"]:
                 extras_json = json.dumps(dep_info["extras"]) if dep_info["extras"] else None
-                result["python_package_dependencies"].append({
-                    "file_path": file_path,
-                    "name": dep_info["name"],
-                    "version_spec": dep_info["version"] or None,
-                    "is_dev": False,
-                    "group_name": None,
-                    "extras": extras_json,
-                    "git_url": dep_info["git_url"] or None,
-                })
+                result["python_package_dependencies"].append(
+                    {
+                        "file_path": file_path,
+                        "name": dep_info["name"],
+                        "version_spec": dep_info["version"] or None,
+                        "is_dev": False,
+                        "group_name": None,
+                        "extras": extras_json,
+                        "git_url": dep_info["git_url"] or None,
+                    }
+                )
 
-    def _extract_cargo_toml(
-        self, file_path: str, content: str, result: dict[str, Any]
-    ) -> None:
+    def _extract_cargo_toml(self, file_path: str, content: str, result: dict[str, Any]) -> None:
         """Extract Cargo.toml into result data lists."""
         try:
             data = tomllib.loads(content)
@@ -363,26 +348,24 @@ class ManifestExtractor(BaseExtractor):
             logger.error(f"[ManifestExtractor] Failed to parse {file_path}: {e}")
             return
 
-        # Extract package info
         package = data.get("package", {})
         package_name = package.get("name")
         package_version = package.get("version")
         edition = package.get("edition")
 
-        result["cargo_package_configs"].append({
-            "file_path": file_path,
-            "package_name": package_name,
-            "package_version": package_version,
-            "edition": edition,
-        })
+        result["cargo_package_configs"].append(
+            {
+                "file_path": file_path,
+                "package_name": package_name,
+                "package_version": package_version,
+                "edition": edition,
+            }
+        )
 
-        # Extract dependencies
         self._extract_cargo_deps(file_path, data.get("dependencies", {}), False, result)
 
-        # Extract dev-dependencies
         self._extract_cargo_deps(file_path, data.get("dev-dependencies", {}), True, result)
 
-        # Extract build-dependencies (also as dev)
         self._extract_cargo_deps(file_path, data.get("build-dependencies", {}), True, result)
 
     def _extract_cargo_deps(
@@ -407,33 +390,33 @@ class ManifestExtractor(BaseExtractor):
             else:
                 continue
 
-            result["cargo_dependencies"].append({
-                "file_path": file_path,
-                "name": name,
-                "version_spec": version_spec,
-                "is_dev": is_dev,
-                "features": features,
-            })
+            result["cargo_dependencies"].append(
+                {
+                    "file_path": file_path,
+                    "name": name,
+                    "version_spec": version_spec,
+                    "is_dev": is_dev,
+                    "features": features,
+                }
+            )
 
-    def _extract_go_mod(
-        self, file_path: str, content: str, result: dict[str, Any]
-    ) -> None:
+    def _extract_go_mod(self, file_path: str, content: str, result: dict[str, Any]) -> None:
         """Extract go.mod into result data lists."""
-        # Extract module path
+
         module_match = re.search(r"^module\s+(\S+)", content, re.MULTILINE)
         module_path = module_match.group(1) if module_match else ""
 
-        # Extract go version
         go_version_match = re.search(r"^go\s+(\d+\.\d+)", content, re.MULTILINE)
         go_version = go_version_match.group(1) if go_version_match else None
 
-        result["go_module_configs"].append({
-            "file_path": file_path,
-            "module_path": module_path,
-            "go_version": go_version,
-        })
+        result["go_module_configs"].append(
+            {
+                "file_path": file_path,
+                "module_path": module_path,
+                "go_version": go_version,
+            }
+        )
 
-        # Find require block: require ( ... )
         require_block_match = re.search(r"require\s*\((.*?)\)", content, re.DOTALL)
         if require_block_match:
             for line in require_block_match.group(1).strip().split("\n"):
@@ -441,15 +424,15 @@ class ManifestExtractor(BaseExtractor):
                 if line and not line.startswith("//"):
                     self._extract_go_mod_dep(file_path, line, result)
 
-        # Find single-line requires: require module version
-        # Module must start with letter, version must start with v
         for match in re.finditer(r"^require\s+([a-zA-Z][\S]*)\s+(v[\S]+)", content, re.MULTILINE):
-            result["go_module_dependencies"].append({
-                "file_path": file_path,
-                "module_path": match.group(1),
-                "version": match.group(2),
-                "is_indirect": False,
-            })
+            result["go_module_dependencies"].append(
+                {
+                    "file_path": file_path,
+                    "module_path": match.group(1),
+                    "version": match.group(2),
+                    "is_indirect": False,
+                }
+            )
 
     def _extract_go_mod_dep(
         self,
@@ -458,7 +441,7 @@ class ManifestExtractor(BaseExtractor):
         result: dict[str, Any],
     ) -> None:
         """Extract a single Go module dependency line."""
-        # Handle inline comments
+
         is_indirect = "indirect" in line
         if "//" in line:
             code_part = line.split("//")[0].strip()
@@ -467,9 +450,11 @@ class ManifestExtractor(BaseExtractor):
 
         parts = code_part.split()
         if len(parts) >= 2:
-            result["go_module_dependencies"].append({
-                "file_path": file_path,
-                "module_path": parts[0],
-                "version": parts[1],
-                "is_indirect": is_indirect,
-            })
+            result["go_module_dependencies"].append(
+                {
+                    "file_path": file_path,
+                    "module_path": parts[0],
+                    "version": parts[1],
+                    "is_indirect": is_indirect,
+                }
+            )

@@ -28,44 +28,48 @@ METADATA = RuleMetadata(
     primary_table="graphql_fields",
 )
 
-# Authentication directive patterns (without @ prefix for matching)
-AUTH_DIRECTIVES = frozenset([
-    "auth",
-    "authenticated",
-    "requireauth",
-    "require_auth",
-    "authorize",
-    "authorized",
-    "protected",
-    "secure",
-    "isauthenticated",
-    "is_authenticated",
-    "login_required",
-    "permission",
-    "role",
-    "hasrole",
-    "has_role",
-])
 
-# Mutations that typically don't need auth (public operations)
-PUBLIC_MUTATIONS = frozenset([
-    "login",
-    "signin",
-    "sign_in",
-    "signup",
-    "sign_up",
-    "register",
-    "createaccount",
-    "create_account",
-    "forgotpassword",
-    "forgot_password",
-    "resetpassword",
-    "reset_password",
-    "verifyemail",
-    "verify_email",
-    "refreshtoken",
-    "refresh_token",
-])
+AUTH_DIRECTIVES = frozenset(
+    [
+        "auth",
+        "authenticated",
+        "requireauth",
+        "require_auth",
+        "authorize",
+        "authorized",
+        "protected",
+        "secure",
+        "isauthenticated",
+        "is_authenticated",
+        "login_required",
+        "permission",
+        "role",
+        "hasrole",
+        "has_role",
+    ]
+)
+
+
+PUBLIC_MUTATIONS = frozenset(
+    [
+        "login",
+        "signin",
+        "sign_in",
+        "signup",
+        "sign_up",
+        "register",
+        "createaccount",
+        "create_account",
+        "forgotpassword",
+        "forgot_password",
+        "resetpassword",
+        "reset_password",
+        "verifyemail",
+        "verify_email",
+        "refreshtoken",
+        "refresh_token",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -86,7 +90,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        # Get all mutation fields with their schema paths
         rows = db.query(
             Q("graphql_fields")
             .select(
@@ -102,11 +105,9 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         for row in rows:
             field_id, field_name, line, schema_path = row
 
-            # Skip public mutations that don't require auth
             if field_name and field_name.lower() in PUBLIC_MUTATIONS:
                 continue
 
-            # Check if this field has an auth directive
             directive_rows = db.query(
                 Q("graphql_field_directives")
                 .select("directive_name")
@@ -121,7 +122,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             if has_auth_directive:
                 continue
 
-            # Check if resolver has auth decorators (via resolver mappings)
             resolver_rows = db.query(
                 Q("graphql_resolver_mappings")
                 .select("resolver_path", "resolver_line")
@@ -132,7 +132,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             for resolver_path, resolver_line in resolver_rows:
                 if not resolver_path:
                     continue
-                # Check for auth decorators in function call context before resolver
+
                 decorator_rows = db.query(
                     Q("function_call_args")
                     .select("callee_function")
@@ -150,12 +150,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             if resolver_protected:
                 continue
 
-            # Check for manual auth patterns in resolver body (if context.user, if not request.user, etc.)
             manual_auth_found = False
             for resolver_path, resolver_line in resolver_rows:
                 if not resolver_path:
                     continue
-                # Look for conditional checks on auth-related variables within resolver scope
+
                 condition_rows = db.query(
                     Q("cfg_blocks")
                     .select("condition")
@@ -167,14 +166,26 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                 for (condition,) in condition_rows:
                     if condition:
                         cond_lower = condition.lower()
-                        # Check for common manual auth patterns
-                        if any(auth_var in cond_lower for auth_var in [
-                            "context.user", "request.user", "current_user",
-                            "is_authenticated", "user.is_authenticated",
-                            "not user", "not context.user", "not request.user",
-                            "user is none", "user == none", "user is not none",
-                            ".has_permission", ".is_staff", ".is_superuser",
-                        ]):
+
+                        if any(
+                            auth_var in cond_lower
+                            for auth_var in [
+                                "context.user",
+                                "request.user",
+                                "current_user",
+                                "is_authenticated",
+                                "user.is_authenticated",
+                                "not user",
+                                "not context.user",
+                                "not request.user",
+                                "user is none",
+                                "user == none",
+                                "user is not none",
+                                ".has_permission",
+                                ".is_staff",
+                                ".is_superuser",
+                            ]
+                        ):
                             manual_auth_found = True
                             break
                 if manual_auth_found:

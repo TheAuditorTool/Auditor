@@ -104,8 +104,6 @@ US_GOVERNMENT_IDS = frozenset(
 
 INTERNATIONAL_GOVERNMENT_IDS = frozenset(
     [
-        # "sin" removed - too generic, matches "single", "business", math sin()
-        # Keep social_insurance_number for explicit matches
         "social_insurance_number",
         "nas",
         "numero_assurance_sociale",
@@ -160,8 +158,6 @@ INTERNATIONAL_GOVERNMENT_IDS = frozenset(
         "voter_id_india",
         "ration_card",
         "nric",
-        # "fin" removed - too generic, matches "final", "finish", "define"
-        # Singapore FIN captured by longer patterns or explicit fin_number
         "fin_number",
         "foreign_identification_number",
         "mykad",
@@ -183,8 +179,6 @@ INTERNATIONAL_GOVERNMENT_IDS = frozenset(
         "philhealth",
         "umid",
         "cpf",
-        # "rg" removed - too generic (2 chars), matches "charging", "target", "margin"
-        # Brazilian RG captured by registro_geral
         "registro_geral",
         "rg_number",
         "cnpj",
@@ -305,8 +299,6 @@ FINANCIAL_PII = frozenset(
         "card_number",
         "debit_card",
         "payment_card",
-        # "pan" removed - too generic, matches "company", "japan", "expand", "panel"
-        # Primary Account Number captured by longer patterns
         "primary_account_number",
         "card_pan",
         "cvv",
@@ -1038,7 +1030,6 @@ BEHAVIORAL_DATA = frozenset(
 
 SANITIZED_TOKENS = frozenset(
     [
-        # Encryption/hashing indicators - variable stores protected data
         "hash",
         "hashed",
         "encrypt",
@@ -1051,7 +1042,6 @@ SANITIZED_TOKENS = frozenset(
         "obfuscated",
         "salt",
         "salted",
-        # Token/reference indicators - not raw PII
         "token",
         "jwt",
         "placeholder",
@@ -1061,7 +1051,6 @@ SANITIZED_TOKENS = frozenset(
         "fake",
         "sample",
         "template",
-        # Boolean/validation indicators - checking, not storing PII
         "check",
         "validate",
         "verify",
@@ -1073,7 +1062,6 @@ SANITIZED_TOKENS = frozenset(
         "invalid",
         "enabled",
         "disabled",
-        # Metadata indicators - describing, not containing PII
         "len",
         "length",
         "size",
@@ -1084,7 +1072,6 @@ SANITIZED_TOKENS = frozenset(
         "pattern",
         "regex",
         "schema",
-        # UI element indicators - not data storage
         "btn",
         "button",
         "label",
@@ -1313,7 +1300,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         pii_categories = _organize_pii_patterns()
 
-        # Core PII detections
         findings.extend(_detect_direct_pii(db, pii_categories))
         findings.extend(_detect_pii_in_logging(db, pii_categories))
         findings.extend(_detect_pii_in_errors(db, pii_categories))
@@ -1327,7 +1313,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings.extend(_detect_pii_in_route_patterns(db, pii_categories))
         findings.extend(_detect_pii_in_apis(db, pii_categories))
 
-        # Extended compliance detections
         findings.extend(_detect_pii_in_exports(db, pii_categories))
         findings.extend(_detect_pii_retention(db, pii_categories))
         findings.extend(_detect_pii_cross_border(db, pii_categories))
@@ -1509,19 +1494,15 @@ def _detect_direct_pii(db: RuleDB, pii_categories: dict) -> list[StandardFinding
     )
 
     for file, line, var, _expr in rows:
-        # Tokenize variable name: "customer_ssn_id" -> {"customer", "ssn", "id"}
         var_tokens = set(_split_identifier_tokens(var))
         if not var_tokens:
             continue
 
-        # Skip sanitized variables (hashed, encrypted, validation checks, etc.)
         if _is_sanitized(var_tokens):
             continue
 
-        # Check for test files - lower confidence
         is_test = _is_test_file(file)
 
-        # Token-based PII matching
         pii_category = None
         pii_pattern = None
 
@@ -1537,11 +1518,8 @@ def _detect_direct_pii(db: RuleDB, pii_categories: dict) -> list[StandardFinding
         if pii_category:
             regulations = get_applicable_regulations(pii_pattern)
 
-            # Lower confidence for test files
             confidence = (
-                Confidence.LOW
-                if is_test
-                else _determine_confidence(pii_pattern, "assignment")
+                Confidence.LOW if is_test else _determine_confidence(pii_pattern, "assignment")
             )
 
             findings.append(
@@ -1619,12 +1597,8 @@ def _detect_pii_in_errors(db: RuleDB, pii_categories: dict) -> list[StandardFind
     """
     findings = []
 
-    # Pre-fetch all catch symbols indexed by file
     catch_symbols = db.query(
-        Q("symbols")
-        .select("path", "line")
-        .where("type = ?", "catch")
-        .order_by("path, line")
+        Q("symbols").select("path", "line").where("type = ?", "catch").order_by("path, line")
     )
     catch_by_file: dict[str, list[int]] = {}
     for path, line in catch_symbols:
@@ -1632,12 +1606,8 @@ def _detect_pii_in_errors(db: RuleDB, pii_categories: dict) -> list[StandardFind
             catch_by_file[path] = []
         catch_by_file[path].append(line)
 
-    # Pre-fetch all symbols with error-related names indexed by file
     error_symbols = db.query(
-        Q("symbols")
-        .select("path", "line", "name")
-        .where("name IS NOT NULL")
-        .order_by("path, line")
+        Q("symbols").select("path", "line", "name").where("name IS NOT NULL").order_by("path, line")
     )
     error_names_by_file: dict[str, list[int]] = {}
     for path, line, name in error_symbols:
@@ -1646,7 +1616,6 @@ def _detect_pii_in_errors(db: RuleDB, pii_categories: dict) -> list[StandardFind
                 error_names_by_file[path] = []
             error_names_by_file[path].append(line)
 
-    # Now query function calls
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -1659,16 +1628,10 @@ def _detect_pii_in_errors(db: RuleDB, pii_categories: dict) -> list[StandardFind
         if not any(resp_func in func for resp_func in ERROR_RESPONSE_FUNCTIONS):
             continue
 
-        # Check for catch blocks nearby using pre-fetched data
-        catch_count = sum(
-            1 for c_line in catch_by_file.get(file, [])
-            if abs(c_line - line) <= 10
-        )
+        catch_count = sum(1 for c_line in catch_by_file.get(file, []) if abs(c_line - line) <= 10)
 
-        # Check for error-related symbol names nearby using pre-fetched data
         error_count = sum(
-            1 for e_line in error_names_by_file.get(file, [])
-            if abs(e_line - line) <= 10
+            1 for e_line in error_names_by_file.get(file, []) if abs(e_line - line) <= 10
         )
 
         in_error_context = catch_count > 0 or error_count > 0
@@ -1768,7 +1731,6 @@ def _detect_unencrypted_pii(db: RuleDB, pii_categories: dict) -> list[StandardFi
         "password",
     }
 
-    # Pre-fetch all encryption-related function calls indexed by file
     all_calls = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -1776,30 +1738,25 @@ def _detect_unencrypted_pii(db: RuleDB, pii_categories: dict) -> list[StandardFi
         .order_by("file, line")
     )
 
-    # Build lookup for encryption calls by file
     encrypt_by_file: dict[str, list[int]] = {}
     storage_candidates: list[tuple[str, int, str, str]] = []
 
     for file, line, func, args in all_calls:
         func_lower = func.lower() if func else ""
-        # Track encryption calls
+
         if "encrypt" in func_lower or "hash" in func_lower or "bcrypt" in func_lower:
             if file not in encrypt_by_file:
                 encrypt_by_file[file] = []
             encrypt_by_file[file].append(line)
 
-        # Track storage candidates
         if args and any(store_func in func for store_func in DATABASE_STORAGE_FUNCTIONS):
             storage_candidates.append((file, line, func, args))
 
-    # Check storage candidates against pre-fetched encryption data
     for file, line, func, args in storage_candidates:
         matched = _detect_specific_pattern(args, must_encrypt)
         if matched:
-            # Check for encryption calls nearby using pre-fetched data
             has_encryption = any(
-                abs(e_line - line) <= 5
-                for e_line in encrypt_by_file.get(file, [])
+                abs(e_line - line) <= 5 for e_line in encrypt_by_file.get(file, [])
             )
 
             if not has_encryption:
@@ -1854,12 +1811,10 @@ def _detect_client_side_pii(db: RuleDB, pii_categories: dict) -> list[StandardFi
         if not any(storage_func in func for storage_func in CLIENT_STORAGE_FUNCTIONS):
             continue
 
-        # Use token-based matching instead of substring
         args_tokens = set(_split_identifier_tokens(args))
         if not args_tokens:
             continue
 
-        # Skip if args indicate sanitized data
         if _is_sanitized(args_tokens):
             continue
 
@@ -1900,7 +1855,6 @@ def _detect_pii_in_exceptions(db: RuleDB, pii_categories: dict) -> list[Standard
     """
     findings = []
 
-    # Pre-fetch all exception handlers
     handler_rows = db.query(
         Q("symbols")
         .select("path", "line", "name")
@@ -1908,12 +1862,10 @@ def _detect_pii_in_exceptions(db: RuleDB, pii_categories: dict) -> list[Standard
         .order_by("path, line")
     )
 
-    # Get unique files that have exception handlers
     handler_files = {row[0] for row in handler_rows}
     if not handler_files:
         return findings
 
-    # Pre-fetch all function calls in files with exception handlers
     all_calls = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -1922,7 +1874,6 @@ def _detect_pii_in_exceptions(db: RuleDB, pii_categories: dict) -> list[Standard
         .order_by("file, line")
     )
 
-    # Build lookup: file -> list of (line, func, args)
     calls_by_file: dict[str, list[tuple[int, str, str]]] = {}
     for file, line, func, args in all_calls:
         if file in handler_files:
@@ -1932,12 +1883,10 @@ def _detect_pii_in_exceptions(db: RuleDB, pii_categories: dict) -> list[Standard
 
     log_keywords = frozenset(["log", "print", "send"])
 
-    # Now match handlers with nearby calls using pre-fetched data
     for file, handler_line, _handler_name in handler_rows:
         file_calls = calls_by_file.get(file, [])
 
         for call_line, func, args in file_calls:
-            # Check if call is within 20 lines after handler
             if not (handler_line <= call_line <= handler_line + 20):
                 continue
 
@@ -2019,27 +1968,21 @@ def _detect_aggregated_pii(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var")
-        .where("target_var IS NOT NULL")
+        Q("assignments").select("file", "line", "target_var").where("target_var IS NOT NULL")
     )
 
     file_quasi: dict[str, dict] = {}
     for file, line, var in rows:
-        # Skip test files
         if _is_test_file(file):
             continue
 
-        # Use token-based matching
         var_tokens = set(_split_identifier_tokens(var))
         if not var_tokens:
             continue
 
-        # Skip sanitized variables
         if _is_sanitized(var_tokens):
             continue
 
-        # Check for quasi-identifier match using tokens
         matched_quasi = _detect_specific_pattern(var, QUASI_IDENTIFIERS)
         if matched_quasi:
             if file not in file_quasi:
@@ -2101,20 +2044,16 @@ def _detect_third_party_pii(db: RuleDB, pii_categories: dict) -> list[StandardFi
         if not any(api in func for api in third_party_apis):
             continue
 
-        # Skip test files
         if _is_test_file(file):
             continue
 
-        # Use token-based matching (via _detect_pii_matches)
         args_tokens = set(_split_identifier_tokens(args))
         if not args_tokens:
             continue
 
-        # Skip if args indicate sanitized data
         if _is_sanitized(args_tokens):
             continue
 
-        # Use existing token-based detection
         detected_pii = _detect_pii_matches(args, pii_categories)
 
         if detected_pii:
@@ -2360,7 +2299,6 @@ def _detect_pii_retention(db: RuleDB, pii_categories: dict) -> list[StandardFind
         ]
     )
 
-    # Only check high-sensitivity categories for retention violations
     sensitive_categories = {"government", "healthcare", "financial", "children"}
 
     rows = db.query(
@@ -2375,20 +2313,16 @@ def _detect_pii_retention(db: RuleDB, pii_categories: dict) -> list[StandardFind
         if not any(cache_func in func for cache_func in cache_functions):
             continue
 
-        # Skip test files
         if _is_test_file(file):
             continue
 
-        # Use token-based matching
         args_tokens = set(_split_identifier_tokens(args))
         if not args_tokens:
             continue
 
-        # Skip if args indicate sanitized data
         if _is_sanitized(args_tokens):
             continue
 
-        # Check for sensitive PII using token matching
         has_pii = False
         for category, patterns in pii_categories.items():
             if category not in sensitive_categories:
@@ -2401,7 +2335,6 @@ def _detect_pii_retention(db: RuleDB, pii_categories: dict) -> list[StandardFind
                 break
 
         if has_pii:
-            # Check for TTL keywords (also use token matching)
             ttl_keywords = {"ttl", "expire", "expires", "timeout", "maxage", "max_age"}
             has_ttl = not args_tokens.isdisjoint(ttl_keywords)
 
@@ -2454,7 +2387,6 @@ def _detect_pii_cross_border(db: RuleDB, pii_categories: dict) -> list[StandardF
         ]
     )
 
-    # Pre-fetch all function call args indexed by file
     all_args = db.query(
         Q("function_call_args")
         .select("file", "line", "argument_expr")
@@ -2462,7 +2394,6 @@ def _detect_pii_cross_border(db: RuleDB, pii_categories: dict) -> list[StandardF
         .order_by("file, line")
     )
 
-    # Build lookup: file -> list of (line, argument_expr)
     args_by_file: dict[str, list[tuple[int, str]]] = {}
     for file, line, arg in all_args:
         if file not in args_by_file:
@@ -2484,7 +2415,6 @@ def _detect_pii_cross_border(db: RuleDB, pii_categories: dict) -> list[StandardF
         is_cross_border = any(api in expr_lower for api in cross_border_apis)
 
         if is_cross_border:
-            # Check for var usage nearby using pre-fetched data
             has_var_usage = any(
                 var in arg
                 for arg_line, arg in args_by_file.get(file, [])
@@ -2534,7 +2464,6 @@ def _detect_pii_consent_gaps(db: RuleDB, pii_categories: dict) -> list[StandardF
         ]
     )
 
-    # Fetch all function calls at once
     rows = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function", "argument_expr")
@@ -2542,7 +2471,6 @@ def _detect_pii_consent_gaps(db: RuleDB, pii_categories: dict) -> list[StandardF
         .order_by("file, line")
     )
 
-    # Build lookup: file -> list of (line, func_lower) for consent checking
     funcs_by_file: dict[str, list[tuple[int, str]]] = {}
     processing_candidates: list[tuple[str, int, str, str]] = []
 
@@ -2551,16 +2479,13 @@ def _detect_pii_consent_gaps(db: RuleDB, pii_categories: dict) -> list[StandardF
     for file, line, func, args in rows:
         func_lower = func.lower() if func else ""
 
-        # Track all function calls for consent checking
         if file not in funcs_by_file:
             funcs_by_file[file] = []
         funcs_by_file[file].append((line, func_lower))
 
-        # Track processing candidates
         if args and any(keyword in func_lower for keyword in processing_keywords):
             processing_candidates.append((file, line, func, args))
 
-    # Check each processing candidate using pre-fetched data
     for file, line, func, args in processing_candidates:
         args_lower = args.lower()
         has_pii = any(
@@ -2568,7 +2493,6 @@ def _detect_pii_consent_gaps(db: RuleDB, pii_categories: dict) -> list[StandardF
         )
 
         if has_pii:
-            # Check for consent calls nearby using pre-fetched data
             has_consent_check = any(
                 any(consent in nearby_func for consent in consent_checks)
                 for nearby_line, nearby_func in funcs_by_file.get(file, [])
@@ -2682,7 +2606,6 @@ def _detect_pii_access_control(db: RuleDB, pii_categories: dict) -> list[Standar
         ]
     )
 
-    # Pre-fetch all function symbols
     rows = db.query(
         Q("symbols")
         .select("path", "line", "name")
@@ -2691,7 +2614,6 @@ def _detect_pii_access_control(db: RuleDB, pii_categories: dict) -> list[Standar
         .order_by("path, line")
     )
 
-    # Identify candidate functions and collect files
     pii_function_keywords = frozenset(["get", "fetch", "load", "retrieve"])
     pii_entity_keywords = frozenset(["user", "profile", "customer", "patient"])
 
@@ -2710,7 +2632,6 @@ def _detect_pii_access_control(db: RuleDB, pii_categories: dict) -> list[Standar
     if not candidates:
         return findings
 
-    # Pre-fetch all function calls in candidate files
     all_calls = db.query(
         Q("function_call_args")
         .select("file", "line", "callee_function")
@@ -2718,7 +2639,6 @@ def _detect_pii_access_control(db: RuleDB, pii_categories: dict) -> list[Standar
         .order_by("file, line")
     )
 
-    # Build lookup: file -> list of (line, func_lower)
     calls_by_file: dict[str, list[tuple[int, str]]] = {}
     for file, line, func in all_calls:
         if file in candidate_files:
@@ -2726,9 +2646,7 @@ def _detect_pii_access_control(db: RuleDB, pii_categories: dict) -> list[Standar
                 calls_by_file[file] = []
             calls_by_file[file].append((line, func.lower() if func else ""))
 
-    # Check each candidate using pre-fetched data
     for file, line, func_name in candidates:
-        # Check for auth calls within 50 lines after function definition
         has_auth = any(
             any(auth in call_func for auth in auth_checks)
             for call_line, call_func in calls_by_file.get(file, [])

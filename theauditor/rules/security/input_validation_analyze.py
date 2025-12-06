@@ -36,84 +36,223 @@ METADATA = RuleMetadata(
 )
 
 
-# Immutable pattern definitions
-VALIDATION_FUNCTIONS: frozenset[str] = frozenset([
-    "validate", "verify", "sanitize", "clean", "check",
-    "isValid", "isEmail", "isURL", "isAlphanumeric",
-    "joi.validate", "schema.validate", "joi.assert", "joi.attempt",
-    "yup.validate", "schema.validateSync", "yup.reach", "yup.cast",
-    "z.parse", "schema.parse", "schema.safeParse", "z.string",
-    "validationResult", "checkSchema", "check", "body",
-    "validateOrReject", "validateSync", "validator.validate",
-    "ajv.compile", "ajv.validate", "schema.validate",
-])
+VALIDATION_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "validate",
+        "verify",
+        "sanitize",
+        "clean",
+        "check",
+        "isValid",
+        "isEmail",
+        "isURL",
+        "isAlphanumeric",
+        "joi.validate",
+        "schema.validate",
+        "joi.assert",
+        "joi.attempt",
+        "yup.validate",
+        "schema.validateSync",
+        "yup.reach",
+        "yup.cast",
+        "z.parse",
+        "schema.parse",
+        "schema.safeParse",
+        "z.string",
+        "validationResult",
+        "checkSchema",
+        "check",
+        "body",
+        "validateOrReject",
+        "validateSync",
+        "validator.validate",
+        "ajv.compile",
+        "ajv.validate",
+        "schema.validate",
+    ]
+)
 
-MERGE_FUNCTIONS: frozenset[str] = frozenset([
-    "Object.assign", "merge", "extend", "deepMerge", "deepExtend",
-    "_.merge", "_.extend", "_.assign", "_.defaults",
-    "jQuery.extend", "$.extend", "angular.merge", "angular.extend",
-    "Object.setPrototypeOf", "Reflect.setPrototypeOf",
-    "lodash.merge", "lodash.assign", "deep-extend", "node-extend",
-])
+MERGE_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "Object.assign",
+        "merge",
+        "extend",
+        "deepMerge",
+        "deepExtend",
+        "_.merge",
+        "_.extend",
+        "_.assign",
+        "_.defaults",
+        "jQuery.extend",
+        "$.extend",
+        "angular.merge",
+        "angular.extend",
+        "Object.setPrototypeOf",
+        "Reflect.setPrototypeOf",
+        "lodash.merge",
+        "lodash.assign",
+        "deep-extend",
+        "node-extend",
+    ]
+)
 
-NOSQL_OPERATORS: frozenset[str] = frozenset([
-    "$ne", "$gt", "$lt", "$gte", "$lte", "$in", "$nin",
-    "$exists", "$regex", "$not", "$where", "$expr",
-    "$jsonSchema", "$text", "$or", "$and", "$nor", "$elemMatch",
-])
+NOSQL_OPERATORS: frozenset[str] = frozenset(
+    [
+        "$ne",
+        "$gt",
+        "$lt",
+        "$gte",
+        "$lte",
+        "$in",
+        "$nin",
+        "$exists",
+        "$regex",
+        "$not",
+        "$where",
+        "$expr",
+        "$jsonSchema",
+        "$text",
+        "$or",
+        "$and",
+        "$nor",
+        "$elemMatch",
+    ]
+)
 
-TEMPLATE_ENGINES: frozenset[str] = frozenset([
-    "render", "compile", "renderFile", "renderString",
-    "ejs.render", "ejs.renderFile", "ejs.compile",
-    "pug.render", "pug.renderFile", "pug.compile",
-    "handlebars.compile", "hbs.compile", "hbs.renderView",
-    "mustache.render", "mustache.compile",
-    "nunjucks.render", "nunjucks.renderString",
-    "jade.render", "jade.compile", "jade.renderFile",
-    "doT.template", "dust.render", "swig.render",
-])
+TEMPLATE_ENGINES: frozenset[str] = frozenset(
+    [
+        "render",
+        "compile",
+        "renderFile",
+        "renderString",
+        "ejs.render",
+        "ejs.renderFile",
+        "ejs.compile",
+        "pug.render",
+        "pug.renderFile",
+        "pug.compile",
+        "handlebars.compile",
+        "hbs.compile",
+        "hbs.renderView",
+        "mustache.render",
+        "mustache.compile",
+        "nunjucks.render",
+        "nunjucks.renderString",
+        "jade.render",
+        "jade.compile",
+        "jade.renderFile",
+        "doT.template",
+        "dust.render",
+        "swig.render",
+    ]
+)
 
-TYPE_CHECKS: frozenset[str] = frozenset([
-    "typeof", "instanceof", "constructor", "Array.isArray",
-    "Number.isInteger", "Number.isNaN", "isNaN", "isFinite",
-    "Object.prototype.toString",
-])
+TYPE_CHECKS: frozenset[str] = frozenset(
+    [
+        "typeof",
+        "instanceof",
+        "constructor",
+        "Array.isArray",
+        "Number.isInteger",
+        "Number.isNaN",
+        "isNaN",
+        "isFinite",
+        "Object.prototype.toString",
+    ]
+)
 
-GRAPHQL_OPS: frozenset[str] = frozenset([
-    "graphql", "execute", "graphqlHTTP", "GraphQLSchema",
-    "apollo-server", "graphql-yoga", "makeExecutableSchema",
-    "buildSchema", "parse", "parseValue", "graphql-tag",
-])
+GRAPHQL_OPS: frozenset[str] = frozenset(
+    [
+        "graphql",
+        "execute",
+        "graphqlHTTP",
+        "GraphQLSchema",
+        "apollo-server",
+        "graphql-yoga",
+        "makeExecutableSchema",
+        "buildSchema",
+        "parse",
+        "parseValue",
+        "graphql-tag",
+    ]
+)
 
-DB_WRITE_OPS: frozenset[str] = frozenset([
-    "create", "insert", "update", "save", "upsert",
-    "findOneAndUpdate", "findByIdAndUpdate", "updateOne",
-    "updateMany", "bulkWrite", "bulkCreate", "insertMany",
-])
+DB_WRITE_OPS: frozenset[str] = frozenset(
+    [
+        "create",
+        "insert",
+        "update",
+        "save",
+        "upsert",
+        "findOneAndUpdate",
+        "findByIdAndUpdate",
+        "updateOne",
+        "updateMany",
+        "bulkWrite",
+        "bulkCreate",
+        "insertMany",
+    ]
+)
 
-INPUT_SOURCES: frozenset[str] = frozenset([
-    "req.body", "req.query", "req.params",
-    "request.body", "request.query", "request.params",
-    "ctx.request.body", "ctx.query", "ctx.params",
-    "event.body", "event.queryStringParameters",
-])
+INPUT_SOURCES: frozenset[str] = frozenset(
+    [
+        "req.body",
+        "req.query",
+        "req.params",
+        "request.body",
+        "request.query",
+        "request.params",
+        "ctx.request.body",
+        "ctx.query",
+        "ctx.params",
+        "event.body",
+        "event.queryStringParameters",
+    ]
+)
 
-DANGEROUS_SINKS: frozenset[str] = frozenset([
-    "eval", "Function", "exec", "spawn", "execFile",
-    "vm.runInContext", "vm.runInNewContext", "require",
-    "setTimeout", "setInterval", "setImmediate",
-])
+DANGEROUS_SINKS: frozenset[str] = frozenset(
+    [
+        "eval",
+        "Function",
+        "exec",
+        "spawn",
+        "execFile",
+        "vm.runInContext",
+        "vm.runInNewContext",
+        "require",
+        "setTimeout",
+        "setInterval",
+        "setImmediate",
+    ]
+)
 
-ORM_METHODS: frozenset[str] = frozenset([
-    "findOne", "find", "findAll", "findById", "findByPk",
-    "where", "query", "raw", "sequelize.query", "knex.raw",
-    "mongoose.find", "typeorm.query",
-])
+ORM_METHODS: frozenset[str] = frozenset(
+    [
+        "findOne",
+        "find",
+        "findAll",
+        "findById",
+        "findByPk",
+        "where",
+        "query",
+        "raw",
+        "sequelize.query",
+        "knex.raw",
+        "mongoose.find",
+        "typeorm.query",
+    ]
+)
 
-WEAK_PATTERNS: frozenset[str] = frozenset([
-    "return true", "return 1", "() => true",
-    "validate: true", "required: false", "optional: true",
-])
+WEAK_PATTERNS: frozenset[str] = frozenset(
+    [
+        "return true",
+        "return 1",
+        "() => true",
+        "validate: true",
+        "required: false",
+        "optional: true",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -129,7 +268,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         seen_issues: set[str] = set()
 
-        # Pre-fetch all function call args (used by multiple detectors)
         func_call_rows = db.query(
             Q("function_call_args")
             .select("file", "line", "callee_function", "argument_expr")
@@ -138,7 +276,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             .order_by("file, line")
         )
 
-        # Pre-fetch all assignments (used by multiple detectors)
         assignment_rows = db.query(
             Q("assignments")
             .select("file", "line", "target_var", "source_expr")
@@ -146,10 +283,8 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             .order_by("file, line")
         )
 
-        # Pre-fetch validation calls by file for proximity checks
         validation_by_file = _prefetch_validation_calls(db)
 
-        # Run all detectors
         findings.extend(_detect_prototype_pollution(func_call_rows, seen_issues))
         findings.extend(_detect_nosql_injection(assignment_rows, func_call_rows, seen_issues))
         findings.extend(_detect_missing_validation(func_call_rows, validation_by_file, seen_issues))
@@ -244,9 +379,9 @@ def _detect_prototype_pollution(
     """Detect prototype pollution vulnerabilities."""
     findings: list[StandardFinding] = []
 
-    user_input_keywords = frozenset([
-        "req.body", "request.body", "ctx.request.body", "userInput", "data"
-    ])
+    user_input_keywords = frozenset(
+        ["req.body", "request.body", "ctx.request.body", "userInput", "data"]
+    )
 
     for file, line, func, args in func_call_rows:
         if not any(merge in func for merge in MERGE_FUNCTIONS):
@@ -258,7 +393,8 @@ def _detect_prototype_pollution(
 
         if any(x in args_str for x in ["config", "settings", "options", "{}"]):
             _add_finding(
-                findings, seen_issues,
+                findings,
+                seen_issues,
                 rule_name="prototype-pollution",
                 message=f"Prototype pollution risk via {func} with user input",
                 file=file,
@@ -282,7 +418,6 @@ def _detect_nosql_injection(
 
     input_keywords = frozenset(["req.", "request.", "body", "query", "params"])
 
-    # Check assignments for NoSQL operators
     for file, line, var, expr in assignment_rows:
         if not expr:
             continue
@@ -297,7 +432,8 @@ def _detect_nosql_injection(
 
         if detected_operator:
             _add_finding(
-                findings, seen_issues,
+                findings,
+                seen_issues,
                 rule_name="nosql-injection",
                 message=f'NoSQL operator "{detected_operator}" detected with user input',
                 file=file,
@@ -308,7 +444,6 @@ def _detect_nosql_injection(
                 snippet=f"{var} = {expr[:50]}",
             )
 
-    # Check function calls for NoSQL operators in queries
     db_methods = frozenset([".find", ".update", ".delete"])
 
     for file, line, func, args in func_call_rows:
@@ -318,7 +453,8 @@ def _detect_nosql_injection(
             continue
         if any(op in str(args) for op in NOSQL_OPERATORS):
             _add_finding(
-                findings, seen_issues,
+                findings,
+                seen_issues,
                 rule_name="nosql-injection-query",
                 message=f"NoSQL injection in {func} with operators in query",
                 file=file,
@@ -340,9 +476,9 @@ def _detect_missing_validation(
     """Detect database operations without validation using pre-fetched data."""
     findings: list[StandardFinding] = []
 
-    user_input_patterns = frozenset([
-        "req.body", "req.query", "req.params", "request.body", "request.query"
-    ])
+    user_input_patterns = frozenset(
+        ["req.body", "req.query", "req.params", "request.body", "request.query"]
+    )
 
     for file, line, func, args in func_call_rows:
         if not any(f".{db_op}" in func for db_op in DB_WRITE_OPS):
@@ -350,10 +486,10 @@ def _detect_missing_validation(
         if not any(pattern in args for pattern in user_input_patterns):
             continue
 
-        # Use pre-fetched validation data - NO query in loop
         if not _has_validation_nearby(validation_by_file, file, line):
             _add_finding(
-                findings, seen_issues,
+                findings,
+                seen_issues,
                 rule_name="missing-validation",
                 message=f"Database operation {func} with unvalidated user input",
                 file=file,
@@ -384,7 +520,8 @@ def _detect_template_injection(
 
         is_compile = "compile" in func.lower()
         _add_finding(
-            findings, seen_issues,
+            findings,
+            seen_issues,
             rule_name="template-injection",
             message=f"Template injection risk in {func} with user input",
             file=file,
@@ -423,7 +560,8 @@ def _detect_type_confusion(
 
         if any(src in expr for src in INPUT_SOURCES):
             _add_finding(
-                findings, seen_issues,
+                findings,
+                seen_issues,
                 rule_name="type-confusion",
                 message="Type check can be bypassed with arrays or objects",
                 file=file,
@@ -453,7 +591,6 @@ def _detect_incomplete_validation(
     placeholders_val = ",".join("?" * len(validation_funcs))
     placeholders_db = ",".join("?" * len(db_write_ops))
 
-    # Complex JOIN with IN clauses - Q.raw justified
     sql, params = Q.raw(
         f"""
         SELECT f1.file, f1.line, f1.callee_function, f2.callee_function, f2.line
@@ -471,7 +608,8 @@ def _detect_incomplete_validation(
 
     for file, val_line, val_func, db_func, _db_line in rows:
         _add_finding(
-            findings, seen_issues,
+            findings,
+            seen_issues,
             rule_name="incomplete-validation",
             message=f"Validation at line {val_line} may not cover all fields used in {db_func}",
             file=file,
@@ -502,7 +640,8 @@ def _detect_schema_bypass(
             continue
         if "..." in str(args):
             _add_finding(
-                findings, seen_issues,
+                findings,
+                seen_issues,
                 rule_name="schema-bypass",
                 message="Spread operator may allow additional properties to bypass validation",
                 file=file,
@@ -523,10 +662,9 @@ def _detect_validation_library_misuse(
     """Detect common validation library misconfigurations."""
     findings: list[StandardFinding] = []
 
-    weak_configs = frozenset([
-        "required: false", "optional: true",
-        "allowUnknown: true", "stripUnknown: false"
-    ])
+    weak_configs = frozenset(
+        ["required: false", "optional: true", "allowUnknown: true", "stripUnknown: false"]
+    )
 
     for file, line, func, args in func_call_rows:
         if not any(val_func in func for val_func in VALIDATION_FUNCTIONS):
@@ -540,7 +678,8 @@ def _detect_validation_library_misuse(
             else "Weak validation config"
         )
         _add_finding(
-            findings, seen_issues,
+            findings,
+            seen_issues,
             rule_name="validation-misconfiguration",
             message=f"{config_issue} in {func}",
             file=file,
@@ -564,7 +703,6 @@ def _detect_framework_bypasses(
     """
     findings: list[StandardFinding] = []
 
-    # Complex aggregate query - Q.raw justified (GROUP_CONCAT not supported)
     sql, params = Q.raw(
         """
         SELECT
@@ -591,7 +729,8 @@ def _detect_framework_bypasses(
 
         line = endpoint_line if endpoint_line else 1
         _add_finding(
-            findings, seen_issues,
+            findings,
+            seen_issues,
             rule_name="missing-middleware",
             message=f"{method} endpoint {route} has no validation middleware",
             file=file,
@@ -612,9 +751,7 @@ def _detect_graphql_injection(
     """Detect GraphQL injection vulnerabilities."""
     findings: list[StandardFinding] = []
 
-    user_query_patterns = frozenset([
-        "req.body.query", "request.body.query", "userQuery"
-    ])
+    user_query_patterns = frozenset(["req.body.query", "request.body.query", "userQuery"])
 
     for file, line, func, args in func_call_rows:
         if not any(graphql in func for graphql in GRAPHQL_OPS):
@@ -623,7 +760,8 @@ def _detect_graphql_injection(
             continue
 
         _add_finding(
-            findings, seen_issues,
+            findings,
+            seen_issues,
             rule_name="graphql-injection",
             message=f"GraphQL injection risk in {func} with user-provided query",
             file=file,
@@ -667,15 +805,15 @@ def _detect_second_order_injection(
     )
     rows = db.execute(sql, params)
 
-    for (file, _retrieve_line, var, source_expr,
-         use_func, use_line, use_args) in rows:
+    for file, _retrieve_line, var, source_expr, use_func, use_line, use_args in rows:
         if ".find" not in source_expr:
             continue
         if not use_args or var not in use_args:
             continue
 
         _add_finding(
-            findings, seen_issues,
+            findings,
+            seen_issues,
             rule_name="second-order-injection",
             message=f"Data from database used in {use_func} without revalidation",
             file=file,
@@ -700,14 +838,11 @@ def _detect_business_logic_bypass(
     user_input_keywords = frozenset(["req.", "request."])
     negative_patterns = frozenset(["< 0", "<= 0", "Math.abs", "Math.max"])
 
-    # Build context map: file -> list of (line, source_expr)
-    # This allows checking nearby expressions without querying
     expr_by_file: dict[str, list[tuple[int, str]]] = defaultdict(list)
     for file, line, _var, expr in assignment_rows:
         if expr:
             expr_by_file[file].append((line, expr))
 
-    # Identify candidates
     candidates = []
     for file, line, var, expr in assignment_rows:
         if not expr:
@@ -719,11 +854,9 @@ def _detect_business_logic_bypass(
             continue
         candidates.append((file, line, var, expr))
 
-    # Check each candidate using pre-fetched data
     for file, line, var, expr in candidates:
         has_negative_check = False
 
-        # Check nearby expressions from pre-fetched data
         for expr_line, nearby_expr in expr_by_file[file]:
             if abs(expr_line - line) <= 10:
                 if any(pattern in nearby_expr for pattern in negative_patterns):
@@ -732,7 +865,8 @@ def _detect_business_logic_bypass(
 
         if not has_negative_check:
             _add_finding(
-                findings, seen_issues,
+                findings,
+                seen_issues,
                 rule_name="business-logic-bypass",
                 message=f"Numeric value {var} not validated for negative amounts",
                 file=file,
@@ -770,7 +904,8 @@ def _detect_path_traversal(
 
         if "../" not in expr and ".." not in expr:
             _add_finding(
-                findings, seen_issues,
+                findings,
+                seen_issues,
                 rule_name="path-traversal",
                 message=f"Path variable {var} from user input without traversal check",
                 file=file,
@@ -804,7 +939,8 @@ def _detect_type_juggling(
             continue
 
         _add_finding(
-            findings, seen_issues,
+            findings,
+            seen_issues,
             rule_name="type-juggling",
             message="Loose equality (==) can cause type juggling vulnerabilities",
             file=file,
@@ -840,7 +976,8 @@ def _detect_orm_injection(
 
         if "+" in str(args) or "`" in str(args):
             _add_finding(
-                findings, seen_issues,
+                findings,
+                seen_issues,
                 rule_name="orm-injection",
                 message=f"ORM injection risk in {func} with string concatenation",
                 file=file,

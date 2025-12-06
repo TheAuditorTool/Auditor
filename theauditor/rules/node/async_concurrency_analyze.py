@@ -43,138 +43,158 @@ METADATA = RuleMetadata(
     primary_table="function_call_args",
 )
 
-# Async function patterns
-ASYNC_FUNCTIONS: frozenset[str] = frozenset([
-    "async",
-    "await",
-    "Promise",
-    "then",
-    "catch",
-    "finally",
-    "fetch",
-    "axios",
-    "ajax",
-    "request",
-    "http.get",
-    "https.get",
-])
 
-# Promise methods
-PROMISE_METHODS: frozenset[str] = frozenset([
-    "Promise.all",
-    "Promise.race",
-    "Promise.allSettled",
-    "Promise.any",
-    "Promise.resolve",
-    "Promise.reject",
-])
+ASYNC_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "async",
+        "await",
+        "Promise",
+        "then",
+        "catch",
+        "finally",
+        "fetch",
+        "axios",
+        "ajax",
+        "request",
+        "http.get",
+        "https.get",
+    ]
+)
 
-# Timer functions
-TIMER_FUNCTIONS: frozenset[str] = frozenset([
-    "setTimeout",
-    "setInterval",
-    "setImmediate",
-    "process.nextTick",
-    "queueMicrotask",
-])
 
-# Worker/process functions
-WORKER_FUNCTIONS: frozenset[str] = frozenset([
-    "Worker",
-    "SharedWorker",
-    "ServiceWorker",
-    "fork",
-    "spawn",
-    "exec",
-    "execFile",
-    "cluster.fork",
-    "child_process",
-])
+PROMISE_METHODS: frozenset[str] = frozenset(
+    [
+        "Promise.all",
+        "Promise.race",
+        "Promise.allSettled",
+        "Promise.any",
+        "Promise.resolve",
+        "Promise.reject",
+    ]
+)
 
-# Stream functions
-STREAM_FUNCTIONS: frozenset[str] = frozenset([
-    "createReadStream",
-    "createWriteStream",
-    "pipe",
-    "pipeline",
-    "stream.Readable",
-    "stream.Writable",
-    "fs.watch",
-    "fs.watchFile",
-])
 
-# Shared state patterns
-SHARED_STATE: frozenset[str] = frozenset([
-    "global",
-    "window",
-    "globalThis",
-    "process.env",
-    "process",
-    "module.exports",
-    "exports",
-    "self",
-    "localStorage",
-    "sessionStorage",
-    "SharedArrayBuffer",
-    "Atomics",
-])
+TIMER_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "setTimeout",
+        "setInterval",
+        "setImmediate",
+        "process.nextTick",
+        "queueMicrotask",
+    ]
+)
 
-# Write operations (for race condition detection)
-WRITE_OPERATIONS: frozenset[str] = frozenset([
-    "save",
-    "update",
-    "insert",
-    "delete",
-    "write",
-    "create",
-    "put",
-    "post",
-    "patch",
-    "remove",
-    "set",
-    "add",
-    "push",
-])
 
-# Check operations (for TOCTOU detection)
-CHECK_OPERATIONS: frozenset[str] = frozenset([
-    "exists",
-    "has",
-    "includes",
-    "contains",
-    "indexOf",
-    "hasOwnProperty",
-    "in",
-    "get",
-    "find",
-    "some",
-    "every",
-])
+WORKER_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "Worker",
+        "SharedWorker",
+        "ServiceWorker",
+        "fork",
+        "spawn",
+        "exec",
+        "execFile",
+        "cluster.fork",
+        "child_process",
+    ]
+)
 
-# Counter variable patterns
-COUNTER_PATTERNS: frozenset[str] = frozenset([
-    "count",
-    "counter",
-    "total",
-    "sum",
-    "index",
-    "idx",
-    "num",
-    "amount",
-    "size",
-    "length",
-])
 
-# Singleton patterns
-SINGLETON_PATTERNS: frozenset[str] = frozenset([
-    "instance",
-    "singleton",
-    "_instance",
-    "_singleton",
-    "sharedInstance",
-    "defaultInstance",
-    "globalInstance",
-])
+STREAM_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "createReadStream",
+        "createWriteStream",
+        "pipe",
+        "pipeline",
+        "stream.Readable",
+        "stream.Writable",
+        "fs.watch",
+        "fs.watchFile",
+    ]
+)
+
+
+SHARED_STATE: frozenset[str] = frozenset(
+    [
+        "global",
+        "window",
+        "globalThis",
+        "process.env",
+        "process",
+        "module.exports",
+        "exports",
+        "self",
+        "localStorage",
+        "sessionStorage",
+        "SharedArrayBuffer",
+        "Atomics",
+    ]
+)
+
+
+WRITE_OPERATIONS: frozenset[str] = frozenset(
+    [
+        "save",
+        "update",
+        "insert",
+        "delete",
+        "write",
+        "create",
+        "put",
+        "post",
+        "patch",
+        "remove",
+        "set",
+        "add",
+        "push",
+    ]
+)
+
+
+CHECK_OPERATIONS: frozenset[str] = frozenset(
+    [
+        "exists",
+        "has",
+        "includes",
+        "contains",
+        "indexOf",
+        "hasOwnProperty",
+        "in",
+        "get",
+        "find",
+        "some",
+        "every",
+    ]
+)
+
+
+COUNTER_PATTERNS: frozenset[str] = frozenset(
+    [
+        "count",
+        "counter",
+        "total",
+        "sum",
+        "index",
+        "idx",
+        "num",
+        "amount",
+        "size",
+        "length",
+    ]
+)
+
+
+SINGLETON_PATTERNS: frozenset[str] = frozenset(
+    [
+        "instance",
+        "singleton",
+        "_instance",
+        "_singleton",
+        "sharedInstance",
+        "defaultInstance",
+        "globalInstance",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -192,7 +212,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         return RuleResult(findings=findings, manifest={})
 
     with RuleDB(context.db_path, METADATA.name) as db:
-        # Run all detection checks
         findings.extend(_check_async_without_await(db))
         findings.extend(_check_promise_no_catch(db))
         findings.extend(_check_promise_all_no_catch(db))
@@ -232,25 +251,21 @@ def _check_async_without_await(db: RuleDB) -> list[StandardFinding]:
         if not callee:
             continue
 
-        # Check if this is an async call
         is_async_call = any(pattern in callee.lower() for pattern in ASYNC_FUNCTIONS)
         if not is_async_call:
             continue
 
-        # Check for await in surrounding lines (multiline support)
         symbol_rows = db.query(
             Q("symbols")
             .select("name")
             .where("path = ?", file)
-            .where("line BETWEEN ? AND ?", line - 1, line + 2)  # Expanded window
+            .where("line BETWEEN ? AND ?", line - 1, line + 2)
         )
 
         has_await = any(
-            name == "await" or ".then" in name or ".catch" in name
-            for (name,) in symbol_rows
+            name == "await" or ".then" in name or ".catch" in name for (name,) in symbol_rows
         )
 
-        # Only flag if caller is not async (otherwise await is expected)
         if not has_await and caller and "async" not in caller.lower():
             findings.append(
                 StandardFinding(
@@ -281,15 +296,12 @@ def _check_promise_no_catch(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     then_calls = [(file, line, callee) for file, line, callee in rows if ".then" in callee]
 
     for file, line, method in then_calls:
-        # Check for .catch or .finally in nearby lines
         error_rows = db.query(
             Q("function_call_args")
             .select("callee_function")
@@ -298,8 +310,7 @@ def _check_promise_no_catch(db: RuleDB) -> list[StandardFinding]:
         )
 
         has_error_handling = any(
-            ".catch" in error_func or ".finally" in error_func
-            for (error_func,) in error_rows
+            ".catch" in error_func or ".finally" in error_func for (error_func,) in error_rows
         )
 
         if has_error_handling:
@@ -343,7 +354,6 @@ def _check_promise_all_no_catch(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, callee in rows:
-        # Check for chained .catch()
         error_rows = db.query(
             Q("function_call_args")
             .select("callee_function")
@@ -355,7 +365,6 @@ def _check_promise_all_no_catch(db: RuleDB) -> list[StandardFinding]:
         if has_chained_catch:
             continue
 
-        # Check for surrounding try/catch block (heuristic: look for 'catch' symbol nearby)
         try_catch_rows = db.query(
             Q("symbols")
             .select("name")
@@ -408,7 +417,6 @@ def _check_parallel_writes(db: RuleDB) -> list[StandardFinding]:
         if not args:
             continue
 
-        # Check for write operations in Promise.all arguments
         has_writes = any(write_op in args.lower() for write_op in WRITE_OPERATIONS)
 
         if has_writes:
@@ -441,16 +449,13 @@ def _check_shared_state_modifications(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, target, _source in rows:
         if not target:
             continue
 
-        # Check if modifying shared state
         is_shared = any(pattern in target for pattern in SHARED_STATE)
 
         if is_shared:
@@ -483,25 +488,20 @@ def _check_unprotected_counters(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("assignments")
-        .select("file", "line", "target_var", "source_expr")
-        .order_by("file, line")
+        Q("assignments").select("file", "line", "target_var", "source_expr").order_by("file, line")
     )
 
     for file, line, target, expr in rows:
         if not expr:
             continue
 
-        # Check for increment/decrement operations
         if not ("++" in expr or "--" in expr or "+= 1" in expr or "-= 1" in expr):
             continue
 
-        # Check if this looks like a counter
         is_counter = any(pattern in target.lower() for pattern in COUNTER_PATTERNS)
         if not is_counter:
             continue
 
-        # Check if in async context
         async_rows = db.query(
             Q("symbols")
             .select("name")
@@ -509,10 +509,7 @@ def _check_unprotected_counters(db: RuleDB) -> list[StandardFinding]:
             .where("line BETWEEN ? AND ?", line - 10, line + 10)
         )
 
-        in_async = any(
-            name in ("async", "Promise", "await")
-            for (name,) in async_rows
-        )
+        in_async = any(name in ("async", "Promise", "await") for (name,) in async_rows)
 
         if in_async:
             findings.append(
@@ -553,18 +550,17 @@ def _check_sleep_in_loops(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, callee, caller, args in rows:
-        # Skip test directories
-        if any(test_dir in file for test_dir in ["/test", "/__tests__/", "/spec/", ".test.", ".spec."]):
+        if any(
+            test_dir in file for test_dir in ["/test", "/__tests__/", "/spec/", ".test.", ".spec."]
+        ):
             continue
 
-        # Check if caller is a loop
         is_in_loop = caller and any(
             loop_kw in caller.lower()
             for loop_kw in ["loop", "for", "while", "each", "map", "reduce"]
         )
 
         if not is_in_loop:
-            # Also check for loop symbols in nearby lines
             loop_rows = db.query(
                 Q("symbols")
                 .select("name")
@@ -578,11 +574,10 @@ def _check_sleep_in_loops(db: RuleDB) -> list[StandardFinding]:
         if not is_in_loop:
             continue
 
-        # Skip if delay > 1000ms (likely intentional polling)
         if args:
-            # Try to extract delay from args (heuristic)
             import re
-            delay_match = re.search(r"(\d{4,})", args)  # 4+ digits = 1000+ ms
+
+            delay_match = re.search(r"(\d{4,})", args)
             if delay_match:
                 continue
 
@@ -615,9 +610,7 @@ def _check_workers_not_terminated(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     for file, line, func in rows:
@@ -625,7 +618,6 @@ def _check_workers_not_terminated(db: RuleDB) -> list[StandardFinding]:
         if not is_worker:
             continue
 
-        # Check for cleanup in same file
         cleanup_rows = db.query(
             Q("function_call_args")
             .select("callee_function")
@@ -669,9 +661,7 @@ def _check_streams_without_cleanup(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     for file, line, func in rows:
@@ -679,7 +669,6 @@ def _check_streams_without_cleanup(db: RuleDB) -> list[StandardFinding]:
         if not is_stream:
             continue
 
-        # Check for cleanup handlers
         cleanup_rows = db.query(
             Q("function_call_args")
             .select("callee_function")
@@ -689,8 +678,10 @@ def _check_streams_without_cleanup(db: RuleDB) -> list[StandardFinding]:
         )
 
         has_cleanup = any(
-            ".close" in cleanup_func or ".destroy" in cleanup_func or
-            ".end" in cleanup_func or (".on" in cleanup_func and "error" in cleanup_func)
+            ".close" in cleanup_func
+            or ".destroy" in cleanup_func
+            or ".end" in cleanup_func
+            or (".on" in cleanup_func and "error" in cleanup_func)
             for (cleanup_func,) in cleanup_rows
         )
 
@@ -733,7 +724,6 @@ def _check_toctou_race_conditions(db: RuleDB) -> list[StandardFinding]:
 
     all_calls = list(rows)
 
-    # Group by file for efficient analysis
     calls_by_file: dict[str, list[tuple[int, str, str]]] = {}
     for file, line, func, args in all_calls:
         if file not in calls_by_file:
@@ -761,7 +751,6 @@ def _check_toctou_race_conditions(db: RuleDB) -> list[StandardFinding]:
                     write_ops[target] = []
                 write_ops[target].append((line, func))
 
-        # Find TOCTOU patterns: check followed by write on same target
         for target, checks in check_ops.items():
             if target not in write_ops:
                 continue
@@ -807,10 +796,9 @@ def _extract_operation_target(callee: str, args: str) -> str:
     Returns:
         Target identifier for matching check/write operations
     """
-    # Get base object from callee
+
     base_obj = callee.split(".")[0] if "." in callee else ""
 
-    # Get first argument
     first_arg = ""
     if args:
         cleaned = args.strip("()")
@@ -838,15 +826,12 @@ def _calculate_toctou_confidence(check_func: str, write_func: str, target: str) 
     """
     confidence = 0.5
 
-    # File system operations are high risk
     if "fs." in check_func or "fs." in write_func:
         confidence += 0.2
 
-    # Same target increases confidence
     if ":" in target:
         confidence += 0.15
 
-    # Known dangerous patterns
     known_patterns = [
         ("exists", "read"),
         ("exists", "write"),
@@ -860,7 +845,6 @@ def _calculate_toctou_confidence(check_func: str, write_func: str, target: str) 
             confidence += 0.15
             break
 
-    # Generic operations reduce confidence (more likely false positive)
     generic_ops = ["save", "update", "create"]
     if any(op in write_func.lower() for op in generic_ops):
         confidence -= 0.1
@@ -880,9 +864,7 @@ def _check_event_listener_leaks(db: RuleDB) -> list[StandardFinding]:
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("function_call_args")
-        .select("file", "line", "callee_function")
-        .order_by("file, line")
+        Q("function_call_args").select("file", "line", "callee_function").order_by("file, line")
     )
 
     listener_additions = [
@@ -891,18 +873,16 @@ def _check_event_listener_leaks(db: RuleDB) -> list[StandardFinding]:
         if ".on" in callee or ".addEventListener" in callee or ".addListener" in callee
     ]
 
-    # Limit to first 20 to avoid excessive queries
     for file, line, func in listener_additions[:20]:
-        # Check for removal in same file
         removal_rows = db.query(
-            Q("function_call_args")
-            .select("callee_function")
-            .where("file = ?", file)
+            Q("function_call_args").select("callee_function").where("file = ?", file)
         )
 
         has_removal = any(
-            ".off" in removal_func or ".removeEventListener" in removal_func or
-            ".removeListener" in removal_func or ".removeAllListeners" in removal_func
+            ".off" in removal_func
+            or ".removeEventListener" in removal_func
+            or ".removeListener" in removal_func
+            or ".removeAllListeners" in removal_func
             for (removal_func,) in removal_rows
         )
 
@@ -947,7 +927,6 @@ def _check_callback_hell(db: RuleDB) -> list[StandardFinding]:
         if not args:
             continue
 
-        # Count nested callbacks
         function_count = args.lower().count("function")
         arrow_count = args.count("=>")
         nesting = max(function_count, arrow_count)

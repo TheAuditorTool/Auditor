@@ -28,63 +28,65 @@ METADATA = RuleMetadata(
     primary_table="graphql_types",
 )
 
-# Sensitive field patterns that should never be overfetched
-SENSITIVE_FIELD_PATTERNS = frozenset([
-    "password",
-    "passwordhash",
-    "password_hash",
-    "hashed_password",
-    "passhash",
-    "pass_hash",
-    "apikey",
-    "api_key",
-    "secretkey",
-    "secret_key",
-    "privatekey",
-    "private_key",
-    "token",
-    "accesstoken",
-    "access_token",
-    "refreshtoken",
-    "refresh_token",
-    "bearertoken",
-    "bearer_token",
-    "authtoken",
-    "auth_token",
-    "ssn",
-    "social_security",
-    "socialsecurity",
-    "creditcard",
-    "credit_card",
-    "cardnumber",
-    "card_number",
-    "cvv",
-    "cvc",
-    "bankaccount",
-    "bank_account",
-    "accountnumber",
-    "account_number",
-    "routingnumber",
-    "routing_number",
-    "salary",
-    "income",
-    "medicalrecord",
-    "medical_record",
-    "healthrecord",
-    "health_record",
-    "diagnosis",
-    "prescription",
-    "encryptionkey",
-    "encryption_key",
-    "signingkey",
-    "signing_key",
-    "mfasecret",
-    "mfa_secret",
-    "totpsecret",
-    "totp_secret",
-    "recoverycode",
-    "recovery_code",
-])
+
+SENSITIVE_FIELD_PATTERNS = frozenset(
+    [
+        "password",
+        "passwordhash",
+        "password_hash",
+        "hashed_password",
+        "passhash",
+        "pass_hash",
+        "apikey",
+        "api_key",
+        "secretkey",
+        "secret_key",
+        "privatekey",
+        "private_key",
+        "token",
+        "accesstoken",
+        "access_token",
+        "refreshtoken",
+        "refresh_token",
+        "bearertoken",
+        "bearer_token",
+        "authtoken",
+        "auth_token",
+        "ssn",
+        "social_security",
+        "socialsecurity",
+        "creditcard",
+        "credit_card",
+        "cardnumber",
+        "card_number",
+        "cvv",
+        "cvc",
+        "bankaccount",
+        "bank_account",
+        "accountnumber",
+        "account_number",
+        "routingnumber",
+        "routing_number",
+        "salary",
+        "income",
+        "medicalrecord",
+        "medical_record",
+        "healthrecord",
+        "health_record",
+        "diagnosis",
+        "prescription",
+        "encryptionkey",
+        "encryption_key",
+        "signingkey",
+        "signing_key",
+        "mfasecret",
+        "mfa_secret",
+        "totpsecret",
+        "totp_secret",
+        "recoverycode",
+        "recovery_code",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -106,7 +108,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
     with RuleDB(context.db_path, METADATA.name) as db:
         findings = []
 
-        # Get all GraphQL object types
         type_rows = db.query(
             Q("graphql_types")
             .select("type_id", "type_name", "schema_path")
@@ -119,16 +120,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             if not type_name:
                 continue
 
-            # Get fields exposed in this GraphQL type
             field_rows = db.query(
-                Q("graphql_fields")
-                .select("field_name")
-                .where("type_id = ?", type_id)
+                Q("graphql_fields").select("field_name").where("type_id = ?", type_id)
             )
             exposed_fields = {row[0].lower() for row in field_rows if row[0]}
 
-            # Check if resolvers use field selection to prevent overfetch
-            # Look for .only(), .defer(), .values(), .values_list() usage
             resolver_rows = db.query(
                 Q("graphql_resolver_mappings")
                 .select("resolver_path", "resolver_line")
@@ -139,7 +135,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             for resolver_path, resolver_line in resolver_rows:
                 if not resolver_path:
                     continue
-                # Check for ORM field selection methods in resolver
+
                 selection_rows = db.query(
                     Q("function_call_args")
                     .select("callee_function")
@@ -148,20 +144,26 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                     .where("line <= ?", resolver_line + 50)
                 )
                 for (callee,) in selection_rows:
-                    if callee and any(method in callee.lower() for method in [
-                        ".only(", ".defer(", ".values(", ".values_list(",
-                        ".select(", ".select_related(", ".prefetch_related(",
-                    ]):
+                    if callee and any(
+                        method in callee.lower()
+                        for method in [
+                            ".only(",
+                            ".defer(",
+                            ".values(",
+                            ".values_list(",
+                            ".select(",
+                            ".select_related(",
+                            ".prefetch_related(",
+                        ]
+                    ):
                         has_field_selection = True
                         break
                 if has_field_selection:
                     break
 
-            # Skip overfetch check if resolver uses field selection
             if has_field_selection:
                 continue
 
-            # Find matching ORM models (by name similarity)
             orm_rows = db.query(
                 Q("python_orm_models")
                 .select("model_name", "file", "line")
@@ -174,7 +176,6 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                 if not model_name:
                     continue
 
-                # Get all ORM fields for this model
                 orm_field_rows = db.query(
                     Q("python_orm_fields")
                     .select("field_name", "field_type", "line")
@@ -189,14 +190,11 @@ def analyze(context: StandardRuleContext) -> RuleResult:
 
                     field_lower = field_name.lower()
 
-                    # Skip if field is exposed in GraphQL
                     if field_lower in exposed_fields:
                         continue
 
-                    # Check if this is a sensitive field
                     is_sensitive = any(
-                        pattern in field_lower
-                        for pattern in SENSITIVE_FIELD_PATTERNS
+                        pattern in field_lower for pattern in SENSITIVE_FIELD_PATTERNS
                     )
 
                     if is_sensitive:

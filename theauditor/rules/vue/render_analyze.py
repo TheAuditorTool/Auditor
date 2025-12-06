@@ -30,47 +30,53 @@ METADATA = RuleMetadata(
 )
 
 
-RENDER_FUNCTIONS = frozenset([
-    "render",
-    "h",
-    "createVNode",
-    "createElementVNode",
-    "createTextVNode",
-    "createCommentVNode",
-    "createStaticVNode",
-    "resolveComponent",
-    "resolveDynamicComponent",
-    "resolveDirective",
-    "withDirectives",
-    "renderSlot",
-    "renderList",
-])
+RENDER_FUNCTIONS = frozenset(
+    [
+        "render",
+        "h",
+        "createVNode",
+        "createElementVNode",
+        "createTextVNode",
+        "createCommentVNode",
+        "createStaticVNode",
+        "resolveComponent",
+        "resolveDynamicComponent",
+        "resolveDirective",
+        "withDirectives",
+        "renderSlot",
+        "renderList",
+    ]
+)
 
 
-RERENDER_TRIGGERS = frozenset([
-    "$forceUpdate",
-    "forceUpdate",
-    "$set",
-    "$delete",
-    "Vue.set",
-    "Vue.delete",
-    "nextTick",
-    "$nextTick",
-])
+RERENDER_TRIGGERS = frozenset(
+    [
+        "$forceUpdate",
+        "forceUpdate",
+        "$set",
+        "$delete",
+        "Vue.set",
+        "Vue.delete",
+        "nextTick",
+        "$nextTick",
+    ]
+)
 
 
-EXPENSIVE_DOM_OPS = frozenset([
-    "innerHTML",
-    "outerHTML",
-    "insertAdjacentHTML",
-    "document.write",
-    "document.writeln",
-    "appendChild",
-    "removeChild",
-    "replaceChild",
-    "cloneNode",
-    "importNode",
-])
+EXPENSIVE_DOM_OPS = frozenset(
+    [
+        "innerHTML",
+        "outerHTML",
+        "insertAdjacentHTML",
+        "document.write",
+        "document.writeln",
+        "appendChild",
+        "removeChild",
+        "replaceChild",
+        "cloneNode",
+        "importNode",
+    ]
+)
 
 
 def analyze(context: StandardRuleContext) -> RuleResult:
@@ -102,9 +108,7 @@ def _get_vue_files(db: RuleDB) -> set[str]:
     vue_files: set[str] = set()
 
     file_rows = db.query(
-        Q("files")
-        .select("path", "ext")
-        .where("ext IN (?, ?, ?)", ".vue", ".js", ".ts")
+        Q("files").select("path", "ext").where("ext IN (?, ?, ?)", ".vue", ".js", ".ts")
     )
 
     for path, ext in file_rows:
@@ -112,11 +116,7 @@ def _get_vue_files(db: RuleDB) -> set[str]:
         if ext == ".vue" or (ext in (".js", ".ts") and "vue" in path_lower):
             vue_files.add(path)
 
-    symbol_rows = db.query(
-        Q("symbols")
-        .select("path", "name")
-        .where("name IS NOT NULL")
-    )
+    symbol_rows = db.query(Q("symbols").select("path", "name").where("name IS NOT NULL"))
 
     for path, name in symbol_rows:
         if any(pattern in name for pattern in ["Vue", "v-for", "v-if", "template"]):
@@ -375,19 +375,19 @@ def _find_direct_dom_manipulation(db: RuleDB, vue_files: set[str]) -> list[Stand
     """Find direct DOM manipulation (anti-pattern in Vue)."""
     findings: list[StandardFinding] = []
 
-    # DOM methods that are function calls
-    dom_call_methods = frozenset([
-        "document.write",
-        "document.writeln",
-        "appendChild",
-        "removeChild",
-        "replaceChild",
-        "cloneNode",
-        "importNode",
-        "insertAdjacentHTML",
-    ])
+    dom_call_methods = frozenset(
+        [
+            "document.write",
+            "document.writeln",
+            "appendChild",
+            "removeChild",
+            "replaceChild",
+            "cloneNode",
+            "importNode",
+            "insertAdjacentHTML",
+        ]
+    )
 
-    # 1. Check function calls (document.write, appendChild, etc.)
     for file in vue_files:
         rows = db.query(
             Q("function_call_args")
@@ -423,7 +423,6 @@ def _find_direct_dom_manipulation(db: RuleDB, vue_files: set[str]) -> list[Stand
                 )
             )
 
-    # 2. Check assignments (innerHTML, outerHTML are property assignments, not calls)
     for file in vue_files:
         assign_rows = db.query(
             Q("assignments")
@@ -525,7 +524,12 @@ def _find_missing_optimizations(db: RuleDB, vue_files: set[str]) -> list[Standar
         )
 
         for file_path, line, name in template_rows:
-            if len(name) > 200 and "{{" not in name and "v-once" not in name and "v-pre" not in name:
+            if (
+                len(name) > 200
+                and "{{" not in name
+                and "v-once" not in name
+                and "v-pre" not in name
+            ):
                 findings.append(
                     StandardFinding(
                         rule_name="vue-static-content",

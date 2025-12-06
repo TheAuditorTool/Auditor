@@ -1,4 +1,5 @@
 """WorkflowChecker - Validate agent execution against planning.md workflows."""
+
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any

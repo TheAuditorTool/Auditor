@@ -189,7 +189,9 @@ export function extractCalls(
 
   traverse(sourceFile);
 
-  logger.debug(`extractCalls: Extracted ${calls.length} calls/properties from ${sourceFile.fileName}`);
+  logger.debug(
+    `extractCalls: Extracted ${calls.length} calls/properties from ${sourceFile.fileName}`,
+  );
   if (calls.length > 0 && calls.length <= 5) {
     calls.forEach((s) =>
       logger.debug(`  - ${s.name} (${s.type}) at line ${s.line}`),
@@ -215,7 +217,6 @@ function extractVarsFromNode(
   function visit(n: ts.Node): void {
     if (!n) return;
 
-    // 1. Capture simple Identifiers (variables)
     if (n.kind === ts.SyntaxKind.Identifier) {
       const id = n as ts.Identifier;
       const text = id.text || id.escapedText?.toString();
@@ -225,7 +226,6 @@ function extractVarsFromNode(
       }
     }
 
-    // 2. Capture Property Access (obj.prop)
     if (n.kind === ts.SyntaxKind.PropertyAccessExpression) {
       const fullText = n.getText(sourceFile);
       if (fullText && !seen.has(fullText)) {
@@ -234,7 +234,6 @@ function extractVarsFromNode(
       }
     }
 
-    // 3. Capture Element Access (arr[0])
     if (n.kind === ts.SyntaxKind.ElementAccessExpression) {
       const fullText = n.getText(sourceFile);
       if (fullText && !seen.has(fullText)) {
@@ -243,7 +242,6 @@ function extractVarsFromNode(
       }
     }
 
-    // 4. Capture 'this'
     if (n.kind === ts.SyntaxKind.ThisKeyword) {
       const fullText = "this";
       if (!seen.has(fullText)) {
@@ -252,19 +250,13 @@ function extractVarsFromNode(
       }
     }
 
-    // 5. Capture Instantiation (new ClassName) - with length limit
     if (n.kind === ts.SyntaxKind.NewExpression) {
       const fullText = n.getText(sourceFile);
-      // Safety check: Don't capture if it's too long (e.g. huge args)
       if (fullText && fullText.length < 200 && !seen.has(fullText)) {
         vars.push(fullText);
         seen.add(fullText);
       }
     }
-
-    // REMOVED: ParenthesizedExpression, AsExpression, etc. capture block
-    // These were capturing "return (<HugeJSX>)" as one giant variable name.
-    // Now we just recurse into them to extract actual variables.
 
     ts.forEachChild(n, visit);
   }
@@ -956,8 +948,10 @@ export function extractObjectLiterals(
         } else if (ts.isArrayLiteralExpression(parent)) {
           const elemIndex = parent.elements.indexOf(node as ts.Expression);
           variableName = "<array_elem" + elemIndex + ">";
-        } else if (ts.isPropertyAssignment(parent) && parent.initializer === node) {
-          // Nested object - already handled by extractFromObjectNode recursion
+        } else if (
+          ts.isPropertyAssignment(parent) &&
+          parent.initializer === node
+        ) {
           return;
         }
       }
@@ -999,7 +993,10 @@ export function extractVariableUsage(
   assignment_source_vars.forEach((srcVar) => {
     let inFunction = "global";
     for (const [key, fn] of assignmentContext.entries()) {
-      if (key.endsWith("|" + srcVar.target_var) && key.startsWith(srcVar.line + "|")) {
+      if (
+        key.endsWith("|" + srcVar.target_var) &&
+        key.startsWith(srcVar.line + "|")
+      ) {
         inFunction = fn;
         break;
       }

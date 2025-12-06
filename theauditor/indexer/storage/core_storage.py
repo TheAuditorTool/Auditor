@@ -16,15 +16,14 @@ class CoreStorage(BaseStorage):
     def __init__(self, db_manager, counts: dict[str, int]):
         super().__init__(db_manager, counts)
 
-        # Gatekeeper: Track valid parent IDs to filter orphaned children
         self._valid_construct_ids: set[str] = set()
 
         self.handlers = {
             "imports": self._store_imports,
-            "refs": self._store_imports,  # Alias: extractor sends 'refs'
-            "resolved_imports": self._store_imports,  # Alias: extractor sends 'resolved_imports'
+            "refs": self._store_imports,
+            "resolved_imports": self._store_imports,
             "api_endpoints": self._store_routes,
-            "routes": self._store_routes,  # Alias: extractor sends 'routes'
+            "routes": self._store_routes,
             "router_mounts": self._store_router_mounts,
             "middleware_chains": self._store_express_middleware_chains,
             "sql_objects": self._store_sql_objects,
@@ -59,11 +58,9 @@ class CoreStorage(BaseStorage):
     def _store_imports(self, file_path: str, imports, jsx_pass: bool):
         """Store imports/references."""
 
-        # FIX: Handle dicts (refs/resolved_imports) properly
         if isinstance(imports, dict):
             logger.debug(f"Processing {len(imports)} ref entries for {file_path}")
             for name, resolved_path in imports.items():
-                # Normalize path for Graph Builder
                 resolved = resolved_path.replace("\\", "/") if resolved_path else ""
 
                 try:
@@ -77,7 +74,6 @@ class CoreStorage(BaseStorage):
                     raise
             return
 
-        # Legacy list handling
         logger.debug(f"Processing {len(imports)} imports for {file_path}")
         for import_item in imports:
             if isinstance(import_item, dict):
@@ -85,23 +81,20 @@ class CoreStorage(BaseStorage):
                 value = import_item.get("target") or import_item.get("source", "")
                 line = import_item.get("line")
             elif isinstance(import_item, (list, tuple)):
-                # Robust indexing: handle any length (2, 3, 4+)
                 kind = import_item[0] if len(import_item) > 0 else "import"
                 value = import_item[1] if len(import_item) > 1 else ""
                 line = import_item[2] if len(import_item) > 2 else None
             else:
-                # Fallback for unexpected types
                 kind = "import"
                 value = str(import_item)
                 line = None
 
             resolved = self._current_extracted.get("refs", {}).get(value, value)
-            # GRAPH FIX G16: Normalize resolved paths (backslash -> forward slash)
-            # to ensure consistent path format for Graph Builder joins
+
             if resolved and isinstance(resolved, str):
                 resolved = resolved.replace("\\", "/")
             logger.debug(f"Adding ref: {file_path} -> {kind} {resolved} (line {line})")
-            # Diagnostic trap: reveal offending path on FK crash, then re-raise
+
             try:
                 self.db_manager.add_ref(file_path, kind, resolved, line)
                 self.counts["refs"] += 1
@@ -110,7 +103,7 @@ class CoreStorage(BaseStorage):
                     f"FK VIOLATION in add_ref: src={file_path!r}, kind={kind!r}, "
                     f"target={resolved!r}, line={line} -- {e}"
                 )
-                raise  # Re-raise: crash loud, don't suppress
+                raise
 
     def _store_routes(self, file_path: str, routes: list, jsx_pass: bool):
         """Store api_endpoints with all 8 fields.
@@ -138,7 +131,6 @@ class CoreStorage(BaseStorage):
                     handler_function=route.get("handler_function"),
                 )
             else:
-                # Legacy tuple format: (method, pattern, controls)
                 method, pattern, controls = route
                 self.db_manager.add_endpoint(file_path, method, pattern, controls, line=0)
             self.counts["routes"] += 1
@@ -214,7 +206,9 @@ class CoreStorage(BaseStorage):
 
             if os.environ.get("THEAUDITOR_CDK_DEBUG") == "1":
                 logger.info(f"Generating construct_id: {construct_id}")
-                logger.info(f"file_path={file_path}, line={line}, cdk_class={cdk_class}, construct_name={construct_name}")
+                logger.info(
+                    f"file_path={file_path}, line={line}, cdk_class={cdk_class}, construct_name={construct_name}"
+                )
 
             self.db_manager.add_cdk_construct(
                 file_path=file_path,
@@ -224,7 +218,6 @@ class CoreStorage(BaseStorage):
                 construct_id=construct_id,
             )
 
-            # Gatekeeper: Register valid construct_id for child validation
             self._valid_construct_ids.add(construct_id)
 
             for prop in construct.get("properties", []):
@@ -253,17 +246,13 @@ class CoreStorage(BaseStorage):
             construct_class = prop.get("construct_class", "")
             construct_name = prop.get("construct_name", "unnamed")
 
-            # Try to find matching parent construct_id
-            # First try with actual construct_name, then fallback to "unnamed"
             construct_id = f"{file_path}::L{construct_line}::{construct_class}::{construct_name}"
 
             if construct_id not in self._valid_construct_ids:
-                # Try unnamed fallback
                 fallback_id = f"{file_path}::L{construct_line}::{construct_class}::unnamed"
                 if fallback_id in self._valid_construct_ids:
                     construct_id = fallback_id
                 else:
-                    # Gatekeeper: Orphaned property - skip and warn
                     logger.warning(
                         f"GATEKEEPER: Skipping orphaned cdk_construct_property. "
                         f"construct_id={construct_id!r} not in valid set. "
@@ -418,8 +407,12 @@ class CoreStorage(BaseStorage):
     ):
         """Store validation framework usage (for taint analysis sanitizer detection)."""
         if os.environ.get("THEAUDITOR_VALIDATION_DEBUG") and file_path.endswith("validate.ts"):
-            logger.error(f"[PY-DEBUG] Extracted keys for {file_path}: {list(self._current_extracted.keys())}")
-            logger.error(f"[PY-DEBUG] validation_framework_usage has {len(validation_framework_usage)} items")
+            logger.error(
+                f"[PY-DEBUG] Extracted keys for {file_path}: {list(self._current_extracted.keys())}"
+            )
+            logger.error(
+                f"[PY-DEBUG] validation_framework_usage has {len(validation_framework_usage)} items"
+            )
 
         for usage in validation_framework_usage:
             self.db_manager.generic_batches["validation_framework_usage"].append(
@@ -433,8 +426,6 @@ class CoreStorage(BaseStorage):
                     usage.get("argument_expr", ""),
                 )
             )
-        # NOTE: Do NOT flush here! Let flush_batch() handle it per FLUSH_ORDER.
-        # Immediate flush causes FK violation - files table not flushed yet.
 
     def _store_assignments(self, file_path: str, assignments: list, jsx_pass: bool):
         """Store data flow information for taint analysis.
@@ -828,7 +819,9 @@ class CoreStorage(BaseStorage):
         logger.debug(f"Found {len(class_properties)} class_properties for {file_path}")
         for prop in class_properties:
             if os.environ.get("THEAUDITOR_DEBUG") and len(class_properties) > 0:
-                logger.debug(f"Adding {prop['class_name']}.{prop['property_name']} at line {prop['line']}")
+                logger.debug(
+                    f"Adding {prop['class_name']}.{prop['property_name']} at line {prop['line']}"
+                )
             self.db_manager.add_class_property(
                 file_path,
                 prop["line"],

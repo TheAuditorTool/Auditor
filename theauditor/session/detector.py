@@ -1,9 +1,10 @@
 """Auto-detect Claude Code and Codex session directories."""
 
 import json
+from collections.abc import Iterator
 from itertools import islice
 from pathlib import Path
-from typing import Iterator, Literal
+from typing import Literal
 
 from theauditor.utils.logging import logger
 
@@ -36,7 +37,6 @@ def detect_claude_code_sessions(root_path: Path, home: Path) -> Path | None:
 
     for candidate in candidates:
         if candidate.exists():
-            
             if any(candidate.glob("*.jsonl")):
                 return candidate
 
@@ -54,10 +54,8 @@ def detect_codex_sessions(root_path: Path, home: Path) -> Path | None:
         return None
 
     try:
-        
         session_files_gen = codex_sessions.rglob("*.jsonl")
 
-        
         for session_file in islice(session_files_gen, 50):
             try:
                 with open(session_file) as f:

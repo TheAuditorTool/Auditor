@@ -242,9 +242,8 @@ def extract_threading_patterns(context: FileContext) -> list[dict[str, Any]]:
         ):
             threading_type = node.func.attr
 
-        elif (
-            isinstance(node.func, ast.Name)
-            and (node.func.id in THREADING_TYPES or node.func.id == "Process")
+        elif isinstance(node.func, ast.Name) and (
+            node.func.id in THREADING_TYPES or node.func.id == "Process"
         ):
             threading_type = node.func.id
 
