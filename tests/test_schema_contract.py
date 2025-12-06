@@ -56,7 +56,7 @@ FORBIDDEN_JSON_COLUMNS = {
 }
 
 
-CONFIG_TABLES = {"python_package_configs"}
+CONFIG_TABLES = {"python_package_configs", "python_package_dependencies", "python_build_requires"}
 
 
 TWO_DISCRIMINATOR_TABLES = {
@@ -100,16 +100,16 @@ class TestSchemaContract:
     def test_python_tables_count(self):
         """Verify expected number of Python tables."""
 
-        assert len(PYTHON_TABLES) == 35, (
-            f"Expected 35 Python tables, got {len(PYTHON_TABLES)}. "
+        assert len(PYTHON_TABLES) == 37, (
+            f"Expected 37 Python tables, got {len(PYTHON_TABLES)}. "
             f"Tables: {sorted(PYTHON_TABLES.keys())}"
         )
 
     def test_total_tables_count(self):
         """Verify total table count matches assertion in schema.py."""
 
-        assert len(TABLES) == 170, (
-            f"Expected 170 total tables, got {len(TABLES)}. "
+        assert len(TABLES) == 231, (
+            f"Expected 231 total tables, got {len(TABLES)}. "
             "Update this test if intentionally adding/removing tables."
         )
 
@@ -233,9 +233,10 @@ class TestDataFidelityInfrastructure:
         """Verify reconcile_fidelity function is callable."""
         from theauditor.indexer.fidelity import reconcile_fidelity
 
+        manifest_entry = {"tx_id": "test-123", "columns": ["a", "b"], "count": 10, "bytes": 100}
         result = reconcile_fidelity(
-            manifest={"test_table": 10},
-            receipt={"test_table": 10},
+            manifest={"test_table": manifest_entry},
+            receipt={"test_table": manifest_entry},
             file_path="test.py",
             strict=False,
         )

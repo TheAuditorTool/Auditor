@@ -1,8 +1,9 @@
 # AUTO-GENERATED FILE - DO NOT EDIT
-# SCHEMA_HASH: 0b66d0a7e6ddf98e43aef3a63c40005e999866c35d0c3963de78b977287c4cc9
-from typing import Any
-from collections import defaultdict
+# SCHEMA_HASH: 1ce39d543ef52f4c36657e291f976ac1ac457e4cd69bf31343d8b339bdc0fe8a
 import sqlite3
+from collections import defaultdict
+from typing import Any
+
 from ..schema import TABLES, build_query
 
 
@@ -72,7 +73,7 @@ class SchemaMemoryCache:
         """Estimate memory usage of the cache in MB."""
         import sys
         total_bytes = 0
-        for attr, value in self.__dict__.items():
+        for _attr, value in self.__dict__.items():
             total_bytes += sys.getsizeof(value)
             if isinstance(value, list):
                 total_bytes += sum(sys.getsizeof(i) for i in value)

@@ -65,7 +65,7 @@ class TestRustSchemaIntegration:
 
     def test_all_20_rust_tables_in_schema(self):
         """Verify all 20 Rust tables exist in RUST_TABLES."""
-        assert len(RUST_TABLES) == 20
+        assert len(RUST_TABLES) == 23
         for table in EXPECTED_RUST_TABLES:
             assert table in RUST_TABLES, f"Missing table: {table}"
 
@@ -390,7 +390,7 @@ class TestRustStorageIntegration:
         storage = RustStorage(mock_db, {})
 
         assert hasattr(storage, "handlers")
-        assert len(storage.handlers) == 20, "Should have 20 handlers"
+        assert len(storage.handlers) == 23, "Should have 23 handlers"
 
         for table_name in EXPECTED_RUST_TABLES:
             assert table_name in storage.handlers, f"Missing handler: {table_name}"
