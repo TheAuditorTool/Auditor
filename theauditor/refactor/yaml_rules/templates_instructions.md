@@ -232,4 +232,4 @@ The CLI never suggests fixes; it only lists the facts so you/your AI agent can d
 - Update `version` and `metadata.last_updated` when changing the profile.
 - Pair with semantic contexts when you also need to re-label security findings (`aud context`).
 
-Happy auditing!*** End Patch
+Happy auditing!
