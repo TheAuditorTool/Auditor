@@ -10,7 +10,7 @@ from theauditor.pipeline.ui import console, err_console
 
 @click.command(name="learn", cls=RichCommand)
 @click.option("--db-path", default="./.pf/repo_index.db", help="Database path")
-@click.option("--enable-git", is_flag=True, help="Enable git churn features")
+@click.option("--no-git", is_flag=True, help="Disable git churn features (enabled by default)")
 @click.option("--model-dir", default="./.pf/ml", help="Model output directory")
 @click.option("--window", default=50, type=int, help="Journal window size")
 @click.option("--seed", default=13, type=int, help="Random seed")
@@ -22,7 +22,10 @@ from theauditor.pipeline.ui import console, err_console
     help="Type of historical runs to train on",
 )
 @click.option(
-    "--session-dir", help="Path to Claude Code session logs (Tier 5 agent behavior features)"
+    "--session-dir", help="Path to Claude Code session logs (auto-detected if not specified)"
+)
+@click.option(
+    "--no-session", is_flag=True, help="Disable session log features (auto-detected by default)"
 )
 @click.option(
     "--session-analysis", is_flag=True, help="Show agent behavior analysis from session logs"
@@ -30,13 +33,14 @@ from theauditor.pipeline.ui import console, err_console
 @click.option("--print-stats", is_flag=True, help="Print training statistics")
 def learn(
     db_path,
-    enable_git,
+    no_git,
     model_dir,
     window,
     seed,
     feedback,
     train_on,
     session_dir,
+    no_session,
     session_analysis,
     print_stats,
 ):
@@ -101,10 +105,11 @@ def learn(
 
     EXAMPLES:
       # Use Case 1: Initial model training (after 5+ audit runs)
+      # Git and session features are enabled by default
       aud full && aud learn --print-stats
 
-      # Use Case 2: Re-train with git features (slower but more accurate)
-      aud learn --enable-git --print-stats
+      # Use Case 2: Disable git features (faster, fewer features)
+      aud learn --no-git --print-stats
 
       # Use Case 3: Train on diff runs only (faster, less data)
       aud learn --train-on diff
@@ -114,7 +119,7 @@ def learn(
 
     COMMON WORKFLOWS:
       Initial ML Setup (After 5+ Full Audits):
-        aud full && aud learn --enable-git --print-stats
+        aud full && aud learn --print-stats
 
       Weekly Re-training (Incremental Learning):
         aud full && aud learn --train-on all --print-stats
@@ -122,8 +127,9 @@ def learn(
       Human-in-the-Loop Refinement:
         aud learn --feedback ./corrections.json && aud suggest --print-plan
 
-      Tier 5 Agent Behavior Analysis (Advanced):
-        aud learn --session-dir ~/.claude/projects/YourProject --session-analysis --print-stats
+      Tier 5 Agent Behavior Analysis:
+        # Session logs auto-detected from .claude/ or ~/.claude/projects/{project}/
+        aud learn --session-analysis --print-stats
         # Adds 8 features:
         #   NEW (3-layer system): workflow_compliance, avg_risk_score, blind_edit_rate, user_engagement
         #   LEGACY: blind_edit_count, duplicate_impl_rate, missed_search_count, read_efficiency
@@ -174,15 +180,16 @@ def learn(
         None (all flags can be combined)
 
       Recommended Combinations:
-        --enable-git --print-stats        # Best accuracy with visibility
+        --print-stats                     # See training metrics (git/session auto-enabled)
         --train-on full --feedback <file> # Incorporate human corrections
 
       Flag Modifiers:
-        --enable-git: Adds git churn features (+30% accuracy, +50% time)
+        --no-git: Disable git churn features (enabled by default, +30% accuracy)
+        --no-session: Disable session log features (auto-detected by default)
         --train-on: Filters training data (full=highest quality)
         --feedback: Incorporates human labels (supervised correction)
         --window: Journal window for temporal features (default 50 commits)
-        --session-dir: Enable Tier 5 agent behavior features (path to Claude Code session logs)
+        --session-dir: Override auto-detected session path
         --session-analysis: Show agent behavior findings before training
 
     PREREQUISITES:
@@ -190,9 +197,9 @@ def learn(
         aud full (5+ runs)         # Need historical data in .pf/history/
         .pf/repo_index.db          # Current codebase features
 
-      Optional:
-        Git repository             # For --enable-git churn features
-        Feedback JSON              # For --feedback supervised learning
+      Auto-detected (graceful fallback if missing):
+        Git repository             # Churn features (logs warning if .git missing)
+        Claude Code session logs   # Agent behavior features (checks .claude/ and ~/.claude/)
 
     EXIT CODES:
       0 = Success, models trained and saved
@@ -220,20 +227,57 @@ def learn(
         -> Re-run 'aud learn' after 10+ full audits for better models
 
       Training is slow (>2 minutes):
-        -> Disable --enable-git to skip git churn computation (2x speedup)
+        -> Use --no-git to skip git churn computation (2x speedup)
         -> Use --train-on diff instead of full (reduces sample size)
         -> Large feature count (>200) slows training - expected behavior
 
       Model predictions seem random (low R² score):
         -> Not enough historical diversity (all runs on same code)
         -> Need code changes between audit runs for learning signal
-        -> Try --enable-git to add temporal features
+        -> Git features now enabled by default for temporal patterns
+
+      Message: "Git repository not found":
+        -> Not an error, just informational - git churn features will be zero
+        -> Initialize git: git init && git add . && git commit -m "initial"
+
+      Message: "No Claude Code session logs found":
+        -> Not an error, just informational - agent behavior features will be zero
+        -> Session logs auto-detected from .claude/ or ~/.claude/projects/{project}/
 
     NOTE: ML models require at least 5 historical audit runs (500+ samples) for
     meaningful accuracy. Cold-start mode works with less data but predictions are
     unreliable. Re-train models weekly to incorporate new findings and patterns.
     """
+    import os
+
     from theauditor.MachineL import learn as ml_learn
+
+    # Git features: enabled by default, graceful fallback
+    enable_git = not no_git
+    if enable_git and not Path(".git").exists():
+        console.print(
+            "\\[ML] Git repository not found - git churn features will be zero", highlight=False
+        )
+
+    # Session features: auto-detect if not provided
+    if not no_session and not session_dir:
+        # Try common Claude Code session locations
+        candidates = [
+            Path(".claude"),  # Project-local
+            Path(os.path.expanduser("~/.claude/projects")) / Path.cwd().name,  # User global
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                session_dir = str(candidate)
+                console.print(
+                    f"\\[ML] Auto-detected session logs: {session_dir}", highlight=False
+                )
+                break
+        if not session_dir:
+            console.print(
+                "\\[ML] No Claude Code session logs found - agent behavior features will be zero",
+                highlight=False,
+            )
 
     console.print(
         f"\\[ML] Training models from audit artifacts (using {train_on} runs)...", highlight=False

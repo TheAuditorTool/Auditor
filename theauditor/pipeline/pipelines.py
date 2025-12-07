@@ -30,6 +30,7 @@ COMMAND_TIMEOUTS = {
     "terraform": 600,
     "taint": 1800,
     "fce": 900,
+    "learn": 300,
 }
 
 
@@ -503,6 +504,7 @@ async def run_full_pipeline(
             ("taint", []),
             ("fce", []),
             ("session", ["analyze"]),
+            ("learn", []),
         ]
 
         commands = []
@@ -518,6 +520,7 @@ async def run_full_pipeline(
                 or (cmd_name == "terraform" and "terraform" in available_commands)
                 or (cmd_name == "workflows" and "workflows" in available_commands)
                 or (cmd_name == "session" and "session" in available_commands)
+                or (cmd_name == "learn" and "learn" in available_commands)
             ):
                 phase_num += 1
 
@@ -587,6 +590,8 @@ async def run_full_pipeline(
                     description = f"{phase_num}. Factual correlation engine"
                 elif cmd_name == "session":
                     description = f"{phase_num}. Analyze AI agent sessions (Tier 5)"
+                elif cmd_name == "learn":
+                    description = f"{phase_num}. Train ML models from audit history"
                 else:
                     description = f"{phase_num}. Run {cmd_name.replace('-', ' ')}"
 
@@ -693,7 +698,7 @@ async def run_full_pipeline(
                 if not offline:
                     track_c_commands.append((phase_name, cmd))
 
-            elif "fce" in cmd_str or "session" in cmd_str:
+            elif "fce" in cmd_str or "session" in cmd_str or "learn" in cmd_str:
                 final_commands.append((phase_name, cmd))
             else:
                 final_commands.append((phase_name, cmd))
