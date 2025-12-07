@@ -199,7 +199,6 @@ def _check_interpolated_sql_queries(db: RuleDB) -> list[StandardFinding]:
     rows = db.query(
         Q("sql_queries")
         .select("file_path", "line_number", "query_text")
-        .where("has_interpolation = ?", 1)
         .where("file_path NOT LIKE ?", "%test%")
         .where("file_path NOT LIKE ?", "%migration%")
         .where("file_path NOT LIKE ?", "%fixture%")
@@ -387,8 +386,9 @@ def _check_template_literal_sql(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     rows = db.query(
-        Q("template_literals")
-        .select("file", "line", "content")
+        Q("assignments")
+        .select("file", "line", "source_expr")
+        .where("source_expr LIKE ?", "%${%")
         .where("file NOT LIKE ?", "%test%")
         .order_by("file, line")
     )

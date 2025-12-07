@@ -60,7 +60,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
                 "graphql_resolver_mappings.resolver_line",
             )
             .join("graphql_types", on=[("type_id", "type_id")])
-            .left_join("graphql_resolver_mappings", on=[("field_id", "field_id")])
+            .join("graphql_resolver_mappings", on=[("field_id", "field_id")], join_type="LEFT")
             .where("graphql_fields.is_list = ?", 1)
             .where("graphql_resolver_mappings.resolver_path IS NOT NULL")
         )

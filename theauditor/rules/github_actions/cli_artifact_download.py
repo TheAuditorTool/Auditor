@@ -108,7 +108,7 @@ def _find_cli_artifact_downloads(db: RuleDB) -> list[StandardFinding]:
             continue
 
         job_rows = db.query(
-            Q("github_jobs").select("job_id", "job_key").where("workflow_path = ?", workflow_path)
+            Q("github_jobs").select("job_id", "job_key").where("github_jobs.workflow_path = ?", workflow_path)
         )
 
         for job_id, job_key in job_rows:

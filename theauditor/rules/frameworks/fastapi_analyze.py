@@ -624,9 +624,9 @@ def _check_pydantic_mass_assignment(db: RuleDB) -> list[StandardFinding]:
 
     rows = db.query(
         Q("symbols")
-        .select("file", "line", "name")
+        .select("path", "line", "name")
         .where("type = ? AND name LIKE ?", "class", "%Model%")
-        .order_by("file, line")
+        .order_by("path, line")
     )
 
     for file, line, class_name in rows:
@@ -645,7 +645,7 @@ def _check_pydantic_mass_assignment(db: RuleDB) -> list[StandardFinding]:
             Q("symbols")
             .select("name")
             .where(
-                "file = ? AND line BETWEEN ? AND ? AND name = ?", file, line, line + 30, "Config"
+                "path = ? AND line BETWEEN ? AND ? AND name = ?", file, line, line + 30, "Config"
             )
             .limit(1)
         )

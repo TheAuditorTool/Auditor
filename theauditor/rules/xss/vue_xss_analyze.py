@@ -236,18 +236,13 @@ def _check_render_functions(db: RuleDB) -> list[StandardFinding]:
 
     component_rows = db.query(
         Q("vue_components")
-        .select("file", "start_line", "name", "setup_return")
-        .where("type = ? OR setup_return IS NOT NULL", "render-function")
+        .select("file", "start_line", "name")
+        .where("type = ?", "render-function")
     )
 
     dangerous_props = ["innerHTML", "domProps", "v-html"]
 
-    for file, line, comp_name, setup_return in component_rows:
-        if setup_return:
-            has_render_pattern = "h(" in setup_return or "createVNode" in setup_return
-            if not has_render_pattern:
-                continue
-
+    for file, line, comp_name in component_rows:
         assignment_rows = db.query(
             Q("assignments")
             .select("source_expr")
@@ -324,7 +319,6 @@ def _check_component_props_injection(db: RuleDB) -> list[StandardFinding]:
         .join("vue_components", on=[("file", "file"), ("in_component", "name")])
         .where("vue_directives.directive_name = ?", "v-html")
         .where("vue_directives.expression IS NOT NULL")
-        .where("vue_components.props_definition IS NOT NULL")
     )
 
     for file, dir_line, expression, comp_name in rows:

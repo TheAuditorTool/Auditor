@@ -94,7 +94,7 @@ def _check_ignored_errors(db: RuleDB) -> list[StandardFinding]:
 
     blank_rows = db.query(
         Q("go_variables")
-        .select("file_path", "line", "name", "initial_value")
+        .select("file", "line", "name", "initial_value")
         .where("name = ?", "_")
         .where("initial_value IS NOT NULL")
         .where("initial_value != ?", "")
@@ -148,7 +148,7 @@ def _check_panic_in_library(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    lib_package_rows = db.query(Q("go_packages").select("file_path").where("name != ?", "main"))
+    lib_package_rows = db.query(Q("go_packages").select("file").where("name != ?", "main"))
     library_files = {file_path for (file_path,) in lib_package_rows}
 
     if not library_files:
@@ -156,7 +156,7 @@ def _check_panic_in_library(db: RuleDB) -> list[StandardFinding]:
 
     termination_rows = db.query(
         Q("go_variables")
-        .select("file_path", "line", "initial_value")
+        .select("file", "line", "initial_value")
         .where(
             "initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
             "%panic(%",
@@ -192,7 +192,7 @@ def _check_panic_in_library(db: RuleDB) -> list[StandardFinding]:
 
     defer_termination_rows = db.query(
         Q("go_defer_statements")
-        .select("file_path", "line", "deferred_expr")
+        .select("file", "line", "deferred_expr")
         .where(
             "deferred_expr LIKE ? OR deferred_expr LIKE ? OR deferred_expr LIKE ?",
             "%panic(%",
@@ -237,14 +237,14 @@ def _check_defer_without_recover(db: RuleDB) -> list[StandardFinding]:
     """
     findings = []
 
-    defer_file_rows = db.query(Q("go_defer_statements").select("file_path"))
+    defer_file_rows = db.query(Q("go_defer_statements").select("file"))
     files_with_defer = {file_path for (file_path,) in defer_file_rows}
 
     for file_path in files_with_defer:
         recover_rows = db.query(
             Q("go_defer_statements")
-            .select("file_path")
-            .where("file_path = ?", file_path)
+            .select("file")
+            .where("file = ?", file_path)
             .where("deferred_expr LIKE ?", "%recover()%")
             .limit(1)
         )
@@ -255,8 +255,8 @@ def _check_defer_without_recover(db: RuleDB) -> list[StandardFinding]:
 
         type_assert_rows = db.query(
             Q("go_type_assertions")
-            .select("file_path")
-            .where("file_path = ?", file_path)
+            .select("file")
+            .where("file = ?", file_path)
             .where("is_type_switch = ?", 0)
             .limit(1)
         )

@@ -215,7 +215,7 @@ class CORSAnalyzer:
                         severity=Severity.CRITICAL,
                         confidence=Confidence.HIGH,
                         category="security",
-                        code_snippet=f'{func}(origin: "*", credentials: true)',
+                        snippet=f'{func}(origin: "*", credentials: true)',
                         cwe_id="CWE-942",
                     )
                 )
@@ -255,7 +255,7 @@ class CORSAnalyzer:
                             severity=Severity.HIGH,
                             confidence=Confidence.HIGH,
                             category="security",
-                            code_snippet=f"{var} = {expr[:100]}",
+                            snippet=f"{var} = {expr[:100]}",
                             cwe_id="CWE-942",
                         )
                     )
@@ -289,7 +289,7 @@ class CORSAnalyzer:
                     severity=Severity.HIGH,
                     confidence=Confidence.HIGH,
                     category="security",
-                    code_snippet='origin: [..., "null", ...]',
+                    snippet='origin: [..., "null", ...]',
                     cwe_id="CWE-346",
                 )
             )
@@ -322,7 +322,7 @@ class CORSAnalyzer:
                         severity=Severity.HIGH,
                         confidence=Confidence.HIGH,
                         category="security",
-                        code_snippet='origin: [..., "null", ...]',
+                        snippet='origin: [..., "null", ...]',
                         cwe_id="CWE-346",
                     )
                 )
@@ -384,7 +384,7 @@ class CORSAnalyzer:
                         severity=Severity.CRITICAL,
                         confidence=Confidence.HIGH,
                         category="security",
-                        code_snippet=f"{var} = {expr}",
+                        snippet=f"{var} = {expr}",
                         cwe_id="CWE-346",
                     )
                 )
@@ -428,7 +428,7 @@ class CORSAnalyzer:
                         severity=Severity.HIGH,
                         confidence=Confidence.MEDIUM,
                         category="security",
-                        code_snippet=f"{var} = {expr[:100]}",
+                        snippet=f"{var} = {expr[:100]}",
                         cwe_id="CWE-185",
                     )
                 )
@@ -463,7 +463,7 @@ class CORSAnalyzer:
                     severity=Severity.MEDIUM,
                     confidence=Confidence.HIGH,
                     category="security",
-                    code_snippet='origin: "http://..."',
+                    snippet='origin: "http://..."',
                     cwe_id="CWE-757",
                 )
             )
@@ -497,7 +497,7 @@ class CORSAnalyzer:
                     severity=Severity.MEDIUM,
                     confidence=Confidence.HIGH,
                     category="security",
-                    code_snippet='origin: "http://..."',
+                    snippet='origin: "http://..."',
                     cwe_id="CWE-757",
                 )
             )
@@ -534,7 +534,7 @@ class CORSAnalyzer:
                         severity=Severity.MEDIUM,
                         confidence=Confidence.MEDIUM,
                         category="security",
-                        code_snippet=f"{var} = {expr[:100]}",
+                        snippet=f"{var} = {expr[:100]}",
                         cwe_id="CWE-942",
                     )
                 )
@@ -583,7 +583,7 @@ class CORSAnalyzer:
                         severity=Severity.MEDIUM,
                         confidence=Confidence.LOW,
                         category="security",
-                        code_snippet=f"{func}(...origin...)",
+                        snippet=f"{func}(...origin...)",
                         cwe_id="CWE-178",
                     )
                 )
@@ -627,7 +627,7 @@ class CORSAnalyzer:
                         severity=Severity.HIGH,
                         confidence=Confidence.MEDIUM,
                         category="security",
-                        code_snippet="Access-Control-Allow-Origin without Vary: Origin",
+                        snippet="Access-Control-Allow-Origin without Vary: Origin",
                         cwe_id="CWE-524",
                     )
                 )
@@ -660,7 +660,7 @@ class CORSAnalyzer:
                             severity=Severity.LOW,
                             confidence=Confidence.HIGH,
                             category="security",
-                            code_snippet=f"Access-Control-Max-Age: {max_age}",
+                            snippet=f"Access-Control-Max-Age: {max_age}",
                             cwe_id="CWE-942",
                         )
                     )
@@ -712,7 +712,7 @@ class CORSAnalyzer:
                         severity=Severity.HIGH,
                         confidence=Confidence.LOW,
                         category="security",
-                        code_snippet=f'{func}("connection", ...)',
+                        snippet=f'{func}("connection", ...)',
                         cwe_id="CWE-346",
                     )
                 )
@@ -756,7 +756,7 @@ class CORSAnalyzer:
                         severity=Severity.HIGH,
                         confidence=Confidence.MEDIUM,
                         category="security",
-                        code_snippet=f"{var} = function(...)",
+                        snippet=f"{var} = function(...)",
                         cwe_id="CWE-942",
                     )
                 )
@@ -794,7 +794,7 @@ class CORSAnalyzer:
                         severity=Severity.HIGH,
                         confidence=Confidence.HIGH,
                         category="security",
-                        code_snippet=f'{var} = ... ? ... : "*"',
+                        snippet=f'{var} = ... ? ... : "*"',
                         cwe_id="CWE-942",
                     )
                 )
@@ -829,7 +829,7 @@ class CORSAnalyzer:
                         severity=Severity.MEDIUM,
                         confidence=Confidence.MEDIUM,
                         category="security",
-                        code_snippet=f'{var} = NODE_ENV === "development" ? "*" : ...',
+                        snippet=f'{var} = NODE_ENV === "development" ? "*" : ...',
                         cwe_id="CWE-489",
                     )
                 )
@@ -872,7 +872,7 @@ class CORSAnalyzer:
                         severity=Severity.HIGH,
                         confidence=Confidence.MEDIUM,
                         category="security",
-                        code_snippet=f"{func}(cors()) // After route definitions",
+                        snippet=f"{func}(cors()) // After route definitions",
                         cwe_id="CWE-696",
                     )
                 )
@@ -902,7 +902,7 @@ class CORSAnalyzer:
                         severity=Severity.CRITICAL,
                         confidence=Confidence.HIGH,
                         category="security",
-                        code_snippet='CORS(app, resources="/*", supports_credentials=True)',
+                        snippet='CORS(app, resources="/*", supports_credentials=True)',
                         cwe_id="CWE-942",
                     )
                 )

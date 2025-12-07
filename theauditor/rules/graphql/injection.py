@@ -75,7 +75,7 @@ def analyze(context: StandardRuleContext) -> RuleResult:
             )
             .join("graphql_fields", on=[("field_id", "field_id")])
             .join("graphql_types", on="graphql_fields.type_id = graphql_types.type_id")
-            .left_join("graphql_resolver_mappings", on=[("field_id", "field_id")])
+            .join("graphql_resolver_mappings", on=[("field_id", "field_id")], join_type="LEFT")
             .where("graphql_resolver_mappings.resolver_path IS NOT NULL")
         )
 

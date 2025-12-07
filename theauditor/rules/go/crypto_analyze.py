@@ -68,7 +68,7 @@ def _check_insecure_random(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     math_rand_rows = db.query(
-        Q("go_imports").select("file_path", "line").where("path = ?", "math/rand")
+        Q("go_imports").select("file", "line").where("path = ?", "math/rand")
     )
 
     math_rand_files = dict(math_rand_rows)
@@ -80,7 +80,7 @@ def _check_insecure_random(db: RuleDB) -> list[StandardFinding]:
         crypto_import_rows = db.query(
             Q("go_imports")
             .select("path")
-            .where("file_path = ?", file_path)
+            .where("file = ?", file_path)
             .where("path LIKE ? OR path LIKE ? OR path LIKE ?", "%crypto%", "%password%", "%auth%")
             .limit(1)
         )
@@ -89,7 +89,7 @@ def _check_insecure_random(db: RuleDB) -> list[StandardFinding]:
         security_func_rows = db.query(
             Q("go_functions")
             .select("name")
-            .where("file_path = ?", file_path)
+            .where("file = ?", file_path)
             .where(
                 "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
                 "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?",
@@ -131,7 +131,7 @@ def _check_weak_crypto(db: RuleDB) -> list[StandardFinding]:
 
     weak_crypto_rows = db.query(
         Q("go_imports")
-        .select("file_path", "line", "path")
+        .select("file", "line", "path")
         .where(
             "path = ? OR path = ? OR path = ? OR path = ?",
             "crypto/md5",
@@ -160,7 +160,7 @@ def _check_weak_crypto(db: RuleDB) -> list[StandardFinding]:
         security_func_rows = db.query(
             Q("go_functions")
             .select("name")
-            .where("file_path = ?", file_path)
+            .where("file = ?", file_path)
             .where(
                 "LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? "
                 "OR LOWER(name) LIKE ? OR LOWER(name) LIKE ? OR LOWER(name) LIKE ?",
@@ -211,7 +211,7 @@ def _check_insecure_tls(db: RuleDB) -> list[StandardFinding]:
 
     skip_verify_rows = db.query(
         Q("go_variables")
-        .select("file_path", "line", "initial_value")
+        .select("file", "line", "initial_value")
         .where(
             "initial_value LIKE ? OR initial_value LIKE ?",
             "%InsecureSkipVerify%true%",
@@ -235,7 +235,7 @@ def _check_insecure_tls(db: RuleDB) -> list[StandardFinding]:
 
     weak_tls_rows = db.query(
         Q("go_variables")
-        .select("file_path", "line", "initial_value")
+        .select("file", "line", "initial_value")
         .where(
             "initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
             "%tls.VersionSSL30%",
@@ -292,7 +292,7 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
 
     secret_const_rows = db.query(
         Q("go_constants")
-        .select("file_path", "line", "name", "value")
+        .select("file", "line", "name", "value")
         .where("value IS NOT NULL")
         .where("value != ?", "")
         .where(
@@ -329,7 +329,7 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
 
     secret_var_rows = db.query(
         Q("go_variables")
-        .select("file_path", "line", "name", "initial_value")
+        .select("file", "line", "name", "initial_value")
         .where("is_package_level = ?", 1)
         .where("initial_value IS NOT NULL")
         .where("initial_value != ?", "")
@@ -365,7 +365,7 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
 
     all_const_rows = db.query(
         Q("go_constants")
-        .select("file_path", "line", "name", "value")
+        .select("file", "line", "name", "value")
         .where("value IS NOT NULL")
         .where("LENGTH(value) > ?", 15)
     )

@@ -93,10 +93,15 @@ class TerraformAnalyzer:
         return terraform_findings
 
     def _build_finding_id(self, finding) -> str:
+        """Generate unique finding ID.
+
+        Includes message to differentiate multiple findings on the same line.
+        """
         file_part = getattr(finding, "file_path", "unknown")
         line_part = getattr(finding, "line", 0) or 0
         rule_name = getattr(finding, "rule_name", "terraform")
-        return f"{rule_name}:{file_part}:{line_part}"
+        message = getattr(finding, "message", "")
+        return f"{rule_name}:{file_part}:{line_part}:{message}"
 
     def _normalize_severity(self, severity_value) -> str:
         if isinstance(severity_value, Severity):

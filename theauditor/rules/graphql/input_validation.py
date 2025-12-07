@@ -86,9 +86,9 @@ def analyze(context: StandardRuleContext) -> RuleResult:
         findings = []
 
         files_with_validation = set()
-        import_rows = db.query(Q("import_statements").select("file", "module_name"))
-        for file_path, module_name in import_rows:
-            if module_name and any(lib in module_name.lower() for lib in VALIDATION_LIBRARIES):
+        import_rows = db.query(Q("import_styles").select("file", "package"))
+        for file_path, package in import_rows:
+            if package and any(lib in package.lower() for lib in VALIDATION_LIBRARIES):
                 files_with_validation.add(file_path)
 
         rows = db.query(

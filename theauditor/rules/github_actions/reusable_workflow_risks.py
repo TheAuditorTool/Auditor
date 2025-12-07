@@ -112,13 +112,13 @@ def _find_reusable_workflow_risks(db: RuleDB) -> list[StandardFinding]:
         Q("github_jobs")
         .select(
             "job_id",
-            "workflow_path",
+            "github_jobs.workflow_path",
             "job_key",
             "job_name",
             "reusable_workflow_path",
             "github_workflows.workflow_name",
         )
-        .join("github_workflows")
+        .join("github_workflows", on=[("workflow_path", "workflow_path")])
         .where("uses_reusable_workflow = ?", 1)
         .where("reusable_workflow_path IS NOT NULL")
     )

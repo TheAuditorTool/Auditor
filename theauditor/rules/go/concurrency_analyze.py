@@ -74,9 +74,9 @@ def _check_captured_loop_variables(db: RuleDB) -> list[StandardFinding]:
 
     rows = db.query(
         Q("go_captured_vars")
-        .select("file_path", "line", "goroutine_id", "var_name")
+        .select("file", "line", "goroutine_id", "var_name")
         .where("is_loop_var = ?", 1)
-        .order_by("file_path, line")
+        .order_by("file, line")
     )
 
     for file_path, line, goroutine_id, var_name in rows:
@@ -106,7 +106,7 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     pkg_var_rows = db.query(
-        Q("go_variables").select("file_path", "name").where("is_package_level = ?", 1)
+        Q("go_variables").select("file", "name").where("is_package_level = ?", 1)
     )
 
     pkg_vars: dict[str, set[str]] = {}
@@ -120,7 +120,7 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
 
     goroutine_rows = db.query(
         Q("go_goroutines")
-        .select("file_path", "line", "containing_func")
+        .select("file", "line", "containing_func")
         .where("is_anonymous = ?", 1)
     )
 
@@ -130,8 +130,8 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
 
         struct_mutex_rows = db.query(
             Q("go_struct_fields")
-            .select("file_path")
-            .where("file_path = ?", file_path)
+            .select("file")
+            .where("file = ?", file_path)
             .where("field_type LIKE ? OR field_type LIKE ?", "%sync.Mutex%", "%sync.RWMutex%")
             .limit(1)
         )
@@ -139,11 +139,11 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
 
         global_mutex_rows = db.query(
             Q("go_variables")
-            .select("file_path")
-            .where("file_path = ?", file_path)
+            .select("file")
+            .where("file = ?", file_path)
             .where("is_package_level = ?", 1)
             .where(
-                "var_type LIKE ? OR var_type LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
+                "type LIKE ? OR type LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
                 "%sync.Mutex%",
                 "%sync.RWMutex%",
                 "%sync.Mutex%",
@@ -159,7 +159,7 @@ def _check_package_var_goroutine_access(db: RuleDB) -> list[StandardFinding]:
         captured_rows = db.query(
             Q("go_captured_vars")
             .select("var_name")
-            .where("file_path = ?", file_path)
+            .where("file = ?", file_path)
             .where("line = ?", line)
         )
 
@@ -188,7 +188,7 @@ def _check_goroutine_without_sync(db: RuleDB) -> list[StandardFinding]:
     findings = []
 
     goroutine_count_rows = db.query(
-        Q("go_goroutines").select("file_path", "COUNT(*) as goroutine_count").group_by("file_path")
+        Q("go_goroutines").select("file", "COUNT(*) as goroutine_count").group_by("file")
     )
 
     multi_goroutine_files: dict[str, int] = {}
@@ -200,14 +200,14 @@ def _check_goroutine_without_sync(db: RuleDB) -> list[StandardFinding]:
         sync_import_rows = db.query(
             Q("go_imports")
             .select("path")
-            .where("file_path = ?", file_path)
+            .where("file = ?", file_path)
             .where("path = ? OR path = ?", "sync", "sync/atomic")
             .limit(1)
         )
         has_sync_import = len(list(sync_import_rows)) > 0
 
         channel_rows = db.query(
-            Q("go_channels").select("file_path").where("file_path = ?", file_path).limit(1)
+            Q("go_channels").select("file").where("file = ?", file_path).limit(1)
         )
         has_channels = len(list(channel_rows)) > 0
 

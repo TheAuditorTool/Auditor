@@ -160,7 +160,7 @@ def _check_sql_injection(db: RuleDB) -> list[StandardFinding]:
 
     sprintf_rows = db.query(
         Q("go_variables")
-        .select("file_path", "line", "name", "initial_value")
+        .select("file", "line", "name", "initial_value")
         .where("initial_value LIKE ?", "%fmt.Sprintf%")
         .where(
             "UPPER(initial_value) LIKE ? OR UPPER(initial_value) LIKE ? "
@@ -209,7 +209,7 @@ def _check_sql_injection(db: RuleDB) -> list[StandardFinding]:
 
     concat_rows = db.query(
         Q("go_variables")
-        .select("file_path", "line", "name", "initial_value")
+        .select("file", "line", "name", "initial_value")
         .where("initial_value LIKE ?", "%+%")
         .where(
             "UPPER(initial_value) LIKE ? OR UPPER(initial_value) LIKE ? "
@@ -269,7 +269,7 @@ def _check_command_injection(db: RuleDB) -> list[StandardFinding]:
 
     rows = db.query(
         Q("go_variables")
-        .select("file_path", "line", "initial_value")
+        .select("file", "line", "initial_value")
         .where(like_clauses, *like_params)
     )
 
@@ -314,7 +314,7 @@ def _check_template_injection(db: RuleDB) -> list[StandardFinding]:
 
     rows = db.query(
         Q("go_variables")
-        .select("file_path", "line", "initial_value")
+        .select("file", "line", "initial_value")
         .where(
             "initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
             "%template.HTML(%",
@@ -362,7 +362,7 @@ def _check_path_traversal(db: RuleDB) -> list[StandardFinding]:
 
     rows = db.query(
         Q("go_variables")
-        .select("file_path", "line", "initial_value")
+        .select("file", "line", "initial_value")
         .where(
             "initial_value LIKE ? OR initial_value LIKE ? OR initial_value LIKE ?",
             "%filepath.Join%",

@@ -192,9 +192,9 @@ def _get_artifact_download_jobs(db: RuleDB, workflow_path: str) -> list[tuple[st
     """Get jobs that download artifacts in this workflow."""
     rows = db.query(
         Q("github_jobs")
-        .select("job_id", "job_key")
-        .join("github_steps")
-        .where("workflow_path = ?", workflow_path)
+        .select("github_jobs.job_id", "job_key")
+        .join("github_steps", on=[("job_id", "job_id")])
+        .where("github_jobs.workflow_path = ?", workflow_path)
         .where("github_steps.uses_action = ?", "actions/download-artifact")
     )
 
