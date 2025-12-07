@@ -14,6 +14,15 @@ from theauditor.pipeline.ui import console
 
 EXPLANATIONS: dict[str, dict[str, str]] = {**EXPLANATIONS_01, **EXPLANATIONS_02, **EXPLANATIONS_03}
 
+# Aliases: redirect deprecated/redundant topics to canonical entries
+# These won't appear in --list but will work as lookups
+ALIASES: dict[str, str] = {
+    "cfg": "graph",        # CFG is part of graph analysis
+    "callgraph": "graph",  # Call graph is part of graph analysis
+    "graphql": "graph",    # GraphQL schema analysis is part of graph
+    "deps": "dependencies",  # Short alias
+}
+
 
 def _render_rich_explanation(info: dict) -> None:
     """Render a manual entry with Rich formatting."""
@@ -275,10 +284,52 @@ def manual(concept, list_concepts):
     """
 
     if list_concepts:
-        console.print("\nAvailable concepts to explain:\n")
-        for key, info in EXPLANATIONS.items():
-            console.print(f"  {key:12} - {info['summary']}", highlight=False)
-        console.print("\nUse 'aud manual <concept>' for detailed information.")
+        # Group concepts by category for organized display
+        categories = {
+            "Security Analysis": ["taint", "patterns", "boundaries", "fce", "rules"],
+            "Architecture": ["blueprint", "graph", "dependencies", "deadcode", "explain"],
+            "Workflows": ["pipeline", "workset", "severity", "impact", "session"],
+            "Infrastructure": ["terraform", "cdk", "docker", "lint", "tools"],
+            "Language Support": ["rust", "frameworks"],
+            "Data & ML": ["database", "metadata", "ml", "insights"],
+            "Configuration": ["refactor", "context", "planning", "setup", "env-vars"],
+            "Reference": ["overview", "architecture", "gitflows", "exit-codes", "troubleshooting"],
+        }
+
+        console.print()
+        console.print(
+            Panel.fit(
+                "[bold cyan]TheAuditor Manual[/bold cyan]\n"
+                "[dim]Use 'aud manual <topic>' for detailed documentation[/dim]",
+                border_style="cyan",
+            )
+        )
+
+        # Build categorized display
+        for cat_name, topic_keys in categories.items():
+            table = Table(show_header=False, box=None, padding=(0, 1))
+            table.add_column("Topic", style="green", width=16)
+            table.add_column("Description", style="dim")
+            for key in topic_keys:
+                if key in EXPLANATIONS:
+                    table.add_row(key, EXPLANATIONS[key]["summary"])
+            if table.row_count > 0:
+                console.print(Panel(table, title=f"[bold]{cat_name}[/bold]", border_style="blue"))
+
+        # Show any uncategorized topics (excluding aliased entries)
+        all_categorized = set(k for keys in categories.values() for k in keys)
+        uncategorized = [k for k in EXPLANATIONS if k not in all_categorized and k not in ALIASES]
+        if uncategorized:
+            table = Table(show_header=False, box=None, padding=(0, 1))
+            table.add_column("Topic", style="green", width=16)
+            table.add_column("Description", style="dim")
+            for key in sorted(uncategorized):
+                table.add_row(key, EXPLANATIONS[key]["summary"])
+            console.print(Panel(table, title="[bold]Other[/bold]", border_style="blue"))
+
+        topic_count = len([k for k in EXPLANATIONS if k not in ALIASES])
+        console.print(f"\n[dim]Total: {topic_count} topics available (plus {len(ALIASES)} aliases)[/dim]")
+        console.print()
         return
 
     if not concept:
@@ -301,12 +352,12 @@ def manual(concept, list_concepts):
             ],
             "ARCHITECTURE": [
                 ("blueprint", "Codebase structure overview"),
-                ("graph", "Import and call graph analysis"),
-                ("callgraph", "Function call relationships"),
+                ("graph", "Import, call graph, and CFG analysis"),
                 ("dependencies", "Package dependency analysis"),
+                ("deadcode", "Unused code detection"),
             ],
             "WORKFLOWS": [
-                ("pipeline", "20-phase execution pipeline"),
+                ("pipeline", "Multi-phase execution pipeline"),
                 ("workset", "Targeted file subsets"),
                 ("severity", "Finding classification levels"),
                 ("rules", "Detection rule inventory"),
@@ -331,11 +382,20 @@ def manual(concept, list_concepts):
 
     concept = concept.lower().strip()
 
+    # Resolve aliases (cfg -> graph, deps -> dependencies, etc.)
+    if concept in ALIASES:
+        canonical = ALIASES[concept]
+        console.print(f"[dim]'{concept}' redirects to '{canonical}'[/dim]\n")
+        concept = canonical
+
     if concept not in EXPLANATIONS:
         console.print(f"Unknown concept: '{concept}'", highlight=False)
         console.print("\nAvailable concepts:")
-        for key in EXPLANATIONS:
+        for key in sorted(EXPLANATIONS.keys()):
             console.print(f"  - {key}", highlight=False)
+        console.print("\nAliases:")
+        for alias, target in ALIASES.items():
+            console.print(f"  - {alias} -> {target}", highlight=False)
         return
 
     info = EXPLANATIONS[concept]

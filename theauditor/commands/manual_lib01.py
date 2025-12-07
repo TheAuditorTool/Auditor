@@ -393,10 +393,10 @@ Topics: aud manual graph, aud manual callgraph, aud manual refactor
     },
     "pipeline": {
         "title": "Analysis Pipeline",
-        "summary": "TheAuditor's 20-phase execution pipeline with intelligent parallelization",
+        "summary": "TheAuditor's multi-phase execution pipeline with intelligent parallelization",
         "explanation": """
 WHAT IT IS:
-The pipeline is TheAuditor's orchestration system that runs 20 analysis phases
+The pipeline is TheAuditor's orchestration system that runs multiple analysis phases
 in optimized sequence. It builds databases, runs security scans, and correlates
 findings - all from a single command.
 
@@ -414,7 +414,7 @@ PREREQUISITES:
 
 STEPS:
     1. Run the full pipeline:
-       aud full                    # Complete 20-phase analysis
+       aud full                    # Complete multi-phase analysis
 
     2. Check the output directory:
        .pf/repo_index.db           # Symbol database (query with aud query)
@@ -845,6 +845,46 @@ Only these commands support --workset flag:
 - aud graph analyze --workset
 - aud workflows analyze --workset
 - aud terraform provision --workset
+
+REFACTOR WORKFLOW (Pattern Discovery -> YAML -> Fix):
+Step 1: Discover architecture before planning
+    aud blueprint --structure        # Understand codebase layout
+    aud blueprint --boundaries       # Find security entry points
+    aud blueprint --taint            # See data flow summary
+    aud deadcode                     # Find zombie/unused code
+    aud fce                          # Prioritize by vector convergence
+
+Step 2: Discover patterns before writing YAML
+    aud query --list-symbols --filter "*product*"  # Find what exists
+    aud query --pattern "%variant%"                # SQL LIKE search
+    aud manual refactor                            # Read YAML schema
+
+Step 3: Write and validate YAML profile
+    # Create profile.yaml based on FOUND patterns
+    aud refactor --file profile.yaml --validate-only  # Check syntax
+
+Step 4: Run analysis and query results
+    aud refactor --file profile.yaml   # Find violations
+    aud refactor --query-last          # Query last run results
+
+Step 5: Fix in dependency order
+    aud graph analyze                  # Understand dependencies
+    aud impact --file target.tsx       # Check blast radius before fix
+    # Make fixes, then re-run:
+    aud full --index                   # Re-index after changes
+    aud refactor --file profile.yaml   # Verify 0 violations
+
+PLANNING WORKFLOW (For Complex Refactors):
+    aud planning init --name "Migrate ProductVariants"
+    aud planning add-task --name "Fix Sale.tsx" --spec profile.yaml
+    # ... make fixes ...
+    aud planning verify-task 1 1       # Verify task passes spec
+    aud planning archive 1             # Mark plan complete
+
+AI INTEGRATION WORKFLOW:
+    aud blueprint --structure --format json  # Feed to AI for context
+    aud query --file X --format json         # Get file details as JSON
+    aud explain <file>                       # Get AI-friendly explanation
 """,
     },
     "exit-codes": {
