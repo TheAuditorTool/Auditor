@@ -1616,8 +1616,8 @@ async def run_full_pipeline(
                     elapsed=pipeline_elapsed,
                     status="complete" if failed_phases == 0 else "partial",
                 )
-                journal.close(copy_to_history=True)
-                renderer.on_log("[dim]Journal closed and copied to history for ML training[/dim]")
+                journal.close()
+                renderer.on_log("[dim]Journal closed (persistent in .pf/ml/)[/dim]")
             except Exception as e:
                 renderer.on_log(
                     f"[yellow]Warning:[/yellow] Journal close failed: {e}", is_error=True

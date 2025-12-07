@@ -9,16 +9,19 @@ from theauditor.utils.logging import logger
 
 
 class JournalWriter:
-    """Writes execution events to journal.ndjson file."""
+    """Writes execution events to persistent journal.ndjson file.
 
-    def __init__(self, journal_path: str = "./.pf/journal.ndjson", history_dir: str | None = None):
+    The journal lives in .pf/ml/ which is preserved across runs (not archived).
+    Events accumulate over time, providing a complete audit trail.
+    """
+
+    def __init__(self, journal_path: str = "./.pf/ml/journal.ndjson"):
         """Initialize journal writer.
 
         Raises:
             OSError: If journal file cannot be opened (permissions, disk space, etc.)
         """
         self.journal_path = Path(journal_path).resolve()
-        self.history_dir = Path(history_dir).resolve() if history_dir else None
         self.session_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
 
         self.journal_path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,19 +137,11 @@ class JournalWriter:
             },
         )
 
-    def close(self, copy_to_history: bool = True):
-        """Close the journal file and optionally copy to history."""
+    def close(self):
+        """Close the journal file handle."""
         if self.file_handle:
             self.file_handle.close()
             self.file_handle = None
-
-        if copy_to_history and self.history_dir and self.journal_path.exists():
-            import shutil
-
-            self.history_dir.mkdir(parents=True, exist_ok=True)
-            dest_path = self.history_dir / f"journal_{self.session_id}.ndjson"
-            shutil.copy2(self.journal_path, dest_path)
-            logger.info(f"Journal copied to history: {dest_path}")
 
     def __enter__(self):
         """Context manager entry."""
@@ -158,9 +153,9 @@ class JournalWriter:
 
 
 class JournalReader:
-    """Reads and queries journal.ndjson files."""
+    """Reads and queries the persistent journal.ndjson file."""
 
-    def __init__(self, journal_path: str = "./.pf/journal.ndjson"):
+    def __init__(self, journal_path: str = "./.pf/ml/journal.ndjson"):
         """Initialize journal reader."""
         self.journal_path = Path(journal_path)
 
@@ -291,11 +286,12 @@ class JournalReader:
 
 
 def get_journal_writer(run_type: str = "full") -> JournalWriter:
-    """Get a journal writer for the current run."""
+    """Get a journal writer for the current run.
 
-    history_dir = Path("./.pf/history") / run_type / datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-
-    return JournalWriter(journal_path="./.pf/journal.ndjson", history_dir=str(history_dir))
+    Journal is persistent in .pf/ml/ - not archived between runs.
+    The run_type parameter is kept for API compatibility but unused.
+    """
+    return JournalWriter()
 
 
 def integrate_with_pipeline(pipeline_func):
