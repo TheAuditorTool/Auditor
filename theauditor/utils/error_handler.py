@@ -21,12 +21,19 @@ def handle_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
         """Inner wrapper that implements the try-except logic."""
         try:
             return func(*args, **kwargs)
+        except click.ClickException:
+            raise
         except Exception as e:
-            PF_DIR.mkdir(parents=True, exist_ok=True)
+            error_msg = str(e)
+            is_user_error = isinstance(e, (RuntimeError, FileNotFoundError, ValueError))
 
+            if is_user_error:
+                logger.error("Command '{cmd}' failed: {err}", cmd=func.__name__, err=error_msg)
+                raise click.ClickException(error_msg) from e
+
+            PF_DIR.mkdir(parents=True, exist_ok=True)
             error_log_path = ERROR_LOG_FILE
             error_type = type(e).__name__
-            error_msg = str(e)
             tb = traceback.format_exc()
 
             logger.opt(exception=True).error(
@@ -43,10 +50,8 @@ def handle_exceptions(func: Callable[..., Any]) -> Callable[..., Any]:
                 f.write(tb)
                 f.write("=" * 80 + "\n\n")
 
-            user_message = (
+            raise click.ClickException(
                 f"{error_type}: {error_msg}\n\nFull traceback logged to: {error_log_path}"
-            )
-
-            raise click.ClickException(user_message) from e
+            ) from e
 
     return wrapper
