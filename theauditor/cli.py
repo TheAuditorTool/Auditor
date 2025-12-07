@@ -87,6 +87,13 @@ class RichGroup(click.Group):
 
     def format_help(self, ctx, formatter):
         """Render help output using Rich components."""
+        # Detect if this is a nested group (subcommand of another group)
+        # If so, render subcommands list instead of the dashboard layout
+        if ctx.parent is not None and self.commands:
+            self._format_subgroup_help(ctx)
+            return
+
+        # Original dashboard rendering for top-level CLI
         console.print()
         console.rule(f"[bold]TheAuditor Security Platform v{__version__}[/bold]", characters="-")
         console.print(
@@ -135,6 +142,59 @@ class RichGroup(click.Group):
         )
         console.print(
             "[dim]Run [bold]aud manual --list[/bold] for concept documentation.[/dim]",
+            justify="center",
+        )
+        console.print()
+
+    def _format_subgroup_help(self, ctx):
+        """Render help for nested command groups (e.g., aud planning --help)."""
+        group_name = ctx.info_name
+
+        console.print()
+        console.rule(f"[bold]aud {group_name}[/bold]", characters="-")
+
+        # Show group docstring summary
+        if self.help:
+            # Extract first paragraph as summary
+            lines = self.help.strip().split("\n\n")[0].split("\n")
+            summary = " ".join(line.strip() for line in lines if line.strip())
+            if summary:
+                console.print(f"\n{summary}\n")
+
+        # List all subcommands
+        registered = {
+            name: cmd
+            for name, cmd in self.commands.items()
+            if not name.startswith("_") and not getattr(cmd, "hidden", False)
+        }
+
+        if registered:
+            table = Table(box=None, show_header=False, padding=(0, 2), expand=True)
+            table.add_column("Command", style="bold green", width=24)
+            table.add_column("Description", style="dim")
+
+            for cmd_name in sorted(registered.keys()):
+                cmd = registered[cmd_name]
+                help_text = (cmd.help or "").split("\n")[0].strip()
+                if len(help_text) > 55:
+                    help_text = help_text[:52] + "..."
+                table.add_row(f"aud {group_name} {cmd_name}", help_text)
+
+            panel = Panel(
+                table,
+                title="[bold cyan]SUBCOMMANDS[/bold cyan]",
+                border_style="cyan",
+                box=box.ASCII,
+            )
+            console.print(panel)
+
+        console.print()
+        console.print(
+            f"[dim]Run [bold]aud {group_name} <command> --help[/bold] for detailed usage.[/dim]",
+            justify="center",
+        )
+        console.print(
+            f"[dim]Run [bold]aud manual {group_name}[/bold] for concept documentation.[/dim]",
             justify="center",
         )
         console.print()

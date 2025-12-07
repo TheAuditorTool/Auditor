@@ -130,13 +130,30 @@ def planning():
       - Verification queries indexed code (not raw files)
 
     COMMANDS:
-      init         Create new plan (auto-creates planning.db)
+      init         Create new plan (--name required)
       show         Display plan status and task list
-      add-task     Add task with optional YAML spec
+      list         List all plans in database
+      add-phase    Add phase to group tasks (--phase-number, --title required)
+      add-task     Add task with optional spec (--title required)
+      add-job      Add checkbox item to task (--description required)
       update-task  Change task status or assignee
       verify-task  Run spec against indexed code
       archive      Create final snapshot and mark complete
       rewind       Show git commands to rollback
+      checkpoint   Create incremental snapshot
+      show-diff    View stored diffs for a task
+      validate     Validate against session logs
+
+    SUBCOMMAND QUICK REFERENCE:
+      aud planning init --name "Plan Name"
+      aud planning add-phase 1 --phase-number 1 --title "Phase Title"
+      aud planning add-task 1 --title "Task Title" --phase 1
+      aud planning add-job 1 1 --description "Checkbox item"
+      aud planning update-task 1 1 --status completed
+      aud planning verify-task 1 1 --verbose --auto-update
+      aud planning show 1 --format phases
+
+    FLAG NOTE: init uses --name, add-phase/add-task use --title
 
     For detailed help: aud planning <command> --help
 

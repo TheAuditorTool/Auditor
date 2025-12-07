@@ -901,6 +901,47 @@ SUBCOMMANDS:
   validate     Validate execution against session logs
   setup-agents Inject agent triggers into docs
 
+SUBCOMMAND REFERENCE (exact syntax):
+
+  init - Create a new plan:
+    aud planning init --name "Plan Name" --description "Optional description"
+
+  add-phase - Add hierarchical phase (groups tasks):
+    aud planning add-phase <plan_id> --phase-number <N> --title "Phase Title" \\
+        --description "What this phase covers" \\
+        --success-criteria "How we know phase is complete"
+    Example:
+      aud planning add-phase 1 --phase-number 1 --title "Database Migration" \\
+          --success-criteria "All tables migrated and verified"
+
+  add-task - Add task to plan (optionally under a phase):
+    aud planning add-task <plan_id> --title "Task Title" \\
+        --description "Details" --phase <N> --spec spec.yaml
+    Example:
+      aud planning add-task 1 --title "Migrate users table" --phase 1
+
+  add-job - Add checkbox item to task:
+    aud planning add-job <plan_id> <task_number> --description "Step" --is-audit
+    Example:
+      aud planning add-job 1 1 --description "Run migration script"
+      aud planning add-job 1 1 --description "Verify row counts match" --is-audit
+
+  update-task - Change task status:
+    aud planning update-task <plan_id> <task_number> --status completed
+    aud planning update-task <plan_id> <task_number> --assigned-to "Name"
+
+  verify-task - Run spec verification:
+    aud planning verify-task <plan_id> <task_number> --verbose --auto-update
+
+  show - Display plan hierarchy:
+    aud planning show <plan_id> --format phases  # Full hierarchy
+    aud planning show <plan_id> --format flat    # Flat task list
+
+FLAG NAMING NOTE:
+  - init uses --name (plan name)
+  - add-phase and add-task use --title (phase/task title)
+  This is intentional: plans have names, phases/tasks have titles.
+
 COMBINING WITH OTHER TOOLS:
   Planning + Refactor Agent:
     The planning system integrates with the /theauditor:planning slash command

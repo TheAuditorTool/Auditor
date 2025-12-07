@@ -16,9 +16,7 @@ VALID_TABLES = {
     "refs",
     "function_calls",
     "jwt_patterns",
-    "oauth_patterns",
-    "password_patterns",
-    "session_patterns",
+    # NOTE: oauth_patterns, password_patterns, session_patterns were planned but never implemented
     "sql_queries",
     "orm_queries",
     "react_components",
@@ -964,10 +962,19 @@ class CodeQueryEngine:
         return results[:limit]
 
     def category_search(self, category: str, limit: int = 200) -> dict[str, list[dict]]:
-        """Search across pattern tables by security category."""
+        """Search across pattern tables by security category.
+
+        Primary source is findings_consolidated. Additional tables are queried
+        only if they exist in the database.
+        """
         cursor = self.repo_db.cursor()
         results = {}
 
+        # Get existing tables first
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        existing_tables = {row[0] for row in cursor.fetchall()}
+
+        # Tables that MAY exist for each category
         category_tables = {
             "jwt": ["jwt_patterns"],
             "oauth": ["oauth_patterns"],
@@ -980,13 +987,17 @@ class CodeQueryEngine:
 
         tables = category_tables.get(category.lower(), [])
 
+        # Only query tables that actually exist
         for table in tables:
+            if table not in existing_tables:
+                continue
             validated_table = validate_table_name(table)
             cursor.execute(f"SELECT * FROM {validated_table} LIMIT {limit}")
             rows = cursor.fetchall()
             if rows:
                 results[table] = [dict(row) for row in rows]
 
+        # Primary source: findings_consolidated (always exists after aud full)
         cursor.execute(
             f"SELECT * FROM findings_consolidated WHERE category LIKE ? LIMIT {limit}",
             (f"%{category}%",),
@@ -995,6 +1006,20 @@ class CodeQueryEngine:
         if findings:
             results["findings"] = [dict(row) for row in findings]
 
+        # Also search by rule name (e.g., "password" matches rules about passwords)
+        cursor.execute(
+            f"SELECT * FROM findings_consolidated WHERE rule LIKE ? LIMIT {limit}",
+            (f"%{category}%",),
+        )
+        rule_findings = cursor.fetchall()
+        if rule_findings:
+            # Dedupe with existing findings
+            existing_ids = {f.get("id") for f in results.get("findings", [])}
+            new_findings = [dict(row) for row in rule_findings if dict(row).get("id") not in existing_ids]
+            if new_findings:
+                results.setdefault("findings", []).extend(new_findings)
+
+        # Symbol search as fallback
         pattern_results = self.pattern_search(f"%{category}%", limit=limit)
         if pattern_results:
             results["symbols"] = [asdict(s) for s in pattern_results]

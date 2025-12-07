@@ -191,6 +191,36 @@ COMMAND OPTIONS:
     aud refactor --output report.json     # Export findings
     aud refactor --file profile.yaml      # Use refactor profile (YAML required)
     aud refactor --in-file OrderDetails   # Focus on pattern
+    aud refactor --query-last             # Show results from last run (NO re-analysis)
+    aud refactor --validate-only          # Validate YAML without running (use with --file)
+
+AI WORKFLOW (for custom YAML profiles):
+The correct workflow for AI assistants:
+
+    1. INVESTIGATE: Query database to understand what patterns exist
+       aud query --pattern "%product%" --path "frontend/src/**"
+
+    2. WRITE YAML: Create profile based on actual patterns found
+       (See YAML PROFILE SCHEMA above)
+
+    3. VALIDATE: Check YAML syntax before running
+       aud refactor --file profile.yml --validate-only
+
+    4. RUN: Execute the refactor analysis
+       aud refactor --file profile.yml
+
+    5. QUERY RESULTS: Get violations from database (NOT file output)
+       aud refactor --query-last
+
+    WRONG APPROACH (wastes time):
+      - Guessing patterns without discovery
+      - Using --output file.json then reading the JSON file
+      - Running full analysis to test one rule
+
+    RIGHT APPROACH:
+      - Query DB first to discover actual patterns
+      - Use --validate-only before full run
+      - Use --query-last to read results from DB (stored in refactor_history table)
 
 TROUBLESHOOTING:
 - Too few matches: Add more identifiers, widen scope, use regex patterns

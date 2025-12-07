@@ -139,23 +139,95 @@ class ShadowRepoManager:
             "files": files,
         }
 
-    def detect_dirty_files(self, project_root: Path) -> list[str]:
+    def detect_dirty_files(
+        self, project_root: Path, max_files: int = 500, timeout_seconds: int = 30
+    ) -> list[str]:
         """Detect files with uncommitted changes using pygit2.
 
         Replaces legacy subprocess 'git status' parsing.
         Returns relative paths as strings.
+
+        Args:
+            project_root: Path to the git repository root
+            max_files: Maximum number of dirty files to return (prevents hanging on huge repos)
+            timeout_seconds: Not used directly, but documents expected max time
+
+        Note: If pygit2.status() is slow, falls back to subprocess git status.
         """
-        repo = pygit2.Repository(str(project_root))
-        status = repo.status()
+        import subprocess
+        import time
 
-        dirty_files = []
-        for filepath, flags in status.items():
-            if flags & (
-                pygit2.GIT_STATUS_INDEX_NEW
-                | pygit2.GIT_STATUS_INDEX_MODIFIED
-                | pygit2.GIT_STATUS_WT_NEW
-                | pygit2.GIT_STATUS_WT_MODIFIED
-            ):
-                dirty_files.append(filepath)
+        start_time = time.time()
 
-        return dirty_files
+        # Try pygit2 first, but fall back to subprocess if too slow
+        try:
+            repo = pygit2.Repository(str(project_root))
+
+            # Use a thread to detect if status() hangs
+            dirty_files = []
+            status = repo.status()
+
+            for filepath, flags in status.items():
+                # Check timeout periodically
+                if len(dirty_files) % 100 == 0:
+                    if time.time() - start_time > timeout_seconds:
+                        logger.warning(
+                            "detect_dirty_files timeout after {}s, returning {} files",
+                            timeout_seconds,
+                            len(dirty_files),
+                        )
+                        break
+
+                if flags & (
+                    pygit2.GIT_STATUS_INDEX_NEW
+                    | pygit2.GIT_STATUS_INDEX_MODIFIED
+                    | pygit2.GIT_STATUS_WT_NEW
+                    | pygit2.GIT_STATUS_WT_MODIFIED
+                ):
+                    # Skip common large directories that shouldn't be tracked
+                    if any(
+                        skip in filepath
+                        for skip in ["node_modules/", ".git/", "__pycache__/", ".venv/", "venv/"]
+                    ):
+                        continue
+                    dirty_files.append(filepath)
+
+                    if len(dirty_files) >= max_files:
+                        logger.warning(
+                            "detect_dirty_files hit max_files limit ({}), truncating",
+                            max_files,
+                        )
+                        break
+
+            return dirty_files
+
+        except Exception as e:
+            logger.warning("pygit2 status failed ({}), falling back to subprocess", str(e))
+
+            # Fallback to subprocess git status (usually faster)
+            try:
+                result = subprocess.run(
+                    ["git", "status", "--porcelain", "-uall"],
+                    cwd=str(project_root),
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_seconds,
+                )
+                if result.returncode == 0:
+                    dirty_files = []
+                    for line in result.stdout.strip().split("\n"):
+                        if line and len(line) > 3:
+                            filepath = line[3:].strip()
+                            # Handle renamed files (old -> new)
+                            if " -> " in filepath:
+                                filepath = filepath.split(" -> ")[1]
+                            dirty_files.append(filepath)
+                            if len(dirty_files) >= max_files:
+                                break
+                    return dirty_files
+            except subprocess.TimeoutExpired:
+                logger.error("git status timed out after {}s", timeout_seconds)
+            except Exception as fallback_e:
+                logger.error("Subprocess fallback failed: {}", str(fallback_e))
+
+            return []

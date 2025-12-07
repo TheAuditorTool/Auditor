@@ -69,12 +69,24 @@ RENAME_COLUMN = re.compile(
     "in_file_filter",
     help="Only scan files matching this pattern (e.g., 'OrderDetails' or 'src/components')",
 )
+@click.option(
+    "--query-last",
+    is_flag=True,
+    help="Query results from the last refactor run (reads from database, no re-analysis)",
+)
+@click.option(
+    "--validate-only",
+    is_flag=True,
+    help="Validate YAML profile syntax without running analysis (use with --file)",
+)
 def refactor(
     migration_dir: str,
     migration_limit: int,
     profile_file: str | None,
     output: str | None,
     in_file_filter: str | None,
+    query_last: bool,
+    validate_only: bool,
 ) -> None:
     """Detect incomplete refactorings and breaking changes from database schema migrations.
 
@@ -154,6 +166,12 @@ def refactor(
       # Use Case 5: Use refactor profile (YAML expectations)
       aud refactor --file ./refactor_profile.yml
 
+      # Use Case 6: Query results from last run (NO re-analysis)
+      aud refactor --query-last
+
+      # Use Case 7: Validate YAML profile before running
+      aud refactor --file ./profile.yml --validate-only
+
     COMMON WORKFLOWS:
       Pre-Deployment Validation:
         aud full && aud refactor --migration-limit 1
@@ -163,6 +181,34 @@ def refactor(
 
       CI/CD Integration:
         aud refactor || exit 2  # Fail build on breaking changes
+
+    AI WORKFLOW (for custom YAML profiles):
+      The correct workflow for AI assistants using refactor profiles:
+
+      1. INVESTIGATE: Query database to understand what patterns exist
+         aud query --pattern "%product%" --path "frontend/src/**"
+
+      2. WRITE YAML: Create profile based on actual patterns found
+         (See 'aud manual refactor' for YAML schema)
+
+      3. VALIDATE: Check YAML syntax before running
+         aud refactor --file profile.yml --validate-only
+
+      4. RUN: Execute the refactor analysis
+         aud refactor --file profile.yml
+
+      5. QUERY RESULTS: Get violations from database (NOT file output)
+         aud refactor --query-last
+
+      WRONG APPROACH (wastes time):
+        - Guessing patterns without discovery
+        - Using --output file.json then reading the file
+        - Running full analysis to test one rule
+
+      RIGHT APPROACH:
+        - Query DB first to discover actual patterns
+        - Use --validate-only before full run
+        - Use --query-last to read results from DB
 
     OUTPUT FORMAT (breaking changes report):
       {
@@ -239,7 +285,6 @@ def refactor(
     NOTE: This command detects syntactic mismatches only, not semantic issues.
     Code may still break if schema change affects data types or constraints.
     """
-
     repo_root = Path.cwd()
     while repo_root != repo_root.parent:
         if (repo_root / ".git").exists():
@@ -249,6 +294,134 @@ def refactor(
     pf_dir = repo_root / ".pf"
     db_path = pf_dir / "repo_index.db"
 
+    # Handle --query-last: show results from last run without re-analysis
+    if query_last:
+        if not db_path.exists():
+            err_console.print(
+                "[error]Error: No index found. Run 'aud full' first.[/error]",
+            )
+            raise click.Abort()
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT timestamp, target_file, refactor_type, validation_status, details_json "
+            "FROM refactor_history ORDER BY timestamp DESC LIMIT 1"
+        )
+        row = cursor.fetchone()
+        conn.close()
+
+        if not row:
+            console.print("\nNo previous refactor runs found in database.")
+            console.print("Run 'aud refactor' first to populate history.")
+            return
+
+        console.print("\n" + "=" * 70, markup=False)
+        console.print("LAST REFACTOR RUN RESULTS")
+        console.rule()
+        console.print(f"  Timestamp: {row['timestamp']}", highlight=False)
+        console.print(f"  Target: {row['target_file']}", highlight=False)
+        console.print(f"  Type: {row['refactor_type']}", highlight=False)
+        console.print(f"  Status: {row['validation_status']}", highlight=False)
+
+        if row["details_json"]:
+            details = json.loads(row["details_json"])
+            summary = details.get("summary", {})
+            console.print("\n  SUMMARY:", highlight=False)
+            console.print(f"    Risk Level: {summary.get('risk_level', 'N/A')}", highlight=False)
+            console.print(
+                f"    Total Mismatches: {summary.get('total_mismatches', 0)}", highlight=False
+            )
+            console.print(
+                f"    Profile Violations: {summary.get('profile_violations', 0)}", highlight=False
+            )
+
+            # Show profile violations if present
+            profile = details.get("profile", {})
+            if profile.get("rule_results"):
+                console.print("\n  VIOLATIONS BY RULE:", highlight=False)
+                for rule_result in profile["rule_results"]:
+                    rule_id = rule_result.get("rule", {}).get("id", "unknown")
+                    severity = rule_result.get("rule", {}).get("severity", "unknown")
+                    violations = rule_result.get("violations", [])
+                    if violations:
+                        console.print(
+                            f"    [{severity.upper()}] {rule_id}: {len(violations)} violations",
+                            highlight=False,
+                        )
+                        for v in violations[:3]:
+                            console.print(
+                                f"      - {v.get('file', '?')}:{v.get('line', '?')}",
+                                highlight=False,
+                            )
+                        if len(violations) > 3:
+                            console.print(
+                                f"      ... and {len(violations) - 3} more", highlight=False
+                            )
+
+        console.print("\n" + "=" * 70 + "\n", markup=False)
+        return
+
+    # Handle --validate-only: check YAML syntax without running analysis
+    if validate_only:
+        if not profile_file:
+            err_console.print(
+                "[error]Error: --validate-only requires --file <profile.yml>[/error]",
+            )
+            raise click.Abort()
+
+        console.print("\n" + "=" * 70, markup=False)
+        console.print("YAML PROFILE VALIDATION")
+        console.rule()
+
+        try:
+            profile = RefactorProfile.load(Path(profile_file))
+            console.print(f"  Profile: {profile.refactor_name}", highlight=False)
+            console.print(f"  Description: {profile.description}", highlight=False)
+            console.print(f"  Version: {profile.version or 'N/A'}", highlight=False)
+            console.print(f"  Rules: {len(profile.rules)}", highlight=False)
+
+            console.print("\n  RULES FOUND:", highlight=False)
+            for rule in profile.rules:
+                match_count = len(rule.match.get("identifiers", [])) + len(
+                    rule.match.get("expressions", [])
+                )
+                expect_count = (
+                    len(rule.expect.identifiers) + len(rule.expect.expressions)
+                    if not rule.expect.is_empty()
+                    else 0
+                )
+                console.print(
+                    f"    [{rule.severity.upper()}] {rule.id}: "
+                    f"{match_count} match patterns, {expect_count} expect patterns",
+                    highlight=False,
+                )
+                if rule.scope.get("include"):
+                    console.print(
+                        f"      Scope include: {rule.scope['include']}", highlight=False
+                    )
+                if rule.scope.get("exclude"):
+                    console.print(
+                        f"      Scope exclude: {rule.scope['exclude'][:3]}...", highlight=False
+                    )
+
+            console.print("\n  VALIDATION: PASSED", highlight=False)
+            console.print("  Profile is syntactically valid and ready to use.", highlight=False)
+
+        except Exception as exc:
+            console.print(f"\n  VALIDATION: FAILED", highlight=False)
+            console.print(f"  Error: {exc}", highlight=False)
+            console.print("\n  Common issues:", highlight=False)
+            console.print("    - 'identfiers' typo (should be 'identifiers')", highlight=False)
+            console.print("    - Missing required fields (id, match)", highlight=False)
+            console.print("    - Invalid YAML syntax (indentation)", highlight=False)
+            raise click.Abort() from exc
+
+        console.print("\n" + "=" * 70 + "\n", markup=False)
+        return
+
+    # Normal flow continues below
     if not db_path.exists():
         err_console.print(
             "[error]Error: No index found. Run 'aud full' first.[/error]",
