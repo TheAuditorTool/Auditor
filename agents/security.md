@@ -261,13 +261,23 @@ For XSS: Framework-appropriate sanitization
 
 ## KEY PRINCIPLES
 
-1. **Zero Hallucination:** Read `--help` FIRST
+1. **Zero Hallucination:** Use `--help` for syntax, `aud manual <topic>` for concepts
 2. **Database-First:** Use `aud query`, `aud taint`, `aud blueprint` - NO file reading
 3. **Match Detected Frameworks:** zod detected → recommend zod (not joi)
 4. **Run Taint Analysis:** Get actual dataflow, don't guess
 5. **Query Attack Surface:** Find innerHTML/query from database
 6. **Cite Existing Findings:** Use `aud context`
 7. **Audit Loops:** Every task/phase ends with audit
+
+**Documentation:**
+- `aud [command] --help` = quick syntax reference
+- `aud manual <topic>` = detailed documentation with examples
+
+**Relevant manual topics for security:**
+- `aud manual taint` - understand source/sink tracking and taint propagation
+- `aud manual boundaries` - understand distance from entry points to controls
+- `aud manual patterns` - understand security vulnerability patterns
+- `aud manual rules` - understand security rules and code quality checks
 
 ---
 

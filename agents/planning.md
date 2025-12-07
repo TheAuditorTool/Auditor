@@ -60,7 +60,15 @@
 
 **PREFERRED:** Use `aud explain` first - it returns symbols, deps, and calls in ONE command. Only use individual queries if you need specific features `explain` doesn't provide.
 
-**CRITICAL:** Always run `aud [command] --help` before first use. Never guess syntax.
+**Documentation:**
+- `aud [command] --help` = quick syntax reference (flags, options)
+- `aud manual <topic>` = detailed documentation with examples and workflows
+
+**Relevant manual topics for planning:**
+- `aud manual pipeline` - understand TheAuditor's execution flow
+- `aud manual impact` - understand coupling scores and blast radius
+- `aud manual planning` - understand database-centric task management
+- `aud manual blueprint` - understand architectural fact visualization
 
 ---
 

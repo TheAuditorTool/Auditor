@@ -305,13 +305,23 @@ For sanitization gaps: Framework-appropriate
 
 ## KEY PRINCIPLES
 
-1. **Zero Hallucination:** Read `--help` FIRST
+1. **Zero Hallucination:** Use `--help` for syntax, `aud manual <topic>` for concepts
 2. **Database-First:** Use `aud taint`, `aud query` - NO file reading
 3. **Run Taint Analysis First:** Get actual dataflow, don't guess
 4. **Query Call Graph:** Build complete source → sink picture
 5. **Check Sanitization:** Identify validation/escaping gaps
 6. **Match Detected Frameworks:** Use zod if zod
 7. **Audit Loops:** Every task/phase ends with audit
+
+**Documentation:**
+- `aud [command] --help` = quick syntax reference
+- `aud manual <topic>` = detailed documentation with examples
+
+**Relevant manual topics for dataflow:**
+- `aud manual taint` - understand source/sink tracking and taint propagation
+- `aud manual callgraph` - understand function-level call relationships
+- `aud manual fce` - understand finding correlation engine for compound vulnerabilities
+- `aud manual cfg` - understand control flow graph for execution paths
 
 ---
 

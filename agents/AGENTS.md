@@ -39,10 +39,27 @@ Some commands require you to write a custom YAML file before use:
 | `aud refactor --file X` | Refactor profile (old/new identifiers, scope) | `aud manual refactor` |
 | `aud context --file X` | Semantic rules (obsolete/current/transitional patterns) | `aud manual context` |
 
-**Workflow:**
-1. Run `aud manual <command>` to see full YAML schema and examples
-2. Write your YAML file based on the schema
-3. Run the command with `--file your_config.yaml`
+**AI WORKFLOW (Correct Approach for YAML profiles):**
+
+```
+1. INVESTIGATE: Query database to discover actual patterns
+   aud query --pattern "%product%" --path "frontend/src/**"
+
+2. WRITE YAML: Create profile based on patterns FOUND (not guessed)
+   (Run `aud manual refactor` for full schema)
+
+3. VALIDATE: Check YAML syntax before running
+   aud refactor --file profile.yml --validate-only
+
+4. RUN: Execute the analysis
+   aud refactor --file profile.yml
+
+5. QUERY RESULTS: Get violations from database (NOT file output)
+   aud refactor --query-last
+```
+
+**WRONG:** Guessing patterns → Writing YAML → Running → Reading JSON file output
+**RIGHT:** Query DB → Write YAML → Validate → Run → Query results from DB
 
 ---
 
@@ -61,11 +78,40 @@ Some commands require you to write a custom YAML file before use:
 | Dead code detection | `aud deadcode` |
 | Boundary distance analysis | `aud boundaries --type input-validation` |
 | Change impact/coupling | `aud impact --symbol X --planning-context` |
+| Change impact (file) | `aud impact path/to/file.py` |
+| Full context for file | `aud explain path/to/file.py` |
+| Full context for symbol | `aud explain SymbolName` |
+| Validate refactor YAML | `aud refactor --file X --validate-only` |
+| Last refactor results | `aud refactor --query-last` |
 | Full analysis pipeline | `aud full` |
 
 **Performance Note:** `aud blueprint --taint` and `--boundaries` read from database (fast). Use these for summaries instead of re-running `aud taint` (slow).
 
 **First time?** Run `aud --help` and `aud <command> --help`. Never guess syntax.
+
+---
+
+## Documentation: --help vs aud manual
+
+| Need | Use | Example |
+|------|-----|---------|
+| Quick syntax reference | `--help` | `aud taint --help` |
+| Detailed concepts with examples | `aud manual <topic>` | `aud manual taint` |
+
+**Key distinction:**
+- `--help` = command-line flags, options, basic usage
+- `aud manual` = rich documentation with examples, workflows, and conceptual explanations
+
+**Recommended topics per workflow:**
+
+| Workflow | Relevant Manual Topics |
+|----------|------------------------|
+| Planning | `aud manual pipeline`, `aud manual impact`, `aud manual planning` |
+| Security | `aud manual taint`, `aud manual boundaries`, `aud manual patterns` |
+| Dataflow | `aud manual taint`, `aud manual callgraph`, `aud manual fce` |
+| Refactor | `aud manual refactor`, `aud manual context`, `aud manual deadcode` |
+
+Run `aud manual --list` to see all 44 available topics.
 
 ---
 

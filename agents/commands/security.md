@@ -20,7 +20,12 @@ tags: [theauditor, security, taint, vulnerability]
 6. Present with Evidence citations for every finding.
 
 **Reference**
-- Use `aud taint --help` for taint analysis options.
+- Use `aud <command> --help` for quick syntax reference.
+- Use `aud manual <topic>` for detailed documentation with examples:
+  - `aud manual taint` - source/sink tracking and taint propagation
+  - `aud manual boundaries` - distance from entry points to controls
+  - `aud manual patterns` - security vulnerability patterns
+  - `aud manual rules` - security rules and code quality checks
 - Attack surfaces: XSS (innerHTML, dangerouslySetInnerHTML), SQLi (query, execute, raw), CSRF (POST without token).
 - Always match recommendations to detected validation library version.
 <!-- THEAUDITOR:END -->

@@ -21,6 +21,12 @@ tags: [theauditor, dataflow, taint, trace]
 7. Generate recommendations matching detected framework (Sequelize parameterization if Sequelize).
 
 **Reference**
+- Use `aud <command> --help` for quick syntax reference.
+- Use `aud manual <topic>` for detailed documentation with examples:
+  - `aud manual taint` - source/sink tracking and taint propagation
+  - `aud manual callgraph` - function-level call relationships
+  - `aud manual fce` - finding correlation for compound vulnerabilities
+  - `aud manual cfg` - control flow graph for execution paths
 - Framework sources: Flask (request.form/args/json), Express (req.body/query/params), FastAPI (request.form/json).
 - Framework sinks: Sequelize (Model.findOne, db.query), SQLAlchemy (db.session.execute), Raw SQL (db.execute).
 - Risk categories determine fix priority: HIGH first, then MEDIUM.

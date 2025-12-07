@@ -23,7 +23,12 @@ tags: [theauditor, planning, architecture, impact]
 7. Wait for user approval before proceeding.
 
 **Reference**
-- Use `aud --help` and `aud blueprint --help` for command syntax.
+- Use `aud --help` and `aud <command> --help` for quick syntax reference.
+- Use `aud manual <topic>` for detailed documentation with examples:
+  - `aud manual pipeline` - TheAuditor's execution flow
+  - `aud manual impact` - coupling scores and blast radius
+  - `aud manual planning` - database-centric task management
+  - `aud manual blueprint` - architectural fact visualization
 - Blueprint provides: naming conventions, architectural precedents, framework detection, refactor history.
 - Query provides: symbol lists, caller/callee relationships, file structure.
 - Impact provides: coupling score (0-100), dependency categories (prod/test/config), suggested phases.
