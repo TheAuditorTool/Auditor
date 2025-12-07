@@ -14,6 +14,36 @@ from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.error_handler import handle_exceptions
 
 
+def _normalize_path_filter(path_filter: tuple) -> str | None:
+    """Normalize path filter - handle shell expansion and convert wildcards to SQL LIKE."""
+    if not path_filter:
+        return None
+
+    if len(path_filter) == 1:
+        path = path_filter[0]
+    else:
+        paths = [p.replace("\\", "/") for p in path_filter]
+        if paths:
+            prefix_parts = paths[0].split("/")
+            common_parts = []
+            for i, part in enumerate(prefix_parts):
+                if all(p.split("/")[i] == part if len(p.split("/")) > i else False for p in paths):
+                    common_parts.append(part)
+                else:
+                    break
+            path = "/".join(common_parts) + "/" if common_parts else ""
+        else:
+            return None
+
+    path = path.replace("\\", "/")
+    path = path.replace("**", "%").replace("*", "%").replace("?", "_")
+    if not path.endswith("%") and not path.endswith("/"):
+        path += "%"
+    elif path.endswith("/"):
+        path += "%"
+    return path
+
+
 @click.command(cls=RichCommand)
 @click.option("--symbol", help="Query symbol by exact name (functions, classes, variables)")
 @click.option("--file", help="Query file by path (partial match supported)")
@@ -44,7 +74,8 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.option(
     "--path",
     "path_filter",
-    help="File path pattern for --list-symbols (e.g., 'src/api/*', 'services/')",
+    multiple=True,
+    help="File path pattern (e.g., 'src/api/*', 'frontend/'). Works with --pattern and --list-symbols.",
 )
 @click.option(
     "--show-callers", is_flag=True, help="Show who calls this symbol (control flow incoming)"
@@ -108,6 +139,7 @@ from theauditor.utils.error_handler import handle_exceptions
     default=False,
     help="Include source code snippets for callers/callees (default: no)",
 )
+@click.argument("extra_paths", nargs=-1, required=False)
 @handle_exceptions
 def query(
     symbol,
@@ -139,6 +171,7 @@ def query(
     output_format,
     save,
     show_code,
+    extra_paths,
 ):
     """Query code relationships from indexed database.
 
@@ -390,18 +423,14 @@ def query(
         engine.close()
         raise click.Abort()
 
+    all_paths = path_filter + extra_paths if extra_paths else path_filter
+    sql_path_filter = _normalize_path_filter(all_paths)
+
     try:
         if list_symbols:
             name_pattern = "%"
             if symbol_filter:
                 name_pattern = symbol_filter.replace("*", "%").replace("?", "_")
-
-            sql_path_filter = None
-            if path_filter:
-                sql_path_filter = path_filter.replace("*", "%").replace("?", "_")
-
-                if not sql_path_filter.endswith("%"):
-                    sql_path_filter += "%"
 
             results = engine.pattern_search(
                 name_pattern, type_filter=type_filter, path_filter=sql_path_filter, limit=200
@@ -410,14 +439,14 @@ def query(
             results = {
                 "type": "discovery",
                 "filter": symbol_filter or "*",
-                "path": path_filter or "(all)",
+                "path": sql_path_filter or "(all)",
                 "type_filter": type_filter,
                 "count": len(results),
                 "symbols": results,
             }
 
         elif pattern:
-            results = engine.pattern_search(pattern, type_filter=type_filter)
+            results = engine.pattern_search(pattern, type_filter=type_filter, path_filter=sql_path_filter)
 
         elif category:
             results = engine.category_search(category)
