@@ -69,6 +69,75 @@ AGENT WORKFLOW:
 The security agent uses boundaries to verify control placement.
 Query existing results with: aud blueprint --boundaries
 
+BOUNDARY TYPES (What Each Type Analyzes):
+Input Validation:
+  Entry Points: python_routes, js_routes (HTTP endpoints)
+  Control Patterns: validate(), parse(), check(), sanitize(), schema validators
+  Violation: External data flows N functions before validation
+  Example: req.body -> service.create() -> db.insert() -> validate() (distance 3)
+
+Multi-Tenant Isolation (RLS):
+  Entry Points: Database queries on tenant-sensitive tables
+  Control Patterns: tenant_id in WHERE clause, SET LOCAL app.current_tenant_id
+  Violation: Query on sensitive table without tenant filter
+  Example: SELECT * FROM orders WHERE id=? (missing tenant_id filter)
+
+Authorization:
+  Entry Points: Protected routes, admin operations
+  Control Patterns: @requires_auth, check_permission(), req.user validation
+  Violation: Protected operation without auth check
+  Example: DELETE /api/user/:id without permission check
+
+Sanitization:
+  Entry Points: User input to dangerous sinks (SQL, HTML, shell)
+  Control Patterns: Parameterized queries, HTML escaping, input sanitization
+  Violation: User input used in sink without sanitization
+  Example: db.query(f"SELECT * FROM users WHERE name='{name}'")
+
+JSON OUTPUT STRUCTURE (--format json):
+    {
+      "entry_point": "POST /api/users",
+      "entry_file": "src/routes/users.js",
+      "entry_line": 34,
+      "controls": [{
+        "control_function": "validateUser",
+        "control_file": "src/validators/user.js",
+        "control_line": 12,
+        "distance": 2,
+        "path": ["create_user", "processUser", "validateUser"]
+      }],
+      "quality": {
+        "quality": "acceptable",
+        "reason": "Single control point 'validateUser' at distance 2",
+        "facts": [
+          "Validation occurs 2 function call(s) after entry",
+          "Data flows through 2 intermediate function(s) before validation"
+        ]
+      },
+      "violations": []
+    }
+
+COMMON PATTERNS DETECTED:
+Joi/Zod Triple Handler Problem:
+  Observation: Multiple validation controls at distances 0, 1, 3
+  Fact: 3 different validation points indicate distributed boundary
+  Implication: Different code paths encounter different validation
+
+Validation After Use:
+  Observation: Validation at distance 3 (data flows through 3 functions first)
+  Fact: Distance 3 creates 3 potential unvalidated code paths
+  Implication: Data may spread to multiple locations before validation
+
+User-Controlled Tenant ID:
+  Observation: tenant_id sourced from req.query (user input)
+  Fact: Tenant identifier originates from untrusted source
+  Implication: User can access arbitrary tenant data
+
+Missing Validation:
+  Observation: Entry point accepts external data without validation control
+  Fact: No validation control detected within search depth
+  Implication: External data flows to downstream functions unvalidated
+
 KEY OPTIONS:
 - --type: input-validation, multi-tenant, authorization
 - --format: report (human) or json (machine)
