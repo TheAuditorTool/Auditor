@@ -10,6 +10,44 @@ from theauditor.cli import RichCommand, RichGroup
 from theauditor.pipeline.ui import console
 
 
+def _normalize_path_filter(path_filter: tuple, extra_paths: tuple = ()) -> str | None:
+    """Normalize path filter - handle shell expansion and convert wildcards to SQL LIKE.
+
+    When shell expands 'frontend/*' into multiple paths, we extract the common prefix.
+    Converts glob wildcards (*, **) to SQL LIKE wildcards (%).
+    """
+    # Combine --path values and any shell-expanded extra arguments
+    all_paths = list(path_filter) + list(extra_paths)
+    if not all_paths:
+        return None
+
+    if len(all_paths) == 1:
+        path = all_paths[0]
+    else:
+        # Shell expanded the glob - extract common prefix
+        paths = [p.replace("\\", "/") for p in all_paths]
+        if paths:
+            prefix_parts = paths[0].split("/")
+            common_parts = []
+            for i, part in enumerate(prefix_parts):
+                if all(p.split("/")[i] == part if len(p.split("/")) > i else False for p in paths):
+                    common_parts.append(part)
+                else:
+                    break
+            path = "/".join(common_parts) + "/" if common_parts else ""
+        else:
+            return None
+
+    # Normalize path separators and wildcards
+    path = path.replace("\\", "/")
+    path = path.replace("**", "%").replace("*", "%").replace("?", "_")
+    if not path.endswith("%") and not path.endswith("/"):
+        path += "%"
+    elif path.endswith("/"):
+        path += "%"
+    return path
+
+
 @click.group(cls=RichGroup)
 @click.help_option("-h", "--help")
 def graph():
@@ -366,8 +404,9 @@ def graph_build_dfg(root, db, repo_db):
 @click.option("--out", default="./.pf/raw/graph_analysis.json", help="Output JSON path")
 @click.option("--max-depth", default=3, type=int, help="Max traversal depth for impact analysis")
 @click.option("--workset", help="Path to workset.json for change impact")
-@click.option("--path", help="Filter analysis to paths matching pattern (e.g., 'src/api/%', 'frontend/*')")
-def graph_analyze(root, db, out, max_depth, workset, path):
+@click.option("--path", "path_filter", multiple=True, help="Filter analysis to paths matching pattern (e.g., 'src/api/%', 'frontend/*')")
+@click.argument("extra_paths", nargs=-1, required=False)
+def graph_analyze(root, db, out, max_depth, workset, path_filter, extra_paths):
     """Analyze dependency graphs for architectural issues and change impact.
 
     Performs comprehensive graph analysis to detect circular dependencies,
@@ -440,11 +479,12 @@ def graph_analyze(root, db, out, max_depth, workset, path):
             console.print("No graphs found. Run 'aud graph build' first.")
             return
 
-        # Filter by path if specified
+        # Filter by path if specified (handles shell glob expansion)
+        path = _normalize_path_filter(path_filter, extra_paths)
         if path:
             import fnmatch
 
-            path_pattern = path.replace("%", "*")  # Support SQL LIKE style
+            path_pattern = path.replace("%", "*")  # Convert SQL LIKE to fnmatch
 
             def matches_path(node_id: str) -> bool:
                 return fnmatch.fnmatch(node_id, path_pattern)
@@ -642,12 +682,13 @@ def graph_analyze(root, db, out, max_depth, workset, path):
 
 @graph.command("hotspots", cls=RichCommand)
 @click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
-@click.option("--path", help="Filter by file path pattern (e.g., 'frontend/%', 'src/api/%')")
+@click.option("--path", "path_filter", multiple=True, help="Filter by file path pattern (e.g., 'frontend/%', 'src/api/%')")
 @click.option("--top", default=20, type=int, help="Number of hotspots to show")
 @click.option(
     "--format", "output_format", type=click.Choice(["table", "json"]), default="table", help="Output format"
 )
-def graph_hotspots(db, path, top, output_format):
+@click.argument("extra_paths", nargs=-1, required=False)
+def graph_hotspots(db, path_filter, top, output_format, extra_paths):
     """Show architectural hotspots - files with highest connectivity.
 
     Identifies files/modules that are most connected in the dependency graph.
@@ -696,18 +737,15 @@ def graph_hotspots(db, path, top, output_format):
             console.print("No graphs found. Run 'aud graph build' first.", highlight=False)
             return
 
-        # Filter by path if specified
+        # Filter by path if specified (handles shell glob expansion)
+        path = _normalize_path_filter(path_filter, extra_paths)
         if path:
-            path_pattern = path.replace("*", "%")  # Support glob-style wildcards
             import fnmatch
 
+            path_pattern = path.replace("%", "*")  # Convert SQL LIKE to fnmatch
+
             def matches_path(node_id: str) -> bool:
-                # Support both SQL LIKE (%) and glob (*) patterns
-                if "%" in path_pattern:
-                    # Convert SQL LIKE to fnmatch
-                    glob_pattern = path_pattern.replace("%", "*")
-                    return fnmatch.fnmatch(node_id, glob_pattern)
-                return fnmatch.fnmatch(node_id, path)
+                return fnmatch.fnmatch(node_id, path_pattern)
 
             filtered_nodes = [n for n in import_graph["nodes"] if matches_path(n["id"])]
             filtered_node_ids = {n["id"] for n in filtered_nodes}
