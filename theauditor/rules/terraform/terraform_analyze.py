@@ -14,6 +14,7 @@ CWE-284: Improper Access Control
 CWE-311: Missing Encryption of Sensitive Data
 """
 
+import ast
 import json
 from typing import Any
 
@@ -390,12 +391,34 @@ def _check_security_groups(
 
 
 def _load_json(raw: Any) -> Any:
-    """Parse JSON or return as-is. Crashes on corrupt data (Zero Fallback)."""
+    """Parse structured value or return as-is.
+
+    Database contains mixed formats from Terraform parser:
+    - None/empty: return empty dict
+    - Already parsed (dict/list): return as-is
+    - JSON string (double quotes): parse with json.loads
+    - Python literal (single quotes): parse with ast.literal_eval
+    - Plain string (Terraform expression): return as-is
+    """
     if raw is None:
         return {}
     if isinstance(raw, (dict, list)):
         return raw
-    return json.loads(raw)
+    if isinstance(raw, str):
+        stripped = raw.strip()
+        if not stripped:
+            return {}
+        # Only parse if it looks like a structured value (object/array)
+        if stripped.startswith("{") or stripped.startswith("["):
+            # Try JSON first (double quotes), then Python literal (single quotes)
+            if '"' in stripped:
+                return json.loads(raw)
+            else:
+                return ast.literal_eval(raw)
+        # Plain string (Terraform expression like "data.aws_ami.id")
+        return raw
+    # Unknown type - return as-is
+    return raw
 
 
 def _bulk_load_all_properties(db: RuleDB) -> dict[str, dict[str, Any]]:

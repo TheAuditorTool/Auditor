@@ -179,6 +179,8 @@ def _check_hardcoded_secrets(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func, secret_expr, _arg_idx in rows:
+        if not secret_expr:
+            continue
         if any(env in secret_expr for env in ENV_PATTERNS):
             continue
 
@@ -326,6 +328,8 @@ def _check_algorithm_confusion(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, options in rows:
+        if not options:
+            continue
         if "algorithms" not in options:
             continue
 
@@ -404,6 +408,8 @@ def _check_none_algorithm(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, options in rows:
+        if not options:
+            continue
         options_lower = options.lower()
         if "none" in options_lower:
             findings.append(
@@ -464,6 +470,8 @@ def _check_sensitive_payload(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, payload in rows:
+        if not payload:
+            continue
         payload_lower = payload.lower()
         sensitive_found = []
 
@@ -501,6 +509,8 @@ def _check_weak_env_secrets(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, env_var in rows:
+        if not env_var:
+            continue
         if not any(env in env_var for env in ENV_PATTERNS):
             continue
 
@@ -534,6 +544,8 @@ def _check_insecure_storage(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func, key_expr in rows:
+        if not func or not key_expr:
+            continue
         if not any(storage in func for storage in STORAGE_FUNCTIONS):
             continue
 
@@ -566,6 +578,8 @@ def _check_jwt_in_url(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, target, source in rows:
+        if not source:
+            continue
         url_patterns = [
             "?token=",
             "&token=",
@@ -608,6 +622,8 @@ def _check_weak_secret_length(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, secret_expr in rows:
+        if not secret_expr:
+            continue
         if any(env in secret_expr for env in ENV_PATTERNS):
             continue
 
@@ -645,6 +661,8 @@ def _check_cross_origin_transmission(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func, args in rows:
+        if not func or not args:
+            continue
         if not any(http_func in func for http_func in HTTP_FUNCTIONS):
             continue
 
@@ -676,6 +694,8 @@ def _check_react_state_storage(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, target, source in rows:
+        if not file or not source:
+            continue
         if not (file.endswith(".jsx") or file.endswith(".tsx")):
             continue
 

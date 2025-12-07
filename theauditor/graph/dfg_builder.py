@@ -663,6 +663,7 @@ class DFGBuilder:
                 callee_function = row["in_function"]
                 target_var = row["target_var"]
                 param_name = row["param_name"]
+                param_index = row["param_index"]
                 line = row["line"]
 
                 if not target_var.startswith(param_name + "."):
@@ -670,15 +671,17 @@ class DFGBuilder:
                     continue
                 field_path = target_var[len(param_name) :]
 
+                # Query by argument_index (positional) since param_name in
+                # function_call_args is often 'arg0', 'arg1' not actual names
                 cursor.execute(
                     """
                     SELECT file, line, caller_function, argument_expr
                     FROM function_call_args
                     WHERE callee_file_path = ?
-                      AND param_name = ?
+                      AND argument_index = ?
                       AND argument_expr IS NOT NULL
                 """,
-                    (callee_file, param_name),
+                    (callee_file, param_index),
                 )
 
                 callers = cursor.fetchall()

@@ -127,6 +127,8 @@ def _is_all_traffic(value: str) -> bool:
         "udpRange(0, 65535)",
         "udp_range(0, 65535)",
     ]
+    if not value:
+        return False
     value_lower = value.lower()
     return any(ind.lower() in value_lower for ind in indicators)
 
@@ -146,6 +148,8 @@ def _check_unrestricted_ingress(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, _line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         if not (
             "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
@@ -160,6 +164,8 @@ def _check_unrestricted_ingress(db: RuleDB) -> list[StandardFinding]:
         )
 
         for prop_name, property_value, prop_line in prop_rows:
+            if not property_value:
+                continue
             port = _extract_port_from_value(property_value)
 
             if "0.0.0.0/0" in property_value or "Peer.anyIpv4" in property_value:
@@ -228,6 +234,8 @@ def _check_dangerous_ports_exposed(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, _line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         if not (
             "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
@@ -242,6 +250,8 @@ def _check_dangerous_ports_exposed(db: RuleDB) -> list[StandardFinding]:
         )
 
         for prop_name, property_value, prop_line in prop_rows:
+            if not property_value:
+                continue
             is_public = (
                 "0.0.0.0/0" in property_value
                 or "Peer.anyIpv4" in property_value
@@ -295,6 +305,8 @@ def _check_all_traffic_rules(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, _line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         if not (
             "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
@@ -309,6 +321,8 @@ def _check_all_traffic_rules(db: RuleDB) -> list[StandardFinding]:
         )
 
         for prop_name, property_value, prop_line in prop_rows:
+            if not property_value:
+                continue
             if _is_all_traffic(property_value):
                 is_public = (
                     "0.0.0.0/0" in property_value
@@ -357,6 +371,8 @@ def _check_allow_all_outbound(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, _line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         if not (
             "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
         ):
@@ -375,7 +391,7 @@ def _check_allow_all_outbound(db: RuleDB) -> list[StandardFinding]:
 
         if prop_rows:
             prop_value, prop_line = prop_rows[0]
-            if prop_value.lower() == "true":
+            if prop_value and prop_value.lower() == "true":
                 findings.append(
                     StandardFinding(
                         rule_name="aws-cdk-sg-allow-all-outbound",

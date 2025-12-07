@@ -86,6 +86,8 @@ def _check_s3_encryption(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, _line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         if not ("Bucket" in cdk_class and ("s3" in cdk_class.lower() or "aws_s3" in cdk_class)):
             continue
 
@@ -138,6 +140,8 @@ def _check_rds_public_subnet(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, _line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         if not (
             "DatabaseInstance" in cdk_class
             and ("rds" in cdk_class.lower() or "aws_rds" in cdk_class)
@@ -153,6 +157,8 @@ def _check_rds_public_subnet(db: RuleDB) -> list[StandardFinding]:
         )
 
         for prop_name, prop_value, prop_line in prop_rows:
+            if not prop_name or not prop_value:
+                continue
             prop_name_lower = prop_name.lower()
             prop_value_upper = prop_value.upper()
 
@@ -193,6 +199,8 @@ def _check_unencrypted_rds(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         if not (
             "DatabaseInstance" in cdk_class
             and ("rds" in cdk_class.lower() or "aws_rds" in cdk_class)
@@ -231,7 +239,7 @@ def _check_unencrypted_rds(db: RuleDB) -> list[StandardFinding]:
             )
         else:
             prop_value, prop_line = prop_rows[0]
-            if "false" in prop_value.lower():
+            if prop_value and "false" in prop_value.lower():
                 findings.append(
                     StandardFinding(
                         rule_name="aws-cdk-rds-unencrypted",
@@ -265,6 +273,8 @@ def _check_unencrypted_ebs(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         if not ("Volume" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)):
             continue
 
@@ -298,7 +308,7 @@ def _check_unencrypted_ebs(db: RuleDB) -> list[StandardFinding]:
             )
         else:
             prop_value, prop_line = prop_rows[0]
-            if "false" in prop_value.lower():
+            if prop_value and "false" in prop_value.lower():
                 findings.append(
                     StandardFinding(
                         rule_name="aws-cdk-ebs-unencrypted",
@@ -337,6 +347,8 @@ def _check_dynamodb_encryption(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         if not (
             "Table" in cdk_class
             and ("dynamodb" in cdk_class.lower() or "aws_dynamodb" in cdk_class)
@@ -373,7 +385,7 @@ def _check_dynamodb_encryption(db: RuleDB) -> list[StandardFinding]:
             )
         else:
             prop_value, prop_line = prop_rows[0]
-            if "DEFAULT" in prop_value:
+            if prop_value and "DEFAULT" in prop_value:
                 findings.append(
                     StandardFinding(
                         rule_name="aws-cdk-dynamodb-default-encryption",
@@ -413,6 +425,8 @@ def _check_elasticache_encryption(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         is_elasticache = "elasticache" in cdk_class.lower() or "aws_elasticache" in cdk_class
         is_replication_group = "ReplicationGroup" in cdk_class or "CfnReplicationGroup" in cdk_class
         is_cache_cluster = "CacheCluster" in cdk_class or "CfnCacheCluster" in cdk_class
@@ -439,7 +453,8 @@ def _check_elasticache_encryption(db: RuleDB) -> list[StandardFinding]:
             None,
         )
 
-        if not at_rest_key or "false" in props[at_rest_key][0].lower():
+        at_rest_val = props[at_rest_key][0] if at_rest_key else None
+        if not at_rest_key or (at_rest_val and "false" in at_rest_val.lower()):
             findings.append(
                 StandardFinding(
                     rule_name="aws-cdk-elasticache-no-at-rest-encryption",
@@ -461,7 +476,8 @@ def _check_elasticache_encryption(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
-        if not transit_key or "false" in props[transit_key][0].lower():
+        transit_val = props[transit_key][0] if transit_key else None
+        if not transit_key or (transit_val and "false" in transit_val.lower()):
             findings.append(
                 StandardFinding(
                     rule_name="aws-cdk-elasticache-no-transit-encryption",
@@ -497,6 +513,8 @@ def _check_efs_encryption(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         is_efs = "efs" in cdk_class.lower() or "aws_efs" in cdk_class
         is_filesystem = "FileSystem" in cdk_class
 
@@ -533,7 +551,7 @@ def _check_efs_encryption(db: RuleDB) -> list[StandardFinding]:
             )
         else:
             prop_value, prop_line = prop_rows[0]
-            if "false" in prop_value.lower():
+            if prop_value and "false" in prop_value.lower():
                 findings.append(
                     StandardFinding(
                         rule_name="aws-cdk-efs-unencrypted",
@@ -567,6 +585,8 @@ def _check_kinesis_encryption(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         is_kinesis = "kinesis" in cdk_class.lower() or "aws_kinesis" in cdk_class
         is_stream = "Stream" in cdk_class and "DeliveryStream" not in cdk_class
 
@@ -603,7 +623,7 @@ def _check_kinesis_encryption(db: RuleDB) -> list[StandardFinding]:
             )
         else:
             prop_value, prop_line = prop_rows[0]
-            if "UNENCRYPTED" in prop_value.upper():
+            if prop_value and "UNENCRYPTED" in prop_value.upper():
                 findings.append(
                     StandardFinding(
                         rule_name="aws-cdk-kinesis-unencrypted",
@@ -637,6 +657,8 @@ def _check_sqs_encryption(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         is_sqs = "sqs" in cdk_class.lower() or "aws_sqs" in cdk_class
         is_queue = "Queue" in cdk_class
 
@@ -683,7 +705,7 @@ def _check_sqs_encryption(db: RuleDB) -> list[StandardFinding]:
             )
         else:
             prop_value, prop_line = props[encryption_key]
-            if "UNENCRYPTED" in prop_value.upper():
+            if prop_value and "UNENCRYPTED" in prop_value.upper():
                 findings.append(
                     StandardFinding(
                         rule_name="aws-cdk-sqs-unencrypted",
@@ -717,6 +739,8 @@ def _check_sns_encryption(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         is_sns = "sns" in cdk_class.lower() or "aws_sns" in cdk_class
         is_topic = "Topic" in cdk_class
 

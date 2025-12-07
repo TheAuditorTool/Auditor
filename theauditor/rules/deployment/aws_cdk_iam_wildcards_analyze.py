@@ -104,6 +104,8 @@ def _check_wildcard_actions(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, _line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         is_policy = "Policy" in cdk_class or "PolicyStatement" in cdk_class
         is_iam = "iam" in cdk_class.lower() or "aws_iam" in cdk_class
         if not (is_policy and is_iam):
@@ -120,7 +122,7 @@ def _check_wildcard_actions(db: RuleDB) -> list[StandardFinding]:
 
         if prop_rows:
             prop_value, prop_line = prop_rows[0]
-            if "'*'" in prop_value or '"*"' in prop_value:
+            if prop_value and ("'*'" in prop_value or '"*"' in prop_value):
                 findings.append(
                     StandardFinding(
                         rule_name="aws-cdk-iam-wildcard-actions",
@@ -154,6 +156,8 @@ def _check_wildcard_resources(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, _line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         is_policy = "Policy" in cdk_class or "PolicyStatement" in cdk_class
         is_iam = "iam" in cdk_class.lower() or "aws_iam" in cdk_class
         if not (is_policy and is_iam):
@@ -170,7 +174,7 @@ def _check_wildcard_resources(db: RuleDB) -> list[StandardFinding]:
 
         if prop_rows:
             prop_value, prop_line = prop_rows[0]
-            if "'*'" in prop_value or '"*"' in prop_value:
+            if prop_value and ("'*'" in prop_value or '"*"' in prop_value):
                 findings.append(
                     StandardFinding(
                         rule_name="aws-cdk-iam-wildcard-resources",
@@ -208,6 +212,8 @@ def _check_dangerous_managed_policies(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, _line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         if not ("Role" in cdk_class and ("iam" in cdk_class.lower() or "aws_iam" in cdk_class)):
             continue
 
@@ -222,6 +228,8 @@ def _check_dangerous_managed_policies(db: RuleDB) -> list[StandardFinding]:
 
         if prop_rows:
             prop_value, prop_line = prop_rows[0]
+            if not prop_value:
+                continue
             for policy_name in DANGEROUS_MANAGED_POLICIES:
                 if policy_name in prop_value:
                     severity = (
@@ -268,6 +276,8 @@ def _check_privilege_escalation_actions(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         is_policy = "Policy" in cdk_class or "PolicyStatement" in cdk_class
         is_iam = "iam" in cdk_class.lower() or "aws_iam" in cdk_class
         if not (is_policy and is_iam):
@@ -290,7 +300,9 @@ def _check_privilege_escalation_actions(db: RuleDB) -> list[StandardFinding]:
             continue
 
         actions_value, actions_line = props[actions_key]
-        resources_value = props.get(resources_key, ("", line))[0]
+        if not actions_value:
+            continue
+        resources_value = props.get(resources_key, ("", line))[0] or ""
         has_wildcard_resource = (
             "'*'" in resources_value or '"*"' in resources_value or not resources_value
         )
@@ -337,6 +349,8 @@ def _check_not_action_usage(db: RuleDB) -> list[StandardFinding]:
     )
 
     for construct_id, file_path, _line, construct_name, cdk_class in rows:
+        if not cdk_class:
+            continue
         is_policy = "Policy" in cdk_class or "PolicyStatement" in cdk_class
         is_iam = "iam" in cdk_class.lower() or "aws_iam" in cdk_class
         if not (is_policy and is_iam):

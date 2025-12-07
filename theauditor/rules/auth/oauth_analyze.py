@@ -108,6 +108,8 @@ def _check_missing_oauth_state(db: RuleDB) -> list[StandardFinding]:
 
     oauth_endpoints = []
     for file, line, method, pattern in rows:
+        if not pattern:
+            continue
         pattern_lower = pattern.lower()
         if any(keyword in pattern_lower for keyword in OAUTH_URL_KEYWORDS):
             oauth_endpoints.append((file, line, method, pattern))
@@ -119,6 +121,8 @@ def _check_missing_oauth_state(db: RuleDB) -> list[StandardFinding]:
 
         has_state = False
         for (arg_expr,) in func_args_rows:
+            if not arg_expr:
+                continue
             arg_lower = arg_expr.lower()
             if any(keyword in arg_lower for keyword in STATE_KEYWORDS):
                 has_state = True
@@ -203,6 +207,8 @@ def _check_missing_pkce(db: RuleDB) -> list[StandardFinding]:
 
         has_pkce = False
         for (arg_expr,) in func_args_rows:
+            if not arg_expr:
+                continue
             arg_lower = arg_expr.lower()
             if any(keyword in arg_lower for keyword in PKCE_KEYWORDS):
                 has_pkce = True
@@ -262,6 +268,8 @@ def _check_redirect_validation(db: RuleDB) -> list[StandardFinding]:
 
     redirect_calls = []
     for file, line, func, args in rows:
+        if not func or not args:
+            continue
         if "redirect" in func.lower():
             args_lower = args.lower()
             if any(user_input in args_lower for user_input in USER_INPUT_SOURCES):
@@ -276,6 +284,8 @@ def _check_redirect_validation(db: RuleDB) -> list[StandardFinding]:
 
         has_validation = False
         for val_func, val_args in val_rows:
+            if not val_func or not val_args:
+                continue
             val_func_lower = val_func.lower()
             val_args_lower = val_args.lower()
             if any(
@@ -306,6 +316,8 @@ def _check_redirect_validation(db: RuleDB) -> list[StandardFinding]:
 
     redirect_assignments = []
     for file, line, var, expr in assign_rows:
+        if not var:
+            continue
         var_lower = var.lower()
         expr_lower = expr.lower() if expr else ""
 
@@ -323,6 +335,8 @@ def _check_redirect_validation(db: RuleDB) -> list[StandardFinding]:
 
         has_validation = False
         for val_func, val_args in val_rows:
+            if not val_func or not val_args:
+                continue
             val_func_lower = val_func.lower()
             val_args_lower = val_args.lower()
 
@@ -363,6 +377,8 @@ def _check_token_in_url(db: RuleDB) -> list[StandardFinding]:
     all_assignments = list(rows)
 
     for file, line, _var, expr in all_assignments:
+        if not expr:
+            continue
         if any(
             pattern in expr
             for pattern in [
@@ -388,6 +404,8 @@ def _check_token_in_url(db: RuleDB) -> list[StandardFinding]:
             )
 
     for file, line, _var, expr in all_assignments:
+        if not expr:
+            continue
         token_patterns = [
             "?access_token=",
             "&access_token=",
@@ -412,6 +430,8 @@ def _check_token_in_url(db: RuleDB) -> list[StandardFinding]:
             )
 
     for file, line, _var, expr in all_assignments:
+        if not expr:
+            continue
         expr_lower = expr.lower()
         # Detect implicit flow: response_type=token, id_token, or id_token token (without code)
         if "response_type" in expr_lower and "code" not in expr_lower:
@@ -474,6 +494,8 @@ def _check_weak_state(db: RuleDB) -> list[StandardFinding]:
     ])
 
     for file, line, target_var, source_expr in rows:
+        if not target_var:
+            continue
         target_lower = target_var.lower()
         source_lower = (source_expr or "").lower()
 
@@ -505,6 +527,8 @@ def _check_weak_state(db: RuleDB) -> list[StandardFinding]:
             )
 
         # Check for hardcoded/static state values
+        if not source_expr:
+            continue
         is_literal = source_expr.strip().startswith('"') or source_expr.strip().startswith("'")
         if is_literal:
             findings.append(
@@ -542,6 +566,8 @@ def _check_scope_escalation(db: RuleDB) -> list[StandardFinding]:
     token_response_files = {}
 
     for file, line, target_var, source_expr in rows:
+        if not target_var:
+            continue
         target_lower = target_var.lower()
         source_lower = (source_expr or "").lower()
 

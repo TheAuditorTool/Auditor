@@ -115,12 +115,17 @@ class AWSCdkAnalyzer:
         return cdk_findings
 
     def _build_finding_id(self, finding: dict) -> str:
-        """Generate unique finding ID."""
+        """Generate unique finding ID.
+
+        Includes message to differentiate multiple findings on the same line
+        (e.g., multiple privilege escalation actions detected).
+        """
         parts = [
             "cdk",
             finding.get("rule", ""),
             finding.get("file", ""),
             str(finding.get("line", 0) or 0),
+            finding.get("message", ""),
         ]
         hash_input = "::".join(parts)
         return str(uuid.uuid5(uuid.NAMESPACE_DNS, hash_input))

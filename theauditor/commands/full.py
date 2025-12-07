@@ -363,6 +363,56 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
             if low > 0:
                 console.print(f"  - [low]Low:      {low}[/low]")
 
+            # Show breakdown by source/tool
+            by_tool = findings.get("by_tool", {})
+            if by_tool:
+                console.print("\n[bold]By source:[/bold]")
+
+                # Human-friendly tool names
+                tool_labels = {
+                    # Security tools (affect exit code)
+                    "taint": "Taint Analysis",
+                    "patterns": "Pattern Detection",
+                    "terraform": "Terraform Security",
+                    "cdk": "AWS CDK Security",
+                    "github-actions-rules": "GitHub Actions",
+                    "vulnerability_scanner": "Dependency Vulns (OSV)",
+                    # Quality tools (visible but don't affect exit code)
+                    "ruff": "Ruff (Python)",
+                    "eslint": "ESLint (JS/TS)",
+                    "mypy": "Mypy (Types)",
+                    "cfg-analysis": "CFG Analysis",
+                    "indexer": "Indexer Errors",
+                }
+
+                # Sort by total findings (highest first)
+                sorted_tools = sorted(
+                    by_tool.items(),
+                    key=lambda x: sum(x[1].values()),
+                    reverse=True,
+                )
+
+                for tool, counts in sorted_tools:
+                    tool_total = sum(counts.values())
+                    if tool_total == 0:
+                        continue
+
+                    label = tool_labels.get(tool, tool.replace("-", " ").title())
+
+                    # Build severity breakdown string
+                    parts = []
+                    if counts.get("critical", 0) > 0:
+                        parts.append(f"[critical]{counts['critical']} crit[/critical]")
+                    if counts.get("high", 0) > 0:
+                        parts.append(f"[high]{counts['high']} high[/high]")
+                    if counts.get("medium", 0) > 0:
+                        parts.append(f"[medium]{counts['medium']} med[/medium]")
+                    if counts.get("low", 0) > 0:
+                        parts.append(f"[low]{counts['low']} low[/low]")
+
+                    severity_str = ", ".join(parts) if parts else "0"
+                    console.print(f"  [dim]{label}:[/dim] {severity_str}")
+
         console.print("\nReview the findings in [path].pf/raw/[/path]")
         console.rule()
 

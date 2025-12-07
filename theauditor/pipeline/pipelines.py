@@ -337,7 +337,14 @@ async def run_chain_silent(
 
 
 def _get_findings_from_db(root: Path) -> dict:
-    """Query findings_consolidated for severity counts."""
+    """Query findings_consolidated for severity counts, broken down by tool.
+
+    Returns:
+        dict with:
+            - critical/high/medium/low: total counts per severity
+            - total_vulnerabilities: sum of all security tool findings
+            - by_tool: dict mapping tool_name -> {critical, high, medium, low}
+    """
     import sqlite3
 
     db_path = root / ".pf" / "repo_index.db"
@@ -346,6 +353,8 @@ def _get_findings_from_db(root: Path) -> dict:
     cursor = conn.cursor()
 
     placeholders = ",".join("?" * len(SECURITY_TOOLS))
+
+    # Get total counts by severity (existing behavior)
     cursor.execute(
         f"""
         SELECT severity, COUNT(*)
@@ -355,16 +364,49 @@ def _get_findings_from_db(root: Path) -> dict:
     """,
         tuple(SECURITY_TOOLS),
     )
+    raw_severity_counts = dict(cursor.fetchall())
 
-    counts = dict(cursor.fetchall())
+    # Normalize severity names (OSV uses "moderate" instead of "medium")
+    severity_counts = {
+        "critical": raw_severity_counts.get("critical", 0),
+        "high": raw_severity_counts.get("high", 0),
+        "medium": raw_severity_counts.get("medium", 0) + raw_severity_counts.get("moderate", 0),
+        "low": raw_severity_counts.get("low", 0),
+    }
+
+    # Get breakdown by tool AND severity (ALL tools, not just security)
+    # This gives visibility into linter findings even though they don't affect exit code
+    cursor.execute(
+        """
+        SELECT tool, severity, COUNT(*)
+        FROM findings_consolidated
+        GROUP BY tool, severity
+    """
+    )
+
+    by_tool: dict[str, dict[str, int]] = {}
+    for tool, severity, count in cursor.fetchall():
+        if tool not in by_tool:
+            by_tool[tool] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+        # Normalize severity names (OSV: moderate->medium, linters: error->high, warning->medium)
+        if severity == "moderate":
+            severity = "medium"
+        elif severity == "error":
+            severity = "high"
+        elif severity == "warning":
+            severity = "medium"
+        if severity in by_tool[tool]:
+            by_tool[tool][severity] = count
+
     conn.close()
 
     return {
-        "critical": counts.get("critical", 0),
-        "high": counts.get("high", 0),
-        "medium": counts.get("medium", 0),
-        "low": counts.get("low", 0),
-        "total_vulnerabilities": sum(counts.values()),
+        "critical": severity_counts.get("critical", 0),
+        "high": severity_counts.get("high", 0),
+        "medium": severity_counts.get("medium", 0),
+        "low": severity_counts.get("low", 0),
+        "total_vulnerabilities": sum(severity_counts.values()),
+        "by_tool": by_tool,
     }
 
 
@@ -1598,6 +1640,7 @@ async def run_full_pipeline(
                 "medium": medium_findings,
                 "low": low_findings,
                 "total_vulnerabilities": total_vulnerabilities,
+                "by_tool": findings_data.get("by_tool", {}),
             },
         }
 

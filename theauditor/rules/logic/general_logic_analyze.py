@@ -231,6 +231,8 @@ def _check_money_float_arithmetic(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, var_name, expr in rows:
+        if not var_name or not expr:
+            continue
         var_lower = var_name.lower()
         if not any(term in var_lower for term in MONEY_TERMS):
             continue
@@ -272,9 +274,10 @@ def _check_money_float_conversion(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func, arg in rows:
-        if func not in FLOAT_FUNCTIONS:
+        if not func or func not in FLOAT_FUNCTIONS:
             continue
-
+        if not arg:
+            continue
         arg_lower = arg.lower()
         if not any(money_term in arg_lower for money_term in MONEY_TERMS):
             continue
@@ -307,9 +310,10 @@ def _check_timezone_naive_datetime(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, datetime_func, args in rows:
-        if datetime_func not in DATETIME_FUNCTIONS:
+        if not datetime_func or datetime_func not in DATETIME_FUNCTIONS:
             continue
-
+        if not args:
+            continue
         if "tz" in args or "timezone" in args or "UTC" in args:
             continue
 
@@ -346,7 +350,7 @@ def _check_email_regex_validation(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, _regex_func, pattern in rows:
-        if "@" not in pattern:
+        if not pattern or "@" not in pattern:
             continue
 
         pattern_lower = pattern.lower()
@@ -380,7 +384,7 @@ def _check_divide_by_zero(db: RuleDB) -> list[StandardFinding]:
 
     division_operations = []
     for file, line, _target, expr in rows:
-        if "/" not in expr:
+        if not expr or "/" not in expr:
             continue
 
         expr_lower = expr.lower()
@@ -444,6 +448,8 @@ def _check_file_no_close(db: RuleDB) -> list[StandardFinding]:
 
     file_opens = []
     for file, line, callee, caller in rows:
+        if not callee:
+            continue
         if callee in FILE_OPERATIONS:
             file_opens.append((file, line, callee, caller))
 
@@ -503,6 +509,8 @@ def _check_connection_no_close(db: RuleDB) -> list[StandardFinding]:
 
     connection_calls = []
     for file, line, callee in rows:
+        if not callee:
+            continue
         callee_lower = callee.lower()
         if (
             "connect" in callee_lower
@@ -553,6 +561,8 @@ def _check_transaction_no_end(db: RuleDB) -> list[StandardFinding]:
 
     transaction_starts = []
     for file, line, callee in rows:
+        if not callee:
+            continue
         if callee in TRANSACTION_FUNCTIONS:
             transaction_starts.append((file, line, callee))
 
@@ -597,6 +607,8 @@ def _check_socket_no_close(db: RuleDB) -> list[StandardFinding]:
 
     socket_calls = []
     for file, line, callee in rows:
+        if not callee:
+            continue
         callee_lower = callee.lower()
         if ("socket" in callee_lower or callee == "createSocket") and "close" not in callee_lower:
             socket_calls.append((file, line, callee))
@@ -642,6 +654,8 @@ def _check_percentage_calc_error(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, _target, expr in rows:
+        if not expr:
+            continue
         if not ("/ 100 *" in expr or "/100*" in expr or "/ 100.0 *" in expr):
             continue
 
@@ -723,6 +737,8 @@ def _check_async_no_error_handling(db: RuleDB) -> list[StandardFinding]:
 
     async_calls = []
     for file, line, callee in rows:
+        if not callee:
+            continue
         if ".then" in callee or callee == "await" or "Promise" in callee:
             async_calls.append((file, line, callee))
 
@@ -767,6 +783,8 @@ def _check_lock_no_release(db: RuleDB) -> list[StandardFinding]:
 
     lock_calls = []
     for file, line, callee in rows:
+        if not callee:
+            continue
         callee_lower = callee.lower()
         if (
             ("lock" in callee_lower or "acquire" in callee_lower or "mutex" in callee_lower)

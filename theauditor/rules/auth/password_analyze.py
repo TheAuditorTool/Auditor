@@ -119,6 +119,8 @@ def _check_weak_password_hashing(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func, args in rows:
+        if not func:
+            continue
         func_lower = func.lower()
 
         is_weak_hash = any(keyword in func_lower for keyword in WEAK_HASH_KEYWORDS)
@@ -153,7 +155,7 @@ def _check_weak_password_hashing(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func, args in createhash_rows:
-        if "createhash" not in func.lower():
+        if not func or "createhash" not in func.lower():
             continue
 
         args_lower = args.lower()
@@ -206,6 +208,8 @@ def _check_hardcoded_passwords(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, var, expr in rows:
+        if not var:
+            continue
         var_lower = var.lower()
         has_password_keyword = any(keyword in var_lower for keyword in PASSWORD_KEYWORDS)
         if not has_password_keyword:
@@ -274,6 +278,8 @@ def _check_weak_complexity(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, _caller, args, callee in rows:
+        if not callee:
+            continue
         args_lower = (args or "").lower()
 
         has_password = any(kw in args_lower for kw in PASSWORD_KEYWORDS)
@@ -347,6 +353,8 @@ def _check_password_in_url(db: RuleDB) -> list[StandardFinding]:
     url_param_patterns = ["?password=", "&password=", "?passwd=", "&passwd=", "?pwd=", "&pwd="]
 
     for file, line, _var, expr in rows:
+        if not expr:
+            continue
         if any(pattern in expr for pattern in url_param_patterns):
             findings.append(
                 StandardFinding(
@@ -369,12 +377,16 @@ def _check_password_in_url(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func, args in func_rows:
+        if not func:
+            continue
         func_lower = func.lower()
 
         is_url_function = any(kw in func_lower for kw in URL_FUNCTION_KEYWORDS)
         if not is_url_function:
             continue
 
+        if not args:
+            continue
         args_lower = args.lower()
 
         has_password = any(kw in args_lower for kw in PASSWORD_KEYWORDS)
@@ -473,6 +485,8 @@ def _check_timing_unsafe_comparison(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func, args in func_rows:
+        if not func:
+            continue
         func_lower = func.lower()
         args_lower = (args or "").lower()
 
@@ -555,6 +569,8 @@ def _check_password_logging(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func, args in rows:
+        if not func:
+            continue
         func_lower = func.lower()
 
         is_logging = any(lf in func_lower for lf in logging_functions)
@@ -611,6 +627,8 @@ def _check_bcrypt_cost(db: RuleDB) -> list[StandardFinding]:
     ])
 
     for file, line, func, args, arg_idx in rows:
+        if not func:
+            continue
         func_lower = func.lower()
 
         is_bcrypt = any(bf in func_lower for bf in bcrypt_functions)
@@ -654,6 +672,8 @@ def _check_bcrypt_cost(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, target_var, source_expr in assign_rows:
+        if not target_var:
+            continue
         target_lower = target_var.lower()
 
         salt_keywords = ["saltrounds", "salt_rounds", "bcryptrounds", "bcrypt_rounds", "cost"]
@@ -718,6 +738,8 @@ def _check_insecure_recovery(db: RuleDB) -> list[StandardFinding]:
     ])
 
     for file, line, target_var, source_expr in rows:
+        if not target_var:
+            continue
         target_lower = target_var.lower()
         source_lower = (source_expr or "").lower()
 
@@ -770,6 +792,8 @@ def _check_insecure_recovery(db: RuleDB) -> list[StandardFinding]:
     ])
 
     for file, line, func, args in func_rows:
+        if not func:
+            continue
         func_lower = func.lower()
         args_lower = (args or "").lower()
 
@@ -817,6 +841,8 @@ def _check_credential_stuffing_protection(db: RuleDB) -> list[StandardFinding]:
 
     login_endpoints = []
     for file, line, _method, pattern in endpoint_rows:
+        if not pattern:
+            continue
         pattern_lower = pattern.lower()
         if any(lp in pattern_lower for lp in login_patterns):
             login_endpoints.append((file, line, pattern))
