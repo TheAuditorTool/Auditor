@@ -102,7 +102,7 @@ The `aud full` command runs a **20-phase pipeline** in 4 stages:
 | 5 | docs fetch | Fetch library documentation |
 | 6 | workset | Compute targeted file subset |
 | 7 | lint | Run linters (ruff, eslint, mypy, clippy) |
-| 8 | detect-patterns | Detect 2000+ security patterns |
+| 8 | detect-patterns | Detect 200+ security patterns |
 | 9-10 | graph build | Build import/call/DFG graphs |
 | 11 | terraform provision | Prepare IaC analysis |
 
@@ -270,7 +270,7 @@ aud boundaries --severity critical
 
 ### Pattern Detection
 
-Detects 2000+ security patterns:
+Detects 200+ security patterns:
 
 ```bash
 aud detect-patterns

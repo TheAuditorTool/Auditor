@@ -10,11 +10,11 @@
 
 TheAuditor is a **production-grade offline SAST and Code Context for AIs tool** that indexes your entire codebase into a structured SQLite database, enabling:
 
-- **200+ security vulnerability patterns** detected with 1-2% false positive rate
+- **200+ security vulnerability patterns** with framework-aware detection
 - **Complete data flow analysis** with cross-file taint tracking
 - **Architectural intelligence** with hotspot detection and circular dependency analysis
 - **AI-optimized output** designed for LLM consumption (<65KB chunks)
-- **Database-first queries** replacing slow file I/O (100x faster than grep-based tools)
+- **Database-first queries** replacing slow file I/O with indexed lookups
 - **Framework-aware detection** for Django, Flask, FastAPI, React, Vue, Express, and 15+ more
 
 **Key Differentiator**: While most SAST tools scan files repeatedly, TheAuditor **indexes once, queries infinitely** - enabling sub-second queries across 100K+ LOC.
@@ -32,7 +32,7 @@ aud taint --severity critical
 aud impact --symbol AuthService --planning-context
 ```
 
-**One index. Infinite queries. Millisecond responses.**
+**One index. Infinite queries.**
 
 ---
 
@@ -332,7 +332,7 @@ TheAuditor is designed for AI agents with **anti-hallucination safeguards**.
 | Grep entire codebase | `aud blueprint` (instant) |
 | Assume callers exist | `aud query --symbol X --show-callers` |
 
-**Result**: 70-80% fewer context tokens, zero hallucination
+**Result**: Queries return indexed facts from the database, not generated assumptions
 
 ---
 
@@ -608,7 +608,3 @@ Built with:
 - [SQLite](https://sqlite.org/) - The world's most deployed database
 
 ---
-
-<p align="center">
-  <strong>TheAuditor</strong> - Because your codebase deserves a database.
-</p>
