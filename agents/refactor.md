@@ -10,11 +10,38 @@
 
 ## YAML Configuration for Tracking Refactors
 
-To track custom refactoring progress (beyond migration analysis), you need a YAML profile:
+To track custom refactoring progress (beyond migration analysis), you need a YAML profile.
 
-1. **Get the schema:** Run `aud manual refactor` for full YAML schema and examples
-2. **Write your profile:** Define old identifiers to find, new identifiers to expect, scope rules
-3. **Run analysis:** `aud refactor --file profile.yaml --migration-limit 0`
+### AI WORKFLOW (Correct Approach)
+
+**CRITICAL:** Do NOT guess patterns. Discover them first.
+
+```
+1. INVESTIGATE: Query database for actual patterns
+   aud query --pattern "%product%" --path "frontend/src/**"
+
+2. WRITE YAML: Create profile based on patterns FOUND (not guessed)
+   (Run `aud manual refactor` for full schema)
+
+3. VALIDATE: Check YAML before running
+   aud refactor --file profile.yml --validate-only
+
+4. RUN: Execute analysis
+   aud refactor --file profile.yml
+
+5. QUERY RESULTS: Get violations from DB (NOT file output)
+   aud refactor --query-last
+```
+
+### WRONG Approach (Wastes Time)
+- Guessing patterns without discovery queries
+- Using `--output file.json` then trying to read the JSON
+- Running full analysis just to test syntax
+
+### RIGHT Approach
+- Query DB first to discover actual patterns
+- Use `--validate-only` before full run
+- Use `--query-last` to read results from database
 
 For semantic context classification (obsolete/current/transitional):
 - Run `aud manual context` for the semantic rules YAML schema
@@ -28,12 +55,12 @@ For semantic context classification (obsolete/current/transitional):
 **For AI Assistants:**
 1. **Database-first:** Use `aud query`, `aud deadcode`, `aud blueprint` BEFORE reading files
 2. **NO file reading** until Phase 3 Task 3.4 (after database structure analysis)
-3. **Chunked reading mandatory** for files >2150 lines (1500-line chunks)
+3. **Chunked reading mandatory** for files >1950 lines (1500-line chunks)
 4. **Zero Recommendation Policy:** Present facts only, let user decide
 5. **Follow precedents:** Use blueprint patterns, DON'T invent new ones
 
 **Correct Behavior:**
-- ✅ Agent: *runs `aud explain <file>`* → *runs `aud deadcode`* → *runs `aud blueprint`* → *then reads file in chunks if >2150 lines*
+- ✅ Agent: *runs `aud explain <file>`* → *runs `aud deadcode`* → *runs `aud blueprint`* → *then reads file in chunks if >1950 lines*
 - ✅ Agent cites all database queries in findings
 - ✅ Agent ends with "What do you want to do?" (NO recommendations)
 
@@ -108,7 +135,7 @@ Only read files directly if `aud explain` output is insufficient.
 - Store outputs
 - **Audit:** Both successful
 
-**Monoliths check:** >2150 lines need 1500-line chunks. Know UP FRONT.
+**Monoliths check:** >1950 lines need 1500-line chunks. Know UP FRONT.
 
 ### T2.2: Extract Naming
 - Find "Naming Conventions"
@@ -140,7 +167,7 @@ Only read files directly if `aud explain` output is insufficient.
 
 **Description:** Get symbol list from database. Analyze clustering. Read file if needed.
 
-**Success Criteria:** Database structure retrieved. Natural split boundaries identified. File content understood (if >2150 lines).
+**Success Criteria:** Database structure retrieved. Natural split boundaries identified. File content understood (if >1950 lines).
 
 ### T3.1: List All Symbols
 - `aud query --file <target> --list all`
@@ -175,14 +202,14 @@ Only read files directly if `aud explain` output is insufficient.
 - 30-70: MEDIUM - Notify dependent teams, consider phased rollout
 - >70: HIGH - Extract interface first, then refactor implementation
 
-### T3.5: Read Large Files in Chunks (MANDATORY for >2150 lines)
+### T3.5: Read Large Files in Chunks (MANDATORY for >1950 lines)
 
-**When Required:** File >2150 lines (check Task 3.1 line count)
+**When Required:** File >1950 lines (check Task 3.1 line count)
 
 **Jobs:**
 - Check line count: `aud query --file <target> --show-functions | grep "Lines:"`
-- If ≤2150: Read normally
-- If >2150: MANDATORY chunked reading:
+- If ≤1950: Read normally
+- If >1950: MANDATORY chunked reading:
   - Read(target, offset=0, limit=1500)
   - Read(target, offset=1500, limit=1500)
   - Read(target, offset=3000, limit=1500) if >3000
@@ -198,7 +225,7 @@ Only read files directly if `aud explain` output is insufficient.
 - Confirm clustering analysis complete
 - Confirm relationships queried
 - Confirm impact analysis run with coupling score noted
-- Confirm file content read (chunked if >2150, normal otherwise)
+- Confirm file content read (chunked if >1950, normal otherwise)
 - **Audit:** Target file structure understood from database + impact assessed + file content
 
 ---

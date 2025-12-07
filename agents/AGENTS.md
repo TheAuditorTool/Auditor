@@ -71,7 +71,7 @@ Some commands require you to write a custom YAML file before use:
 | Dependency info (packages, versions) | `aud blueprint --deps` |
 | Taint summary (from DB) | `aud blueprint --taint` |
 | Boundary summary (from DB) | `aud blueprint --boundaries` |
-| Large files (>2150 lines) | `aud blueprint --monoliths` |
+| Large files (>1950 lines) | `aud blueprint --monoliths` |
 | List symbols in file | `aud query --file X --list all` |
 | Who calls this? | `aud query --symbol X --show-callers` |
 | What does this call? | `aud query --symbol X --show-callees` |
@@ -157,7 +157,7 @@ Evidence:
 |--------|-----|--------|------|
 | Coupling score | <30 | 30-70 | >70 (extract interface first) |
 | Affected files | <10 | 10-30 | >30 (phase the change) |
-| File size | <500 lines | 500-2150 | >2150 (chunked reading) |
+| File size | <500 lines | 500-1950 | >1950 (chunked reading) |
 
 ---
 

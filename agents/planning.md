@@ -96,7 +96,7 @@ Jobs MUST include exact identifiers:
 
 **Description:** Run `aud blueprint --structure` BEFORE any planning.
 
-**Success Criteria:** Foundation loaded from database. Precedents identified. NO invented patterns. Monoliths detected (>2150 lines = chunked reading).
+**Success Criteria:** Foundation loaded from database. Precedents identified. NO invented patterns. Monoliths detected (>1950 lines = chunked reading).
 
 ### T1.1: Verify Syntax
 - `aud --help`
@@ -110,7 +110,7 @@ Jobs MUST include exact identifiers:
 - Store outputs
 - **Audit:** Both successful
 
-**Monoliths check:** Identifies >2150 line files requiring 1500-line chunks. Know this UP FRONT before detailed analysis.
+**Monoliths check:** Identifies >1950 line files requiring 1500-line chunks. Know this UP FRONT before detailed analysis.
 
 ### T1.3: Extract Naming
 - Find "Naming Conventions"
@@ -176,15 +176,15 @@ Jobs MUST include exact identifiers:
 - Store relationships
 - **Audit:** Symbol queried
 
-### T2.5: Read Large Files in Chunks (EXCEPTION: Refactor >2150 lines)
+### T2.5: Read Large Files in Chunks (EXCEPTION: Refactor >1950 lines)
 
-**When Required:** Refactor request (split/modularize/extract) AND file >2150 lines
+**When Required:** Refactor request (split/modularize/extract) AND file >1950 lines
 
 **Jobs:**
 - Check refactor keywords: "split", "refactor", "modularize", "extract"
 - Check line count: `aud query --file <target> --show-functions | grep "Lines:"`
-- If NOT refactor OR ≤2150 lines: Skip to T2.6
-- If refactor AND >2150: MANDATORY chunked reading:
+- If NOT refactor OR ≤1950 lines: Skip to T2.6
+- If refactor AND >1950: MANDATORY chunked reading:
   - Read(target, offset=0, limit=1500)
   - Read(target, offset=1500, limit=1500)
   - Read(target, offset=3000, limit=1500) if >3000
@@ -211,7 +211,7 @@ Jobs MUST include exact identifiers:
 - Verify queries executed
 - Confirm structure from database
 - Confirm impact analysis run with coupling score noted
-- Confirm NO file reading (UNLESS refactor >2150 lines)
+- Confirm NO file reading (UNLESS refactor >1950 lines)
 - If chunked, confirm entire file read
 - **Audit:** Patterns queried + impact assessed (and file inspected if applicable)
 

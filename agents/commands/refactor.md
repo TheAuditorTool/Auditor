@@ -16,7 +16,7 @@ tags: [theauditor, refactor, split, modularize, impact]
 **Steps**
 1. Run `aud deadcode 2>&1 | grep <target>` to check if file is deprecated or active.
 2. Run `aud blueprint --structure` to extract naming conventions (snake_case %) and split precedents (schemas/, commands/).
-3. Run `aud blueprint --monoliths` to identify files >2150 lines requiring chunked reading.
+3. Run `aud blueprint --monoliths` to identify files >1950 lines requiring chunked reading.
 4. Run `aud query --file <target> --list all` to get symbol list from database.
 5. Run `aud impact --file <target> --planning-context` to assess blast radius and coupling.
 6. Analyze clustering by prefix (_store_python*, _store_react*) and domain (auth*, user*).
@@ -26,7 +26,7 @@ tags: [theauditor, refactor, split, modularize, impact]
 **Reference**
 - Deadcode confidence: [HIGH]/[MEDIUM]/[LOW] - 0 imports + [HIGH] = truly unused.
 - Split states: <10% (easy revert), >90% (easy finish), 10-90% (ambiguous - ask user).
-- Chunked reading: mandatory for >2150 lines, use 1500-line chunks.
+- Chunked reading: mandatory for >1950 lines, use 1500-line chunks.
 - Impact thresholds: <10 files (LOW), 10-30 (MEDIUM), >30 (HIGH risk refactor).
 - High coupling (>70) suggests extracting interface before splitting.
 <!-- THEAUDITOR:END -->

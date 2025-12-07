@@ -21,6 +21,7 @@ VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_e
 @click.command(cls=RichCommand)
 @click.option("--structure", is_flag=True, help="Drill down into codebase structure details")
 @click.option("--graph", is_flag=True, help="Drill down into import/call graph analysis")
+@click.option("--hotspots", is_flag=True, help="Alias for --graph (shows hot files and bottlenecks)")
 @click.option("--security", is_flag=True, help="Drill down into security surface details")
 @click.option("--taint", is_flag=True, help="Drill down into taint analysis details")
 @click.option("--boundaries", is_flag=True, help="Drill down into boundary distance analysis")
@@ -38,15 +39,16 @@ VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_e
 @click.option("--monoliths", is_flag=True, help="Find files >threshold lines (too large for AI)")
 @click.option(
     "--threshold",
-    default=2150,
+    default=1950,
     type=int,
-    help="Line count threshold for --monoliths (default: 2150)",
+    help="Line count threshold for --monoliths (default: 1950)",
 )
 @click.option("--fce", is_flag=True, help="Drill down into FCE vector convergence analysis")
 @handle_exceptions
 def blueprint(
     structure,
     graph,
+    hotspots,
     security,
     taint,
     boundaries,
@@ -147,6 +149,10 @@ def blueprint(
         - Import relationships (internal vs external)
         - NO recommendations, NO "should be", NO prescriptive language
     """
+    # --hotspots is an alias for --graph
+    if hotspots:
+        graph = True
+
     pf_dir = Path.cwd() / ".pf"
     repo_db = pf_dir / "repo_index.db"
     graphs_db = pf_dir / "graphs.db"
@@ -656,26 +662,25 @@ def _get_security_surface(cursor) -> dict:
         elif "verify" in row[0] or "decode" in row[0]:
             security["jwt"]["verify"] += 1
 
-    cursor.execute("SELECT COUNT(*) FROM oauth_patterns")
-    security["oauth"] = cursor.fetchone()[0] or 0
-
-    cursor.execute("SELECT COUNT(*) FROM password_patterns")
-    security["password"] = cursor.fetchone()[0] or 0
+    # NOTE: oauth_patterns and password_patterns tables were never implemented
+    # Set to 0 until extractors are built (not a fallback - these simply don't exist)
+    security["oauth"] = 0
+    security["password"] = 0
 
     cursor.execute("""
         SELECT COUNT(*) FROM sql_queries
-        WHERE file NOT LIKE '%/migrations/%'
-          AND file NOT LIKE '%/seeders/%'
-          AND file NOT LIKE '%migration%'
+        WHERE file_path NOT LIKE '%/migrations/%'
+          AND file_path NOT LIKE '%/seeders/%'
+          AND file_path NOT LIKE '%migration%'
     """)
     security["sql_queries"]["total"] = cursor.fetchone()[0] or 0
 
     cursor.execute("""
         SELECT COUNT(*) FROM sql_queries
         WHERE command != 'UNKNOWN'
-          AND file NOT LIKE '%/migrations/%'
-          AND file NOT LIKE '%/seeders/%'
-          AND file NOT LIKE '%migration%'
+          AND file_path NOT LIKE '%/migrations/%'
+          AND file_path NOT LIKE '%/seeders/%'
+          AND file_path NOT LIKE '%migration%'
     """)
     security["sql_queries"]["raw"] = cursor.fetchone()[0] or 0
 
@@ -1399,9 +1404,10 @@ def _show_taint_drilldown(data: dict, cursor):
 
 
 def _get_dependencies(cursor) -> dict:
-    """Get dependency facts from package_configs and python_package_configs tables.
+    """Get dependency facts from package tables.
 
-    Queries DATABASE (source of truth), not JSON files.
+    Uses normalized schema: package_configs + package_dependencies for npm,
+    python_package_configs + python_package_dependencies for pip, etc.
     """
     deps = {
         "total": 0,
@@ -1410,95 +1416,75 @@ def _get_dependencies(cursor) -> dict:
         "workspaces": [],
     }
 
-    cursor.execute("""
-        SELECT file_path, package_name, version, dependencies, dev_dependencies
-        FROM package_configs
-    """)
+    # npm: package_configs + package_dependencies
+    cursor.execute("SELECT file_path, package_name, version FROM package_configs")
+    npm_workspaces = {}
     for row in cursor.fetchall():
         file_path = row["file_path"]
-        pkg_name = row["package_name"]
-        version = row["version"]
-
-        prod_deps = json.loads(row["dependencies"]) if row["dependencies"] else {}
-        dev_deps = json.loads(row["dev_dependencies"]) if row["dev_dependencies"] else {}
-
-        workspace = {
+        npm_workspaces[file_path] = {
             "file": file_path,
-            "name": pkg_name,
-            "version": version,
+            "name": row["package_name"],
+            "version": row["version"],
             "manager": "npm",
-            "prod_count": len(prod_deps),
-            "dev_count": len(dev_deps),
-            "prod_deps": prod_deps,
-            "dev_deps": dev_deps,
+            "prod_count": 0,
+            "dev_count": 0,
         }
-        deps["workspaces"].append(workspace)
 
-        deps["by_manager"]["npm"] = (
-            deps["by_manager"].get("npm", 0) + len(prod_deps) + len(dev_deps)
-        )
-        deps["total"] += len(prod_deps) + len(dev_deps)
-
-        for name, ver in prod_deps.items():
-            deps["packages"].append({"name": name, "version": ver, "manager": "npm", "dev": False})
-        for name, ver in dev_deps.items():
-            deps["packages"].append({"name": name, "version": ver, "manager": "npm", "dev": True})
-
-    cursor.execute("""
-        SELECT file_path, project_name, project_version, dependencies, optional_dependencies
-        FROM python_package_configs
-    """)
+    cursor.execute("SELECT file_path, name, version_spec, is_dev FROM package_dependencies")
     for row in cursor.fetchall():
         file_path = row["file_path"]
-        pkg_name = row["project_name"]
-        version = row["project_version"]
+        is_dev = bool(row["is_dev"])
+        deps["packages"].append({
+            "name": row["name"],
+            "version": row["version_spec"] or "",
+            "manager": "npm",
+            "dev": is_dev,
+        })
+        deps["by_manager"]["npm"] = deps["by_manager"].get("npm", 0) + 1
+        deps["total"] += 1
 
-        prod_deps_raw = json.loads(row["dependencies"]) if row["dependencies"] else []
-        opt_deps_raw = (
-            json.loads(row["optional_dependencies"]) if row["optional_dependencies"] else {}
-        )
+        if file_path in npm_workspaces:
+            if is_dev:
+                npm_workspaces[file_path]["dev_count"] += 1
+            else:
+                npm_workspaces[file_path]["prod_count"] += 1
 
-        dev_deps = []
-        if isinstance(opt_deps_raw, dict):
-            for _group_name, group_deps in opt_deps_raw.items():
-                if isinstance(group_deps, list):
-                    dev_deps.extend(group_deps)
+    deps["workspaces"].extend(npm_workspaces.values())
 
-        workspace = {
+    # pip: python_package_configs + python_package_dependencies
+    cursor.execute("SELECT file_path, project_name, project_version FROM python_package_configs")
+    pip_workspaces = {}
+    for row in cursor.fetchall():
+        file_path = row["file_path"]
+        pip_workspaces[file_path] = {
             "file": file_path,
-            "name": pkg_name,
-            "version": version,
+            "name": row["project_name"],
+            "version": row["project_version"],
             "manager": "pip",
-            "prod_count": len(prod_deps_raw),
-            "dev_count": len(dev_deps),
+            "prod_count": 0,
+            "dev_count": 0,
         }
-        deps["workspaces"].append(workspace)
 
-        deps["by_manager"]["pip"] = (
-            deps["by_manager"].get("pip", 0) + len(prod_deps_raw) + len(dev_deps)
-        )
-        deps["total"] += len(prod_deps_raw) + len(dev_deps)
+    cursor.execute("SELECT file_path, name, version_spec, is_dev FROM python_package_dependencies")
+    for row in cursor.fetchall():
+        file_path = row["file_path"]
+        is_dev = bool(row["is_dev"])
+        deps["packages"].append({
+            "name": row["name"],
+            "version": row["version_spec"] or "",
+            "manager": "pip",
+            "dev": is_dev,
+        })
+        deps["by_manager"]["pip"] = deps["by_manager"].get("pip", 0) + 1
+        deps["total"] += 1
 
-        for dep in prod_deps_raw:
-            if isinstance(dep, dict):
-                deps["packages"].append(
-                    {
-                        "name": dep.get("name", ""),
-                        "version": dep.get("version", ""),
-                        "manager": "pip",
-                        "dev": False,
-                    }
-                )
-        for dep in dev_deps:
-            if isinstance(dep, dict):
-                deps["packages"].append(
-                    {
-                        "name": dep.get("name", ""),
-                        "version": dep.get("version", ""),
-                        "manager": "pip",
-                        "dev": True,
-                    }
-                )
+        if file_path in pip_workspaces:
+            if is_dev:
+                pip_workspaces[file_path]["dev_count"] += 1
+            else:
+                pip_workspaces[file_path]["prod_count"] += 1
+
+    deps["workspaces"].extend(pip_workspaces.values())
 
     cursor.execute("""
         SELECT file_path, package_name, package_version, edition
@@ -1805,7 +1791,7 @@ def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
 
     Args:
         db_path: Path to repo_index.db
-        threshold: Line count threshold (default 2150)
+        threshold: Line count threshold (default 1950)
         output_format: 'text' or 'json'
 
     Returns:
@@ -1817,17 +1803,19 @@ def _find_monoliths(db_path: str, threshold: int, output_format: str) -> int:
     cursor.execute(
         """
         SELECT
-            path,
-            MAX(line) as line_count,
-            COUNT(DISTINCT name) as symbol_count
-        FROM symbols
-        WHERE path NOT LIKE '%test%'
-          AND path NOT LIKE '%/tests/%'
-          AND path NOT LIKE '%/__pycache__/%'
-          AND path NOT LIKE '%/node_modules/%'
-        GROUP BY path
-        HAVING line_count > ?
-        ORDER BY line_count DESC
+            f.path,
+            f.loc as line_count,
+            COUNT(DISTINCT s.name) as symbol_count
+        FROM files f
+        LEFT JOIN symbols s ON f.path = s.path
+        WHERE f.loc > ?
+          AND f.path NOT LIKE '%test%'
+          AND f.path NOT LIKE '%/tests/%'
+          AND f.path NOT LIKE '%/__pycache__/%'
+          AND f.path NOT LIKE '%/node_modules/%'
+          AND f.file_category = 'source'
+        GROUP BY f.path
+        ORDER BY f.loc DESC
     """,
         (threshold,),
     )
