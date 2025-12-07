@@ -1589,25 +1589,28 @@ WHEN TO USE IT:
 HOW TO USE IT:
 
 PREREQUISITES:
-    aud full                                  # Build the database first
+    aud full                                  # Builds database AND graphs
+
+NOTE: 'aud full' already runs 'aud graph build' internally. After 'aud full',
+the graph is ready - jump straight to analyze/query/viz.
 
 STEPS:
-1. Build the graphs:
-    aud graph build                           # Build import + call graphs
-    aud graph build --langs python            # Python only
-
-2. Analyze for issues:
+1. Analyze for issues:
     aud graph analyze                         # Find cycles, hotspots
 
-3. Query relationships:
+2. Query relationships:
     aud graph query --uses auth.py            # Who imports auth.py?
     aud graph query --calls send_email        # What does send_email call?
 
-4. Visualize the architecture:
+3. Visualize the architecture:
     aud graph viz --view full                 # Complete graph
     aud graph viz --view cycles               # Only circular dependencies
     aud graph viz --view hotspots             # Top connected nodes
     aud graph viz --view impact --impact-target src/auth.py  # Impact radius
+
+REBUILD GRAPH ONLY (optional - rarely needed):
+    aud graph build                           # Rebuild without full re-index
+    aud graph build --langs python            # Rebuild for specific language
 
 TWO GRAPH TYPES:
 - Import Graph (file-level): Files as nodes, imports as edges
@@ -1619,9 +1622,8 @@ WHAT GRAPHS REVEAL:
 - Hidden coupling: A->B->C creates coupling even without direct import
 
 EXAMPLE WORKFLOW - Architecture Review:
-    aud full                                  # Index codebase
-    aud graph build                           # Build graphs
-    aud graph analyze                         # Find issues
+    aud full                                  # Index codebase + build graphs
+    aud graph analyze                         # Find cycles, hotspots
     aud graph viz --view cycles --format svg  # Visualize cycles
     aud graph viz --view hotspots --top-hotspots 10  # Top 10 hotspots
 
