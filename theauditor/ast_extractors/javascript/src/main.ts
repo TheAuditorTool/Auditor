@@ -642,6 +642,14 @@ async function main(): Promise<void> {
           const class_decorators = classData.class_decorators;
           const class_decorator_args = classData.class_decorator_args;
 
+          const interfaceData = core.extractInterfaces(
+            sourceFile,
+            checker,
+            ts,
+            filePath,
+          );
+          const interfaces = interfaceData.interfaces;
+
           const calls = flow.extractCalls(
             sourceFile,
             checker,
@@ -764,6 +772,7 @@ async function main(): Promise<void> {
             imports,
             import_specifiers,
           );
+          const jwtPatterns = sec.extractJWTPatterns(functionCallArgs, imports);
 
           const sequelizeData = seq.extractSequelizeModels(
             sourceFile,
@@ -870,6 +879,7 @@ async function main(): Promise<void> {
               func_decorator_args: func_decorator_args,
               func_param_decorators: func_param_decorators,
               classes: classes,
+              interfaces: interfaces,
               class_decorators: class_decorators,
               class_decorator_args: class_decorator_args,
               class_properties: classProperties,

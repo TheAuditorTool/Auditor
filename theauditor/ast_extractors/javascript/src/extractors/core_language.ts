@@ -3,6 +3,7 @@ import { logger } from "../utils/logger.js";
 import type {
   Function as IFunction,
   Class as IClass,
+  Interface as IInterface,
   ClassMember as IClassMember,
   ClassMethod as IClassMethod,
   FuncParam as IFuncParam,
@@ -632,6 +633,135 @@ export function extractClasses(
     class_decorators,
     class_decorator_args,
   };
+}
+
+interface ExtractInterfacesResult {
+  interfaces: IInterface[];
+}
+
+export function extractInterfaces(
+  sourceFile: ts.SourceFile,
+  checker: ts.TypeChecker | null,
+  ts: typeof import("typescript"),
+  filePath: string,
+): ExtractInterfacesResult {
+  const interfaces: IInterface[] = [];
+
+  function traverse(node: ts.Node): void {
+    if (!node) return;
+    const kind = ts.SyntaxKind[node.kind];
+
+    if (kind === "InterfaceDeclaration") {
+      const ifaceNode = node as ts.InterfaceDeclaration;
+      const { line, character } = sourceFile.getLineAndCharacterOfPosition(
+        node.getStart(sourceFile),
+      );
+
+      const ifaceName = ifaceNode.name ? ifaceNode.name.text : "UnknownInterface";
+
+      const ifaceEntry: IInterface = {
+        line: line + 1,
+        col: character,
+        name: ifaceName,
+        type: "interface",
+        kind: "InterfaceDeclaration",
+        extends: [],
+        properties: [],
+        methods: [],
+      };
+
+      // Extract extends clause
+      if (ifaceNode.heritageClauses) {
+        for (const clause of ifaceNode.heritageClauses) {
+          if (clause.token === ts.SyntaxKind.ExtendsKeyword) {
+            ifaceEntry.extends = clause.types.map((t) =>
+              t.expression.getText(sourceFile),
+            );
+          }
+        }
+      }
+
+      // Extract type parameters
+      if (ifaceNode.typeParameters && ifaceNode.typeParameters.length > 0) {
+        ifaceEntry.has_type_params = true;
+        ifaceEntry.type_params = ifaceNode.typeParameters
+          .map((tp) => tp.name.text)
+          .join(", ");
+      }
+
+      // Extract members (properties and methods)
+      for (const member of ifaceNode.members) {
+        const memberKind = ts.SyntaxKind[member.kind];
+        if (memberKind === "PropertySignature") {
+          const prop = member as ts.PropertySignature;
+          const propName = prop.name
+            ? (prop.name as ts.Identifier).text ||
+              (prop.name as ts.Identifier).escapedText?.toString() ||
+              ""
+            : "";
+          const propType = prop.type ? prop.type.getText(sourceFile) : "any";
+          if (propName) {
+            ifaceEntry.properties!.push({
+              name: propName,
+              type: propType,
+              inherited: false,
+            });
+          }
+        } else if (memberKind === "MethodSignature") {
+          const method = member as ts.MethodSignature;
+          const methodName = method.name
+            ? (method.name as ts.Identifier).text ||
+              (method.name as ts.Identifier).escapedText?.toString() ||
+              ""
+            : "";
+          if (methodName) {
+            const signature = method.getText(sourceFile);
+            ifaceEntry.methods!.push({
+              name: methodName,
+              signature: signature,
+              inherited: false,
+            });
+          }
+        }
+      }
+
+      interfaces.push(ifaceEntry);
+    }
+
+    // Also handle TypeAliasDeclaration for type aliases (stored as interfaces)
+    if (kind === "TypeAliasDeclaration") {
+      const typeNode = node as ts.TypeAliasDeclaration;
+      const { line, character } = sourceFile.getLineAndCharacterOfPosition(
+        node.getStart(sourceFile),
+      );
+
+      const typeEntry: IInterface = {
+        line: line + 1,
+        col: character,
+        name: typeNode.name.text,
+        type: "interface",
+        kind: "TypeAliasDeclaration",
+        extends: [],
+        properties: [],
+        methods: [],
+      };
+
+      // Extract type parameters for type aliases
+      if (typeNode.typeParameters && typeNode.typeParameters.length > 0) {
+        typeEntry.has_type_params = true;
+        typeEntry.type_params = typeNode.typeParameters
+          .map((tp) => tp.name.text)
+          .join(", ");
+      }
+
+      interfaces.push(typeEntry);
+    }
+
+    ts.forEachChild(node, traverse);
+  }
+
+  traverse(sourceFile);
+  return { interfaces };
 }
 
 export function extractClassProperties(

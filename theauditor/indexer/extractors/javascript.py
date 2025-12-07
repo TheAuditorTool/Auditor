@@ -292,6 +292,16 @@ class JavaScriptExtractor(BaseExtractor, JavaScriptResolversMixin):
 
                         result["symbols"].append(symbol_entry)
 
+                if "interfaces" in extracted_data:
+                    for iface in extracted_data["interfaces"]:
+                        symbol_entry = {
+                            "name": iface.get("name", ""),
+                            "type": "interface",
+                            "line": iface.get("line", 0),
+                            "col": iface.get("col", 0),
+                        }
+                        result["symbols"].append(symbol_entry)
+
                 sequelize_models = extracted_data.get("sequelize_models", [])
                 if sequelize_models:
                     result["sequelize_models"].extend(sequelize_models)

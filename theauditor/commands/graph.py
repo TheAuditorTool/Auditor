@@ -603,6 +603,153 @@ def graph_analyze(root, db, out, max_depth, workset):
         raise click.ClickException(str(e)) from e
 
 
+@graph.command("hotspots", cls=RichCommand)
+@click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
+@click.option("--path", help="Filter by file path pattern (e.g., 'frontend/%', 'src/api/%')")
+@click.option("--top", default=20, type=int, help="Number of hotspots to show")
+@click.option(
+    "--format", "output_format", type=click.Choice(["table", "json"]), default="table", help="Output format"
+)
+def graph_hotspots(db, path, top, output_format):
+    """Show architectural hotspots - files with highest connectivity.
+
+    Identifies files/modules that are most connected in the dependency graph.
+    High connectivity indicates architectural importance but also potential
+    fragility - changes to hotspots have wide blast radius.
+
+    AI ASSISTANT CONTEXT:
+      Purpose: Identify highly connected modules for architecture review
+      Input: .pf/graphs.db (from 'aud graph build')
+      Output: Ranked list of hotspots with connection counts
+      Prerequisites: aud full, aud graph build
+      Integration: Refactoring planning, risk assessment, code review prioritization
+      Performance: <1 second (graph traversal)
+
+    HOTSPOT METRICS:
+      in_degree:  How many files depend on this file (importers)
+      out_degree: How many files this file depends on (imports)
+      total:      Sum of in + out (overall connectivity)
+
+    INTERPRETATION:
+      High in_degree:  Many dependents - breaking changes are risky
+      High out_degree: Many dependencies - complex, hard to test in isolation
+      High both:       Critical hub - requires careful maintenance
+
+    EXAMPLES:
+      aud graph hotspots                        # Top 20 hotspots
+      aud graph hotspots --top 10               # Top 10 only
+      aud graph hotspots --path 'frontend/%'   # Frontend files only
+      aud graph hotspots --format json          # JSON for scripting
+
+    RELATED COMMANDS:
+      aud graph analyze   Full architectural analysis
+      aud graph viz --view hotspots   Visual hotspot graph
+      aud blueprint --hotspots        Quick hotspot overview
+
+    See: aud manual graph, aud manual architecture"""
+    from theauditor.graph.analyzer import XGraphAnalyzer
+    from theauditor.graph.store import XGraphStore
+
+    try:
+        store = XGraphStore(db_path=db)
+        import_graph = store.load_import_graph()
+        call_graph = store.load_call_graph()
+
+        if not import_graph.get("nodes"):
+            console.print("No graphs found. Run 'aud graph build' first.", highlight=False)
+            return
+
+        # Filter by path if specified
+        if path:
+            path_pattern = path.replace("*", "%")  # Support glob-style wildcards
+            import fnmatch
+
+            def matches_path(node_id: str) -> bool:
+                # Support both SQL LIKE (%) and glob (*) patterns
+                if "%" in path_pattern:
+                    # Convert SQL LIKE to fnmatch
+                    glob_pattern = path_pattern.replace("%", "*")
+                    return fnmatch.fnmatch(node_id, glob_pattern)
+                return fnmatch.fnmatch(node_id, path)
+
+            filtered_nodes = [n for n in import_graph["nodes"] if matches_path(n["id"])]
+            filtered_node_ids = {n["id"] for n in filtered_nodes}
+            filtered_edges = [
+                e for e in import_graph["edges"]
+                if e["source"] in filtered_node_ids or e["target"] in filtered_node_ids
+            ]
+            import_graph = {"nodes": filtered_nodes, "edges": filtered_edges}
+
+            console.print(f"Filtered to {len(filtered_nodes)} nodes matching '{path}'", highlight=False)
+
+        analyzer = XGraphAnalyzer()
+        hotspots = analyzer.identify_hotspots(import_graph, top_n=top)
+
+        # Merge call graph data if available
+        if call_graph and call_graph.get("nodes"):
+            call_hotspots = analyzer.identify_hotspots(call_graph, top_n=top * 2)
+            call_map = {h["id"]: h for h in call_hotspots}
+
+            for hs in hotspots:
+                if hs["id"] in call_map:
+                    ch = call_map[hs["id"]]
+                    hs["call_in"] = ch.get("in_degree", 0)
+                    hs["call_out"] = ch.get("out_degree", 0)
+
+        if output_format == "json":
+            console.print(json.dumps(hotspots, indent=2), markup=False)
+        else:
+            if not hotspots:
+                console.print("No hotspots found.", highlight=False)
+                return
+
+            console.print(f"\nTop {len(hotspots)} Architectural Hotspots:", highlight=False)
+            console.print("-" * 80, highlight=False)
+
+            for i, hs in enumerate(hotspots, 1):
+                in_deg = hs.get("in_degree", 0)
+                out_deg = hs.get("out_degree", 0)
+                total = hs.get("total_connections", 0)
+                lang = hs.get("lang", "?")
+
+                # Risk indicator
+                risk = ""
+                if in_deg > 10:
+                    risk = " [HIGH DEPENDENTS]"
+                elif in_deg > 5:
+                    risk = " [moderate dependents]"
+
+                console.print(
+                    f"  {i:2}. {hs['id'][:60]:<60} ({lang})",
+                    highlight=False
+                )
+                console.print(
+                    f"      in:{in_deg:<4} out:{out_deg:<4} total:{total:<4}{risk}",
+                    highlight=False
+                )
+
+                # Show call graph info if available
+                if "call_in" in hs:
+                    console.print(
+                        f"      calls: in:{hs['call_in']:<4} out:{hs['call_out']:<4}",
+                        highlight=False
+                    )
+
+            console.print("-" * 80, highlight=False)
+            console.print(
+                "\nInterpretation: High 'in' = many dependents (risky to change)",
+                highlight=False
+            )
+            console.print(
+                "               High 'out' = many dependencies (complex)",
+                highlight=False
+            )
+
+    except Exception as e:
+        console.print(f"[error]Error: {e}[/error]", highlight=False)
+        raise click.ClickException(str(e)) from e
+
+
 @graph.command("query", cls=RichCommand)
 @click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
 @click.option("--uses", help="Find who uses/imports this module or calls this function")

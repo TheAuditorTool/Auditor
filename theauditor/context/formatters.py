@@ -62,6 +62,54 @@ def _format_text(results: Any) -> str:
 
         return "\n".join(lines)
 
+    if isinstance(results, dict) and results.get("type") == "pattern_search":
+        lines = []
+        pattern = results.get("pattern", "?")
+        path_str = results.get("path", "(all)")
+        type_str = results.get("type_filter") or "(all types)"
+        count = results.get("count", 0)
+        symbols = results.get("symbols", [])
+
+        lines.append("Pattern Search Results")
+        lines.append(f"  Pattern: {pattern}  (searches symbol NAMES, not code content)")
+        lines.append(f"  Path:    {path_str}")
+        lines.append(f"  Type:    {type_str}")
+        lines.append(f"  Found:   {count} symbols")
+        lines.append("")
+
+        if symbols:
+            by_file = {}
+            for sym in symbols:
+                file_path = sym.file if hasattr(sym, "file") else sym.get("file", "?")
+                if file_path not in by_file:
+                    by_file[file_path] = []
+                by_file[file_path].append(sym)
+
+            for file_path in sorted(by_file.keys()):
+                file_symbols = by_file[file_path]
+
+                display_path = file_path[-60:] if len(file_path) > 60 else file_path
+                if len(file_path) > 60:
+                    display_path = "..." + display_path
+                lines.append(f"{display_path}:")
+                for sym in file_symbols:
+                    name = sym.name if hasattr(sym, "name") else sym.get("name", "?")
+                    sym_type = sym.type if hasattr(sym, "type") else sym.get("type", "?")
+                    line_num = sym.line if hasattr(sym, "line") else sym.get("line", "?")
+                    lines.append(f"  :{line_num:<5} {sym_type:<12} {name}")
+                lines.append("")
+        else:
+            lines.append("No symbols found matching pattern.")
+            lines.append("")
+            lines.append("Suggestions:")
+            lines.append("  - Pattern searches symbol NAMES (functions, classes, variables)")
+            lines.append("  - Use % for wildcards: '%auth%', 'User%', '%Controller%'")
+            lines.append("  - For code TEXT search, use: grep -r 'your pattern' .")
+            lines.append("  - Verify path: aud query --list-symbols --path 'your/path/'")
+            lines.append("  - Re-index if code changed: aud full --index")
+
+        return "\n".join(lines)
+
     if isinstance(results, dict) and "symbol" in results and "callers" in results:
         lines = []
 

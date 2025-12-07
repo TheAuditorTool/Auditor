@@ -52,6 +52,19 @@ export const ClassSchema = z.object({
   methods: z.array(ClassMethodSchema).optional(),
 });
 
+export const InterfaceSchema = z.object({
+  name: z.string(),
+  line: z.number(),
+  col: z.number().optional(),
+  type: z.literal("interface"),
+  kind: z.string().optional(),
+  extends: z.array(z.string()).optional(),
+  has_type_params: z.boolean().optional(),
+  type_params: z.string().optional(),
+  properties: z.array(ClassMemberSchema).optional(),
+  methods: z.array(ClassMethodSchema).optional(),
+});
+
 export const AssignmentSchema = z.object({
   file: z.string(),
   line: z.number(),
@@ -507,6 +520,15 @@ export const FrontendApiCallSchema = z.object({
   client_library: z.string().optional(),
 });
 
+export const JWTPatternSchema = z.object({
+  file: z.string().optional(),
+  line: z.number(),
+  type: z.string(),
+  full_match: z.string(),
+  secret_type: z.string(),
+  algorithm: z.string().nullable(),
+});
+
 export const GraphQLResolverSchema = z.object({
   file: z.string(),
   line: z.number(),
@@ -602,6 +624,7 @@ export const ExtractedDataSchema = z.object({
   symbols: z.array(SymbolSchema).optional(),
   functions: z.array(FunctionSchema).optional(),
   classes: z.array(ClassSchema).optional(),
+  interfaces: z.array(InterfaceSchema).optional(),
   calls: z.array(CallSymbolSchema).optional(),
   assignments: z.array(AssignmentSchema).optional(),
   returns: z.array(FunctionReturnSchema).optional(),
@@ -662,6 +685,7 @@ export const ExtractedDataSchema = z.object({
   cdk_constructs: z.array(CDKConstructSchema).optional(),
   cdk_construct_properties: z.array(CDKConstructPropertySchema).optional(),
   frontend_api_calls: z.array(FrontendApiCallSchema).optional(),
+  jwt_patterns: z.array(JWTPatternSchema).optional(),
 
   graphql_resolvers: z.array(GraphQLResolverSchema).optional(),
   graphql_resolver_params: z.array(GraphQLResolverParamSchema).optional(),
@@ -687,6 +711,7 @@ export const ExtractionReceiptSchema = z.record(z.string(), FileResultSchema);
 export type Symbol = z.infer<typeof SymbolSchema>;
 export type Function = z.infer<typeof FunctionSchema>;
 export type Class = z.infer<typeof ClassSchema>;
+export type Interface = z.infer<typeof InterfaceSchema>;
 export type ClassMember = z.infer<typeof ClassMemberSchema>;
 export type ClassMethod = z.infer<typeof ClassMethodSchema>;
 export type Assignment = z.infer<typeof AssignmentSchema>;
@@ -735,6 +760,7 @@ export type SQLQuery = z.infer<typeof SQLQuerySchema>;
 export type CDKConstruct = z.infer<typeof CDKConstructSchema>;
 export type CDKConstructProperty = z.infer<typeof CDKConstructPropertySchema>;
 export type FrontendAPICall = z.infer<typeof FrontendApiCallSchema>;
+export type JWTPattern = z.infer<typeof JWTPatternSchema>;
 
 export type ReactComponentHook = z.infer<typeof ReactComponentHookSchema>;
 export type ReactHookDependency = z.infer<typeof ReactHookDependencySchema>;

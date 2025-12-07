@@ -12,6 +12,7 @@ import type {
   Assignment as IAssignment,
   Import as IImport,
   ImportSpecifier as IImportSpecifier,
+  JWTPattern as IJWTPattern,
 } from "../schema.js";
 
 const ORM_METHODS = new Set([
@@ -1052,4 +1053,184 @@ export function extractFrontendApiCalls(
   }
 
   return apiCalls;
+}
+
+/**
+ * JWT library methods that indicate signing (creating tokens)
+ */
+const JWT_SIGN_METHODS = new Set(["sign", "encode"]);
+
+/**
+ * JWT library methods that indicate verification/decoding
+ */
+const JWT_VERIFY_METHODS = new Set(["verify", "decode"]);
+
+/**
+ * Known JWT library module names
+ */
+const JWT_LIBRARIES = new Set([
+  "jsonwebtoken",
+  "jose",
+  "jwt-simple",
+  "njwt",
+  "express-jwt",
+  "passport-jwt",
+  "koa-jwt",
+]);
+
+/**
+ * Extract JWT patterns from function calls and imports.
+ * Detects jwt.sign(), jwt.verify(), jwt.decode() and similar patterns.
+ */
+export function extractJWTPatterns(
+  functionCallArgs: IFunctionCallArg[],
+  imports: IImport[],
+): IJWTPattern[] {
+  const patterns: IJWTPattern[] = [];
+
+  // Build a map of local aliases to JWT libraries
+  const jwtAliases = new Set<string>();
+  for (const imp of imports) {
+    const module = imp.module || "";
+    if (!module) continue;
+
+    // Check if this is a JWT library import
+    const baseName = module.split("/").pop() || module;
+    if (JWT_LIBRARIES.has(baseName)) {
+      // The default import or namespace would be used as jwt.sign(), etc.
+      // We track common patterns like: import jwt from 'jsonwebtoken'
+      jwtAliases.add("jwt");
+      jwtAliases.add("jsonwebtoken");
+      jwtAliases.add(baseName);
+    }
+  }
+
+  // Also check for common jwt variable names even without explicit import tracking
+  jwtAliases.add("jwt");
+  jwtAliases.add("JWT");
+
+  // Group calls by line to handle multi-argument calls
+  const callsByLine: Record<
+    number,
+    {
+      callee: string;
+      caller: string;
+      args: IFunctionCallArg[];
+    }
+  > = {};
+
+  for (const call of functionCallArgs) {
+    const callee = call.callee_function || "";
+    if (!callee) continue;
+
+    if (!callsByLine[call.line]) {
+      callsByLine[call.line] = {
+        callee: callee,
+        caller: call.caller_function || "global",
+        args: [],
+      };
+    }
+    if (call.argument_index !== undefined && call.argument_index !== null) {
+      callsByLine[call.line].args[call.argument_index] = call;
+    }
+  }
+
+  for (const lineStr in callsByLine) {
+    const line = parseInt(lineStr);
+    const callData = callsByLine[line];
+    const callee = callData.callee;
+    const args = callData.args;
+
+    // Check for jwt.sign, jwt.verify, jwt.decode patterns
+    const parts = callee.split(".");
+    if (parts.length < 2) continue;
+
+    const receiver = parts.slice(0, -1).join(".");
+    const method = parts[parts.length - 1];
+
+    // Check if receiver is a known JWT alias
+    const isJwtReceiver =
+      jwtAliases.has(receiver) ||
+      receiver.toLowerCase().includes("jwt") ||
+      receiver.toLowerCase().includes("token");
+
+    if (!isJwtReceiver) continue;
+
+    let patternType: string | null = null;
+    if (JWT_SIGN_METHODS.has(method)) {
+      patternType = "jwt_sign";
+    } else if (JWT_VERIFY_METHODS.has(method)) {
+      patternType = method === "verify" ? "jwt_verify" : "jwt_decode";
+    }
+
+    if (!patternType) continue;
+
+    // Extract secret source type from second argument (for sign/verify)
+    let secretType = "unknown";
+    let algorithm: string | null = null;
+
+    if (patternType === "jwt_sign" || patternType === "jwt_verify") {
+      // Second argument is typically the secret
+      const secretArg = args[1];
+      if (secretArg && secretArg.argument_expr) {
+        const expr = secretArg.argument_expr.trim();
+
+        if (
+          (expr.startsWith("'") && expr.endsWith("'")) ||
+          (expr.startsWith('"') && expr.endsWith('"')) ||
+          (expr.startsWith("`") && expr.endsWith("`"))
+        ) {
+          secretType = "hardcoded";
+        } else if (
+          expr.includes("process.env") ||
+          expr.includes("ENV") ||
+          expr.includes("getenv")
+        ) {
+          secretType = "environment";
+        } else if (
+          expr.includes("config") ||
+          expr.includes("settings") ||
+          expr.includes("secrets")
+        ) {
+          secretType = "config";
+        } else {
+          secretType = "variable";
+        }
+      }
+
+      // Third argument often contains options including algorithm
+      const optionsArg = args[2];
+      if (optionsArg && optionsArg.argument_expr) {
+        const optExpr = optionsArg.argument_expr;
+        // Look for algorithm in options object
+        const algoMatch = optExpr.match(
+          /algorithm:\s*['"]([^'"]+)['"]/i,
+        );
+        if (algoMatch) {
+          algorithm = algoMatch[1];
+        }
+        // Also check for expiresIn pattern to confirm it's JWT options
+        if (!algorithm && optExpr.includes("expiresIn")) {
+          algorithm = "HS256"; // Default assumption
+        }
+      }
+    }
+
+    // For decode, typically doesn't need secret (unless complete: true)
+    if (patternType === "jwt_decode") {
+      secretType = "none";
+    }
+
+    const fullMatch = `${receiver}.${method}(...)`;
+
+    patterns.push({
+      line: line,
+      type: patternType,
+      full_match: fullMatch,
+      secret_type: secretType,
+      algorithm: algorithm,
+    });
+  }
+
+  return patterns;
 }

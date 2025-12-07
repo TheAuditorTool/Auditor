@@ -50,7 +50,7 @@ def _normalize_path_filter(path_filter: tuple) -> str | None:
 @click.option("--api", help="Query API endpoint by route pattern (supports wildcards)")
 @click.option("--component", help="Query React/Vue component by name")
 @click.option("--variable", help="Query variable by name (for data flow tracing)")
-@click.option("--pattern", help="Search symbols by pattern (supports % wildcards like 'auth%')")
+@click.option("--pattern", help="Search symbol NAMES by pattern (NOT code content). Use % wildcards like 'auth%'")
 @click.option(
     "--category", help="Search by security category (jwt, oauth, password, sql, xss, auth)"
 )
@@ -187,7 +187,7 @@ def query(
       --file PATH         File dependencies, combine with --show-dependents
       --api ROUTE         API endpoint handler lookup
       --component NAME    React/Vue component tree
-      --pattern PATTERN   SQL LIKE search (use % wildcard)
+      --pattern PATTERN   Search symbol NAMES (% wildcard). NOT for code text.
       --list-symbols      Discovery mode with --filter and --path
 
     \b
@@ -249,6 +249,11 @@ def query(
       X  Assuming empty results means bug
          -> Check symbol spelling (case-sensitive)
          -> Re-run 'aud full' if code changed
+
+      X  aud query --pattern "%onClick={() =>%"
+         --pattern searches symbol NAMES, not code content
+         -> For code text: grep -r "onClick" . or rg "onClick"
+         -> For symbol names: aud query --pattern "%Handler%"
 
     \b
     OUTPUT FORMAT
@@ -446,7 +451,17 @@ def query(
             }
 
         elif pattern:
-            results = engine.pattern_search(pattern, type_filter=type_filter, path_filter=sql_path_filter)
+            raw_results = engine.pattern_search(
+                pattern, type_filter=type_filter, path_filter=sql_path_filter
+            )
+            results = {
+                "type": "pattern_search",
+                "pattern": pattern,
+                "path": sql_path_filter or "(all)",
+                "type_filter": type_filter,
+                "count": len(raw_results),
+                "symbols": raw_results,
+            }
 
         elif category:
             results = engine.category_search(category)
