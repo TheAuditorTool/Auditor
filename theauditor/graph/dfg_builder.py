@@ -613,6 +613,258 @@ class DFGBuilder:
 
         return FidelityToken.attach_manifest(result)
 
+    def build_parameter_mutation_edges(self, root: str = ".") -> dict[str, Any]:
+        """Build edges for parameter field mutations (side effects).
+
+        When a callee mutates param.field, create edges back to caller's arg.field.
+        Example: infect(B) mutates objRef.data -> creates edge to B.data
+
+        This closes the "Poisoned Reference" gap where object mutations through
+        function parameters were not tracked back to the caller's scope.
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
+
+        stats = {
+            "total_mutations": 0,
+            "edges_created": 0,
+            "skipped_no_callers": 0,
+            "skipped_no_field": 0,
+            "nodes_created": 0,
+        }
+
+        cursor.execute("""
+            SELECT
+                a.file, a.line, a.in_function, a.target_var, a.source_expr,
+                fp.param_name, fp.param_index
+            FROM assignments a
+            JOIN func_params fp
+                ON a.file = fp.file
+                AND a.in_function = fp.function_name
+            WHERE a.target_var LIKE fp.param_name || '.%'
+        """)
+
+        mutations = cursor.fetchall()
+        stats["total_mutations"] = len(mutations)
+
+        with click.progressbar(
+            mutations,
+            label="Building parameter mutation edges",
+            show_pos=True,
+            show_percent=True,
+            item_show_func=lambda x: f"{x['in_function']}::{x['target_var']}" if x else None,
+        ) as mutation_rows:
+            for row in mutation_rows:
+                callee_file = row["file"]
+                callee_function = row["in_function"]
+                target_var = row["target_var"]
+                param_name = row["param_name"]
+                line = row["line"]
+
+                if not target_var.startswith(param_name + "."):
+                    stats["skipped_no_field"] += 1
+                    continue
+                field_path = target_var[len(param_name) :]
+
+                cursor.execute(
+                    """
+                    SELECT file, line, caller_function, argument_expr
+                    FROM function_call_args
+                    WHERE callee_file_path = ?
+                      AND param_name = ?
+                      AND argument_expr IS NOT NULL
+                """,
+                    (callee_file, param_name),
+                )
+
+                callers = cursor.fetchall()
+                if not callers:
+                    stats["skipped_no_callers"] += 1
+                    continue
+
+                callee_node_id = f"{callee_file}::{callee_function}::{target_var}"
+                if callee_node_id not in nodes:
+                    nodes[callee_node_id] = DFGNode(
+                        id=callee_node_id,
+                        file=callee_file,
+                        variable_name=target_var,
+                        scope=callee_function,
+                        type="mutated_param_field",
+                        metadata={"is_mutation": True, "param_name": param_name},
+                    )
+                    stats["nodes_created"] += 1
+
+                for caller in callers:
+                    caller_file = caller["file"]
+                    caller_function = caller["caller_function"] or "global"
+                    arg_expr = caller["argument_expr"]
+
+                    arg_var = self._parse_argument_variable(arg_expr)
+                    if not arg_var:
+                        continue
+
+                    caller_field_var = f"{arg_var}{field_path}"
+                    caller_node_id = f"{caller_file}::{caller_function}::{caller_field_var}"
+
+                    if caller_node_id not in nodes:
+                        nodes[caller_node_id] = DFGNode(
+                            id=caller_node_id,
+                            file=caller_file,
+                            variable_name=caller_field_var,
+                            scope=caller_function,
+                            type="argument_field",
+                            metadata={
+                                "created_by": "parameter_mutation",
+                                "base_var": arg_var,
+                                "field_path": field_path,
+                            },
+                        )
+                        stats["nodes_created"] += 1
+
+                    new_edges = create_bidirectional_edges(
+                        source=callee_node_id,
+                        target=caller_node_id,
+                        edge_type="parameter_mutation",
+                        file=callee_file,
+                        line=line,
+                        expression=f"{param_name}{field_path} mutation -> {arg_var}{field_path}",
+                        function=callee_function,
+                        metadata={
+                            "callee_function": callee_function,
+                            "caller_function": caller_function,
+                            "param_name": param_name,
+                            "arg_expr": arg_expr,
+                            "field_path": field_path,
+                        },
+                    )
+                    edges.extend(new_edges)
+                    stats["edges_created"] += len(new_edges)
+
+        conn.close()
+
+        result = {
+            "nodes": [asdict(node) for node in nodes.values()],
+            "edges": [asdict(edge) for edge in edges],
+            "metadata": {
+                "root": str(Path(root).resolve()),
+                "graph_type": "data_flow",
+                "stats": stats,
+            },
+        }
+
+        return FidelityToken.attach_manifest(result)
+
+    def build_field_alias_edges(self, all_nodes: dict[str, dict]) -> dict[str, Any]:
+        """Build field-level alias edges for simple variable copies.
+
+        When B = A, and B.data exists, create edge B.data <-> A.data.
+        Must run AFTER other builders to see created field nodes.
+
+        Uses pre-indexed node lookup for O(1) field discovery instead of
+        O(N) iteration per alias assignment.
+        """
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        nodes: dict[str, DFGNode] = {}
+        edges: list[DFGEdge] = []
+
+        stats = {
+            "aliases_found": 0,
+            "field_edges_created": 0,
+            "nodes_created": 0,
+        }
+
+        nodes_by_prefix: dict[str, list[str]] = defaultdict(list)
+        for node_id in all_nodes:
+            parts = node_id.split("::")
+            if len(parts) >= 3:
+                var_part = parts[2]
+                if "." in var_part:
+                    base_var = var_part.split(".")[0]
+                    prefix_key = f"{parts[0]}::{parts[1]}::{base_var}"
+                    nodes_by_prefix[prefix_key].append(node_id)
+
+        cursor.execute("""
+            SELECT file, line, in_function, target_var, source_expr
+            FROM assignments
+            WHERE source_expr GLOB '[A-Za-z_]*'
+              AND target_var GLOB '[A-Za-z_]*'
+              AND source_expr NOT LIKE '%.%'
+              AND target_var NOT LIKE '%.%'
+              AND source_expr NOT LIKE '{%'
+              AND source_expr NOT LIKE '[%'
+              AND source_expr NOT LIKE '"%'
+              AND source_expr NOT LIKE '''%'
+        """)
+
+        aliases = cursor.fetchall()
+
+        for row in aliases:
+            file = row["file"]
+            func = row["in_function"] or "global"
+            target = row["target_var"]
+            source = row["source_expr"]
+            line = row["line"]
+
+            stats["aliases_found"] += 1
+
+            target_prefix = f"{file}::{func}::{target}"
+            target_field_nodes = nodes_by_prefix.get(target_prefix, [])
+
+            for target_node_id in target_field_nodes:
+                field_suffix = target_node_id[len(target_prefix) :]
+
+                source_field_var = f"{source}{field_suffix}"
+                source_node_id = f"{file}::{func}::{source_field_var}"
+
+                if source_node_id not in all_nodes and source_node_id not in nodes:
+                    nodes[source_node_id] = DFGNode(
+                        id=source_node_id,
+                        file=file,
+                        variable_name=source_field_var,
+                        scope=func,
+                        type="aliased_field",
+                        metadata={
+                            "created_by": "field_alias",
+                            "alias_of": target_node_id,
+                        },
+                    )
+                    stats["nodes_created"] += 1
+
+                new_edges = create_bidirectional_edges(
+                    source=target_node_id,
+                    target=source_node_id,
+                    edge_type="field_alias",
+                    file=file,
+                    line=line,
+                    expression=f"{target} = {source} -> field alias",
+                    function=func,
+                    metadata={
+                        "alias_target": target,
+                        "alias_source": source,
+                        "field_suffix": field_suffix,
+                    },
+                )
+                edges.extend(new_edges)
+                stats["field_edges_created"] += len(new_edges)
+
+        conn.close()
+
+        return {
+            "nodes": [asdict(node) for node in nodes.values()],
+            "edges": [asdict(edge) for edge in edges],
+            "metadata": {
+                "graph_type": "data_flow",
+                "stats": stats,
+            },
+        }
+
     def build_unified_flow_graph(self, root: str = ".") -> dict[str, Any]:
         """Build unified data flow graph combining all edge types."""
 
@@ -628,7 +880,16 @@ class DFGBuilder:
         logger.info("Building cross-boundary API edges...")
         cross_boundary_graph = self.build_cross_boundary_edges(root)
 
-        core_graphs = [assignment_graph, return_graph, parameter_graph, cross_boundary_graph]
+        logger.info("Building parameter mutation edges...")
+        mutation_graph = self.build_parameter_mutation_edges(root)
+
+        core_graphs = [
+            assignment_graph,
+            return_graph,
+            parameter_graph,
+            cross_boundary_graph,
+            mutation_graph,
+        ]
 
         strategy_graphs = []
         strategy_stats = {}
@@ -649,11 +910,20 @@ class DFGBuilder:
         for graph in core_graphs + strategy_graphs:
             edges.extend(graph.get("edges", []))
 
+        logger.info("Building field alias edges...")
+        alias_graph = self.build_field_alias_edges(nodes)
+
+        for node in alias_graph.get("nodes", []):
+            nodes[node["id"]] = node
+        edges.extend(alias_graph.get("edges", []))
+
         stats = {
             "assignment_stats": assignment_graph["metadata"]["stats"],
             "return_stats": return_graph["metadata"]["stats"],
             "parameter_stats": parameter_graph["metadata"]["stats"],
             "cross_boundary_stats": cross_boundary_graph["metadata"]["stats"],
+            "mutation_stats": mutation_graph["metadata"]["stats"],
+            "alias_stats": alias_graph["metadata"]["stats"],
             "strategy_stats": strategy_stats,
             "total_nodes": len(nodes),
             "total_edges": len(edges),
