@@ -52,6 +52,11 @@ def _normalize_path_filter(path_filter: tuple) -> str | None:
 @click.option("--variable", help="Query variable by name (for data flow tracing)")
 @click.option("--pattern", help="Search symbol NAMES by pattern (NOT code content). Use % wildcards like 'auth%'")
 @click.option(
+    "--content",
+    is_flag=True,
+    help="Search CODE CONTENT (expressions, arguments) instead of symbol names. Use with --pattern",
+)
+@click.option(
     "--category", help="Search by security category (jwt, oauth, password, sql, xss, auth)"
 )
 @click.option("--search", help="Cross-table exploratory search (finds term across all tables)")
@@ -148,6 +153,7 @@ def query(
     component,
     variable,
     pattern,
+    content,
     category,
     search,
     list_mode,
@@ -187,7 +193,8 @@ def query(
       --file PATH         File dependencies, combine with --show-dependents
       --api ROUTE         API endpoint handler lookup
       --component NAME    React/Vue component tree
-      --pattern PATTERN   Search symbol NAMES (% wildcard). NOT for code text.
+      --pattern PATTERN   Search symbol NAMES (% wildcard). Add --content for code text.
+      --pattern + --content  Search CODE CONTENT (expressions, arguments)
       --list-symbols      Discovery mode with --filter and --path
 
     \b
@@ -223,8 +230,12 @@ def query(
       # Find API handler
       aud query --api "/users/:id"
 
-      # Pattern search
+      # Pattern search (symbol names)
       aud query --pattern "auth%" --type-filter function
+
+      # CODE CONTENT search (expressions, arguments)
+      aud query --pattern "%onClick%" --content
+      aud query --pattern "%jwt.sign%" --content --path "backend/%"
 
       # List functions in file
       aud query --file auth.py --list functions
@@ -252,7 +263,7 @@ def query(
 
       X  aud query --pattern "%onClick={() =>%"
          --pattern searches symbol NAMES, not code content
-         -> For code text: grep -r "onClick" . or rg "onClick"
+         -> For code text: aud query --pattern "%onClick%" --content
          -> For symbol names: aud query --pattern "%Handler%"
 
     \b
@@ -451,17 +462,29 @@ def query(
             }
 
         elif pattern:
-            raw_results = engine.pattern_search(
-                pattern, type_filter=type_filter, path_filter=sql_path_filter
-            )
-            results = {
-                "type": "pattern_search",
-                "pattern": pattern,
-                "path": sql_path_filter or "(all)",
-                "type_filter": type_filter,
-                "count": len(raw_results),
-                "symbols": raw_results,
-            }
+            if content:
+                # Search code content (expressions, arguments) instead of symbol names
+                raw_results = engine.content_search(pattern, path_filter=sql_path_filter)
+                results = {
+                    "type": "content_search",
+                    "pattern": pattern,
+                    "path": sql_path_filter or "(all)",
+                    "count": len(raw_results),
+                    "matches": raw_results,
+                }
+            else:
+                # Default: search symbol names
+                raw_results = engine.pattern_search(
+                    pattern, type_filter=type_filter, path_filter=sql_path_filter
+                )
+                results = {
+                    "type": "pattern_search",
+                    "pattern": pattern,
+                    "path": sql_path_filter or "(all)",
+                    "type_filter": type_filter,
+                    "count": len(raw_results),
+                    "symbols": raw_results,
+                }
 
         elif category:
             results = engine.category_search(category)

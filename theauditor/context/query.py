@@ -961,6 +961,110 @@ class CodeQueryEngine:
 
         return results[:limit]
 
+    def content_search(
+        self,
+        pattern: str,
+        path_filter: str | None = None,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Search code content in expressions and function arguments.
+
+        Unlike pattern_search (which searches symbol names), this searches
+        the actual code content stored in:
+        - function_call_args.argument_expr (function call arguments)
+        - assignments.source_expr (right-hand side of assignments)
+
+        Args:
+            pattern: SQL LIKE pattern (use % as wildcard)
+            path_filter: Optional path filter (SQL LIKE pattern)
+            limit: Maximum results to return
+
+        Returns:
+            List of matches with file, line, context, and matched content
+        """
+        cursor = self.repo_db.cursor()
+        results = []
+
+        # Search function_call_args.argument_expr
+        query_args = """
+            SELECT file, line, caller_function, callee_function, argument_expr
+            FROM function_call_args
+            WHERE argument_expr LIKE ?
+        """
+        params_args = [pattern]
+
+        if path_filter:
+            query_args += " AND file LIKE ?"
+            params_args.append(path_filter)
+
+        query_args += f" ORDER BY file, line LIMIT {limit}"
+
+        cursor.execute(query_args, params_args)
+        for row in cursor.fetchall():
+            results.append({
+                "type": "function_argument",
+                "file": row["file"],
+                "line": row["line"],
+                "context": f"{row['caller_function'] or 'global'} -> {row['callee_function']}",
+                "content": row["argument_expr"],
+            })
+
+        # Search assignments.source_expr
+        remaining = limit - len(results)
+        if remaining > 0:
+            query_assign = """
+                SELECT file, line, target_var, source_expr, in_function
+                FROM assignments
+                WHERE source_expr LIKE ?
+            """
+            params_assign = [pattern]
+
+            if path_filter:
+                query_assign += " AND file LIKE ?"
+                params_assign.append(path_filter)
+
+            query_assign += f" ORDER BY file, line LIMIT {remaining}"
+
+            cursor.execute(query_assign, params_assign)
+            for row in cursor.fetchall():
+                results.append({
+                    "type": "assignment",
+                    "file": row["file"],
+                    "line": row["line"],
+                    "context": f"{row['target_var']} = ... (in {row['in_function'] or 'global'})",
+                    "content": row["source_expr"],
+                })
+
+        # Also search function_call_args in JSX files
+        remaining = limit - len(results)
+        if remaining > 0:
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='function_call_args_jsx'")
+            if cursor.fetchone():
+                query_jsx = """
+                    SELECT file, line, caller_function, callee_function, argument_expr
+                    FROM function_call_args_jsx
+                    WHERE argument_expr LIKE ?
+                """
+                params_jsx = [pattern]
+
+                if path_filter:
+                    query_jsx += " AND file LIKE ?"
+                    params_jsx.append(path_filter)
+
+                query_jsx += f" ORDER BY file, line LIMIT {remaining}"
+
+                cursor.execute(query_jsx, params_jsx)
+                for row in cursor.fetchall():
+                    results.append({
+                        "type": "jsx_function_argument",
+                        "file": row["file"],
+                        "line": row["line"],
+                        "context": f"{row['caller_function'] or 'global'} -> {row['callee_function']}",
+                        "content": row["argument_expr"],
+                    })
+
+        return results
+
     def category_search(self, category: str, limit: int = 200) -> dict[str, list[dict]]:
         """Search across pattern tables by security category.
 

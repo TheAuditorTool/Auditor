@@ -366,7 +366,8 @@ def graph_build_dfg(root, db, repo_db):
 @click.option("--out", default="./.pf/raw/graph_analysis.json", help="Output JSON path")
 @click.option("--max-depth", default=3, type=int, help="Max traversal depth for impact analysis")
 @click.option("--workset", help="Path to workset.json for change impact")
-def graph_analyze(root, db, out, max_depth, workset):
+@click.option("--path", help="Filter analysis to paths matching pattern (e.g., 'src/api/%', 'frontend/*')")
+def graph_analyze(root, db, out, max_depth, workset, path):
     """Analyze dependency graphs for architectural issues and change impact.
 
     Performs comprehensive graph analysis to detect circular dependencies,
@@ -400,11 +401,14 @@ def graph_analyze(root, db, out, max_depth, workset):
 
     EXAMPLES:
       aud graph analyze
+      aud graph analyze --path 'frontend/*'    # Analyze frontend only
+      aud graph analyze --path 'src/api/%'     # SQL LIKE style also works
       aud graph analyze --workset workset.json
       aud graph analyze --max-depth 5
       aud graph analyze --out custom_analysis.json
 
     FLAG INTERACTIONS:
+      --path: Filters graph to matching nodes before analysis (faster, focused)
       --workset + --max-depth: Limits impact analysis to specific files and depth
 
     TROUBLESHOOTING:
@@ -435,6 +439,39 @@ def graph_analyze(root, db, out, max_depth, workset):
         if not import_graph["nodes"]:
             console.print("No graphs found. Run 'aud graph build' first.")
             return
+
+        # Filter by path if specified
+        if path:
+            import fnmatch
+
+            path_pattern = path.replace("%", "*")  # Support SQL LIKE style
+
+            def matches_path(node_id: str) -> bool:
+                return fnmatch.fnmatch(node_id, path_pattern)
+
+            original_count = len(import_graph["nodes"])
+            filtered_nodes = [n for n in import_graph["nodes"] if matches_path(n["id"])]
+            filtered_node_ids = {n["id"] for n in filtered_nodes}
+            filtered_edges = [
+                e for e in import_graph["edges"]
+                if e["source"] in filtered_node_ids or e["target"] in filtered_node_ids
+            ]
+            import_graph = {"nodes": filtered_nodes, "edges": filtered_edges}
+
+            # Filter call graph too
+            if call_graph and call_graph.get("nodes"):
+                call_filtered_nodes = [n for n in call_graph["nodes"] if matches_path(n.get("file", n["id"]))]
+                call_filtered_ids = {n["id"] for n in call_filtered_nodes}
+                call_filtered_edges = [
+                    e for e in call_graph["edges"]
+                    if e["source"] in call_filtered_ids or e["target"] in call_filtered_ids
+                ]
+                call_graph = {"nodes": call_filtered_nodes, "edges": call_filtered_edges}
+
+            console.print(
+                f"Filtered: {len(filtered_nodes)}/{original_count} nodes matching '{path}'",
+                highlight=False
+            )
 
         analyzer = XGraphAnalyzer()
 
