@@ -930,6 +930,7 @@ async function main(): Promise<void> {
               graphql_resolvers: graphql_resolvers,
               graphql_resolver_params: graphql_resolver_params,
               frontend_api_calls: frontendApiCalls,
+              jwt_patterns: jwtPatterns,
               scope_map: Object.fromEntries(scopeMap),
               cfg_blocks: cfgData.cfg_blocks || [],
               cfg_edges: cfgData.cfg_edges || [],

@@ -46,6 +46,8 @@ Some commands require you to write a custom YAML file before use:
    aud query --list-symbols --filter "*product*" --path "frontend/src/**"
    # OR for SQL LIKE search (no path filter):
    aud query --pattern "%product%"
+   # NOTE: --pattern searches symbol NAMES (functions, classes, variables)
+   # NOT code content. For code text search, use: grep -r "pattern" .
 
 2. WRITE YAML: Create profile based on patterns FOUND (not guessed)
    (Run `aud manual refactor` for full schema)

@@ -19,6 +19,8 @@ To track custom refactoring progress (beyond migration analysis), you need a YAM
 ```
 1. INVESTIGATE: Query database for actual patterns
    aud query --pattern "%product%" --path "frontend/src/**"
+   # NOTE: --pattern searches symbol NAMES, NOT code content
+   # For code text search: grep -r "pattern" .
 
 2. WRITE YAML: Create profile based on patterns FOUND (not guessed)
    (Run `aud manual refactor` for full schema)

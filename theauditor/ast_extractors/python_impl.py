@@ -59,6 +59,7 @@ def extract_all_python_data(
         "cdk_constructs": [],
         "cdk_construct_properties": [],
         "sql_queries": [],
+        "jwt_patterns": [],
         "routes": [],
         "python_orm_models": [],
         "python_orm_fields": [],
@@ -445,11 +446,19 @@ def extract_all_python_data(
         pw["finding_type"] = "password"
         result["python_security_findings"].append(pw)
 
-    # jwt_operations → python_security_findings (finding_type='jwt')
+    # jwt_operations → python_security_findings (finding_type='jwt') AND jwt_patterns
     jwt_operations = security_extractors.extract_jwt_operations(context)
     for jwt in jwt_operations:
         jwt["finding_type"] = "jwt"
         result["python_security_findings"].append(jwt)
+        # Also populate jwt_patterns for the dedicated table
+        result["jwt_patterns"].append({
+            "line": jwt.get("line"),
+            "type": jwt.get("type"),
+            "full_match": jwt.get("full_match", ""),
+            "secret_type": jwt.get("secret_type", "unknown"),
+            "algorithm": jwt.get("algorithm"),
+        })
 
     sql_queries = security_extractors.extract_sql_queries(context)
     if sql_queries:

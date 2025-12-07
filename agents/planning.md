@@ -165,8 +165,9 @@ Jobs MUST include exact identifiers:
 - **Audit:** File structure queried
 
 ### T2.3: Query Symbol Patterns (if pattern-based)
-- `aud query --symbol "<pattern>" --show-callers`
-- `aud query --symbol "<pattern>" --format json` (if needed)
+- `aud query --pattern "%<name>%" --format json`
+  (NOTE: --pattern searches symbol NAMES, not code content)
+- `aud query --list-symbols --filter "*<name>*" --path "src/**"`
 - Store relationships
 - **Audit:** Patterns queried
 
