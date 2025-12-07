@@ -376,6 +376,20 @@ def query(
 
     results = None
 
+    # Validate --symbol doesn't contain wildcards (common AI agent mistake)
+    if symbol and any(c in symbol for c in ["%", "*", "?"]):
+        err_console.print("\n" + "=" * 60)
+        err_console.print("[error]ERROR: --symbol expects exact name, not a pattern[/error]")
+        console.rule()
+        err_console.print("[error]You passed a wildcard pattern to --symbol.[/error]")
+        err_console.print("[error]For wildcard search, use one of these instead:[/error]")
+        err_console.print("[error]    aud query --pattern 'auth%'              (SQL LIKE)[/error]")
+        err_console.print(
+            "[error]    aud query --list-symbols --filter '*auth*'  (glob style)\n[/error]"
+        )
+        engine.close()
+        raise click.Abort()
+
     try:
         if list_symbols:
             name_pattern = "%"

@@ -103,9 +103,21 @@ def detect_target_type(target: str, engine: CodeQueryEngine) -> str:
 @click.option(
     "--fce", is_flag=True, help="Include FCE vector signal density (convergence analysis)"
 )
+@click.option(
+    "--issues/--no-issues",
+    default=True,
+    help="Include known issues from findings_consolidated and taint flows (default: on)",
+)
 @handle_exceptions
 def explain(
-    target: str, depth: int, output_format: str, section: str, no_code: bool, limit: int, fce: bool
+    target: str,
+    depth: int,
+    output_format: str,
+    section: str,
+    no_code: bool,
+    limit: int,
+    fce: bool,
+    issues: bool,
 ):
     """Get comprehensive context about a file, symbol, or component.
 
@@ -130,6 +142,8 @@ def explain(
         - DEPENDENTS: Files that import this file
         - OUTGOING CALLS: Functions called from this file
         - INCOMING CALLS: Functions in this file called elsewhere
+        - KNOWN ISSUES: Security findings, code quality issues (from aud full)
+        - TAINT FLOWS: Data flow vulnerabilities involving this file
 
       For symbols:
         - DEFINITION: File, line, type, signature
@@ -263,15 +277,34 @@ def explain(
     try:
         target_type = detect_target_type(target, engine)
 
+        # Validate symbol targets don't contain wildcards (common AI agent mistake)
+        if target_type == "symbol" and any(c in target for c in ["%", "*", "?"]):
+            err_console.print("\n" + "=" * 60)
+            err_console.print("[error]ERROR: Symbol name cannot contain wildcards[/error]")
+            console.rule()
+            err_console.print("[error]You passed a wildcard pattern as a symbol name.[/error]")
+            err_console.print("[error]For pattern search, use:[/error]")
+            err_console.print("[error]    aud query --pattern 'auth%'[/error]")
+            err_console.print("[error]    aud query --list-symbols --filter '*auth*'\n[/error]")
+            engine.close()
+            raise click.Abort()
+
         truncated_sections = []
 
         if target_type == "file":
-            data = engine.get_file_context_bundle(target, limit=limit)
+            data = engine.get_file_context_bundle(target, limit=limit, include_issues=issues)
 
-            for key in ["symbols", "imports", "importers", "outgoing_calls", "incoming_calls"]:
+            for key in [
+                "symbols",
+                "imports",
+                "importers",
+                "outgoing_calls",
+                "incoming_calls",
+                "findings",
+                "taint_flows",
+            ]:
                 if len(data.get(key, [])) > limit:
                     truncated_sections.append(key)
-
                     data[key] = data[key][:limit]
 
             if section != "all":
