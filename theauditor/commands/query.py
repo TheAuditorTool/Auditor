@@ -530,15 +530,78 @@ def query(
                 query = """
                     SELECT name, type, line
                     FROM symbols
-                    WHERE file LIKE ?
-                    ORDER BY line
+                    WHERE path LIKE ?
+                    ORDER BY type, line
                 """
                 cursor.execute(query, (f"%{file}%",))
+                rows = cursor.fetchall()
+
+                # Group by category
+                declarations = []
+                hooks = []
+                api_calls = []
+                data_access = {}
+
+                for name, sym_type, line in rows:
+                    if sym_type in ('function', 'class', 'interface', 'type', 'enum', 'method', 'arrow_function'):
+                        declarations.append((name, sym_type, line))
+                    elif sym_type == 'call':
+                        if 'use' in name.lower() and name[0].islower():
+                            hooks.append((name.split('.')[-1].split('"')[-1], line))
+                        elif 'api.' in name.lower() or 'axios' in name.lower():
+                            api_calls.append((name.split('.')[-1], line))
+                    elif sym_type == 'property':
+                        # Group properties by base name
+                        base = name.split('.')[0] if '.' in name else name
+                        if base not in data_access:
+                            data_access[base] = []
+                        data_access[base].append(line)
+
+                # Build organized output
+                output_lines = [f"\n=== {file} ===\n"]
+
+                if declarations:
+                    output_lines.append("DECLARATIONS:")
+                    for name, sym_type, line in declarations:
+                        output_lines.append(f"  {name:40} {sym_type:12} {line}")
+
+                if hooks:
+                    output_lines.append("\nHOOKS:")
+                    hook_counts = {}
+                    for name, line in hooks:
+                        if name not in hook_counts:
+                            hook_counts[name] = []
+                        hook_counts[name].append(line)
+                    for name, lines in hook_counts.items():
+                        if len(lines) > 1:
+                            output_lines.append(f"  {name:40} x{len(lines):3} {lines[0]}-{lines[-1]}")
+                        else:
+                            output_lines.append(f"  {name:40}      {lines[0]}")
+
+                if api_calls:
+                    output_lines.append("\nAPI CALLS:")
+                    call_counts = {}
+                    for name, line in api_calls:
+                        if name not in call_counts:
+                            call_counts[name] = []
+                        call_counts[name].append(line)
+                    for name, lines in call_counts.items():
+                        output_lines.append(f"  {name:40} {','.join(map(str, lines[:5]))}")
+
+                if data_access:
+                    output_lines.append("\nDATA ACCESS (top 15):")
+                    sorted_access = sorted(data_access.items(), key=lambda x: -len(x[1]))[:15]
+                    for name, lines in sorted_access:
+                        output_lines.append(f"  {name:40} x{len(lines):3} {','.join(map(str, lines[:5]))}")
+
+                conn.close()
+                results = {"type": "list_formatted", "output": "\n".join(output_lines)}
+
             elif list_type in ("functions", "function"):
                 query = """
                     SELECT name, type, line
                     FROM symbols
-                    WHERE file LIKE ? AND type = 'function'
+                    WHERE path LIKE ? AND type = 'function'
                     ORDER BY line
                 """
                 cursor.execute(query, (f"%{file}%",))
@@ -546,7 +609,7 @@ def query(
                 query = """
                     SELECT name, type, line
                     FROM symbols
-                    WHERE file LIKE ? AND type = 'class'
+                    WHERE path LIKE ? AND type = 'class'
                     ORDER BY line
                 """
                 cursor.execute(query, (f"%{file}%",))
@@ -554,7 +617,7 @@ def query(
                 query = """
                     SELECT module_name, style, line
                     FROM imports
-                    WHERE file LIKE ?
+                    WHERE path LIKE ?
                     ORDER BY line
                 """
                 cursor.execute(query, (f"%{file}%",))
@@ -569,25 +632,26 @@ def query(
                 )
                 raise click.Abort()
 
-            rows = cursor.fetchall()
-            conn.close()
+            if list_type != "all":
+                rows = cursor.fetchall()
+                conn.close()
 
-            if list_type in ("imports", "import"):
-                results = {
-                    "type": "list",
-                    "list_mode": list_type,
-                    "file": file,
-                    "count": len(rows),
-                    "items": [{"module": row[0], "style": row[1], "line": row[2]} for row in rows],
-                }
-            else:
-                results = {
-                    "type": "list",
-                    "list_mode": list_type,
-                    "file": file,
-                    "count": len(rows),
-                    "items": [{"name": row[0], "type": row[1], "line": row[2]} for row in rows],
-                }
+                if list_type in ("imports", "import"):
+                    results = {
+                        "type": "list",
+                        "list_mode": list_type,
+                        "file": file,
+                        "count": len(rows),
+                        "items": [{"module": row[0], "style": row[1], "line": row[2]} for row in rows],
+                    }
+                else:
+                    results = {
+                        "type": "list",
+                        "list_mode": list_type,
+                        "file": file,
+                        "count": len(rows),
+                        "items": [{"name": row[0], "type": row[1], "line": row[2]} for row in rows],
+                    }
 
         elif file:
             if show_dependencies:

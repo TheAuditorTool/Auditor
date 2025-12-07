@@ -6,15 +6,18 @@ AI-powered code analysis workflows. Database-first, evidence-backed, zero halluc
 
 ## Agent Routing
 
-| User Intent | Agent | Trigger Keywords |
-|-------------|-------|------------------|
-| Plan changes, design architecture | `planning.md` | plan, architecture, design, organize, structure, approach, implement |
-| Refactor, split, modularize code | `refactor.md` | refactor, split, extract, modularize, merge, consolidate, break apart |
-| Security audit, vulnerability scan | `security.md` | security, vulnerability, XSS, SQL injection, CSRF, taint, sanitize, exploit |
-| Trace data flow, source-to-sink | `dataflow.md` | dataflow, trace, track, flow, source, sink, propagate, input, output |
-| Assess change impact, blast radius | `planning.md` + `aud impact` | impact, blast radius, coupling, dependencies, risk |
+**Start every task with:** `/theauditor:start` - the orchestrator that routes to the right agent.
 
-**Loading agents:** Reference as `@/.theauditor_tools/agents/<agent>.md` or use slash commands `/theauditor:<agent>`.
+| User Intent | Agent | Slash Command |
+|-------------|-------|---------------|
+| Any task (orchestrator) | `start.md` | `/theauditor:start` |
+| Plan changes, design architecture | `planning.md` | `/theauditor:planning` |
+| Refactor, split, modularize code | `refactor.md` | `/theauditor:refactor` |
+| Security audit, vulnerability scan | `security.md` | `/theauditor:security` |
+| Trace data flow, source-to-sink | `dataflow.md` | `/theauditor:dataflow` |
+| Assess change impact, blast radius | `impact.md` | `/theauditor:impact` |
+
+**Loading agents:** Reference as `@/agents/<agent>.md` or use slash commands `/theauditor:<agent>`.
 
 ---
 
@@ -119,16 +122,15 @@ Run `aud manual --list` to see all 44 available topics.
 
 ---
 
-## Anti-Patterns (Waste Time, Get Rejected)
+## Anti-Patterns
 
-| Don't Do This | Do This Instead |
-|---------------|-----------------|
-| "Let me read the file to see..." | `aud query --file X --list functions` |
-| "Based on typical patterns..." | `aud blueprint --structure` for THIS project |
-| "I recommend using joi..." | `aud blueprint` to detect ACTUAL library (might be zod) |
-| "Would you like me to run...?" | Just run it. Autonomous execution is the point. |
-| Making recommendations without evidence | Cite the query: "Blueprint shows schemas/ uses domain split" |
-| Inventing new patterns | Follow detected precedents from blueprint |
+Do NOT:
+- Read files to understand structure
+- Guess frameworks or libraries
+- Guess command flags
+- Ask permission before running commands
+- Make recommendations without query evidence
+- Invent new patterns (follow detected precedents)
 
 ---
 
@@ -171,6 +173,7 @@ Available after `aud setup-ai --target .`:
 
 | Command | Purpose |
 |---------|---------|
+| `/theauditor:start` | **Orchestrator** - analyze request, route to agent, use tools |
 | `/theauditor:planning` | Database-first planning workflow |
 | `/theauditor:refactor` | Code refactoring analysis |
 | `/theauditor:security` | Security analysis and taint tracking |

@@ -454,9 +454,12 @@ def generate_report(analysis_results: list[dict]) -> str:
     report.append(f"  Missing Boundaries:    {missing} ({missing * 100 // total if total else 0}%)")
     report.append(f"\nBoundary Score: {(clear + acceptable) * 100 // total if total else 0}%\n")
 
+    # Show 5 from each category for balanced visibility
+    display_limit = 5
+
     if critical_violations:
         report.append(f"\n[CRITICAL] FINDINGS ({len(critical_violations)}):\n")
-        for i, v in enumerate(critical_violations[:10], 1):
+        for i, v in enumerate(critical_violations[:display_limit], 1):
             report.append(f"{i}. {v['entry']}")
             report.append(f"   File: {v['file']}:{v['line']}")
             report.append(f"   Observation: {v['message']}")
@@ -467,7 +470,7 @@ def generate_report(analysis_results: list[dict]) -> str:
 
     if high_violations:
         report.append(f"\n[HIGH] FINDINGS ({len(high_violations)}):\n")
-        for i, v in enumerate(high_violations[:5], 1):
+        for i, v in enumerate(high_violations[:display_limit], 1):
             report.append(f"{i}. {v['entry']}")
             report.append(f"   File: {v['file']}:{v['line']}")
             report.append(f"   Observation: {v['message']}")
@@ -476,10 +479,21 @@ def generate_report(analysis_results: list[dict]) -> str:
                     report.append(f"   - {fact}")
                 report.append("")
 
+    if medium_violations:
+        report.append(f"\n[MEDIUM] FINDINGS ({len(medium_violations)}):\n")
+        for i, v in enumerate(medium_violations[:display_limit], 1):
+            report.append(f"{i}. {v['entry']}")
+            report.append(f"   File: {v['file']}:{v['line']}")
+            report.append(f"   Observation: {v['message']}")
+            if "facts" in v and v["facts"]:
+                report.append(f"   Facts: {v['facts'][0]}\n")
+            else:
+                report.append("")
+
     if clear > 0:
         report.append(f"\n[CLEAR] BOUNDARIES ({clear}):\n")
         good_examples = [r for r in analysis_results if r["quality"]["quality"] == "clear"]
-        for i, example in enumerate(good_examples[:3], 1):
+        for i, example in enumerate(good_examples[:display_limit], 1):
             report.append(f"{i}. {example['entry_point']}")
             report.append(f"   File: {example['entry_file']}:{example['entry_line']}")
             if example["controls"]:

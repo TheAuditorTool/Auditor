@@ -21,6 +21,9 @@ def _format_text(results: Any) -> str:
     if isinstance(results, dict) and "error" in results:
         return f"ERROR: {results['error']}"
 
+    if isinstance(results, dict) and results.get("type") == "list_formatted":
+        return results.get("output", "")
+
     if isinstance(results, dict) and results.get("type") == "discovery":
         lines = []
         filter_str = results.get("filter", "*")
