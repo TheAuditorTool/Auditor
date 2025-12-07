@@ -182,7 +182,7 @@ Jobs MUST include exact identifiers:
 
 **Jobs:**
 - Check refactor keywords: "split", "refactor", "modularize", "extract"
-- Check line count: `aud query --file <target> --show-functions | grep "Lines:"`
+- Check line count: `aud query --file <target> --list functions` (shows function count and file info)
 - If NOT refactor OR ≤1950 lines: Skip to T2.6
 - If refactor AND >1950: MANDATORY chunked reading:
   - Read(target, offset=0, limit=1500)

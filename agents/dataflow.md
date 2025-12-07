@@ -14,10 +14,14 @@
 
 **For AI Assistants:**
 1. **Define source/sink explicitly:** Ask user if ambiguous, DON'T assume
-2. **Run taint analysis:** `aud taint --source X --sink Y` for actual paths
-3. **Query call graph:** Build complete source → intermediate → sink chain
-4. **Match frameworks:** Use detected validation library (zod if zod)
-5. **NO file reading:** Use `aud taint`, `aud query`, `aud blueprint`
+2. **Run taint analysis:** `aud taint` (uses 140+ built-in source patterns, 200+ sink patterns)
+3. **Filter by severity:** `aud taint --severity high` for critical paths only
+4. **Query call graph:** Build complete source → intermediate → sink chain
+5. **Match frameworks:** Use detected validation library (zod if zod)
+6. **NO file reading:** Use `aud taint`, `aud query`, `aud blueprint`
+
+**NOTE:** `aud taint` does NOT accept `--source` or `--sink` flags. It uses built-in pattern registries.
+To see taint summary from database: `aud blueprint --taint`
 
 **Correct Behavior:**
 - ✅ Agent: *asks "trace from where to where?"* → *runs `aud taint`* → *queries call graph* → *identifies gaps* → *recommends using detected zod*
@@ -111,12 +115,15 @@
 
 **Success Criteria:** Factual paths from database. Exact source → sink chains with file:line.
 
-### T3.1: Construct Command
+### T3.1: Run Taint Analysis
 Based on Phase 1 scope + Phase 2 framework:
-- User input → database: `aud taint --source "request.*" --sink ".*query.*"`
-- User input → HTML: `aud taint --source "request.*" --sink ".*innerHTML.*"`
-- Sensitive data → all: `aud taint --source "password" --sink "*"`
-- **Audit:** Command constructed
+- Full analysis: `aud taint` (finds all source→sink paths)
+- High severity only: `aud taint --severity high`
+- Critical only: `aud taint --severity critical`
+- Verbose paths: `aud taint --verbose` (shows full taint chains)
+- **Audit:** Taint analysis executed
+
+**Note:** Taint uses built-in registries (140+ sources, 200+ sinks). Filter results by reviewing output, not CLI flags.
 
 ### T3.2: Execute Taint Analysis
 - Execute constructed command
@@ -339,8 +346,8 @@ Phase 2: Framework Context
   blueprint → Express.js, Sequelize ORM
 
 Phase 3: Taint Analysis
-  aud taint --source "request.*" --sink ".*query.*"
-  → 12 paths found
+  aud taint --severity high --verbose
+  → 12 paths found (filtered from full analysis)
   Categorized: 3 HIGH (string interpolation), 9 LOW (Sequelize parameterization)
 
 Phase 4: Call Graph

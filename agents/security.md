@@ -71,11 +71,14 @@
 
 **Success Criteria:** Baseline established from DB. Taint and boundary summaries retrieved. No re-running slow analysis.
 
-### T2.1: Query Security Rules
-- `aud context --security-rules` (if available)
+### T2.1: Query Security Findings
+- `aud blueprint --security` (reads security surface from DB)
+- `aud detect-patterns` (if not already run by `aud full`)
 - Count by type: XSS, SQL injection, CSRF
 - Identify top 5 files with most findings
-- **Audit:** Security rules queried
+- **Audit:** Security findings queried
+
+**Note:** `aud context` requires a YAML file for classification - it doesn't have a `--security-rules` flag.
 
 ### T2.2: Query Taint Summary
 - `aud blueprint --taint` (reads from DB, does NOT re-run analysis)

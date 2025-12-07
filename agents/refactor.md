@@ -207,7 +207,7 @@ Only read files directly if `aud explain` output is insufficient.
 **When Required:** File >1950 lines (check Task 3.1 line count)
 
 **Jobs:**
-- Check line count: `aud query --file <target> --show-functions | grep "Lines:"`
+- Check line count: `aud query --file <target> --list functions` (shows function count and file info)
 - If ≤1950: Read normally
 - If >1950: MANDATORY chunked reading:
   - Read(target, offset=0, limit=1500)

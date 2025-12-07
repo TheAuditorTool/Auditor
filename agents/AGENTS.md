@@ -43,7 +43,9 @@ Some commands require you to write a custom YAML file before use:
 
 ```
 1. INVESTIGATE: Query database to discover actual patterns
-   aud query --pattern "%product%" --path "frontend/src/**"
+   aud query --list-symbols --filter "*product*" --path "frontend/src/**"
+   # OR for SQL LIKE search (no path filter):
+   aud query --pattern "%product%"
 
 2. WRITE YAML: Create profile based on patterns FOUND (not guessed)
    (Run `aud manual refactor` for full schema)
