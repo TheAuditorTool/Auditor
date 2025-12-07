@@ -1046,7 +1046,7 @@ async def run_full_pipeline(
                         graph_db_path = Path(root) / ".pf" / "graphs.db"
                         result = trace_taint(
                             db_path=str(db_path),
-                            max_depth=10,
+                            max_depth=25,
                             registry=registry,
                             use_memory_cache=True,
                             memory_limit_mb=memory_limit,

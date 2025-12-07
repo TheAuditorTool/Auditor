@@ -40,7 +40,7 @@ class IFDSTaintAnalyzer:
 
         self.max_depth = int(os.environ.get("AUD_IFDS_DEPTH", 100))
         self.max_paths_per_sink = int(os.environ.get("AUD_IFDS_MAX_PATHS", 1000))
-        self.time_budget_seconds = int(os.environ.get("AUD_IFDS_BUDGET", 60))
+        self.time_budget_seconds = int(os.environ.get("AUD_IFDS_BUDGET", 120))
 
         self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
 

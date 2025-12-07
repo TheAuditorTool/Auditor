@@ -9,16 +9,17 @@ from functools import lru_cache
 
 from theauditor.utils.logging import logger
 
-INFRASTRUCTURE_MAX_VISITS = 5
-USERCODE_MAX_VISITS = 20
-SUPERNODE_EDGE_THRESHOLD = 500
-PER_ENTRY_TIME_BUDGET = 120
+INFRASTRUCTURE_MAX_VISITS = 10
+USERCODE_MAX_VISITS = 50
+SUPERNODE_EDGE_THRESHOLD = 1000
+PER_ENTRY_TIME_BUDGET = 30
+_warned_supernodes: set[str] = set()
 
 
 class FlowResolver:
     """Resolves ALL control flows in codebase to populate resolved_flow_audit table."""
 
-    SUCCESSORS_CACHE_SIZE = 10_000
+    SUCCESSORS_CACHE_SIZE = 50_000
     EDGE_TYPE_CACHE_SIZE = 20_000
 
     def __init__(self, repo_db: str, graph_db: str, registry=None):
@@ -32,10 +33,10 @@ class FlowResolver:
         self.graph_conn = sqlite3.connect(graph_db)
         self.flows_resolved = 0
 
-        self.max_depth = int(os.environ.get("AUD_MAX_DEPTH", 100))
+        self.max_depth = int(os.environ.get("AUD_MAX_DEPTH", 200))
         self.max_flows = 10_000_000
         self.max_flows_per_entry = int(os.environ.get("AUD_MAX_FLOWS_ENTRY", 10_000))
-        self.time_budget_seconds = int(os.environ.get("AUD_TIME_BUDGET", 600))
+        self.time_budget_seconds = int(os.environ.get("AUD_TIME_BUDGET", 300))
         self.per_entry_budget = int(os.environ.get("AUD_ENTRY_BUDGET", PER_ENTRY_TIME_BUDGET))
         self.start_time = 0
         self.debug = bool(os.environ.get("THEAUDITOR_DEBUG"))
@@ -530,10 +531,12 @@ class FlowResolver:
         if remaining > 0:
             final_list.extend(low_value[:remaining])
 
-        logger.warning(
-            f"Super node capped: {node_id} ({len(raw_successors)} edges -> {len(final_list)}, "
-            f"{len(high_value)} high-value, {len(low_value)} noise)"
-        )
+        if node_id not in _warned_supernodes:
+            _warned_supernodes.add(node_id)
+            logger.warning(
+                f"Super node capped: {node_id} ({len(raw_successors)} edges -> {len(final_list)}, "
+                f"{len(high_value)} high-value, {len(low_value)} noise)"
+            )
         return final_list
 
     @lru_cache(maxsize=10_000)  # noqa: B019 - singleton, lives entire session

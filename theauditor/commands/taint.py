@@ -19,7 +19,7 @@ IS_WINDOWS = platform.system() == "Windows"
     "--output", default="./.pf/raw/taint_analysis.json", help="Output path for analysis results"
 )
 @click.option(
-    "--max-depth", default=5, type=int, help="Maximum depth for taint propagation tracing"
+    "--max-depth", default=25, type=int, help="Maximum depth for taint propagation tracing"
 )
 @click.option("--json", is_flag=True, help="Output raw JSON instead of formatted report")
 @click.option("--verbose", is_flag=True, help="Show detailed path information")

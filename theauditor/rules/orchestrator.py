@@ -461,7 +461,7 @@ class RulesOrchestrator:
             from theauditor.taint import TaintRegistry, trace_taint
 
             registry = TaintRegistry()
-            self._taint_results = trace_taint(str(self.db_path), max_depth=5, registry=registry)
+            self._taint_results = trace_taint(str(self.db_path), max_depth=25, registry=registry)
 
         def is_tainted(var_name: str, line: int) -> bool:
             """Check if variable is in any taint path."""
@@ -511,7 +511,7 @@ class RulesOrchestrator:
 
             if not hasattr(self, "_taint_results"):
                 registry = TaintRegistry()
-                self._taint_results = trace_taint(str(self.db_path), max_depth=5, registry=registry)
+                self._taint_results = trace_taint(str(self.db_path), max_depth=25, registry=registry)
 
             def get_taint_for_location(
                 source_var: str,
