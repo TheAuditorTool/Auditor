@@ -5,7 +5,7 @@ from .utils import Column, TableSchema
 GRAPH_NODES = TableSchema(
     name="nodes",
     columns=[
-        Column("id", "TEXT", primary_key=True),
+        Column("id", "TEXT", nullable=False),  # Node identifier (file path, function name, etc.)
         Column("file", "TEXT", nullable=False),
         Column("lang", "TEXT"),
         Column("loc", "INTEGER", default="0"),
@@ -21,9 +21,11 @@ GRAPH_NODES = TableSchema(
         Column("metadata", "TEXT"),
         Column("created_at", "TIMESTAMP", default="CURRENT_TIMESTAMP"),
     ],
+    primary_key=["id", "graph_type"],  # Composite PK: same ID can exist in different graph types
     indexes=[
         ("idx_nodes_file", ["file"]),
         ("idx_nodes_type", ["type"]),
+        ("idx_nodes_graph_type", ["graph_type"]),
     ],
 )
 

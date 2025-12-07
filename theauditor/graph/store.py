@@ -23,9 +23,30 @@ class XGraphStore:
         self._init_schema()
 
     def _init_schema(self) -> None:
-        """Initialize database schema using TableSchema definitions."""
+        """Initialize database schema using TableSchema definitions.
+
+        Handles schema migration: if nodes table has old single-column PK,
+        it gets dropped and recreated with composite PK (id, graph_type).
+        """
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
+
+            # Check if nodes table exists with old schema (single-column PK)
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='nodes'")
+            if cursor.fetchone():
+                # Check primary key structure
+                cursor.execute("PRAGMA table_info(nodes)")
+                columns = cursor.fetchall()
+                pk_columns = [col[1] for col in columns if col[5] > 0]  # col[5] is pk flag
+
+                # Old schema has only 'id' as PK, new schema has 'id' + 'graph_type'
+                if pk_columns == ['id']:
+                    logger.warning(
+                        "[GraphStore] Detected old schema with single-column PK. "
+                        "Migrating to composite PK (id, graph_type). Dropping nodes table."
+                    )
+                    cursor.execute("DROP TABLE nodes")
+                    conn.commit()
 
             for _table_name, schema in GRAPH_TABLES.items():
                 cursor.execute(schema.create_table_sql())
@@ -229,6 +250,25 @@ class XGraphStore:
                 )
 
             conn.commit()
+
+            # POST-COMMIT VERIFICATION: Ensure nodes actually persisted
+            cursor.execute(
+                "SELECT COUNT(*) FROM nodes WHERE graph_type = ?", (graph_type,)
+            )
+            actual_node_count = cursor.fetchone()[0]
+            if actual_node_count != len(nodes_data):
+                raise GraphFidelityError(
+                    f"POST-COMMIT DATA LOSS in {graph_type}: "
+                    f"Prepared {len(nodes_data)} nodes, DB has {actual_node_count}. "
+                    f"Lost {len(nodes_data) - actual_node_count} nodes. "
+                    "Check for ID collisions across graph types.",
+                    details={
+                        "expected": len(nodes_data),
+                        "actual": actual_node_count,
+                        "graph_type": graph_type,
+                    },
+                )
+
             logger.info(
                 f"[GraphStore] Saved {graph_type}: {len(nodes_data)} nodes, {len(edges_data)} edges"
             )
