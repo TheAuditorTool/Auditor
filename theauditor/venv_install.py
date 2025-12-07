@@ -449,20 +449,37 @@ def download_portable_node(sandbox_dir: Path) -> Path:
     logger.info(f"    URL: {node_url}")
 
     try:
+        from rich.progress import (
+            BarColumn,
+            DownloadColumn,
+            Progress,
+            TextColumn,
+            TransferSpeedColumn,
+        )
+
         download_path = sandbox_dir / "node_download"
 
-        def download_hook(block_num, block_size, total_size):
-            """Progress indicator for download."""
-            if total_size > 0:
-                downloaded = block_num * block_size
-                percent = min(100, (downloaded / total_size) * 100)
-                bar_length = 40
-                filled = int(bar_length * percent / 100)
-                bar = "=" * filled + "-" * (bar_length - filled)
-                console.print(f"\r    Progress: \\[{bar}] {percent:.1f}%", end="", highlight=False)
+        with urllib.request.urlopen(node_url) as response:
+            total_size = int(response.headers.get("Content-Length", 0))
 
-        urllib.request.urlretrieve(node_url, str(download_path), reporthook=download_hook)
-        console.print()
+            with Progress(
+                TextColumn("    "),
+                BarColumn(bar_width=40),
+                DownloadColumn(),
+                TransferSpeedColumn(),
+                console=console,
+                transient=False,
+            ) as progress:
+                task = progress.add_task("Downloading", total=total_size)
+
+                with open(download_path, "wb") as f:
+                    chunk_size = 8192
+                    while True:
+                        chunk = response.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        progress.update(task, advance=len(chunk))
 
         logger.info("    Verifying SHA-256 checksum...")
         sha256_hash = hashlib.sha256()
