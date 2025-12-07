@@ -85,7 +85,7 @@ class PlanningManager:
         except sqlite3.OperationalError as e:
             raise RuntimeError(
                 "Planning DB schema mismatch! Column 'shadow_sha' missing in code_snapshots. "
-                "Delete .pf/planning.db and run 'aud planning init' to recreate."
+                "Delete .pf/planning/planning.db and run 'aud planning init' to recreate."
             ) from e
 
     def create_plan(self, name: str, description: str = "", metadata: dict = None) -> int:

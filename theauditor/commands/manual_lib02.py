@@ -907,7 +907,7 @@ PREREQUISITES:
 - YAML spec file for verification-based tasks
 
 DATABASE STRUCTURE:
-  .pf/planning.db (separate from repo_index.db)
+  .pf/planning/planning.db (separate from repo_index.db, persists across aud full)
   - plans              # Top-level plan metadata
   - plan_phases        # Grouped phases for hierarchical planning
   - plan_tasks         # Individual tasks (auto-numbered 1,2,3...)
@@ -955,7 +955,7 @@ COMMON WORKFLOWS:
     6. aud planning rewind 1 1 --to 2  # Rollback if needed
 
 SUBCOMMANDS:
-  init         Create new plan (auto-creates planning.db)
+  init         Create new plan (auto-creates .pf/planning/planning.db)
   show         Display plan status and task list
   list         List all plans in the database
   add-phase    Add a phase (hierarchical planning)

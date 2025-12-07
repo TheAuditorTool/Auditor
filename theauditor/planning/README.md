@@ -26,7 +26,7 @@ aud planning archive 1 --notes "Migration deployed to production"
 
 ### Database-Centric State
 
-All planning data is stored in `.pf/planning.db`, separate from `repo_index.db`. This separation ensures:
+All planning data is stored in `.pf/planning/planning.db`, separate from `repo_index.db`. This separation ensures:
 - Planning state persists across `aud full` runs (which regenerate repo_index.db)
 - Different query patterns optimized for each database
 - Clear separation between code metadata and planning metadata
@@ -264,7 +264,7 @@ Create a new implementation plan.
 aud planning init --name "Plan Name" [--description "Description"]
 ```
 
-Auto-creates `.pf/planning.db` if it doesn't exist.
+Auto-creates `.pf/planning/planning.db` if it doesn't exist.
 
 ### show
 

@@ -9,7 +9,7 @@ import click
 from theauditor.cli import RichCommand
 from theauditor.utils.logging import logger
 
-CACHE_DIRS = frozenset({".cache", "context", "ml"})
+CACHE_DIRS = frozenset({".cache", "context", "ml", "planning"})
 
 
 @click.command(name="_archive", cls=RichCommand)

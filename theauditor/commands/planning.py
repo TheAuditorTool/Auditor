@@ -51,7 +51,7 @@ def planning():
 
     AI ASSISTANT CONTEXT:
       Purpose: Database-centric task tracking with spec-based verification
-      Input: .pf/planning.db (plan/task/job hierarchy), .pf/repo_index.db (verification)
+      Input: .pf/planning/planning.db (plan/task/job hierarchy), .pf/repo_index.db (verification)
       Output: Plan status, verification results, git snapshots for rollback
       Prerequisites: aud full (for verify-task to query indexed code)
       Integration: Works with aud refactor profiles, session logging, git snapshots
@@ -102,7 +102,7 @@ def planning():
         5. aud planning rewind 1  # Show rollback if needed
 
     DATABASE STRUCTURE:
-      .pf/planning.db (separate from repo_index.db)
+      .pf/planning/planning.db (separate from repo_index.db, persists across aud full)
       - plans              # Top-level plan metadata
       - plan_tasks         # Individual tasks (auto-numbered 1,2,3...)
       - plan_specs         # YAML verification specs (RefactorProfile format)
@@ -174,7 +174,7 @@ def init(name, description):
         aud planning init --name "Auth Migration" --description "Migrate to OAuth2"
     """
 
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -212,7 +212,7 @@ def show(plan_id, tasks, verbose, format):
         aud planning show 1 --format flat             # Flat task list
         aud planning show 1 --no-tasks                # Basic info only
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     manager = PlanningManager(db_path)
 
     plan = manager.get_plan(plan_id)
@@ -381,10 +381,10 @@ def list_plans(status, format):
         aud planning list --status active
         aud planning list --format json
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
 
     if not db_path.exists():
-        console.print("No planning database found (.pf/planning.db)")
+        console.print("No planning database found (.pf/planning/planning.db)")
         console.print("Run 'aud planning init --name \"Plan Name\"' to create your first plan")
         return
 
@@ -438,7 +438,7 @@ def add_phase(plan_id, phase_number, title, description, success_criteria):
         aud planning add-phase 1 --phase-number 1 --title "Load Context" \\
             --success-criteria "Blueprint analysis complete. Precedents extracted from database."
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     manager = PlanningManager(db_path)
 
     from datetime import UTC
@@ -476,7 +476,7 @@ def add_task(plan_id, title, description, spec, assigned_to, phase):
         aud planning add-task 1 --title "Migrate auth" --spec auth_spec.yaml
         aud planning add-task 1 --title "Query patterns" --phase 2
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     manager = PlanningManager(db_path)
 
     spec_yaml = None
@@ -536,7 +536,7 @@ def add_job(plan_id, task_number, description, is_audit):
         aud planning add-job 1 1 --description "Execute aud blueprint --structure"
         aud planning add-job 1 1 --description "Verify blueprint ran successfully" --is-audit
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     manager = PlanningManager(db_path)
 
     task_id = manager.get_task_id(plan_id, task_number)
@@ -587,7 +587,7 @@ def update_task(plan_id, task_number, status, assigned_to):
         aud planning update-task 1 1 --status completed
         aud planning update-task 1 2 --assigned-to "Alice"
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     manager = PlanningManager(db_path)
 
     task_id = manager.get_task_id(plan_id, task_number)
@@ -629,7 +629,7 @@ def verify_task(plan_id, task_number, verbose, auto_update, emit_reads):
         aud planning verify-task 1 1 --auto-update
         aud planning verify-task 1 1 --emit-reads  # JSON for AI batch-reading
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     repo_index_db = Path.cwd() / ".pf" / "repo_index.db"
 
     if not repo_index_db.exists():
@@ -815,7 +815,7 @@ def archive(plan_id, notes):
     Example:
         aud planning archive 1 --notes "Migration completed successfully"
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     manager = PlanningManager(db_path)
 
     plan = manager.get_plan(plan_id)
@@ -889,7 +889,7 @@ def rewind(plan_id, task_number, checkpoint, to_sequence):
         aud planning rewind 1 1 --to 2           # Task-level: rewind to edit_2
         aud planning rewind 1 1                  # List all task checkpoints
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     manager = PlanningManager(db_path)
 
     plan = manager.get_plan(plan_id)
@@ -1062,7 +1062,7 @@ def checkpoint(plan_id, task_number, name):
         # View all checkpoints
         aud planning show-diff 1 1
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     manager = PlanningManager(db_path)
 
     task_id = manager.get_task_id(plan_id, task_number)
@@ -1116,7 +1116,7 @@ def show_diff(plan_id, task_number, sequence, file):
         aud planning show-diff 1 1 --sequence 2 # Show edit_2 diff
         aud planning show-diff 1 1 --file auth.py  # Show diffs for auth.py only
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     manager = PlanningManager(db_path)
 
     task_id = manager.get_task_id(plan_id, task_number)
@@ -1231,7 +1231,7 @@ def validate_plan(plan_id, session_id, format):
         aud planning validate 1 --session-id abc123  # Validate specific session
         aud planning validate 1 --format json     # JSON output
     """
-    db_path = Path.cwd() / ".pf" / "planning.db"
+    db_path = Path.cwd() / ".pf" / "planning" / "planning.db"
     session_db_path = Path.cwd() / ".pf" / "ml" / "session_history.db"
 
     if not session_db_path.exists():
