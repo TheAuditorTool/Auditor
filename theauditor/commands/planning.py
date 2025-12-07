@@ -612,8 +612,13 @@ def update_task(plan_id, task_number, status, assigned_to):
 @click.argument("task_number", type=int)
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed violations")
 @click.option("--auto-update", is_flag=True, help="Auto-update task status based on result")
+@click.option(
+    "--emit-reads",
+    is_flag=True,
+    help="Output JSON with file:line ranges for AI-assisted fixing",
+)
 @handle_exceptions
-def verify_task(plan_id, task_number, verbose, auto_update):
+def verify_task(plan_id, task_number, verbose, auto_update, emit_reads):
     """Verify task completion against its spec.
 
     Runs verification spec against current codebase and reports violations.
@@ -622,6 +627,7 @@ def verify_task(plan_id, task_number, verbose, auto_update):
     Example:
         aud planning verify-task 1 1 --verbose
         aud planning verify-task 1 1 --auto-update
+        aud planning verify-task 1 1 --emit-reads  # JSON for AI batch-reading
     """
     db_path = Path.cwd() / ".pf" / "planning.db"
     repo_index_db = Path.cwd() / ".pf" / "repo_index.db"
@@ -696,6 +702,65 @@ def verify_task(plan_id, task_number, verbose, auto_update):
                         console.print(
                             f"    ... and {len(rule_result.violations) - 5} more", highlight=False
                         )
+
+        if emit_reads and total_violations > 0:
+            # Build structured output for AI-assisted fixing
+            import json as json_lib
+            from collections import defaultdict
+
+            # Group violations by file
+            file_violations = defaultdict(list)
+            for rule_result in result.rule_results:
+                for v in rule_result.violations:
+                    file_path = v.get("file", "unknown")
+                    line = v.get("line")
+                    if line:
+                        file_violations[file_path].append({
+                            "line": line,
+                            "rule": rule_result.rule.id,
+                            "message": v.get("message", rule_result.rule.id),
+                        })
+
+            # Build read ranges (group nearby lines, add context)
+            context_lines = 5
+            reads = []
+            for file_path, violations in sorted(file_violations.items()):
+                # Sort by line and merge overlapping ranges
+                lines = sorted(set(v["line"] for v in violations))
+                ranges = []
+                for line in lines:
+                    start = max(1, line - context_lines)
+                    end = line + context_lines
+                    # Merge with previous range if overlapping
+                    if ranges and start <= ranges[-1]["end"] + 1:
+                        ranges[-1]["end"] = max(ranges[-1]["end"], end)
+                        ranges[-1]["violations"].extend(
+                            [v for v in violations if v["line"] == line]
+                        )
+                    else:
+                        ranges.append({
+                            "start": start,
+                            "end": end,
+                            "violations": [v for v in violations if v["line"] == line],
+                        })
+
+                for r in ranges:
+                    reads.append({
+                        "file": file_path,
+                        "start_line": r["start"],
+                        "end_line": r["end"],
+                        "violations": r["violations"],
+                    })
+
+            output = {
+                "task": {"plan_id": plan_id, "task_number": task_number},
+                "total_violations": total_violations,
+                "reads": reads,
+                "next_step": f"Read the files above, fix violations, then run: aud planning verify-task {plan_id} {task_number}",
+            }
+            console.print("\n--- EMIT-READS JSON ---", highlight=False)
+            console.print(json_lib.dumps(output, indent=2), markup=False)
+            console.print("--- END JSON ---\n", highlight=False)
 
         cursor = manager.conn.cursor()
         audit_status = "pass" if total_violations == 0 else "fail"

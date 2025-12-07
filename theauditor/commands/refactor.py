@@ -79,6 +79,10 @@ RENAME_COLUMN = re.compile(
     is_flag=True,
     help="Validate YAML profile syntax without running analysis (use with --file)",
 )
+@click.option(
+    "--test-pattern",
+    help="Test a single pattern against files (regex or identifier). Use with --in-file.",
+)
 def refactor(
     migration_dir: str,
     migration_limit: int,
@@ -87,6 +91,7 @@ def refactor(
     in_file_filter: str | None,
     query_last: bool,
     validate_only: bool,
+    test_pattern: str | None,
 ) -> None:
     """Detect incomplete refactorings and breaking changes from database schema migrations.
 
@@ -417,6 +422,180 @@ def refactor(
             console.print("    - Missing required fields (id, match)", highlight=False)
             console.print("    - Invalid YAML syntax (indentation)", highlight=False)
             raise click.Abort() from exc
+
+        console.print("\n" + "=" * 70 + "\n", markup=False)
+        return
+
+    # Handle --test-pattern: test a single pattern before writing full YAML
+    if test_pattern:
+        if not db_path.exists():
+            err_console.print(
+                "[error]Error: No index found. Run 'aud full' first.[/error]",
+            )
+            raise click.Abort()
+
+        console.print("\n" + "=" * 70, markup=False)
+        console.print("PATTERN TEST MODE")
+        console.rule()
+        console.print(f"  Pattern: {test_pattern}", highlight=False)
+        if in_file_filter:
+            console.print(f"  File filter: {in_file_filter}", highlight=False)
+
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+
+        # Detect pattern type: regex (starts with /) or identifier (plain text)
+        is_regex = test_pattern.startswith("/") and test_pattern.endswith("/")
+        if is_regex:
+            pattern_str = test_pattern[1:-1]  # Strip slashes
+            console.print(f"  Type: regex", highlight=False)
+        else:
+            pattern_str = test_pattern
+            console.print(f"  Type: identifier (literal match)", highlight=False)
+
+        console.print()
+
+        # Build query based on pattern type
+        matches = []
+
+        if is_regex:
+            # Search in symbols table using LIKE (approximate) then filter with regex
+            # Also search in assignments for property access patterns
+            like_pattern = "%" + pattern_str.replace("\\.", ".").replace(".*", "%") + "%"
+
+            # Search symbols
+            query = "SELECT path, line, name, type FROM symbols WHERE name LIKE ?"
+            if in_file_filter:
+                query += " AND path LIKE ?"
+                cursor.execute(query, (like_pattern, f"%{in_file_filter}%"))
+            else:
+                cursor.execute(query, (like_pattern,))
+
+            compiled_re = re.compile(pattern_str)
+            for row in cursor.fetchall():
+                if compiled_re.search(row["name"]):
+                    matches.append({
+                        "file": row["path"],
+                        "line": row["line"],
+                        "match": row["name"],
+                        "type": row["type"],
+                        "source": "symbols",
+                    })
+
+            # Also search assignments for things like "item.product.id"
+            query = "SELECT file, line, target_var, source_expr FROM assignments WHERE target_var LIKE ? OR source_expr LIKE ?"
+            if in_file_filter:
+                query += " AND file LIKE ?"
+                cursor.execute(query, (like_pattern, like_pattern, f"%{in_file_filter}%"))
+            else:
+                cursor.execute(query, (like_pattern, like_pattern))
+
+            for row in cursor.fetchall():
+                target = row["target_var"] or ""
+                value = row["source_expr"] or ""
+                matched_text = None
+                if compiled_re.search(target):
+                    matched_text = target
+                elif compiled_re.search(value):
+                    matched_text = value
+                if matched_text:
+                    matches.append({
+                        "file": row["file"],
+                        "line": row["line"],
+                        "match": matched_text[:60] + ("..." if len(matched_text) > 60 else ""),
+                        "type": "assignment",
+                        "source": "assignments",
+                    })
+
+        else:
+            # Literal identifier match
+            query = "SELECT path, line, name, type FROM symbols WHERE name = ?"
+            if in_file_filter:
+                query += " AND path LIKE ?"
+                cursor.execute(query, (pattern_str, f"%{in_file_filter}%"))
+            else:
+                cursor.execute(query, (pattern_str,))
+
+            for row in cursor.fetchall():
+                matches.append({
+                    "file": row["path"],
+                    "line": row["line"],
+                    "match": row["name"],
+                    "type": row["type"],
+                    "source": "symbols",
+                })
+
+            # Also check assignments
+            query = "SELECT file, line, target_var FROM assignments WHERE target_var = ?"
+            if in_file_filter:
+                query += " AND file LIKE ?"
+                cursor.execute(query, (pattern_str, f"%{in_file_filter}%"))
+            else:
+                cursor.execute(query, (pattern_str,))
+
+            for row in cursor.fetchall():
+                matches.append({
+                    "file": row["file"],
+                    "line": row["line"],
+                    "match": row["target_var"],
+                    "type": "assignment",
+                    "source": "assignments",
+                })
+
+        conn.close()
+
+        # Dedupe and sort
+        seen = set()
+        unique_matches = []
+        for m in matches:
+            key = (m["file"], m["line"], m["match"])
+            if key not in seen:
+                seen.add(key)
+                unique_matches.append(m)
+
+        unique_matches.sort(key=lambda x: (x["file"], x["line"]))
+
+        # Output results
+        if unique_matches:
+            console.print(f"MATCHES FOUND: {len(unique_matches)}\n", highlight=False)
+
+            # Group by file
+            from collections import defaultdict
+            by_file = defaultdict(list)
+            for m in unique_matches:
+                by_file[m["file"]].append(m)
+
+            for file_path, file_matches in sorted(by_file.items()):
+                console.print(f"  {file_path}:", highlight=False)
+                for m in file_matches[:10]:
+                    console.print(
+                        f"    Line {m['line']:4d}: {m['match']} ({m['type']})",
+                        highlight=False,
+                    )
+                if len(file_matches) > 10:
+                    console.print(
+                        f"    ... and {len(file_matches) - 10} more in this file",
+                        highlight=False,
+                    )
+                console.print()
+
+            # Emit JSON for AI consumption
+            console.print("--- TEST-PATTERN JSON ---", highlight=False)
+            output = {
+                "pattern": test_pattern,
+                "is_regex": is_regex,
+                "total_matches": len(unique_matches),
+                "matches": unique_matches[:50],  # Limit to 50 for readability
+            }
+            console.print(json.dumps(output, indent=2), markup=False)
+            console.print("--- END JSON ---", highlight=False)
+        else:
+            console.print("NO MATCHES FOUND", highlight=False)
+            console.print("\nTips:", highlight=False)
+            console.print("  - For regex patterns, use /pattern/ syntax", highlight=False)
+            console.print("  - Try a broader pattern (e.g., /product/ instead of /product_id/)", highlight=False)
+            console.print("  - Check if the file filter is correct", highlight=False)
 
         console.print("\n" + "=" * 70 + "\n", markup=False)
         return
