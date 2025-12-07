@@ -9,9 +9,10 @@ from rich.text import Text
 from theauditor.cli import RichCommand
 from theauditor.commands.manual_lib01 import EXPLANATIONS_01
 from theauditor.commands.manual_lib02 import EXPLANATIONS_02
+from theauditor.commands.manual_lib03 import EXPLANATIONS_03
 from theauditor.pipeline.ui import console
 
-EXPLANATIONS: dict[str, dict[str, str]] = {**EXPLANATIONS_01, **EXPLANATIONS_02}
+EXPLANATIONS: dict[str, dict[str, str]] = {**EXPLANATIONS_01, **EXPLANATIONS_02, **EXPLANATIONS_03}
 
 
 def _render_rich_explanation(info: dict) -> None:

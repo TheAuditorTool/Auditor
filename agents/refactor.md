@@ -8,6 +8,19 @@
 
 ---
 
+## YAML Configuration for Tracking Refactors
+
+To track custom refactoring progress (beyond migration analysis), you need a YAML profile:
+
+1. **Get the schema:** Run `aud manual refactor` for full YAML schema and examples
+2. **Write your profile:** Define old identifiers to find, new identifiers to expect, scope rules
+3. **Run analysis:** `aud refactor --file profile.yaml --migration-limit 0`
+
+For semantic context classification (obsolete/current/transitional):
+- Run `aud manual context` for the semantic rules YAML schema
+
+---
+
 ## ⚠️ MANDATORY TOOL USAGE - NON-NEGOTIABLE ⚠️
 
 **CRITICAL:** Run TheAuditor commands autonomously. NO file reading until Phase 3 Task 3.4. ALL structure from database first.

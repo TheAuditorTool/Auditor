@@ -91,6 +91,14 @@ def refactor(
       Integration: Pre-deployment validation, refactoring safety checks
       Performance: ~2-5 seconds (migration parsing + database queries)
 
+    YAML CONFIGURATION (for --file mode):
+      To use custom refactor profiles, you MUST write a YAML file defining:
+      - Legacy identifiers/patterns to find (old schema references)
+      - Expected new identifiers (new schema references)
+      - Scope rules (which files to check)
+
+      For full YAML schema and templates: aud manual refactor
+
     WHAT IT DETECTS:
       Schema Changes:
         - Dropped tables (DROP TABLE users)

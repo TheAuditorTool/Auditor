@@ -11,7 +11,23 @@ from theauditor.pipeline.ui import console, err_console
 IS_WINDOWS = platform.system() == "Windows"
 
 
+FILE_EXTENSIONS = {
+    ".ts", ".tsx", ".js", ".jsx", ".py", ".rs", ".go", ".java", ".vue", ".rb", ".php",
+}
+
+
+def _detect_target_type(target: str) -> str:
+    """Detect whether target is a file path or symbol name."""
+    for ext in FILE_EXTENSIONS:
+        if target.endswith(ext):
+            return "file"
+    if "/" in target or "\\" in target:
+        return "file"
+    return "symbol"
+
+
 @click.command(cls=RichCommand)
+@click.argument("target", required=False)
 @click.option("--file", default=None, help="Path to the file containing the code to analyze")
 @click.option("--line", default=None, type=int, help="Line number of the code to analyze")
 @click.option(
@@ -32,7 +48,9 @@ IS_WINDOWS = platform.system() == "Windows"
     is_flag=True,
     help="Trace frontend API calls to backend endpoints (cross-stack analysis)",
 )
-def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, trace_to_backend):
+def impact(
+    target, file, line, symbol, db, json, planning_context, max_depth, verbose, trace_to_backend
+):
     """Analyze the blast radius of code changes.
 
     Maps the complete impact of changing a specific function or class by
@@ -163,13 +181,22 @@ def impact(file, line, symbol, db, json, planning_context, max_depth, verbose, t
         )
         raise click.ClickException(f"Database not found: {db}")
 
+    # Handle positional TARGET argument (auto-detect file vs symbol)
+    if target and not file and not symbol:
+        target_type = _detect_target_type(target)
+        if target_type == "file":
+            file = target
+        else:
+            symbol = target
+
     if symbol is None and file is None:
         raise click.ClickException(
-            "Must provide either --symbol or --file.\n"
+            "Must provide a target.\n"
             "Examples:\n"
-            "  aud impact --symbol AuthManager\n"
-            "  aud impact --file auth.py --line 42\n"
-            "  aud impact --file auth.py  (analyzes all symbols in file)"
+            "  aud impact src/auth.py              (positional, auto-detected as file)\n"
+            "  aud impact AuthManager              (positional, auto-detected as symbol)\n"
+            "  aud impact --symbol AuthManager     (explicit symbol)\n"
+            "  aud impact --file auth.py --line 42 (explicit file + line)"
         )
 
     if symbol:

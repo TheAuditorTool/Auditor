@@ -44,6 +44,14 @@ def context(context_file: str, output: str | None, verbose: bool):
       Integration: Refactoring workflows, technical debt tracking, migration planning
       Performance: ~1-3 seconds (YAML parsing + finding classification)
 
+    YAML CONFIGURATION REQUIRED:
+      You MUST write a semantic context YAML file defining:
+      - Obsolete patterns (deprecated code to flag for removal)
+      - Current patterns (correct patterns to keep high-priority)
+      - Transitional patterns (temporary dual-stack code with expiry date)
+
+      For full YAML schema and templates: aud manual context
+
     WHAT IT CLASSIFIES:
       Finding States:
         - obsolete: Code using deprecated patterns (must fix)

@@ -76,6 +76,16 @@ class ExplainFormatter:
             )
         )
 
+        # Add findings section (from findings_consolidated)
+        findings = data.get("findings", [])
+        if findings:
+            lines.append(self._format_findings_section(findings))
+
+        # Add taint flows section
+        taint_flows = data.get("taint_flows", [])
+        if taint_flows:
+            lines.append(self._format_taint_flows_section(taint_flows, data.get("target", "")))
+
         lines.append(self.SEPARATOR)
         return "\n".join(lines)
 
@@ -369,3 +379,96 @@ class ExplainFormatter:
                 result += f"\n      {snippet}"
 
         return result
+
+    def _format_findings_section(self, findings: list[dict]) -> str:
+        """Format findings from findings_consolidated.
+
+        Groups by severity, shows most critical first.
+        """
+        lines = []
+
+        # Count by severity
+        severity_counts = {}
+        for f in findings:
+            sev = f.get("severity", "unknown")
+            severity_counts[sev] = severity_counts.get(sev, 0) + 1
+
+        # Build header with counts
+        count_parts = []
+        for sev in ["critical", "high", "medium", "low"]:
+            if sev in severity_counts:
+                count_parts.append(f"{severity_counts[sev]} {sev}")
+
+        header = f"KNOWN ISSUES ({len(findings)})"
+        if count_parts:
+            header += f" - {', '.join(count_parts)}"
+
+        lines.append(f"{header}:")
+
+        # Show findings (already sorted by severity from query)
+        displayed = findings[: self.limit]
+        for i, f in enumerate(displayed, 1):
+            severity = f.get("severity", "?").upper()
+            category = f.get("category", "")
+            rule = f.get("rule", "")
+            line_num = f.get("line", "?")
+            message = f.get("message", "")
+            tool = f.get("tool", "")
+
+            # Truncate message
+            if len(message) > 60:
+                message = message[:57] + "..."
+
+            lines.append(f"  {i}. [{severity}] {category}: {rule}")
+            lines.append(f"     Line {line_num} ({tool}): {message}")
+
+        remaining = len(findings) - self.limit
+        if remaining > 0:
+            lines.append(f"  (and {remaining} more)")
+
+        lines.append("")
+        return "\n".join(lines)
+
+    def _format_taint_flows_section(self, flows: list[dict], target_file: str) -> str:
+        """Format taint flows involving this file.
+
+        Shows source->sink paths with vulnerability type.
+        """
+        lines = []
+        lines.append(f"TAINT FLOWS ({len(flows)}):")
+
+        if not flows:
+            lines.append("  (none)")
+            lines.append("")
+            return "\n".join(lines)
+
+        displayed = flows[: self.limit]
+        for i, flow in enumerate(displayed, 1):
+            vuln_type = flow.get("vulnerability_type", "Unknown")
+            source_file = flow.get("source_file", "?")
+            source_line = flow.get("source_line", "?")
+            source_pattern = flow.get("source_pattern", "?")
+            sink_file = flow.get("sink_file", "?")
+            sink_line = flow.get("sink_line", "?")
+            sink_pattern = flow.get("sink_pattern", "?")
+            path_length = flow.get("path_length", "?")
+
+            # Indicate direction relative to target file
+            if source_file == target_file:
+                direction = "SOURCE"
+            elif sink_file == target_file:
+                direction = "SINK"
+            else:
+                direction = "PASS-THROUGH"
+
+            lines.append(f"  {i}. [{vuln_type}] ({direction})")
+            lines.append(f"     Source: {source_file}:{source_line} ({source_pattern})")
+            lines.append(f"     Sink:   {sink_file}:{sink_line} ({sink_pattern})")
+            lines.append(f"     Path:   {path_length} hops")
+
+        remaining = len(flows) - self.limit
+        if remaining > 0:
+            lines.append(f"  (and {remaining} more)")
+
+        lines.append("")
+        return "\n".join(lines)

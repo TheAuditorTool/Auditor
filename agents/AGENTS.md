@@ -30,6 +30,22 @@ Every recommendation cites a database query. No exceptions.
 
 ---
 
+## Commands Requiring YAML Configuration
+
+Some commands require you to write a custom YAML file before use:
+
+| Command | What You Must Write | Get Schema With |
+|---------|---------------------|-----------------|
+| `aud refactor --file X` | Refactor profile (old/new identifiers, scope) | `aud manual refactor` |
+| `aud context --file X` | Semantic rules (obsolete/current/transitional patterns) | `aud manual context` |
+
+**Workflow:**
+1. Run `aud manual <command>` to see full YAML schema and examples
+2. Write your YAML file based on the schema
+3. Run the command with `--file your_config.yaml`
+
+---
+
 ## Command Quick Reference
 
 | Need | Command |

@@ -1588,11 +1588,98 @@ class CodeQueryEngine:
 
         return result
 
-    def get_file_context_bundle(self, file_path: str, limit: int = 20) -> dict:
-        """Aggregate all context for a file in one call."""
+    def get_file_findings_exact(self, file_path: str, limit: int = 20) -> list[dict]:
+        """Get findings for exact file path (not LIKE pattern).
 
+        Returns findings sorted by severity (critical first) then line number.
+        """
+        normalized = normalize_path_for_db(file_path)
+        cursor = self.repo_db.cursor()
+
+        cursor.execute(
+            """
+            SELECT file, line, rule, tool, message, severity, category, cwe
+            FROM findings_consolidated
+            WHERE file = ?
+            ORDER BY
+                CASE severity
+                    WHEN 'critical' THEN 1
+                    WHEN 'high' THEN 2
+                    WHEN 'medium' THEN 3
+                    WHEN 'low' THEN 4
+                    ELSE 5
+                END,
+                line
+            LIMIT ?
+            """,
+            (normalized, limit),
+        )
+
+        return [
+            {
+                "file": row["file"],
+                "line": row["line"],
+                "rule": row["rule"],
+                "tool": row["tool"],
+                "message": row["message"],
+                "severity": row["severity"],
+                "category": row["category"],
+                "cwe": row["cwe"],
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def get_file_taint_flows(self, file_path: str, limit: int = 10) -> list[dict]:
+        """Get taint flows involving this file (as source or sink)."""
+        normalized = normalize_path_for_db(file_path)
+        cursor = self.repo_db.cursor()
+
+        cursor.execute(
+            """
+            SELECT source_file, source_line, source_pattern,
+                   sink_file, sink_line, sink_pattern,
+                   vulnerability_type, path_length
+            FROM taint_flows
+            WHERE source_file = ? OR sink_file = ?
+            ORDER BY
+                CASE vulnerability_type
+                    WHEN 'SQL Injection' THEN 1
+                    WHEN 'Command Injection' THEN 2
+                    WHEN 'Path Traversal' THEN 3
+                    ELSE 4
+                END,
+                path_length
+            LIMIT ?
+            """,
+            (normalized, normalized, limit),
+        )
+
+        return [
+            {
+                "source_file": row["source_file"],
+                "source_line": row["source_line"],
+                "source_pattern": row["source_pattern"],
+                "sink_file": row["sink_file"],
+                "sink_line": row["sink_line"],
+                "sink_pattern": row["sink_pattern"],
+                "vulnerability_type": row["vulnerability_type"],
+                "path_length": row["path_length"],
+            }
+            for row in cursor.fetchall()
+        ]
+
+    def get_file_context_bundle(
+        self, file_path: str, limit: int = 20, include_issues: bool = True
+    ) -> dict:
+        """Aggregate all context for a file in one call.
+
+        Args:
+            file_path: Path to the file
+            limit: Max items per section
+            include_issues: If True, include findings and taint flows
+        """
         query_limit = limit + 1
-        return {
+        result = {
             "target": file_path,
             "target_type": "file",
             "symbols": self.get_file_symbols(file_path, query_limit),
@@ -1603,6 +1690,12 @@ class CodeQueryEngine:
             "incoming_calls": self.get_file_incoming_calls(file_path, query_limit),
             "framework_info": self.get_file_framework_info(file_path),
         }
+
+        if include_issues:
+            result["findings"] = self.get_file_findings_exact(file_path, query_limit)
+            result["taint_flows"] = self.get_file_taint_flows(file_path, query_limit)
+
+        return result
 
     def get_symbol_context_bundle(self, symbol_name: str, limit: int = 20, depth: int = 1) -> dict:
         """Aggregate all context for a symbol in one call."""
