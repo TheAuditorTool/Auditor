@@ -42,7 +42,7 @@ This is NOT optional. This is NOT a suggestion. The summary below is INSUFFICIEN
 **Steps**
 1. Run `aud blueprint --structure | grep -A 10 "Framework Detection"` to identify backend, frontend, validation libraries.
 2. Run `aud taint` to get actual source-to-sink dataflow paths.
-3. Query attack surface: `aud query --symbol ".*innerHTML.*" --show-callers` (XSS), `aud query --symbol ".*query.*" --show-callers` (SQLi).
+3. Query attack surface: `aud query --pattern "%innerHTML%" --content` (XSS), `aud query --pattern "%query%" --content` (SQLi).
 4. Query validation coverage: compare routes with validation vs total routes.
 5. Generate security plan with framework-matched recommendations (use detected zod, not assumed joi).
 6. Present with Evidence citations for every finding.

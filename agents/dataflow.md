@@ -8,25 +8,33 @@
 
 ---
 
-## ⚠️ MANDATORY TOOL USAGE - NON-NEGOTIABLE ⚠️
+## CRITICAL: Command Syntax
 
-**CRITICAL:** Run taint analysis autonomously. Define explicit source/sink before running.
+**RUN FIRST:** `aud taint --help` to verify syntax. Never guess flags.
+
+**PATH FILTERING:**
+- `--path-filter` uses SQL LIKE syntax (`%`) or glob patterns (`**`)
+- Do NOT use `--project-path` for filtering (it changes database root)
+
+**TAINT COMMAND:**
+- `aud taint` uses built-in pattern registries (140+ sources, 200+ sinks)
+- Does NOT accept `--source` or `--sink` flags
+- Use `aud blueprint --taint` for summary from DB
+
+---
+
+## MANDATORY TOOL USAGE
 
 **For AI Assistants:**
-1. **Define source/sink explicitly:** Ask user if ambiguous, DON'T assume
-2. **Run taint analysis:** `aud taint` (uses 140+ built-in source patterns, 200+ sink patterns)
-3. **Filter by severity:** `aud taint --severity high` for critical paths only
-4. **Query call graph:** Build complete source → intermediate → sink chain
-5. **Match frameworks:** Use detected validation library (zod if zod)
-6. **NO file reading:** Use `aud taint`, `aud query`, `aud blueprint`
-
-**NOTE:** `aud taint` does NOT accept `--source` or `--sink` flags. It uses built-in pattern registries.
-To see taint summary from database: `aud blueprint --taint`
+1. **Define source/sink explicitly:** Ask user if ambiguous
+2. **Run taint analysis:** `aud taint` or `aud taint --severity high`
+3. **Query call graph:** Build complete source → intermediate → sink chain
+4. **Match frameworks:** Use detected validation library
+5. **NO file reading:** Use `aud taint`, `aud query`, `aud blueprint`
 
 **Correct Behavior:**
-- ✅ Agent: *asks "trace from where to where?"* → *runs `aud taint`* → *queries call graph* → *identifies gaps* → *recommends using detected zod*
+- ✅ *asks "trace from where to where?"* → *runs `aud taint`* → *queries call graph* → *identifies gaps*
 - ✅ Agent cites taint analysis paths
-- ✅ Agent uses framework-specific source/sink patterns
 
 ---
 
@@ -192,17 +200,17 @@ Group by risk:
 
 ### T5.1: Query Validation
 Based on Phase 2, query detected library:
-- If zod: `aud query --symbol ".*Schema.*" --show-callers`
-- If joi: `aud query --symbol ".*Joi.*" --show-callers`
-- If marshmallow: `aud query --symbol ".*Schema.*" --show-callers`
-- If pydantic: `aud query --symbol ".*BaseModel.*" --show-callers`
+- If zod: `aud query --pattern "%Schema%" --content`
+- If joi: `aud query --pattern "%Joi%" --content`
+- If marshmallow: `aud query --pattern "%Schema%" --content`
+- If pydantic: `aud query --pattern "%BaseModel%" --content`
 - Store validation locations
 - **Audit:** Validation queried
 
 ### T5.2: Query Sanitization
-- `aud query --symbol ".*sanitize.*" --show-callers`
-- `aud query --symbol ".*escape.*" --show-callers`
-- `aud query --symbol ".*validate.*" --show-callers`
+- `aud query --pattern "%sanitize%" --content`
+- `aud query --pattern "%escape%" --content`
+- `aud query --pattern "%validate%" --content`
 - Store sanitization locations
 - **Audit:** Sanitization queried
 

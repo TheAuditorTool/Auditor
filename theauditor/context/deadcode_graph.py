@@ -11,13 +11,20 @@ import networkx as nx
 from theauditor.utils.logging import logger
 
 DEFAULT_EXCLUSIONS = [
+    # Package/test markers
     "__init__.py",
     "test",
     "__tests__",
     ".test.",
     ".spec.",
+    # Database migrations/seeders (run by CLI, not imported)
     "migration",
     "migrations",
+    "seeders",
+    "seeds",
+    # Scripts (run directly via node/python, not imported)
+    "scripts/",
+    # Build artifacts
     "__pycache__",
     "node_modules",
     ".venv",
@@ -25,6 +32,22 @@ DEFAULT_EXCLUSIONS = [
     "build",
     ".next",
     ".nuxt",
+    # Tool configuration files (loaded by tools, not imported)
+    "eslint.config",
+    "vite.config",
+    "vitest.config",
+    "jest.config",
+    "webpack.config",
+    "rollup.config",
+    "tsconfig",
+    "prettier.config",
+    ".prettierrc",
+    "tailwind.config",
+    "postcss.config",
+    # Database CLI configs (Sequelize, Knex, etc.)
+    "database-cli",
+    ".sequelizerc",
+    "knexfile",
 ]
 
 

@@ -36,39 +36,37 @@
 
 ---
 
+## CRITICAL: Command Syntax
+
+**RUN FIRST:** `aud <command> --help` to verify syntax. Never guess flags.
+
+**PATH FILTERING:**
+- `--path-filter` uses SQL LIKE syntax (`%`) or glob patterns (`**`)
+- Do NOT use `--project-path` for filtering (it changes database root)
+
+---
+
 ## THEAUDITOR COMMANDS
 
-| Need | Command | Example |
-|------|---------|---------|
-| **Comprehensive context** | `aud explain <target>` | Symbols, deps, calls in ONE command |
-| File context bundle | `aud explain file.ts` | Symbols, hooks, imports, callers |
-| Symbol context | `aud explain Symbol.method` | Definition, callers, callees |
-| Component context | `aud explain Dashboard` | Info, hooks, children |
-| Naming conventions | `aud blueprint --structure` | Extract snake_case % |
-| Architectural precedents | `aud blueprint --structure` | Find split patterns |
-| Framework detection | `aud blueprint --structure` | Detect zod, SQLAlchemy |
-| Refactor history | `aud blueprint --structure` | Check risk levels |
-| Dependency info | `aud blueprint --deps` | Packages, versions, managers |
-| Function list | `aud query --file X --list functions` | Get functions |
-| Class list | `aud query --file X --list classes` | Get classes |
-| Symbol info | `aud query --symbol X` | Get definition |
-| Callers | `aud query --symbol X --show-callers` | Who calls |
-| Callees | `aud query --symbol X --show-callees` | What it calls |
-| Callers with code | `aud query --symbol X --show-callers --show-code` | Who calls + source |
-| Taint sources | `aud taint` | Find user input |
-| Dead code | `aud deadcode` | Find unused |
+| Need | Command |
+|------|---------|
+| **Comprehensive context** | `aud explain <file or symbol>` |
+| Naming conventions | `aud blueprint --structure` |
+| Framework detection | `aud blueprint --structure` |
+| Dependency info | `aud blueprint --deps` |
+| Function list | `aud query --file X --list functions` |
+| Symbol info | `aud query --symbol X` |
+| Who calls this | `aud query --symbol X --show-callers` |
+| What does this call | `aud query --symbol X --show-callees` |
+| Taint analysis | `aud taint` |
+| Dead code | `aud deadcode` |
+| Migration issues | `aud refactor` |
 
-**PREFERRED:** Use `aud explain` first - it returns symbols, deps, and calls in ONE command. Only use individual queries if you need specific features `explain` doesn't provide.
+**PREFERRED:** Use `aud explain` first - returns symbols, deps, and calls in ONE command.
 
 **Documentation:**
-- `aud [command] --help` = quick syntax reference (flags, options)
-- `aud manual <topic>` = detailed documentation with examples and workflows
-
-**Relevant manual topics for planning:**
-- `aud manual pipeline` - understand TheAuditor's execution flow
-- `aud manual impact` - understand coupling scores and blast radius
-- `aud manual planning` - understand database-centric task management
-- `aud manual blueprint` - understand architectural fact visualization
+- `aud <command> --help` = syntax reference
+- `aud manual <topic>` = detailed docs with examples
 
 ---
 

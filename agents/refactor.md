@@ -8,45 +8,55 @@
 
 ---
 
-## YAML Configuration for Tracking Refactors
+## CRITICAL: Command Syntax
 
-To track custom refactoring progress (beyond migration analysis), you need a YAML profile.
+**RUN FIRST:** `aud refactor --help` and `aud deadcode --help` to verify syntax.
 
-### AI WORKFLOW (Correct Approach)
+**PATH FILTERING:**
+- `--path-filter` uses SQL LIKE syntax (`%`) or glob patterns (`**`)
+- Do NOT use `--project-path` for filtering (it changes database root)
 
-**CRITICAL:** Do NOT guess patterns. Discover them first.
+```bash
+# CORRECT - SQL LIKE pattern
+aud deadcode --path-filter 'frontend/src/%'
 
-```
-1. INVESTIGATE: Query database for actual patterns
-   aud query --pattern "%product%" --path "frontend/src/**"
-   # NOTE: --pattern searches symbol NAMES, NOT code content
-   # For code text search: grep -r "pattern" .
-
-2. WRITE YAML: Create profile based on patterns FOUND (not guessed)
-   (Run `aud manual refactor` for full schema)
-
-3. VALIDATE: Check YAML before running
-   aud refactor --file profile.yml --validate-only
-
-4. RUN: Execute analysis
-   aud refactor --file profile.yml
-
-5. QUERY RESULTS: Get violations from DB (NOT file output)
-   aud refactor --query-last
+# CORRECT - Glob pattern (shell expansion handled)
+aud deadcode --path-filter "frontend/src/**"
 ```
 
-### WRONG Approach (Wastes Time)
-- Guessing patterns without discovery queries
-- Using `--output file.json` then trying to read the JSON
-- Running full analysis just to test syntax
+## The `aud refactor` Command
 
-### RIGHT Approach
-- Query DB first to discover actual patterns
-- Use `--validate-only` before full run
-- Use `--query-last` to read results from database
+**FIRST STEP (ALWAYS):** Run `aud refactor` bare-bones to see current state:
 
-For semantic context classification (obsolete/current/transitional):
-- Run `aud manual context` for the semantic rules YAML schema
+```bash
+# ALWAYS RUN THIS FIRST - no YAML needed
+aud refactor
+```
+
+This shows:
+- Incomplete refactorings from database migrations
+- Code referencing deleted/renamed tables and columns
+- Breaking changes (code-schema mismatches)
+
+**The output guides your planning.** Don't skip this thinking you need YAML first.
+
+```bash
+# More options (after seeing base state):
+aud refactor --migration-limit 0    # Analyze ALL migrations
+aud refactor --query-last           # Get results from last run
+```
+
+## YAML Configuration (Advanced - AFTER running bare `aud refactor`)
+
+For custom refactor tracking beyond migrations:
+
+```
+1. INVESTIGATE: aud query --pattern "%product%"
+2. WRITE YAML based on patterns FOUND
+3. VALIDATE: aud refactor --file profile.yml --validate-only
+4. RUN: aud refactor --file profile.yml
+5. QUERY: aud refactor --query-last
+```
 
 ---
 
@@ -94,31 +104,37 @@ Only read files directly if `aud explain` output is insufficient.
 
 ---
 
-## PHASE 1: Verify File is Active
+## PHASE 1: Verify File is Active + Run Refactor Analysis
 
-**Description:** Determine if file is actively used or deprecated before refactoring.
+**Description:** Determine if file is actively used and check for migration-related issues.
 
-**Success Criteria:** Deprecated files identified. Cleanup tasks separated from refactor tasks.
+**Success Criteria:** Deprecated files identified. Migration issues detected. Ready for analysis.
 
 ### T1.1: Read Command Help
-- `aud --help`, `aud query --help`, `aud deadcode --help`
+- `aud deadcode --help`, `aud refactor --help`
 - **Audit:** Syntax understood
 
 ### T1.2: Run Deadcode Analysis
-- `aud deadcode 2>&1 | grep <target>`
+- `aud deadcode` (full project) or `aud deadcode --path-filter 'dir/%'`
+- Grep for target file in output
 - Check confidence: [HIGH]/[MEDIUM]/[LOW]
-- Check import count
 - Note: 0 imports + [HIGH] = truly unused
 - **Audit:** Deadcode status determined
 
-### T1.3: Check File Header
+### T1.3: Run Refactor Analysis
+- `aud refactor` (analyzes last 5 migrations)
+- Check for schema-code mismatches affecting target
+- If migration issues found: note breaking changes
+- **Audit:** Migration issues checked
+
+### T1.4: Check File Header
 - Read first 50 lines for: DEPRECATED, Phase 2.1, kept for rollback
-- Cross-reference with deadcode result
 - If DEPRECATED: identify replacement files
 - **Audit:** Header analyzed
 
-### T1.4: Phase 1 Audit
+### T1.5: Phase 1 Audit
 - Verify status: ACTIVE or DEPRECATED
+- Verify refactor analysis run
 - If DEPRECATED: document replacements, STOP refactor
 - If ACTIVE: proceed to Phase 2
 - **Audit:** File status determined with database evidence

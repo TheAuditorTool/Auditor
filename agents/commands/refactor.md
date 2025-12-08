@@ -35,21 +35,26 @@ This is NOT optional. This is NOT a suggestion. The summary below is INSUFFICIEN
 ## Quick Reference (AFTER reading full protocol)
 
 **Guardrails**
-- Run `aud deadcode` FIRST to verify file is actively used (not deprecated).
+- Run `aud refactor` FIRST (bare-bones, no YAML) to see current migration state.
+- Run `aud deadcode` to verify file is actively used (not deprecated).
 - Run `aud blueprint --structure` to extract existing split patterns and naming conventions.
 - Run `aud impact --file <target> --planning-context` to assess blast radius BEFORE refactoring.
 - NO file reading until AFTER database structure analysis (Phase 3 Task 3.4 of protocol).
 - Follow ZERO RECOMMENDATION policy - present facts only, let user decide.
 
 **Steps**
-1. Run `aud deadcode 2>&1 | grep <target>` to check if file is deprecated or active.
-2. Run `aud blueprint --structure` to extract naming conventions (snake_case %) and split precedents (schemas/, commands/).
-3. Run `aud blueprint --monoliths` to identify files >1950 lines requiring chunked reading.
-4. Run `aud query --file <target> --list all` to get symbol list from database.
-5. Run `aud impact --file <target> --planning-context` to assess blast radius and coupling.
-6. Analyze clustering by prefix (_store_python*, _store_react*) and domain (auth*, user*).
-7. Check for partial splits: `ls <target>_*.py` - calculate completion % if found.
+1. Run `aud refactor` FIRST (no YAML needed) - see current migration/schema state.
+2. Run `aud deadcode` (or `aud deadcode --path-filter 'dir/%'`) and grep for target.
+3. Use `aud refactor` output to guide planning - YAML is only for advanced custom tracking.
+4. Run `aud blueprint --structure` to extract naming conventions and split precedents.
+5. Run `aud query --file <target> --list all` to get symbol list from database.
+6. Run `aud impact --file <target> --planning-context` to assess blast radius.
+7. Analyze clustering by prefix (_store_python*, _store_react*) and domain (auth*, user*).
 8. Present findings as facts with "What do you want to do?" - NO recommendations.
+
+**PATH FILTERING:**
+- `--path-filter` uses SQL LIKE syntax (`%`) or glob patterns (`**`)
+- Do NOT use `--project-path` for filtering (it changes database root)
 
 **Reference**
 - Deadcode confidence: [HIGH]/[MEDIUM]/[LOW] - 0 imports + [HIGH] = truly unused.

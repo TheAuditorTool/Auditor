@@ -33,40 +33,50 @@ Every recommendation cites a database query. No exceptions.
 
 ---
 
-## Commands Requiring YAML Configuration
+## CRITICAL: Command Syntax Rules
 
-Some commands require you to write a custom YAML file before use:
+**BEFORE running ANY command:** Run `aud <command> --help` to verify syntax. Never guess flags.
+
+**PATH FILTERING - READ THIS:**
+- `--path-filter` uses **SQL LIKE syntax** (`%` = wildcard), NOT glob patterns
+- Glob patterns (`**`) now work - shell expansion is handled automatically
+- `--project-path` changes database root, NOT a filter (don't use for filtering)
+
+```bash
+# CORRECT - SQL LIKE pattern
+aud deadcode --path-filter 'frontend/src/%'
+
+# CORRECT - Glob pattern (shell expansion handled)
+aud deadcode --path-filter "frontend/src/**"
+
+# WRONG - This looks for .pf/ inside frontend/src/
+aud deadcode --project-path frontend/src
+```
+
+---
+
+## Commands Requiring YAML Configuration
 
 | Command | What You Must Write | Get Schema With |
 |---------|---------------------|-----------------|
-| `aud refactor --file X` | Refactor profile (old/new identifiers, scope) | `aud manual refactor` |
-| `aud context --file X` | Semantic rules (obsolete/current/transitional patterns) | `aud manual context` |
+| `aud refactor --file X` | Refactor profile (old/new identifiers) | `aud manual refactor` |
+| `aud context --file X` | Semantic rules (obsolete/current patterns) | `aud manual context` |
 
-**AI WORKFLOW (Correct Approach for YAML profiles):**
+**AI WORKFLOW (YAML profiles):**
 
 ```
-1. INVESTIGATE: Query database to discover actual patterns
-   aud query --list-symbols --filter "*product*" --path "frontend/src/**"
-   # OR for SQL LIKE search (no path filter):
+1. INVESTIGATE: Query database for actual patterns
    aud query --pattern "%product%"
-   # NOTE: --pattern searches symbol NAMES (functions, classes, variables)
-   # NOT code content. For code text search, use: grep -r "pattern" .
+   # NOTE: --pattern searches symbol NAMES only. For code text: grep -r "pattern" .
 
-2. WRITE YAML: Create profile based on patterns FOUND (not guessed)
-   (Run `aud manual refactor` for full schema)
+2. WRITE YAML based on patterns FOUND (not guessed)
 
-3. VALIDATE: Check YAML syntax before running
-   aud refactor --file profile.yml --validate-only
+3. VALIDATE: aud refactor --file profile.yml --validate-only
 
-4. RUN: Execute the analysis
-   aud refactor --file profile.yml
+4. RUN: aud refactor --file profile.yml
 
-5. QUERY RESULTS: Get violations from database (NOT file output)
-   aud refactor --query-last
+5. QUERY RESULTS: aud refactor --query-last
 ```
-
-**WRONG:** Guessing patterns → Writing YAML → Running → Reading JSON file output
-**RIGHT:** Query DB → Write YAML → Validate → Run → Query results from DB
 
 ---
 
@@ -83,18 +93,21 @@ Some commands require you to write a custom YAML file before use:
 | Who calls this? | `aud query --symbol X --show-callers` |
 | What does this call? | `aud query --symbol X --show-callees` |
 | Dead code detection | `aud deadcode` |
+| Dead code in directory | `aud deadcode --path-filter 'frontend/src/%'` |
 | Boundary distance analysis | `aud boundaries --type input-validation` |
 | Change impact/coupling | `aud impact --symbol X --planning-context` |
 | Change impact (file) | `aud impact path/to/file.py` |
 | Full context for file | `aud explain path/to/file.py` |
 | Full context for symbol | `aud explain SymbolName` |
+| Run taint analysis | `aud taint` |
+| Refactor analysis (migrations) | `aud refactor` |
 | Validate refactor YAML | `aud refactor --file X --validate-only` |
 | Last refactor results | `aud refactor --query-last` |
 | Full analysis pipeline | `aud full` |
 
-**Performance Note:** `aud blueprint --taint` and `--boundaries` read from database (fast). Use these for summaries instead of re-running `aud taint` (slow).
+**ALWAYS RUN FIRST:** `aud <command> --help` to verify syntax before using any command.
 
-**First time?** Run `aud --help` and `aud <command> --help`. Never guess syntax.
+**Performance Note:** `aud blueprint --taint` and `--boundaries` read from database (fast). Use these for summaries instead of re-running `aud taint` (slow).
 
 ---
 

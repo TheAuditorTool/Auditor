@@ -8,21 +8,27 @@
 
 ---
 
-## ⚠️ MANDATORY TOOL USAGE - NON-NEGOTIABLE ⚠️
+## CRITICAL: Command Syntax
 
-**CRITICAL:** Run security tools autonomously. Match detected frameworks in recommendations.
+**RUN FIRST:** `aud taint --help`, `aud boundaries --help` to verify syntax.
+
+**PATH FILTERING:**
+- `--path-filter` uses SQL LIKE syntax (`%`) or glob patterns (`**`)
+- Do NOT use `--project-path` for filtering (it changes database root)
+
+---
+
+## MANDATORY TOOL USAGE
 
 **For AI Assistants:**
-1. **Run taint analysis first:** `aud taint` for actual dataflow, DON'T guess paths
-2. **Framework matching mandatory:** zod detected → recommend zod (NOT joi)
-3. **Query attack surface:** Find innerHTML/query from database, NOT file grep
-4. **NO file reading:** Use `aud query`, `aud taint`, `aud blueprint`
-5. **Cite existing findings:** Use `aud context` for current vulnerabilities
+1. **Run taint analysis:** `aud taint` for actual dataflow, DON'T guess paths
+2. **Framework matching:** zod detected → recommend zod (NOT joi)
+3. **Query attack surface:** Use `aud query`, `aud taint`, `aud blueprint`
+4. **NO file reading** until after database analysis
 
 **Correct Behavior:**
-- ✅ Agent: *runs `aud blueprint`* → *runs `aud taint`* → *queries attack surface* → *synthesizes recommendations matching detected zod*
+- ✅ *runs `aud blueprint`* → *runs `aud taint`* → *queries attack surface* → *synthesizes*
 - ✅ Agent cites taint analysis paths in recommendations
-- ✅ Agent uses DETECTED validation library, not assumed one
 
 ---
 
@@ -123,24 +129,23 @@
 - **Audit:** Attack type determined
 
 ### T3.2: Query XSS Surface (if applicable)
-- `aud query --symbol ".*innerHTML.*" --show-callers`
-- `aud query --symbol ".*html.*" --show-callers`
-- `aud query --symbol ".*dangerouslySetInnerHTML.*" --show-callers` (React)
+- `aud query --pattern "%innerHTML%" --content` (searches code content)
+- `aud query --pattern "%dangerouslySetInnerHTML%" --content` (React)
 - Count total XSS entry points
 - **Audit:** XSS surface queried
 
 ### T3.3: Query SQL Surface (if applicable)
-- `aud query --symbol ".*query.*" --show-callers`
-- `aud query --symbol ".*execute.*" --show-callers`
-- `aud query --symbol ".*raw.*" --show-callers`
+- `aud query --pattern "%query%" --content` (searches code for query calls)
+- `aud query --pattern "%execute%" --content`
+- `aud query --pattern "%raw%" --content`
 - Identify raw SQL vs parameterized
 - Count SQL injection points
 - **Audit:** SQL surface queried
 
 ### T3.4: Query CSRF Surface (if applicable)
-- `aud query --symbol ".*csrf.*" --show-callers`
-- `aud query --symbol "app.post" --show-callers` (Express)
-- `aud query --symbol "@app.route.*POST" --show-callers` (Flask)
+- `aud query --pattern "%csrf%" --content`
+- `aud query --pattern "%app.post%" --content` (Express)
+- `aud query --pattern "%@app.route%" --content` (Flask)
 - Identify POST routes without CSRF protection
 - **Audit:** CSRF surface queried
 
@@ -160,17 +165,18 @@
 
 ### T4.1: Query Validation Usage
 Based on Phase 1, query detected library:
-- If zod: `aud query --symbol ".*Schema.*" --show-callers`
-- If joi: `aud query --symbol ".*Joi.*" --show-callers`
-- If marshmallow: `aud query --symbol ".*Schema.*" --show-callers`
-- If pydantic: `aud query --symbol ".*BaseModel.*" --show-callers`
+- If zod: `aud query --pattern "%Schema%" --content`
+- If joi: `aud query --pattern "%Joi%" --content`
+- If marshmallow: `aud query --pattern "%Schema%" --content`
+- If pydantic: `aud query --pattern "%BaseModel%" --content`
 - Count routes WITH validation
 - **Audit:** Validation patterns queried
 
 ### T4.2: Query All Routes
-- `aud query --symbol "app.post" --show-callers` (Express)
-- `aud query --symbol "app.get" --show-callers` (Express)
-- `aud query --symbol "@app.route" --show-callers` (Flask)
+- `aud query --pattern "%app.post%" --content` (Express)
+- `aud query --pattern "%app.get%" --content` (Express)
+- `aud query --pattern "%@app.route%" --content` (Flask)
+- Or use: `aud blueprint --structure` (shows route counts)
 - Count total routes
 - **Audit:** All routes queried
 
@@ -181,9 +187,9 @@ Based on Phase 1, query detected library:
 - **Audit:** Gap calculated
 
 ### T4.4: Query Sanitization
-- `aud query --symbol ".*sanitize.*" --show-callers`
-- `aud query --symbol ".*escape.*" --show-callers`
-- `aud query --symbol ".*validate.*" --show-callers`
+- `aud query --pattern "%sanitize%" --content`
+- `aud query --pattern "%escape%" --content`
+- `aud query --pattern "%validate%" --content`
 - Identify sanitization patterns
 - **Audit:** Sanitization queried
 

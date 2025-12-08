@@ -98,9 +98,13 @@ Match the user's request to an agent:
 |---------|---------|
 | `aud boundaries` | Input validation boundary analysis |
 | `aud deadcode` | Dead code detection |
-| `aud taint --source X --sink Y` | Trace data flow |
+| `aud deadcode --path-filter 'dir/%'` | Dead code in specific directory |
+| `aud taint` | Trace data flow (uses built-in patterns) |
+| `aud refactor` | Detect migration/schema issues |
 | `aud impact --symbol X` | Blast radius and coupling |
 | `aud detect-patterns` | Security pattern detection |
+
+**NOTE:** `--path-filter` accepts SQL LIKE syntax (`%`) or glob patterns (`**`).
 
 ### Refactor Support
 | Command | Purpose |

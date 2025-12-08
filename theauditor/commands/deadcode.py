@@ -14,22 +14,63 @@ from theauditor.pipeline.ui import console, err_console
 from theauditor.utils.error_handler import handle_exceptions
 
 
+def _normalize_path_filter(path_filter: tuple) -> str | None:
+    """Normalize path filter - handle shell expansion and convert wildcards to SQL LIKE.
+
+    When users run: aud deadcode --path-filter "frontend/src/**"
+    The shell expands ** to all matching files BEFORE the command runs.
+    This function detects that and finds the common prefix.
+    """
+    if not path_filter:
+        return None
+
+    if len(path_filter) == 1:
+        path = path_filter[0]
+    else:
+        # Shell expanded - find common prefix from all paths
+        paths = [p.replace("\\", "/") for p in path_filter]
+        if paths:
+            prefix_parts = paths[0].split("/")
+            common_parts = []
+            for i, part in enumerate(prefix_parts):
+                if all(p.split("/")[i] == part if len(p.split("/")) > i else False for p in paths):
+                    common_parts.append(part)
+                else:
+                    break
+            path = "/".join(common_parts) + "/" if common_parts else ""
+        else:
+            return None
+
+    # Normalize to SQL LIKE pattern
+    path = path.replace("\\", "/")
+    path = path.replace("**", "%").replace("*", "%").replace("?", "_")
+    if not path.endswith("%") and not path.endswith("/"):
+        path += "%"
+    elif path.endswith("/"):
+        path += "%"
+    return path
+
+
 @click.command("deadcode", cls=RichCommand)
 @click.option("--project-path", default=".", help="Root directory to analyze")
-@click.option("--path-filter", help="Only analyze paths matching filter (e.g., 'theauditor/%')")
+@click.option(
+    "--path-filter",
+    multiple=True,
+    help="Only analyze paths matching filter (e.g., 'theauditor/%'). Accepts glob patterns.",
+)
 @click.option(
     "--exclude",
     multiple=True,
-    default=["test", "__tests__", "migrations", "node_modules", ".venv"],
-    help="Exclude paths matching patterns",
+    help="Additional paths to exclude (extends built-in exclusions for tests, configs, scripts, seeders)",
 )
 @click.option(
     "--format", type=click.Choice(["text", "json", "summary"]), default="text", help="Output format"
 )
 @click.option("--save", type=click.Path(), help="Save output to file")
 @click.option("--fail-on-dead-code", is_flag=True, help="Exit 1 if dead code found")
+@click.argument("extra_paths", nargs=-1, required=False)
 @handle_exceptions
-def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code):
+def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code, extra_paths):
     """Detect isolated modules, unreachable functions, and never-imported code.
 
     Identifies dead code by analyzing the import graph - any module with symbols (functions, classes)
@@ -195,8 +236,15 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
         raise click.ClickException("Database not found")
 
     try:
+        # Combine path_filter option with extra_paths (shell-expanded globs)
+        all_paths = path_filter + extra_paths if extra_paths else path_filter
+        normalized_filter = _normalize_path_filter(all_paths)
+
+        # Pass None to use DEFAULT_EXCLUSIONS, or list to extend them
+        exclude_list = list(exclude) if exclude else None
+
         modules = detect_isolated_modules(
-            str(db_path), path_filter=path_filter, exclude_patterns=list(exclude)
+            str(db_path), path_filter=normalized_filter, exclude_patterns=exclude_list
         )
 
         output_path = project_path / ".pf" / "raw" / "deadcode.json"
