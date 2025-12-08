@@ -501,4 +501,26 @@ def generate_report(analysis_results: list[dict]) -> str:
                 report.append(f"   Control: {control['control_function']} at distance 0")
             report.append(f"   Status: {example['quality']['reason']}\n")
 
+    if acceptable > 0:
+        report.append(f"\n[ACCEPTABLE] BOUNDARIES ({acceptable}):\n")
+        acceptable_examples = [r for r in analysis_results if r["quality"]["quality"] == "acceptable"]
+        for i, example in enumerate(acceptable_examples[:display_limit], 1):
+            report.append(f"{i}. {example['entry_point']}")
+            report.append(f"   File: {example['entry_file']}:{example['entry_line']}")
+            if example["controls"]:
+                control = example["controls"][0]
+                report.append(f"   Control: {control['control_function']} at distance {control.get('distance', '?')}")
+            report.append(f"   Status: {example['quality']['reason']}\n")
+
+    if fuzzy > 0:
+        report.append(f"\n[FUZZY] BOUNDARIES ({fuzzy}):\n")
+        fuzzy_examples = [r for r in analysis_results if r["quality"]["quality"] == "fuzzy"]
+        for i, example in enumerate(fuzzy_examples[:display_limit], 1):
+            report.append(f"{i}. {example['entry_point']}")
+            report.append(f"   File: {example['entry_file']}:{example['entry_line']}")
+            if example["controls"]:
+                control = example["controls"][0]
+                report.append(f"   Control: {control['control_function']} at distance {control.get('distance', '?')}")
+            report.append(f"   Status: {example['quality']['reason']}\n")
+
     return "\n".join(report)

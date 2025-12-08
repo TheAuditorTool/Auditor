@@ -258,7 +258,7 @@ class GraphDeadCodeDetector:
         """
 
         if path_filter:
-            query += f" AND source LIKE '{path_filter}%'"
+            query += f" AND source LIKE '{path_filter}'"
 
         cursor.execute(query)
 
@@ -409,7 +409,7 @@ class GraphDeadCodeDetector:
         if path_filter:
             query = query.replace(
                 "SELECT DISTINCT file_path FROM reachable",
-                f"SELECT DISTINCT file_path FROM reachable WHERE file_path LIKE '{path_filter}%'",
+                f"SELECT DISTINCT file_path FROM reachable WHERE file_path LIKE '{path_filter}'",
             )
 
         params = tuple(entry_list) + tuple(entry_list)
@@ -434,10 +434,10 @@ class GraphDeadCodeDetector:
         if path_filter:
             query = f"""
                 SELECT DISTINCT source FROM edges
-                WHERE graph_type = 'import' AND source LIKE '{path_filter}%'
+                WHERE graph_type = 'import' AND source LIKE '{path_filter}'
                 UNION
                 SELECT DISTINCT target FROM edges
-                WHERE graph_type = 'import' AND target LIKE '{path_filter}%'
+                WHERE graph_type = 'import' AND target LIKE '{path_filter}'
             """
 
         cursor.execute(query)
@@ -605,7 +605,7 @@ class GraphDeadCodeDetector:
               AND NOT target LIKE 'external::%'
         """
         if path_filter:
-            import_query += f" AND source LIKE '{path_filter}%'"
+            import_query += f" AND source LIKE '{path_filter}'"
 
         graphs_cursor.execute(import_query)
         all_imports = graphs_cursor.fetchall()

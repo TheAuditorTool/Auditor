@@ -224,7 +224,7 @@ class XGraphBuilder:
         cursor.execute(
             """
             SELECT file, line, caller_function, callee_function,
-                   argument_index, argument_expr, param_name
+                   argument_index, argument_expr, param_name, callee_file_path
               FROM function_call_args
              WHERE file = ?
             """,
@@ -806,46 +806,71 @@ class XGraphBuilder:
                     caller = record.get("caller_function")
                     callee = record.get("callee_function")
                     line = record.get("line")
+                    pre_resolved_path = record.get("callee_file_path")
                     caller_node = ensure_function_node(rel_path, caller, lang, "caller")
-
-                    target_candidates = function_defs.get(callee, set())
-
-                    if not target_candidates and "." in callee:
-                        short_name = callee.split(".")[-1]
-                        target_candidates = function_defs.get(short_name, set())
-
-                    if not target_candidates:
-                        suffix = f".{callee}"
-                        for func_name, paths in function_defs.items():
-                            if func_name.endswith(suffix):
-                                target_candidates = paths
-                                break
 
                     target_module = None
                     resolution_status = "unresolved"
 
-                    if target_candidates:
-                        if rel_path in target_candidates:
-                            target_module = rel_path
-                            resolution_status = "local_def"
+                    # GRAPH FIX G8: Use pre-resolved callee_file_path from function_call_args
+                    # when available. This correctly handles namespace imports like
+                    # `import * as variantService from '@/services/variants'` where
+                    # import_styles.resolved_path is NULL but the JS extractor already
+                    # resolved the call target.
+                    if pre_resolved_path:
+                        normalized_pre = pre_resolved_path.replace("\\", "/")
+                        # Check if it's a project file (not external like node_modules)
+                        if normalized_pre in current_files:
+                            target_module = normalized_pre
+                            resolution_status = "pre_resolved"
+                        elif not normalized_pre.startswith(
+                            ("node_modules/", ".auditor_venv/", "external::")
+                        ):
+                            # Project file not in current_files but exists
+                            if self.db_cache.file_exists(normalized_pre):
+                                target_module = normalized_pre
+                                resolution_status = "pre_resolved_db"
 
-                        else:
-                            matches = [c for c in target_candidates if c in resolved_imports]
+                    # Fallback to symbol lookup if pre-resolution didn't work
+                    if not target_module:
+                        target_candidates = function_defs.get(callee, set())
 
-                            if len(matches) == 1:
-                                target_module = matches[0]
-                                resolution_status = "imported_def"
-                            elif len(matches) > 1:
-                                target_module = matches[0]
-                                resolution_status = "ambiguous_import"
+                        if not target_candidates and "." in callee:
+                            short_name = callee.split(".")[-1]
+                            target_candidates = function_defs.get(short_name, set())
+
+                        if not target_candidates:
+                            suffix = f".{callee}"
+                            for func_name, paths in function_defs.items():
+                                if func_name.endswith(suffix):
+                                    target_candidates = paths
+                                    break
+
+                        if target_candidates:
+                            if rel_path in target_candidates:
+                                target_module = rel_path
+                                resolution_status = "local_def"
+
                             else:
-                                target_module = None
-                                resolution_status = "ambiguous_global"
+                                matches = [c for c in target_candidates if c in resolved_imports]
+
+                                if len(matches) == 1:
+                                    target_module = matches[0]
+                                    resolution_status = "imported_def"
+                                elif len(matches) > 1:
+                                    target_module = matches[0]
+                                    resolution_status = "ambiguous_import"
+                                else:
+                                    target_module = None
+                                    resolution_status = "ambiguous_global"
 
                     if target_module:
                         target_lang = current_files.get(target_module, {}).get("language")
+                        # For namespace imports (variantService.createVariant), use short name
+                        # to match symbols table which has 'createVariant' not the full path
+                        callee_name = callee.split(".")[-1] if "." in callee else callee
                         callee_node = ensure_function_node(
-                            target_module, callee, target_lang, "callee"
+                            target_module, callee_name, target_lang, "callee"
                         )
                         resolved = True
                     else:

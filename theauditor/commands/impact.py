@@ -48,8 +48,13 @@ def _detect_target_type(target: str) -> str:
     is_flag=True,
     help="Trace frontend API calls to backend endpoints (cross-stack analysis)",
 )
+@click.option(
+    "--fail-on-high-impact",
+    is_flag=True,
+    help="Exit with code 1 if high impact detected (for CI/CD pipelines)",
+)
 def impact(
-    target, file, line, symbol, db, json, planning_context, max_depth, verbose, trace_to_backend
+    target, file, line, symbol, db, json, planning_context, max_depth, verbose, trace_to_backend, fail_on_high_impact
 ):
     """Analyze the blast radius of code changes.
 
@@ -73,7 +78,7 @@ def impact(
     Risk Levels:
       Low Impact:    <10 affected files, coupling <30
       Medium Impact: 10-30 affected files, coupling 30-70
-      High Impact:   >30 affected files, coupling >70 (exit code 1)
+      High Impact:   >30 affected files, coupling >70 (warning printed)
 
     Examples:
       # By symbol name (recommended)
@@ -392,14 +397,15 @@ def impact(
                         )
 
         if result.get("error"):
-            exit(3)
+            raise click.ClickException(result["error"])
 
         summary = result.get("impact_summary", {})
         if summary.get("total_impact", 0) > 20:
             err_console.print(
-                "[error]\n\\[!] WARNING: High impact change detected![/error]",
+                "[warning]\n[!] WARNING: High impact change detected![/warning]",
             )
-            exit(1)
+            if fail_on_high_impact:
+                raise SystemExit(1)
 
     except Exception as e:
         if "No function or class found at" not in str(e):
