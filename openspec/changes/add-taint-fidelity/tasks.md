@@ -26,7 +26,7 @@ Create the new fidelity module with:
 
 ### Task 2: Add Discovery Checkpoint
 **File**: `theauditor/taint/core.py`
-**Location**: Line 566, after `sinks = discovery.filter_framework_safe_sinks(sinks)`
+**Location**: Line 567, insert after line 566 `sinks = discovery.filter_framework_safe_sinks(sinks)`
 **Status**: PENDING
 
 - [ ] Import fidelity functions at top of file
@@ -43,7 +43,7 @@ Create the new fidelity module with:
 
 ### Task 3: Add Analysis Checkpoint
 **File**: `theauditor/taint/core.py`
-**Location**: Line 676, after for loop completes, before `ifds_analyzer.close()`
+**Location**: Line 686, insert after line 685 `all_sanitized_paths.extend(sanitized)`, before line 686 `ifds_analyzer.close()`
 **Status**: PENDING
 
 - [ ] Create analysis manifest after loop
@@ -61,7 +61,7 @@ Create the new fidelity module with:
 
 ### Task 4: Add Deduplication Checkpoint
 **File**: `theauditor/taint/core.py`
-**Location**: Line 686, after both `deduplicate_paths()` calls
+**Location**: Line 697, insert after line 696 `unique_sanitized_paths = deduplicate_paths(all_sanitized_paths)`
 **Status**: PENDING
 
 - [ ] Calculate pre-dedup and post-dedup counts
@@ -78,7 +78,7 @@ Create the new fidelity module with:
 
 ### Task 5: Add DB Output Checkpoint
 **File**: `theauditor/taint/core.py`
-**Location**: Line 786, after `conn.commit()` in `trace_taint()`
+**Location**: Line 797, insert after line 796 `conn.commit()` in `trace_taint()`
 **Status**: PENDING
 
 - [ ] Create DB output receipt with row counts
@@ -92,14 +92,14 @@ Create the new fidelity module with:
 
 ---
 
-### Task 6: Add JSON Output Checkpoint
+### Task 6: Refactor save_taint_analysis() with JSON Output Checkpoint
 **File**: `theauditor/taint/core.py`
-**Location**: Line 962, inside `save_taint_analysis()` after JSON write
+**Location**: Lines 955-973, replace entire `save_taint_analysis()` function
 **Status**: PENDING
 
-**Important**: This is a SEPARATE function from `trace_taint()`. The JSON write happens in `save_taint_analysis()` which is called by the CLI.
+**Important**: This is a SEPARATE function from `trace_taint()`. The current implementation uses `json.dump()` directly to file handle, which doesn't allow capturing byte count. Must refactor to use `json.dumps()` + `f.write()` pattern.
 
-- [ ] Modify `save_taint_analysis()` to track bytes written
+- [ ] Refactor `save_taint_analysis()` to use `json.dumps()` + `f.write()` instead of `json.dump()`
 - [ ] Create JSON output receipt with count and bytes
 - [ ] Call `reconcile_taint_fidelity()` with stage="json_output"
 - [ ] Log fidelity status
@@ -152,15 +152,16 @@ Create the new fidelity module with:
 
 ## Pre-Implementation Verification
 
-These have been verified during spec creation:
+These have been verified during spec creation (2025-12-08):
 
-- [x] `core.py:566` - Discovery: after `filter_framework_safe_sinks()`
-- [x] `core.py:676` - Analysis: after for loop, before `ifds_analyzer.close()`
-- [x] `core.py:686` - Dedup: after both `deduplicate_paths()` calls
-- [x] `core.py:786` - DB: after `conn.commit()`
-- [x] `core.py:962` - JSON: inside `save_taint_analysis()`, after `json.dump()`
+- [x] `core.py:566` - Discovery: line 566 is `sinks = discovery.filter_framework_safe_sinks(sinks)`
+- [x] `core.py:685-686` - Analysis: line 685 is `all_sanitized_paths.extend(sanitized)`, line 686 is `ifds_analyzer.close()`
+- [x] `core.py:694-696` - Dedup: lines 694 and 696 are `deduplicate_paths()` calls
+- [x] `core.py:796` - DB: line 796 is `conn.commit()`
+- [x] `core.py:971-972` - JSON: line 971-972 is `json.dump()` inside `save_taint_analysis()`
 - [x] `FidelityToken` import path: `theauditor.indexer.fidelity_utils.FidelityToken`
 - [x] IFDS and FlowResolver are independent engines (no handoff needed)
+- [x] `save_taint_analysis()` uses `json.dump()` directly - must refactor to `json.dumps()` + `f.write()` for byte tracking
 
 ## Dependencies
 

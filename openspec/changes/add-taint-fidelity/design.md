@@ -36,7 +36,7 @@ The taint fidelity system mirrors the existing fidelity patterns in `indexer/fid
 
 ### Checkpoint 1: Discovery Manifest
 
-**Location**: `core.py:566` after `sinks = discovery.filter_framework_safe_sinks(sinks)`
+**Location**: `core.py:567` (insert after line 566 `sinks = discovery.filter_framework_safe_sinks(sinks)`)
 
 **What it captures**:
 ```python
@@ -64,7 +64,7 @@ The taint fidelity system mirrors the existing fidelity patterns in `indexer/fid
 
 ### Checkpoint 2: Analysis Manifest
 
-**Location**: `core.py:676` after IFDS analysis loop completes, before `ifds_analyzer.close()`
+**Location**: `core.py:686` (insert after line 685 `all_sanitized_paths.extend(sanitized)`, before line 686 `ifds_analyzer.close()`)
 
 **What it captures**:
 ```python
@@ -92,7 +92,7 @@ The taint fidelity system mirrors the existing fidelity patterns in `indexer/fid
 
 ### Checkpoint 3: Deduplication Manifest
 
-**Location**: `core.py:686` after both `deduplicate_paths()` calls
+**Location**: `core.py:697` (insert after line 696 `unique_sanitized_paths = deduplicate_paths(all_sanitized_paths)`)
 
 **What it captures**:
 ```python
@@ -112,7 +112,7 @@ The taint fidelity system mirrors the existing fidelity patterns in `indexer/fid
 
 ### Checkpoint 4a: DB Output Receipt
 
-**Location**: `core.py:786` after `conn.commit()` in `trace_taint()`
+**Location**: `core.py:797` (insert after line 796 `conn.commit()` in `trace_taint()`)
 
 **What it captures**:
 ```python
@@ -131,9 +131,9 @@ The taint fidelity system mirrors the existing fidelity patterns in `indexer/fid
 
 ### Checkpoint 4b: JSON Output Receipt
 
-**Location**: `core.py:962` after `json.dump()` in `save_taint_analysis()`
+**Location**: `core.py:955-973` (replace entire `save_taint_analysis()` function to add byte tracking)
 
-**Note**: This is a **separate function** from `trace_taint()`. The JSON write happens in `save_taint_analysis()` which is called by the CLI after `trace_taint()` returns.
+**Note**: This is a **separate function** from `trace_taint()`. The JSON write happens in `save_taint_analysis()` which is called by the CLI after `trace_taint()` returns. The current implementation uses `json.dump()` directly to file handle, which doesn't allow capturing byte count. Must refactor to use `json.dumps()` + `f.write()` pattern.
 
 **What it captures**:
 ```python
@@ -155,7 +155,7 @@ The taint fidelity system mirrors the existing fidelity patterns in `indexer/fid
 theauditor/taint/
 ├── __init__.py
 ├── access_path.py
-├── core.py              # MODIFY: Add 4 checkpoints (3 in trace_taint, 1 in save_taint_analysis)
+├── core.py              # MODIFY: Add 3 checkpoints in trace_taint() + refactor save_taint_analysis()
 ├── discovery.py
 ├── fidelity.py          # NEW: Fidelity module
 ├── flow_resolver.py     # UNCHANGED (independent engine)

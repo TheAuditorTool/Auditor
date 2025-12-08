@@ -1,13 +1,18 @@
 # Tasks: Multi-Hop Taint Validation Fixtures
 
-## 0. Verification (Pre-Implementation)
+## 0. Verification (Pre-Implementation) - COMPLETED
 
-- [ ] 0.1 Confirm depth limits already raised in codebase
-  - `theauditor/context/query.py:606` - depth default 10, max 20
-  - `theauditor/taint/core.py:370` - max_depth 20
-  - `theauditor/taint/ifds_analyzer.py:59` - max_depth 20
-- [ ] 0.2 Verify current taint output format in `.pf/raw/taint_analysis.json`
-- [ ] 0.3 Decide hosting location (separate repo vs subdirectory)
+- [x] 0.1 Confirm depth limits in codebase (verified 2024-12-08)
+  - `theauditor/context/query.py:604` - `trace_variable_flow(depth: int = 10)`, hard max at line 608: `depth > 10`
+  - `theauditor/taint/core.py:370` - `trace_taint(max_depth: int = 25)`
+  - `theauditor/taint/ifds_analyzer.py:59` - `analyze_sink_to_sources(max_depth: int = 15)`
+  - **Effective limits**: query=10, IFDS=15, trace=25
+- [x] 0.2 Verify current taint output format in `.pf/raw/taint_analysis.json`
+  - Uses `paths` array (not `vulnerabilities`)
+  - Each path has `path_length`, `vulnerability_type`, `source`, `sink`, `path[]` steps
+  - Full schema documented in design.md
+- [x] 0.3 Decide hosting location
+  - **Decision**: Separate repo `theauditor-fixtures` (see design.md Decision 6)
 
 ## 1. Python Project Setup (deepflow-python)
 

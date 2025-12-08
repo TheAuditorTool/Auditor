@@ -11,7 +11,7 @@
 |------|-------|------|--------|
 | `vulnerability_scanner.py` | 550, 606 | json.dump + default path | Remove |
 | `commands/docker_analyze.py` | 291 | json.dump | Remove |
-| `commands/graph.py` | 93, 366, 581, 592, 598, 743, 889 | flags + json.dump | Remove |
+| `commands/graph.py` | 131, 404, 658, 669, 675, 965, 1111 | flags + json.dump | Remove |
 | `commands/detect_frameworks.py` | 19, 226 | flag + json.dump | Remove |
 | `commands/deps.py` | 37 | --out flag | Remove |
 | `commands/cfg.py` | 53, 189 | flag + json.dump | Remove |
@@ -53,15 +53,15 @@ Remove JSON file write in analyze command.
 # Add --json flag to output to stdout instead
 ```
 
-### 1.3 commands/graph.py:93,366,581,592,598,743,889
+### 1.3 commands/graph.py:131,404,658,669,675,965,1111
 Remove multiple flags and json.dump calls.
 
 ```python
-# REMOVE: line 93 - @click.option("--out-json", default="./.pf/raw/", ...)
-# REMOVE: line 366 - @click.option("--out", default="./.pf/raw/graph_analysis.json", ...)
-# REMOVE: line 743 - @click.option("--out-dir", default="./.pf/raw/", ...)
-# REMOVE: lines 581, 592, 598 - json.dump() calls in analyze subcommand
-# REMOVE: line 889 - json.dump() in viz subcommand
+# REMOVE: line 131 - @click.option("--out-json", default="./.pf/raw/", ...)
+# REMOVE: line 404 - @click.option("--out", default="./.pf/raw/graph_analysis.json", ...)
+# REMOVE: line 965 - @click.option("--out-dir", default="./.pf/raw/", ...)
+# REMOVE: lines 658, 669, 675 - json.dump() calls in analyze subcommand
+# REMOVE: line 1111 - json.dump() in viz subcommand
 # ADD: --json flag to analyze subcommand for stdout output
 ```
 
@@ -221,7 +221,7 @@ Remove --output flag, keep --json flag.
 # REMOVE: any file writing logic using output parameter
 ```
 
-### 2.3 commands/graph.py:93,366,743
+### 2.3 commands/graph.py:131,404,965
 Remove --out-json, --out, --out-dir flags (covered in 1.3).
 
 ### 2.4 commands/cfg.py:53
@@ -256,11 +256,11 @@ Remove .pf/raw/ from output messaging.
 console.print("  [cyan].pf/raw/[/cyan]              [dim]All analysis artifacts[/dim]")
 ```
 
-### 3.3 commands/full.py:329
+### 3.3 commands/full.py:416
 Remove .pf/raw/ reference from final message.
 
 ```python
-# REMOVE: line 329
+# REMOVE: line 416
 console.print("\nReview the findings in [path].pf/raw/[/path]")
 ```
 
@@ -325,7 +325,7 @@ Remove .pf/raw/fce.json from docstrings.
 ### 5.10 commands/full.py:147
 Remove .pf/raw/*.json from docstring.
 
-### 5.11 commands/graph.py:77-78,380,793
+### 5.11 commands/graph.py:115-116,420,1015,1087
 Remove .pf/raw/ references from docstrings.
 
 ### 5.12 commands/metadata.py:22,284-285

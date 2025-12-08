@@ -270,12 +270,12 @@ logger.info(
 )
 ```
 
-**Checkpoint 2: After IFDS Analysis Loop (`core.py:676`)**
+**Checkpoint 2: After IFDS Analysis Loop (`core.py:686`)**
 
-Insert after the for loop completes, before `ifds_analyzer.close()`:
+Insert after line 685 `all_sanitized_paths.extend(sanitized)`, before line 686 `ifds_analyzer.close()`:
 
 ```python
-# EXACT LOCATION: core.py:676 (after for loop, before ifds_analyzer.close())
+# EXACT LOCATION: core.py:686 (after line 685 extend(), before ifds_analyzer.close())
 from theauditor.taint.fidelity import create_analysis_manifest
 
 analysis_manifest = create_analysis_manifest(
@@ -291,12 +291,12 @@ reconcile_taint_fidelity(
 )
 ```
 
-**Checkpoint 3: After Deduplication (`core.py:686`)**
+**Checkpoint 3: After Deduplication (`core.py:697`)**
 
-Insert after both `deduplicate_paths()` calls:
+Insert after line 696 `unique_sanitized_paths = deduplicate_paths(all_sanitized_paths)`:
 
 ```python
-# EXACT LOCATION: core.py:686 (after unique_sanitized_paths assignment)
+# EXACT LOCATION: core.py:697 (after unique_sanitized_paths assignment)
 from theauditor.taint.fidelity import create_dedup_manifest
 
 pre_dedup_total = len(all_vulnerable_paths) + len(all_sanitized_paths)
@@ -306,12 +306,12 @@ dedup_manifest = create_dedup_manifest(pre_dedup_total, post_dedup_total)
 reconcile_taint_fidelity(dedup_manifest, {}, stage="dedup")
 ```
 
-**Checkpoint 4a: After DB Write (`core.py:786`)**
+**Checkpoint 4a: After DB Write (`core.py:797`)**
 
-Insert after `conn.commit()`:
+Insert after line 796 `conn.commit()`:
 
 ```python
-# EXACT LOCATION: core.py:786 (after conn.commit())
+# EXACT LOCATION: core.py:797 (after conn.commit())
 from theauditor.taint.fidelity import create_db_output_receipt
 
 db_receipt = create_db_output_receipt(
@@ -329,12 +329,15 @@ logger.info(f"Taint DB Output: {total_inserted} rows [Fidelity: OK]")
 
 ### Modify: `theauditor/taint/core.py` - save_taint_analysis()
 
-**Checkpoint 4b: After JSON Write (`core.py:962`)**
+**Checkpoint 4b: After JSON Write (`core.py:973`)**
 
 The JSON write happens in a **separate function** `save_taint_analysis()`, not in `trace_taint()`:
 
 ```python
-# EXACT LOCATION: core.py:962 (inside save_taint_analysis, after json.dump)
+# EXACT LOCATION: core.py:955-973 (replace entire save_taint_analysis function)
+# The current function uses json.dump() directly to file handle.
+# We need to change to json.dumps() + f.write() to capture byte count.
+
 def save_taint_analysis(
     analysis_result: dict[str, Any], output_path: str = "./.pf/taint_analysis.json"
 ):
@@ -342,8 +345,17 @@ def save_taint_analysis(
     output = Path(output_path)
     output.parent.mkdir(parents=True, exist_ok=True)
 
-    # ... existing normalization code ...
+    # Normalize paths (existing code at lines 962-969)
+    if "taint_paths" in analysis_result:
+        analysis_result["taint_paths"] = [
+            normalize_taint_path(p) for p in analysis_result.get("taint_paths", [])
+        ]
+    if "paths" in analysis_result:
+        analysis_result["paths"] = [
+            normalize_taint_path(p) for p in analysis_result.get("paths", [])
+        ]
 
+    # CHANGED: Use dumps() + write() instead of dump() to capture byte count
     with open(output, "w") as f:
         json_str = json.dumps(analysis_result, indent=2, sort_keys=True)
         f.write(json_str)
