@@ -858,7 +858,10 @@ def _show_top_level_overview(data: dict):
 
     lines.append("━" * 80)
     lines.append("Truth Courier Mode: Facts only, no recommendations")
-    lines.append("Use drill-down flags for details: --structure, --graph, --security, --taint")
+    lines.append(
+        "Drill-down flags: --structure, --graph, --security, --taint, "
+        "--boundaries, --deps, --fce, --monoliths"
+    )
     lines.append("━" * 80)
     lines.append("")
 

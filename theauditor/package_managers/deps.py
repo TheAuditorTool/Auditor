@@ -777,10 +777,19 @@ def upgrade_all_deps(
     latest_info: dict[str, dict[str, Any]],
     deps_list: list[dict[str, Any]],
     ecosystems: list[str] | None = None,
-) -> dict[str, int]:
-    """Upgrade dependencies to latest versions."""
+) -> dict[str, Any]:
+    """Upgrade dependencies to latest versions. Returns detailed per-file info."""
     root = Path(root_path)
-    upgraded = {"requirements.txt": 0, "package.json": 0, "pyproject.toml": 0}
+    # New structure: {"package.json": [{"path": "...", "count": N, "changes": [...]}], ...}
+    upgraded = {
+        "requirements.txt": [],
+        "package.json": [],
+        "pyproject.toml": [],
+        "docker-compose": [],
+        "dockerfile": [],
+        "Cargo.toml": [],
+        "go.mod": [],
+    }
 
     if ecosystems is None:
         ecosystems = ["py", "npm", "docker", "cargo", "go"]
@@ -811,12 +820,14 @@ def upgrade_all_deps(
 
             if source_key in deps_by_source:
                 count = _upgrade_requirements_txt(req_file, latest_info, deps_by_source[source_key])
-                upgraded["requirements.txt"] += count
+                if count > 0:
+                    upgraded["requirements.txt"].append({"path": source_key, "count": count})
             elif req_file.name in deps_by_source:
                 count = _upgrade_requirements_txt(
                     req_file, latest_info, deps_by_source[req_file.name]
                 )
-                upgraded["requirements.txt"] += count
+                if count > 0:
+                    upgraded["requirements.txt"].append({"path": source_key, "count": count})
 
     if "npm" in ecosystems:
         for source_key, source_deps in deps_by_source.items():
@@ -831,8 +842,15 @@ def upgrade_all_deps(
                 continue
 
             if package_path.exists():
-                count = _upgrade_package_json(package_path, latest_info, source_deps)
-                upgraded["package.json"] += count
+                result = _upgrade_package_json(package_path, latest_info, source_deps)
+                if result["count"] > 0:
+                    # Use relative path for display
+                    try:
+                        rel_path = package_path.relative_to(root)
+                        result["path"] = str(rel_path).replace("\\", "/")
+                    except ValueError:
+                        pass
+                    upgraded["package.json"].append(result)
 
     if "py" in ecosystems:
         all_pyproject_files = (
@@ -853,12 +871,14 @@ def upgrade_all_deps(
                 count = _upgrade_pyproject_toml(
                     pyproject_file, latest_info, deps_by_source[source_key]
                 )
-                upgraded["pyproject.toml"] += count
+                if count > 0:
+                    upgraded["pyproject.toml"].append({"path": source_key, "count": count})
             elif "pyproject.toml" in deps_by_source and pyproject_file == root / "pyproject.toml":
                 count = _upgrade_pyproject_toml(
                     pyproject_file, latest_info, deps_by_source["pyproject.toml"]
                 )
-                upgraded["pyproject.toml"] += count
+                if count > 0:
+                    upgraded["pyproject.toml"].append({"path": source_key, "count": count})
 
     if "docker" in ecosystems:
         docker_mgr = get_manager("docker")
@@ -866,7 +886,6 @@ def upgrade_all_deps(
             docker_compose_files = list(root.glob("docker-compose*.yml")) + list(
                 root.glob("docker-compose*.yaml")
             )
-            upgraded["docker-compose"] = 0
 
             for compose_file in docker_compose_files:
                 try:
@@ -889,10 +908,10 @@ def upgrade_all_deps(
                     _create_versioned_backup(compose_file)
                     dep_objs = [Dependency.from_dict(d) for d in docker_deps]
                     count = docker_mgr.upgrade_file(compose_file, latest_info, dep_objs)
-                    upgraded["docker-compose"] += count
+                    if count > 0:
+                        upgraded["docker-compose"].append({"path": source_key, "count": count})
 
             dockerfiles = list(root.glob("**/Dockerfile"))
-            upgraded["dockerfile"] = 0
 
             for dockerfile in dockerfiles:
                 try:
@@ -911,13 +930,13 @@ def upgrade_all_deps(
                     _create_versioned_backup(dockerfile)
                     dep_objs = [Dependency.from_dict(d) for d in docker_deps]
                     count = docker_mgr.upgrade_file(dockerfile, latest_info, dep_objs)
-                    upgraded["dockerfile"] += count
+                    if count > 0:
+                        upgraded["dockerfile"].append({"path": source_key, "count": count})
 
     if "cargo" in ecosystems:
         cargo_mgr = get_manager("cargo")
         if cargo_mgr:
             cargo_toml_files = list(root.glob("**/Cargo.toml"))
-            upgraded["Cargo.toml"] = 0
 
             for cargo_toml in cargo_toml_files:
                 try:
@@ -940,13 +959,13 @@ def upgrade_all_deps(
                     _create_versioned_backup(cargo_toml)
                     dep_objs = [Dependency.from_dict(d) for d in cargo_deps]
                     count = cargo_mgr.upgrade_file(cargo_toml, latest_info, dep_objs)
-                    upgraded["Cargo.toml"] += count
+                    if count > 0:
+                        upgraded["Cargo.toml"].append({"path": source_key, "count": count})
 
     if "go" in ecosystems:
         go_mgr = get_manager("go")
         if go_mgr:
             go_mod_files = list(root.glob("**/go.mod"))
-            upgraded["go.mod"] = 0
 
             for go_mod in go_mod_files:
                 try:
@@ -963,7 +982,8 @@ def upgrade_all_deps(
                     _create_versioned_backup(go_mod)
                     dep_objs = [Dependency.from_dict(d) for d in go_deps]
                     count = go_mgr.upgrade_file(go_mod, latest_info, dep_objs)
-                    upgraded["go.mod"] += count
+                    if count > 0:
+                        upgraded["go.mod"].append({"path": source_key, "count": count})
 
     return upgraded
 
@@ -977,11 +997,16 @@ def _upgrade_requirements_txt(
     with open(path, encoding="utf-8") as f:
         lines = f.readlines()
 
+    # Build name->latest lookup from latest_info (keys are "py:name:version")
     latest_versions = {}
-    for dep in deps:
-        key = f"py:{dep['name']}"
-        if key in latest_info and latest_info[key]["latest"] is not None:
-            latest_versions[dep["name"]] = latest_info[key]["latest"]
+    for key, info in latest_info.items():
+        if key.startswith("py:") and info.get("latest"):
+            parts = key.split(":")
+            if len(parts) >= 3:
+                pkg_name = parts[1]  # "py:requests:2.28.0" -> "requests"
+            else:
+                pkg_name = parts[1] if len(parts) > 1 else ""
+            latest_versions[pkg_name] = info["latest"]
 
     updated_lines = []
     count = 0
@@ -1010,34 +1035,55 @@ def _upgrade_requirements_txt(
 
 def _upgrade_package_json(
     path: Path, latest_info: dict[str, dict[str, Any]], deps: list[dict[str, Any]]
-) -> int:
-    """Upgrade package.json to latest versions."""
+) -> dict[str, Any]:
+    """Upgrade package.json to latest versions. Returns detailed change info."""
     _create_versioned_backup(path)
 
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
 
-    count = 0
+    changes = []  # List of (name, old_version, new_version, delta)
+
+    # Build name->(latest, old, delta) lookup from latest_info (keys are "npm:name:version")
+    npm_latest = {}
+    for key, info in latest_info.items():
+        if key.startswith("npm:") and info.get("latest"):
+            # Extract package name from "npm:name:version" or "npm:@scope/name:version"
+            parts = key.split(":")
+            if len(parts) >= 3:
+                pkg_name = ":".join(parts[1:-1])  # Handle @scope/name
+            else:
+                pkg_name = parts[1] if len(parts) > 1 else ""
+            npm_latest[pkg_name] = {
+                "latest": info["latest"],
+                "locked": info.get("locked", ""),
+                "delta": info.get("delta", ""),
+            }
 
     if "dependencies" in data:
-        for name in data["dependencies"]:
-            key = f"npm:{name}"
-            if key in latest_info and latest_info[key]["latest"] is not None:
-                data["dependencies"][name] = latest_info[key]["latest"]
-                count += 1
+        for name, current_ver in list(data["dependencies"].items()):
+            if name in npm_latest:
+                info = npm_latest[name]
+                # Only count as change if version actually differs
+                if current_ver != info["latest"]:
+                    data["dependencies"][name] = info["latest"]
+                    changes.append((name, current_ver, info["latest"], info["delta"]))
 
     if "devDependencies" in data:
-        for name in data["devDependencies"]:
-            key = f"npm:{name}"
-            if key in latest_info and latest_info[key]["latest"] is not None:
-                data["devDependencies"][name] = latest_info[key]["latest"]
-                count += 1
+        for name, current_ver in list(data["devDependencies"].items()):
+            if name in npm_latest:
+                info = npm_latest[name]
+                # Only count as change if version actually differs
+                if current_ver != info["latest"]:
+                    data["devDependencies"][name] = info["latest"]
+                    changes.append((name, current_ver, info["latest"], info["delta"]))
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+    if changes:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+            f.write("\n")
 
-    return count
+    return {"path": str(path), "count": len(changes), "changes": changes}
 
 
 def _upgrade_pyproject_toml(
@@ -1056,7 +1102,12 @@ def _upgrade_pyproject_toml(
         if not key.startswith("py:"):
             continue
 
-        package_name = key[3:]
+        # Extract package name from "py:name:version" format
+        parts = key.split(":")
+        if len(parts) >= 3:
+            package_name = parts[1]  # "py:requests:2.28.0" -> "requests"
+        else:
+            package_name = parts[1] if len(parts) > 1 else ""
         latest_version = info.get("latest")
 
         if not latest_version:

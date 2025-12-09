@@ -210,32 +210,39 @@ def deps(
 
         upgraded = upgrade_all_deps(root_path=root, latest_info=latest_info, deps_list=deps_list)
 
-        unique_upgraded = len([1 for k, v in latest_info.items() if v.get("is_outdated", False)])
-        total_updated = sum(upgraded.values())
+        arrow = "->" if IS_WINDOWS else "->"
 
-        console.print("\n\\[UPGRADED] Dependency files:")
-        for file_type, count in upgraded.items():
-            if count > 0:
-                console.print(f"  \\[OK] {file_type}: {count} dependency entries updated")
+        # Print per-file details with package changes
+        console.print("\n\\[UPGRADED] Files modified:")
+        total_packages = 0
+        total_files = 0
 
-        console.print("\n\\[CHANGES] Packages upgraded:")
-        upgraded_packages = [
-            (k.split(":")[1], v["locked"], v["latest"], v.get("delta", ""))
-            for k, v in latest_info.items()
-            if v.get("is_outdated", False) and v.get("latest") is not None
-        ]
+        for file_type, file_list in upgraded.items():
+            if not file_list:
+                continue
+            for file_info in file_list:
+                total_files += 1
+                file_path = file_info.get("path", file_type)
+                count = file_info.get("count", 0)
+                changes = file_info.get("changes", [])
+                total_packages += count
 
-        upgraded_packages.sort(key=lambda x: x[0].lower())
+                console.print(f"\n  {file_path} ({count} packages):", highlight=False)
 
-        for name, old_ver, new_ver, delta in upgraded_packages:
-            delta_marker = " [MAJOR]" if delta == "major" else ""
+                # Sort changes alphabetically
+                sorted_changes = sorted(changes, key=lambda x: x[0].lower())
+                for name, old_ver, new_ver, delta in sorted_changes:
+                    delta_marker = " [MAJOR]" if delta == "major" else ""
+                    console.print(
+                        f"    - {name}: {old_ver} {arrow} {new_ver}{delta_marker}",
+                        highlight=False,
+                    )
 
-            arrow = "->" if IS_WINDOWS else "→"
-            console.print(f"  - {name}: {old_ver} {arrow} {new_ver}{delta_marker}", highlight=False)
-
-        if total_updated > unique_upgraded:
+        if total_files == 0:
+            console.print("  No files were modified (all packages up to date)")
+        else:
             console.print(
-                f"\n  Summary: {unique_upgraded} unique packages updated across {total_updated} occurrences",
+                f"\n  Total: {total_packages} packages across {total_files} files",
                 highlight=False,
             )
 
@@ -306,36 +313,46 @@ def deps(
             root_path=root, latest_info=latest_info, deps_list=filtered_deps, ecosystems=ecosystems
         )
 
-        unique_upgraded = len([1 for k, v in latest_info.items() if v.get("is_outdated", False)])
-        total_updated = sum(upgraded.values())
+        arrow = "->" if IS_WINDOWS else "->"
 
-        if total_updated == 0:
+        # Count total files modified
+        total_files = sum(len(file_list) for file_list in upgraded.values())
+        total_packages = sum(
+            file_info.get("count", 0)
+            for file_list in upgraded.values()
+            for file_info in file_list
+        )
+
+        if total_files == 0:
             console.print(f"\n  \\[OK] All {selected} dependencies are already up to date!")
             return
 
-        console.print("\n\\[UPGRADED] Dependency files:")
-        for file_type, count in upgraded.items():
-            if count > 0:
-                console.print(f"  \\[OK] {file_type}: {count} dependency entries updated")
+        # Print per-file details with package changes
+        console.print("\n\\[UPGRADED] Files modified:")
 
-        console.print("\n\\[CHANGES] Packages upgraded:")
-        upgraded_packages = [
-            (k.split(":")[1], v["locked"], v["latest"], v.get("delta", ""))
-            for k, v in latest_info.items()
-            if v.get("is_outdated", False) and v.get("latest") is not None
-        ]
-        upgraded_packages.sort(key=lambda x: x[0].lower())
+        for file_type, file_list in upgraded.items():
+            if not file_list:
+                continue
+            for file_info in file_list:
+                file_path = file_info.get("path", file_type)
+                count = file_info.get("count", 0)
+                changes = file_info.get("changes", [])
 
-        for name, old_ver, new_ver, delta in upgraded_packages:
-            delta_marker = " [MAJOR]" if delta == "major" else ""
-            arrow = "->" if IS_WINDOWS else "->"
-            console.print(f"  - {name}: {old_ver} {arrow} {new_ver}{delta_marker}", highlight=False)
+                console.print(f"\n  {file_path} ({count} packages):", highlight=False)
 
-        if total_updated > unique_upgraded:
-            console.print(
-                f"\n  Summary: {unique_upgraded} unique packages updated across {total_updated} occurrences",
-                highlight=False,
-            )
+                # Sort changes alphabetically
+                sorted_changes = sorted(changes, key=lambda x: x[0].lower())
+                for name, old_ver, new_ver, delta in sorted_changes:
+                    delta_marker = " [MAJOR]" if delta == "major" else ""
+                    console.print(
+                        f"    - {name}: {old_ver} {arrow} {new_ver}{delta_marker}",
+                        highlight=False,
+                    )
+
+        console.print(
+            f"\n  Total: {total_packages} packages across {total_files} files",
+            highlight=False,
+        )
 
         console.print("\n\\[NEXT STEPS]:")
         if upgrade_py:

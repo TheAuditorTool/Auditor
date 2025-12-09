@@ -53,8 +53,8 @@ RENAME_COLUMN = re.compile(
     "--migration-limit",
     "-ml",
     type=int,
-    default=5,
-    help="Number of recent migrations to analyze (0=all, default=5)",
+    default=0,
+    help="Number of recent migrations to analyze (0=all, default=all)",
 )
 @click.option(
     "--file",

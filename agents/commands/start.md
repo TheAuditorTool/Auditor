@@ -32,11 +32,14 @@ This file contains:
 
 ## Phase 1: Immediate Context Load (ALWAYS)
 
-Before analyzing the user's request, run these commands:
+Before analyzing the user's request, ALWAYS run these commands:
 
 ```bash
+aud blueprint # Overview of entire codebase
 aud blueprint --structure    # Architecture, frameworks, conventions
-aud blueprint --monoliths    # Large files requiring chunked analysis
+aud blueprint --monoliths    # Large files requiring chunked analysis.
+aud refactor # Scans migrations to check for schema mismatches.
+aud deadcode # Check for orphaned/dead/zombie code
 ```
 
 **DO NOT SKIP THIS.** Even for "simple" requests, blueprint provides:
