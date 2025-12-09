@@ -10,10 +10,10 @@ On 2024-12-06, rigorous verification of TheAuditor's cross-file dataflow trackin
 | plantflow (TS/JS) | 56 MB | 70 MB | **2 hops** |
 | TheAuditor (Python) | 243 MB | 263 MB | **3 hops** |
 
-**Root cause identified**: Depth limits in code (verified 2024-12-08):
-- `theauditor/context/query.py:604` - `trace_variable_flow(depth: int = 10)` with hard max at line 608: `depth > 10`
-- `theauditor/taint/core.py:370` - `trace_taint(max_depth: int = 25)`
-- `theauditor/taint/ifds_analyzer.py:59` - `analyze_sink_to_sources(max_depth: int = 15)`
+**Root cause identified**: Depth limits in code (verified 2024-12-09):
+- `theauditor/context/query.py:604-608` - `trace_variable_flow(depth: int = 10)` with validation `depth < 1 or depth > 10`
+- `theauditor/taint/core.py:368-370` - `trace_taint(max_depth: int = 25)`
+- `theauditor/taint/ifds_analyzer.py:58-59` - `analyze_sink_to_sources(max_depth: int = 15)`
 
 **Effective limits**: query tracing=10, IFDS analysis=15, full taint trace=25
 
@@ -405,7 +405,7 @@ class QueryBuilder:
 
 ### Expected TheAuditor Output
 
-When `aud full --offline` runs on this project, the expected `taint_analysis.json` entry:
+When `aud full --offline` runs on this project, the expected `taint_flows` database record (query with `SELECT * FROM taint_flows`):
 
 ```json
 {
@@ -511,7 +511,13 @@ N/A - These are new test projects, not modifications to existing code.
 
 ## Output Schema Reference
 
-The `.pf/raw/taint_analysis.json` output has this structure (verified from TheAuditor codebase):
+The `taint_flows` table in `.pf/repo_index.db` stores taint analysis results. Each row's `path_json` column contains the path structure. Query with:
+
+```sql
+SELECT vulnerability_type, path_length, severity, path_json FROM taint_flows;
+```
+
+Per-row structure (JSON in `path_json` column):
 
 ```json
 {

@@ -60,28 +60,46 @@ After `aud full --offline` on each project:
 ```bash
 # After indexing deepflow-python
 cd deepflow-python && aud full --offline
+
+# Query taint results from database (source of truth)
 python -c "
+import sqlite3
 import json
-with open('.pf/raw/taint_analysis.json') as f:
-    data = json.load(f)
-paths = data.get('paths', [])
-max_depth = max(p.get('path_length', 0) for p in paths) if paths else 0
+
+conn = sqlite3.connect('.pf/repo_index.db')
+conn.row_factory = sqlite3.Row
+c = conn.cursor()
+
+# Get max depth and distribution
+c.execute('SELECT path_length, COUNT(*) as cnt FROM taint_flows GROUP BY path_length ORDER BY path_length')
+depths = {row['path_length']: row['cnt'] for row in c.fetchall()}
+max_depth = max(depths.keys()) if depths else 0
 print(f'Max depth: {max_depth}')
-depths = {}
-for p in paths:
-    d = p.get('path_length', 0)
-    depths[d] = depths.get(d, 0) + 1
-print(f'Distribution: {dict(sorted(depths.items()))}')
-# Cross-file count per chain
-for p in paths[:5]:
-    files = set(step.get('file', step.get('from_file', '')) for step in p.get('path', []))
-    print(f'  Chain {p.get(\"vulnerability_type\", \"?\")}: {len(files)} files, {p.get(\"path_length\", 0)} hops')
+print(f'Distribution: {depths}')
+
+# Get cross-file counts for top chains
+c.execute('''
+    SELECT vulnerability_type, path_length, path_json
+    FROM taint_flows
+    ORDER BY path_length DESC
+    LIMIT 5
+''')
+for row in c.fetchall():
+    path = json.loads(row['path_json']) if row['path_json'] else []
+    files = set(step.get('file', step.get('from_file', '')) for step in path)
+    print(f'  Chain {row[\"vulnerability_type\"]}: {len(files)} files, {row[\"path_length\"]} hops')
+
+conn.close()
 "
 
 # After indexing deepflow-typescript
 cd deepflow-typescript && aud full --offline
 # Same verification script
 ```
+
+## Dependencies
+
+**Requires**: `remove-raw-json-outputs` awareness - this proposal uses database queries for verification, not `.pf/raw/*.json` files which are being removed in v2.0.
 
 ## Out of Scope
 

@@ -2,14 +2,14 @@
 
 ## 0. Verification (Pre-Implementation) - COMPLETED
 
-- [x] 0.1 Confirm depth limits in codebase (verified 2024-12-08)
-  - `theauditor/context/query.py:604` - `trace_variable_flow(depth: int = 10)`, hard max at line 608: `depth > 10`
-  - `theauditor/taint/core.py:370` - `trace_taint(max_depth: int = 25)`
-  - `theauditor/taint/ifds_analyzer.py:59` - `analyze_sink_to_sources(max_depth: int = 15)`
+- [x] 0.1 Confirm depth limits in codebase (verified 2024-12-09)
+  - `theauditor/context/query.py:604-608` - `trace_variable_flow(depth: int = 10)`, validation `depth < 1 or depth > 10`
+  - `theauditor/taint/core.py:368-370` - `trace_taint(max_depth: int = 25)`
+  - `theauditor/taint/ifds_analyzer.py:58-59` - `analyze_sink_to_sources(max_depth: int = 15)`
   - **Effective limits**: query=10, IFDS=15, trace=25
-- [x] 0.2 Verify current taint output format in `.pf/raw/taint_analysis.json`
-  - Uses `paths` array (not `vulnerabilities`)
-  - Each path has `path_length`, `vulnerability_type`, `source`, `sink`, `path[]` steps
+- [x] 0.2 Verify current taint output format in `taint_flows` table (database is source of truth)
+  - Uses `path_length`, `vulnerability_type`, `path_json` columns
+  - Query: `SELECT vulnerability_type, path_length, path_json FROM taint_flows`
   - Full schema documented in design.md
 - [x] 0.3 Decide hosting location
   - **Decision**: Separate repo `theauditor-fixtures` (see design.md Decision 6)

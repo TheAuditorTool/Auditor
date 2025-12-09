@@ -12,6 +12,7 @@ The system SHALL provide a `LanguageMetadata` frozen dataclass at `theauditor/co
 | `extensions` | `tuple[str, ...]` | File extensions | `(".py", ".pyx")` |
 | `entry_point_patterns` | `tuple[str, ...]` | Entry point filenames | `("main.py", "__main__.py")` |
 | `route_table` | `RouteTableInfo \| None` | Route table metadata | See RouteTableInfo |
+| `framework_routes` | `dict[str, FrameworkRouteInfo]` | Framework-specific route overrides | See FrameworkRouteInfo |
 | `table_prefix` | `str` | Prefix for language tables | `"python_"` |
 
 **Implementation:**
@@ -23,6 +24,7 @@ class LanguageMetadata:
     extensions: tuple[str, ...]
     entry_point_patterns: tuple[str, ...]
     route_table: RouteTableInfo | None
+    framework_routes: dict[str, FrameworkRouteInfo]
     table_prefix: str
 ```
 
@@ -59,6 +61,11 @@ A unified query approach is IMPOSSIBLE without column mapping.
 | `method_column` | `str` | Column for HTTP method | `"method"` or `"attribute_name"` |
 | `filter_clause` | `str \| None` | Optional WHERE filter | `"attribute_name IN ('get', 'post', ...)"` |
 
+**Methods:**
+| Method | Return Type | Description |
+|--------|-------------|-------------|
+| `build_query(limit)` | `str` | Build SELECT query with correct column names |
+
 **Implementation:**
 ```python
 @dataclass(frozen=True, slots=True)
@@ -69,6 +76,20 @@ class RouteTableInfo:
     pattern_column: str
     method_column: str
     filter_clause: str | None = None
+
+    def build_query(self, limit: int | None = None) -> str:
+        """Build SELECT query with correct column names."""
+        query = f"""
+            SELECT {self.file_column} AS file, {self.line_column} AS line,
+                   {self.pattern_column} AS pattern, {self.method_column} AS method
+            FROM {self.table_name}
+            WHERE {self.pattern_column} IS NOT NULL
+        """
+        if self.filter_clause:
+            query += f" AND {self.filter_clause}"
+        if limit:
+            query += f" LIMIT {limit}"
+        return query
 ```
 
 #### Scenario: Python route table info
@@ -79,11 +100,60 @@ class RouteTableInfo:
 - **WHEN** `RustExtractor.get_route_table()` is called
 - **THEN** returns `RouteTableInfo("rust_attributes", "file_path", "target_line", "args", "attribute_name", "attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route')")`
 
+#### Scenario: build_query normalizes column names
+- **WHEN** `RouteTableInfo("rust_attributes", "file_path", "target_line", "args", "attribute_name").build_query()` is called
+- **THEN** returns SQL with `SELECT file_path AS file, target_line AS line, args AS pattern, attribute_name AS method`
+- **AND** consumer receives rows with consistent column positions regardless of source table
+
+---
+
+### Requirement: FrameworkRouteInfo Dataclass
+
+The system SHALL provide a `FrameworkRouteInfo` frozen dataclass to handle framework-specific route source overrides.
+
+**RATIONALE:** Frameworks may override the default language route table with framework-specific sources.
+For example, Express uses `express_middleware_chains` table with custom analysis instead of the generic
+`js_routes` table. The boundary analyzer has a dedicated `_analyze_express_boundaries()` function for this.
+
+**Fields:**
+| Field | Type | Description | Example |
+|-------|------|-------------|---------|
+| `framework_name` | `str` | Framework identifier | `"express"` |
+| `route_table` | `RouteTableInfo \| None` | Framework's route table (None if custom analyzer) | `None` |
+| `uses_custom_analyzer` | `bool` | True if boundary_analyzer has dedicated function | `True` |
+| `analyzer_function` | `str \| None` | Name of custom analyzer function | `"_analyze_express_boundaries"` |
+
+**Implementation:**
+```python
+@dataclass(frozen=True, slots=True)
+class FrameworkRouteInfo:
+    """Framework-specific route source override."""
+    framework_name: str
+    route_table: RouteTableInfo | None
+    uses_custom_analyzer: bool = False
+    analyzer_function: str | None = None
+```
+
+#### Scenario: Express framework uses custom analyzer
+- **WHEN** `JavaScriptExtractor.get_framework_routes()` is called
+- **THEN** returns `{"express": FrameworkRouteInfo("express", None, True, "_analyze_express_boundaries")}`
+- **AND** `uses_custom_analyzer=True` signals that consumers should route to dedicated analyzer
+
+#### Scenario: Framework info signals custom analyzer to consumers
+- **WHEN** `LanguageMetadataService.has_custom_analyzer("javascript", "express")` is called
+- **THEN** returns `True`
+- **AND** boundary_analyzer routes Express projects to `_analyze_express_boundaries()` instead of generic queries
+
+#### Scenario: Framework without custom analyzer uses route table
+- **WHEN** a framework has `uses_custom_analyzer=False` and `route_table` is set
+- **THEN** consumers use the framework's `route_table` via `build_query()`
+- **AND** generic query processing is used
+
 ---
 
 ### Requirement: BaseExtractor Metadata Methods
 
-The system SHALL add 5 optional metadata methods to `BaseExtractor` at `theauditor/indexer/extractors/__init__.py:13-77`.
+The system SHALL add 6 optional metadata methods to `BaseExtractor` at `theauditor/indexer/extractors/__init__.py:13-77`.
 
 **Methods:**
 | Method | Return Type | Default Value | Purpose |
@@ -92,6 +162,7 @@ The system SHALL add 5 optional metadata methods to `BaseExtractor` at `theaudit
 | `get_display_name()` | `str` | Class name minus "Extractor" | Human-readable name |
 | `get_entry_point_patterns()` | `list[str]` | `[]` | Entry point filenames |
 | `get_route_table()` | `RouteTableInfo \| None` | `None` | Route table metadata |
+| `get_framework_routes()` | `dict[str, FrameworkRouteInfo]` | `{}` | Framework-specific overrides |
 | `get_table_prefix()` | `str` | `"{language_id}_"` | Table name prefix |
 
 **Default Implementation:**
@@ -105,8 +176,11 @@ def get_display_name(self) -> str:
 def get_entry_point_patterns(self) -> list[str]:
     return []
 
-def get_route_table(self) -> RouteTableInfo | None:
+def get_route_table(self):
     return None
+
+def get_framework_routes(self) -> dict:
+    return {}
 
 def get_table_prefix(self) -> str:
     return f"{self.get_language_id()}_"
@@ -124,6 +198,11 @@ def get_table_prefix(self) -> str:
 - **WHEN** an extractor does not implement any metadata methods
 - **THEN** default implementations provide sensible values
 - **AND** extraction behavior is unchanged
+
+#### Scenario: Default framework routes is empty
+- **WHEN** `BashExtractor.get_framework_routes()` is called (no override)
+- **THEN** returns `{}`
+- **AND** no framework-specific routing occurs
 
 ---
 
@@ -157,6 +236,11 @@ The system SHALL add 5 query methods to `ExtractorRegistry` at `theauditor/index
 - **WHEN** `registry.get_extractor_by_language("python")` is called
 - **THEN** returns the `PythonExtractor` instance
 
+#### Scenario: Get all metadata includes framework routes
+- **WHEN** `registry.get_all_metadata()` is called
+- **THEN** each language dict includes `"framework_routes"` key
+- **AND** JavaScript entry includes Express framework info
+
 ---
 
 ### Requirement: LanguageMetadataService Singleton
@@ -167,11 +251,16 @@ The system SHALL provide a `LanguageMetadataService` singleton at `theauditor/co
 | Method | Return Type | Purpose | Replaces |
 |--------|-------------|---------|----------|
 | `initialize(registry)` | `None` | Initialize from ExtractorRegistry | N/A |
+| `is_initialized()` | `bool` | Check if service initialized | N/A |
 | `get_by_extension(ext)` | `LanguageMetadata \| None` | Get metadata by extension | N/A |
 | `get_by_language(lang_id)` | `LanguageMetadata \| None` | Get metadata by language ID | N/A |
 | `get_all_extensions()` | `list[str]` | All supported extensions | `explain.py:33-45 FILE_EXTENSIONS` |
-| `get_all_route_tables()` | `list[RouteTableInfo]` | All route tables with column mapping | `boundary_analyzer.py:25-130` |
-| `get_all_entry_points()` | `dict[str, list[str]]` | All entry points | `deadcode_graph.py:287-298` |
+| `get_all_route_tables()` | `list[RouteTableInfo]` | All route tables with column mapping | `boundary_analyzer.py:229-323` |
+| `get_all_entry_points()` | `dict[str, list[str]]` | All entry points by language | `deadcode_graph.py:303-316` |
+| `get_flat_entry_point_patterns()` | `list[str]` | All entry points as flat list | `deadcode_graph.py:303-316` |
+| `get_route_table_for_framework(lang_id, framework)` | `RouteTableInfo \| None` | Get route table respecting framework override | N/A |
+| `get_framework_info(lang_id, framework)` | `FrameworkRouteInfo \| None` | Get framework-specific route info | N/A |
+| `has_custom_analyzer(lang_id, framework)` | `bool` | Check if framework has custom analyzer | N/A |
 
 #### Scenario: Service is singleton
 - **WHEN** `LanguageMetadataService()` is called multiple times
@@ -190,7 +279,27 @@ The system SHALL provide a `LanguageMetadataService` singleton at `theauditor/co
 #### Scenario: Get all entry points replaces hardcoded patterns
 - **WHEN** `LanguageMetadataService.get_all_entry_points()` is called
 - **THEN** returns `{"python": ["main.py", "__main__.py", ...], "javascript": ["index.js", ...], ...}`
-- **AND** `deadcode_graph.py` uses this instead of hardcoded patterns at lines 287-298
+- **AND** `deadcode_graph.py` uses this instead of hardcoded patterns at lines 303-316
+
+#### Scenario: Get flat entry point patterns for simple matching
+- **WHEN** `LanguageMetadataService.get_flat_entry_point_patterns()` is called
+- **THEN** returns flat list: `["main.py", "__main__.py", "index.js", "index.ts", ...]`
+- **AND** suitable for simple `any(pattern in node for pattern in patterns)` checks
+
+#### Scenario: Check if framework has custom analyzer
+- **WHEN** `LanguageMetadataService.has_custom_analyzer("javascript", "express")` is called
+- **THEN** returns `True`
+- **AND** boundary_analyzer routes to `_analyze_express_boundaries()` instead of generic queries
+
+#### Scenario: Get route table respects framework override (custom analyzer)
+- **WHEN** `LanguageMetadataService.get_route_table_for_framework("javascript", "express")` is called
+- **AND** Express has `uses_custom_analyzer=True`
+- **THEN** returns `None` (caller should use dedicated analyzer)
+
+#### Scenario: Get route table respects framework override (table override)
+- **WHEN** a framework has `uses_custom_analyzer=False` and custom `route_table`
+- **THEN** `get_route_table_for_framework()` returns the framework's `route_table`
+- **AND** NOT the default language route table
 
 ---
 
@@ -199,13 +308,13 @@ The system SHALL provide a `LanguageMetadataService` singleton at `theauditor/co
 Each language extractor SHALL override metadata methods with language-specific values.
 
 **Complete Metadata Table (5 Main Extractors):**
-| Extractor | File | language_id | entry_point_patterns | route_table |
-|-----------|------|-------------|---------------------|-------------|
-| PythonExtractor | `extractors/python.py` | `python` | `["main.py", "__main__.py", "cli.py", "wsgi.py", "asgi.py"]` | `RouteTableInfo("python_routes", "file", "line", "pattern", "method", None)` |
-| JavaScriptExtractor | `extractors/javascript.py` | `javascript` | `["index.js", "index.ts", "index.tsx", "App.tsx", "main.js", "main.ts"]` | `RouteTableInfo("js_routes", "file", "line", "pattern", "method", None)` |
-| RustExtractor | `extractors/rust.py` | `rust` | `["main.rs", "lib.rs"]` | `RouteTableInfo("rust_attributes", "file_path", "target_line", "args", "attribute_name", "attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route')")` |
-| GoExtractor | `extractors/go.py` | `go` | `["main.go"]` | `RouteTableInfo("go_routes", "file", "line", "path", "method", None)` |
-| BashExtractor | `extractors/bash.py` | `bash` | `[]` | `None` |
+| Extractor | File | language_id | entry_point_patterns | route_table | framework_routes |
+|-----------|------|-------------|---------------------|-------------|------------------|
+| PythonExtractor | `extractors/python.py` | `python` | `["main.py", "__main__.py", "cli.py", "wsgi.py", "asgi.py", "manage.py"]` | `RouteTableInfo("python_routes", ...)` | `{}` |
+| JavaScriptExtractor | `extractors/javascript.py` | `javascript` | `["index.js", "index.ts", "index.tsx", "App.tsx", ...]` | `RouteTableInfo("js_routes", ...)` | `{"express": FrameworkRouteInfo(..., uses_custom_analyzer=True)}` |
+| RustExtractor | `extractors/rust.py` | `rust` | `["main.rs", "lib.rs"]` | `RouteTableInfo("rust_attributes", ...)` | `{}` |
+| GoExtractor | `extractors/go.py` | `go` | `["main.go"]` | `RouteTableInfo("go_routes", ...)` | `{}` |
+| BashExtractor | `extractors/bash.py` | `bash` | `[]` | `None` | `{}` |
 
 **Secondary Extractors (use defaults):**
 | Extractor | File | Notes |
@@ -220,16 +329,22 @@ Each language extractor SHALL override metadata methods with language-specific v
 
 #### Scenario: Python extractor returns correct metadata
 - **WHEN** `PythonExtractor.get_entry_point_patterns()` is called
-- **THEN** returns `["main.py", "__main__.py", "cli.py", "wsgi.py", "asgi.py"]`
+- **THEN** returns `["main.py", "__main__.py", "cli.py", "wsgi.py", "asgi.py", "manage.py"]`
 
 #### Scenario: Rust extractor returns route table with column mapping
 - **WHEN** `RustExtractor.get_route_table()` is called
 - **THEN** returns `RouteTableInfo("rust_attributes", "file_path", "target_line", "args", "attribute_name", "attribute_name IN (...)")`
 
+#### Scenario: JavaScript extractor returns Express framework override
+- **WHEN** `JavaScriptExtractor.get_framework_routes()` is called
+- **THEN** returns `{"express": FrameworkRouteInfo("express", None, True, "_analyze_express_boundaries")}`
+- **AND** Express projects route to dedicated analyzer
+
 #### Scenario: Terraform extractor uses defaults
 - **WHEN** `TerraformExtractor.get_language_id()` is called
 - **THEN** returns `"terraform"` (derived from class name)
 - **AND** `get_route_table()` returns `None`
+- **AND** `get_framework_routes()` returns `{}`
 
 ---
 
@@ -282,3 +397,36 @@ The system SHALL NOT use any fallback patterns. This is CRITICAL.
 **NOTE**: Returning None for unknown extensions is NOT a fallback - it's the correct "not found"
 response. A fallback would be trying a different lookup method or returning a default value.
 ZERO FALLBACK prohibits alternatives, not legitimate "not found" responses.
+
+---
+
+### Requirement: Framework Analyzer Preservation
+
+The system SHALL preserve existing framework-specific analyzers in boundary_analyzer.py.
+
+**RATIONALE:** The Express analyzer (`_analyze_express_boundaries()` at lines 57-182) uses the
+`express_middleware_chains` table with custom distance calculation based on middleware execution
+order. This provides superior analysis compared to generic table queries and MUST be preserved.
+
+#### Scenario: Express analyzer unchanged
+- **WHEN** boundary_analyzer.py is migrated
+- **THEN** `_analyze_express_boundaries()` function remains unchanged (lines 57-182)
+- **AND** continues to use `express_middleware_chains` table
+- **AND** middleware distance calculation is preserved
+
+#### Scenario: Framework routing via metadata service
+- **WHEN** boundary_analyzer detects Express framework
+- **AND** `LanguageMetadataService.has_custom_analyzer("javascript", "express")` returns `True`
+- **THEN** routes to `_analyze_express_boundaries()` instead of generic queries
+
+#### Scenario: Generic fallback uses RouteTableInfo
+- **WHEN** no framework-specific analyzer exists
+- **THEN** boundary_analyzer uses `LanguageMetadataService.get_all_route_tables()`
+- **AND** queries each table using `RouteTableInfo.build_query()`
+- **AND** NO `_table_exists()` checks are used
+
+#### Scenario: Mixed analysis for multi-framework projects
+- **WHEN** a project has both Express and Python routes
+- **THEN** Express routes use `_analyze_express_boundaries()`
+- **AND** Python routes use generic `RouteTableInfo` queries
+- **AND** results are combined correctly

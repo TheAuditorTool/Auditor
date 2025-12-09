@@ -9,7 +9,7 @@
 ### Hypothesis 2: BaseExtractor ends at line 77 with `cleanup()` method
 **Verification**: CONFIRMED by reading `theauditor/indexer/extractors/__init__.py`
 - Lines 13-77: BaseExtractor class
-- Line 72-76: `cleanup()` method is the last method
+- Lines 72-76: `cleanup()` method is the last method
 **Action**: Add metadata methods after line 77
 
 ### Hypothesis 3: ExtractorRegistry ends at line 136 with `supported_extensions()`
@@ -19,7 +19,7 @@
 **Action**: Add query methods after line 136
 
 ### Hypothesis 4: Route table column names differ per language
-**Verification**: CONFIRMED by reading `theauditor/boundaries/boundary_analyzer.py:25-130`
+**Verification**: CONFIRMED by reading `theauditor/boundaries/boundary_analyzer.py:229-323`
 
 | Table | file | line | pattern | method |
 |-------|------|------|---------|--------|
@@ -31,7 +31,7 @@
 **Action**: Created RouteTableInfo dataclass with column mapping
 
 ### Hypothesis 5: boundary_analyzer.py uses `_table_exists()` which violates ZERO FALLBACK
-**Verification**: CONFIRMED by reading `theauditor/boundaries/boundary_analyzer.py:16-22`
+**Verification**: CONFIRMED by reading `theauditor/boundaries/boundary_analyzer.py:19-25`
 ```python
 def _table_exists(cursor, table_name: str) -> bool:
     """Check if a table exists in the database."""
@@ -41,10 +41,22 @@ def _table_exists(cursor, table_name: str) -> bool:
     )
     return cursor.fetchone() is not None
 ```
-Used at lines 35, 55, 75, 95, 115 - each with `if _table_exists(cursor, "xxx"):` pattern.
-**Action**: Delete `_table_exists()` and replace with RouteTableInfo loop
+Used at lines 35, 69, 74, 93, 229, 248, 267, 286, 305 - each with `if _table_exists(cursor, "xxx"):` pattern.
+**Action**: Delete `_table_exists()` in generic fallback section, preserve in framework-aware sections for now
 
-### Hypothesis 6: All 12 extractors exist in `theauditor/indexer/extractors/`
+### Hypothesis 6: boundary_analyzer.py has framework-aware Express analyzer
+**Verification**: CONFIRMED by reading `theauditor/boundaries/boundary_analyzer.py:57-182`
+```python
+def _analyze_express_boundaries(cursor, framework_info: list[dict], max_entries: int) -> list[dict]:
+    """Analyze boundaries for Express.js projects using middleware chains.
+
+    Express middleware runs BEFORE the handler, so we check express_middleware_chains
+    for validation middleware rather than doing call graph traversal.
+    """
+```
+**Action**: PRESERVE this function, integrate with LanguageMetadataService via FrameworkRouteInfo
+
+### Hypothesis 7: All 12 extractors exist in `theauditor/indexer/extractors/`
 **Verification**: CONFIRMED by `Glob` search
 
 **Main extractors (need metadata overrides):**
@@ -70,7 +82,7 @@ Used at lines 35, 55, 75, 95, 115 - each with `if _table_exists(cursor, "xxx"):`
 - `manifest_extractor.py` - Manifest handling
 - `manifest_parser.py` - Manifest parsing
 
-### Hypothesis 7: explain.py FILE_EXTENSIONS is at lines 33-45
+### Hypothesis 8: explain.py FILE_EXTENSIONS is at lines 33-45
 **Verification**: CONFIRMED by reading `theauditor/commands/explain.py:33-45`
 ```python
 FILE_EXTENSIONS = {
@@ -89,31 +101,53 @@ FILE_EXTENSIONS = {
 ```
 **Action**: Replace with service call
 
-### Hypothesis 8: deadcode_graph.py entry points are at lines 287-298
-**Verification**: CONFIRMED by reading `theauditor/context/deadcode_graph.py:287-298`
+### Hypothesis 9: deadcode_graph.py entry points are at lines 303-316
+**Verification**: CONFIRMED by reading `theauditor/context/deadcode_graph.py:299-326`
 ```python
-for node in graph.nodes():
-    if any(
-        pattern in node
-        for pattern in [
-            "cli.py",
-            "__main__.py",
-            "main.py",
-            "index.ts",
-            "index.js",
-            "index.tsx",
-            "App.tsx",
-        ]
-    ):
+def _find_entry_points(self, graph: nx.DiGraph) -> set[str]:
+    """Multi-strategy entry point detection."""
+    entry_points = set()
+
+    for node in graph.nodes():
+        if any(
+            pattern in node
+            for pattern in [
+                "cli.py",
+                "__main__.py",
+                "main.py",
+                "index.ts",
+                "index.js",
+                "index.tsx",
+                "App.tsx",
+            ]
+        ):
+            entry_points.add(node)
 ```
 **Action**: Replace with service call
 
-### Hypothesis 9: orchestrator.py creates ExtractorRegistry at line 48
+### Hypothesis 10: orchestrator.py creates ExtractorRegistry at line 48
 **Verification**: CONFIRMED by reading `theauditor/indexer/orchestrator.py:48`
 ```python
 self.extractor_registry = ExtractorRegistry(root_path, self.ast_parser)
 ```
 **Action**: Add `LanguageMetadataService.initialize(self.extractor_registry)` after line 48
+
+### Hypothesis 11: blueprint.py naming conventions are at lines 385-455
+**Verification**: CONFIRMED by reading `theauditor/commands/blueprint.py:382-455`
+- `_get_naming_conventions()` function starts at line 382
+- SQL query with hardcoded extensions runs from 385-455
+**Action**: Document for future migration (not in scope for this proposal)
+
+### Hypothesis 12: refactor.py migration globs are at lines 800-802
+**Verification**: CONFIRMED by reading `theauditor/commands/refactor.py:799-802`
+```python
+migrations = sorted(
+    glob.glob(str(migration_path / "*.js"))
+    + glob.glob(str(migration_path / "*.ts"))
+    + glob.glob(str(migration_path / "*.sql"))
+)
+```
+**Action**: Document for future migration (not in scope for this proposal)
 
 ---
 
@@ -129,10 +163,15 @@ self.extractor_registry = ExtractorRegistry(root_path, self.ast_parser)
 **Reality**: 12 extractors exist (5 main + 7 secondary)
 **Resolution**: Updated spec to document all 12, secondary use defaults
 
-### Discrepancy 3: Original ticket proposed try-except in boundary_analyzer migration
-**Initial Assumption**: try-except around query was acceptable
-**Reality**: ZERO FALLBACK policy forbids this pattern
-**Resolution**: Removed try-except from tasks.md, documented proper pattern
+### Discrepancy 3: Original ticket missed framework-aware boundary analysis
+**Initial Assumption**: All route analysis uses simple table queries
+**Reality**: Express framework has dedicated analyzer (`_analyze_express_boundaries`) that uses middleware chains
+**Resolution**: Added FrameworkRouteInfo dataclass and `get_framework_routes()` method to handle framework overrides
+
+### Discrepancy 4: Original ticket proposed replacing entire boundary_analyzer function
+**Initial Assumption**: Simple replacement of analyze_input_validation_boundaries()
+**Reality**: Function has 3-layer structure: framework detection → framework analyzers → generic fallback
+**Resolution**: Only replace generic fallback section (lines 229-323), preserve framework-aware logic
 
 ---
 
@@ -144,10 +183,13 @@ self.extractor_registry = ExtractorRegistry(root_path, self.ast_parser)
 | 2. BaseExtractor ends line 77 | CONFIRMED | Read __init__.py |
 | 3. ExtractorRegistry ends line 136 | CONFIRMED | Read __init__.py |
 | 4. Route columns differ | CONFIRMED | Read boundary_analyzer.py |
-| 5. _table_exists violates ZERO FALLBACK | CONFIRMED | Read boundary_analyzer.py:16-22 |
-| 6. 12 extractors exist | CONFIRMED | Glob + Read |
-| 7. FILE_EXTENSIONS at 33-45 | CONFIRMED | Read explain.py |
-| 8. Entry points at 287-298 | CONFIRMED | Read deadcode_graph.py |
-| 9. ExtractorRegistry at line 48 | CONFIRMED | Read orchestrator.py |
+| 5. _table_exists violates ZERO FALLBACK | CONFIRMED | Read boundary_analyzer.py:19-25 |
+| 6. Express has custom analyzer | CONFIRMED | Read boundary_analyzer.py:57-182 |
+| 7. 12 extractors exist | CONFIRMED | Glob + Read |
+| 8. FILE_EXTENSIONS at 33-45 | CONFIRMED | Read explain.py |
+| 9. Entry points at 303-316 | CONFIRMED | Read deadcode_graph.py |
+| 10. ExtractorRegistry at line 48 | CONFIRMED | Read orchestrator.py |
+| 11. Naming conventions at 385-455 | CONFIRMED | Read blueprint.py |
+| 12. Migration globs at 800-802 | CONFIRMED | Read refactor.py |
 
 **All hypotheses verified. Ready for implementation.**

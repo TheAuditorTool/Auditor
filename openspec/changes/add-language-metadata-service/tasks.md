@@ -1,12 +1,50 @@
+# Tasks
+
+## Execution Order
+
+Execute in order. Each task has acceptance criteria. DO NOT skip.
+
+```
+Phase 1: Core Infrastructure
+  1.1 Create theauditor/core/ package
+  1.2 Create language_metadata.py with dataclasses (including FrameworkRouteInfo)
+  1.3 Create LanguageMetadataService
+
+Phase 2: Extractor Extensions
+  2.1 Add metadata methods to BaseExtractor
+  2.2 Add query methods to ExtractorRegistry
+  2.3 Add metadata overrides to PythonExtractor
+  2.4 Add metadata overrides to JavaScriptExtractor (WITH framework_routes for Express)
+  2.5 Add metadata overrides to RustExtractor
+  2.6 Add metadata overrides to GoExtractor
+  2.7 Add metadata overrides to BashExtractor
+
+Phase 3: Service Initialization
+  3.1 Initialize LanguageMetadataService in orchestrator.py
+
+Phase 4: Command Migrations
+  4.1 Migrate explain.py (FILE_EXTENSIONS)
+  4.2 Migrate deadcode_graph.py (entry point patterns)
+  4.3 Migrate boundary_analyzer.py (GENERIC FALLBACK ONLY - preserve Express analyzer)
+
+Phase 5: Verification
+  5.1 Run full test suite
+  5.2 Run integration test
+```
+
+---
+
 ## 0. Verification (TEAMSOP REQUIRED)
 
 Before implementation, verify these hypotheses against live code:
 
-- [ ] 0.1 Verify `theauditor/core/` directory does NOT exist (must create)
-- [ ] 0.2 Verify BaseExtractor ends at line 77 with `cleanup()` method
-- [ ] 0.3 Verify ExtractorRegistry ends at line 136 with `supported_extensions()`
-- [ ] 0.4 Verify route table column names match spec (check boundary_analyzer.py:36-130)
-- [ ] 0.5 Verify all 12 extractors exist in `theauditor/indexer/extractors/`
+- [x] 0.1 Verify `theauditor/core/` directory does NOT exist (must create) - CONFIRMED
+- [x] 0.2 Verify BaseExtractor ends at line 77 with `cleanup()` method - CONFIRMED
+- [x] 0.3 Verify ExtractorRegistry ends at line 136 with `supported_extensions()` - CONFIRMED
+- [x] 0.4 Verify route table column names differ per language - CONFIRMED (see verification.md)
+- [x] 0.5 Verify all 12 extractors exist in `theauditor/indexer/extractors/` - CONFIRMED
+- [x] 0.6 Verify boundary_analyzer.py has framework-aware Express analyzer (lines 57-182) - CONFIRMED
+- [x] 0.7 Verify _table_exists() violates ZERO FALLBACK (lines 19-25) - CONFIRMED
 
 ---
 
@@ -26,8 +64,19 @@ Before implementation, verify these hypotheses against live code:
 
 **Create with FULL implementation from design.md including:**
 - RouteTableInfo dataclass with `build_query()` method
+- FrameworkRouteInfo dataclass (NEW - for Express integration)
 - LanguageMetadata dataclass
 - LanguageMetadataService singleton with all methods
+
+**See design.md Decision 5 for complete implementation (~170 lines).**
+
+Key methods:
+- `initialize(registry)` - Call once at startup
+- `get_all_extensions()` - Replaces FILE_EXTENSIONS
+- `get_all_route_tables()` - For ZERO FALLBACK boundary queries
+- `get_flat_entry_point_patterns()` - For deadcode detection
+- `has_custom_analyzer(lang_id, framework)` - For framework routing
+- `get_framework_info(lang_id, framework)` - Get FrameworkRouteInfo
 
 - [ ] 1.2 Complete
 
@@ -35,12 +84,7 @@ Before implementation, verify these hypotheses against live code:
 **File**: `theauditor/indexer/extractors/__init__.py`
 **Location**: After line 77 (after `cleanup` method)
 
-**Add import at top:**
-```python
-from theauditor.core.language_metadata import RouteTableInfo
-```
-
-**Add after cleanup() method:**
+**Add 6 metadata methods with defaults:**
 ```python
     # === METADATA METHODS (optional, all have defaults) ===
 
@@ -56,9 +100,17 @@ from theauditor.core.language_metadata import RouteTableInfo
         """Return filename patterns that indicate entry points. Default: empty."""
         return []
 
-    def get_route_table(self) -> RouteTableInfo | None:
+    def get_route_table(self):
         """Return route table metadata with column mappings. Default: None."""
         return None
+
+    def get_framework_routes(self) -> dict:
+        """Return framework-specific route overrides. Default: empty.
+
+        Key is framework name (lowercase), value is FrameworkRouteInfo.
+        When framework is detected, its route info takes precedence over get_route_table().
+        """
+        return {}
 
     def get_table_prefix(self) -> str:
         """Return prefix for language-specific tables. Default: {language_id}_."""
@@ -71,7 +123,7 @@ from theauditor.core.language_metadata import RouteTableInfo
 **File**: `theauditor/indexer/extractors/__init__.py`
 **Location**: After line 136 (end of ExtractorRegistry class)
 
-**Add this code:**
+**Add 5 query methods:**
 ```python
     def get_language_id(self, ext: str) -> str | None:
         """Get language ID for an extension."""
@@ -83,7 +135,7 @@ from theauditor.core.language_metadata import RouteTableInfo
         """Get all unique language IDs."""
         return {e.get_language_id() for e in set(self.extractors.values())}
 
-    def get_extractor_by_language(self, lang_id: str) -> BaseExtractor | None:
+    def get_extractor_by_language(self, lang_id: str):
         """Reverse lookup: language ID -> extractor."""
         for extractor in set(self.extractors.values()):
             if extractor.get_language_id() == lang_id:
@@ -108,6 +160,7 @@ from theauditor.core.language_metadata import RouteTableInfo
                     "extensions": extractor.supported_extensions(),
                     "entry_points": extractor.get_entry_point_patterns(),
                     "route_table": extractor.get_route_table(),
+                    "framework_routes": extractor.get_framework_routes(),
                     "table_prefix": extractor.get_table_prefix(),
                 }
         return result
@@ -121,84 +174,102 @@ from theauditor.core.language_metadata import RouteTableInfo
 
 ### 2.1 PythonExtractor
 **File**: `theauditor/indexer/extractors/python.py`
-**Location**: Inside class, after `supported_extensions` (around line 21)
-
-**Add import at top:**
-```python
-from theauditor.core.language_metadata import RouteTableInfo
-```
+**Location**: Inside class, after `supported_extensions`
 
 **Add methods:**
 ```python
-    def get_language_id(self) -> str:
-        return "python"
-
-    def get_display_name(self) -> str:
-        return "Python"
-
     def get_entry_point_patterns(self) -> list[str]:
-        return ["main.py", "__main__.py", "cli.py", "wsgi.py", "asgi.py"]
+        return ["main.py", "__main__.py", "cli.py", "wsgi.py", "asgi.py", "manage.py"]
 
-    def get_route_table(self) -> RouteTableInfo | None:
-        return RouteTableInfo("python_routes", "file", "line", "pattern", "method", None)
+    def get_route_table(self):
+        from theauditor.core.language_metadata import RouteTableInfo
+        return RouteTableInfo(
+            table_name="python_routes",
+            file_column="file",
+            line_column="line",
+            pattern_column="pattern",
+            method_column="method",
+        )
 ```
 
 - [ ] 2.1 Complete
 
-### 2.2 JavaScriptExtractor
+### 2.2 JavaScriptExtractor (WITH framework_routes)
 **File**: `theauditor/indexer/extractors/javascript.py`
-**Location**: Inside class, after `supported_extensions` (around line 19)
+**Location**: Inside class, after `supported_extensions`
 
-**Add import at top:**
-```python
-from theauditor.core.language_metadata import RouteTableInfo
-```
+**CRITICAL**: This extractor MUST include `get_framework_routes()` for Express integration.
 
 **Add methods:**
 ```python
-    def get_language_id(self) -> str:
-        return "javascript"
-
-    def get_display_name(self) -> str:
-        return "JavaScript/TypeScript"
-
     def get_entry_point_patterns(self) -> list[str]:
-        return ["index.js", "index.ts", "index.tsx", "App.tsx", "main.js", "main.ts"]
+        return [
+            "index.js", "index.ts", "index.tsx", "index.mjs",
+            "main.js", "main.ts", "main.mjs",
+            "App.tsx", "App.jsx", "App.js",
+            "server.js", "server.ts",
+            "app.js", "app.ts",
+        ]
 
-    def get_route_table(self) -> RouteTableInfo | None:
-        return RouteTableInfo("js_routes", "file", "line", "pattern", "method", None)
+    def get_route_table(self):
+        from theauditor.core.language_metadata import RouteTableInfo
+        return RouteTableInfo(
+            table_name="js_routes",
+            file_column="file",
+            line_column="line",
+            pattern_column="pattern",
+            method_column="method",
+        )
+
+    def get_framework_routes(self) -> dict:
+        """Return Express framework override.
+
+        Express uses express_middleware_chains table with custom analysis
+        in boundary_analyzer.py::_analyze_express_boundaries() instead of
+        generic js_routes queries. This tells consumers to route Express
+        projects to the dedicated analyzer.
+        """
+        from theauditor.core.language_metadata import FrameworkRouteInfo
+        return {
+            "express": FrameworkRouteInfo(
+                framework_name="express",
+                route_table=None,  # Uses custom analyzer, not table query
+                uses_custom_analyzer=True,
+                analyzer_function="_analyze_express_boundaries",
+            )
+        }
 ```
 
 - [ ] 2.2 Complete
 
 ### 2.3 RustExtractor
 **File**: `theauditor/indexer/extractors/rust.py`
-**Location**: Inside class, after `supported_extensions` (around line 23)
+**Location**: Inside class, after `supported_extensions`
 
-**Add import at top:**
-```python
-from theauditor.core.language_metadata import RouteTableInfo
-```
+**Note**: Rust uses DIFFERENT column names!
 
 **Add methods:**
 ```python
-    def get_language_id(self) -> str:
-        return "rust"
-
-    def get_display_name(self) -> str:
-        return "Rust"
-
     def get_entry_point_patterns(self) -> list[str]:
         return ["main.rs", "lib.rs"]
 
-    def get_route_table(self) -> RouteTableInfo | None:
+    def get_route_table(self):
+        """Return Rust route table metadata.
+
+        IMPORTANT: Rust uses different column names:
+        - file_path (not file)
+        - target_line (not line)
+        - args (not pattern)
+        - attribute_name (not method)
+        """
+        from theauditor.core.language_metadata import RouteTableInfo
         return RouteTableInfo(
-            "rust_attributes",
-            "file_path",
-            "target_line",
-            "args",
-            "attribute_name",
-            "attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route')"
+            table_name="rust_attributes",
+            file_column="file_path",
+            line_column="target_line",
+            pattern_column="args",
+            method_column="attribute_name",
+            filter_clause="attribute_name IN ('get', 'post', 'put', 'delete', 'patch', 'route')",
         )
 ```
 
@@ -206,47 +277,45 @@ from theauditor.core.language_metadata import RouteTableInfo
 
 ### 2.4 GoExtractor
 **File**: `theauditor/indexer/extractors/go.py`
-**Location**: Inside class, after `supported_extensions` (around line 22)
+**Location**: Inside class, after `supported_extensions`
 
-**Add import at top:**
-```python
-from theauditor.core.language_metadata import RouteTableInfo
-```
+**Note**: Go uses 'path' instead of 'pattern'!
 
 **Add methods:**
 ```python
-    def get_language_id(self) -> str:
-        return "go"
-
-    def get_display_name(self) -> str:
-        return "Go"
-
     def get_entry_point_patterns(self) -> list[str]:
         return ["main.go"]
 
-    def get_route_table(self) -> RouteTableInfo | None:
-        return RouteTableInfo("go_routes", "file", "line", "path", "method", None)
+    def get_route_table(self):
+        """Return Go route table metadata.
+
+        Note: Go uses 'path' column instead of 'pattern'.
+        """
+        from theauditor.core.language_metadata import RouteTableInfo
+        return RouteTableInfo(
+            table_name="go_routes",
+            file_column="file",
+            line_column="line",
+            pattern_column="path",  # NOT 'pattern'!
+            method_column="method",
+        )
 ```
 
 - [ ] 2.4 Complete
 
 ### 2.5 BashExtractor
 **File**: `theauditor/indexer/extractors/bash.py`
-**Location**: Inside class, after `supported_extensions` (around line 17)
+**Location**: Inside class, after `supported_extensions`
 
-**Add methods (NO import needed - no route table):**
+**Add methods (NO route table - bash has no routes):**
 ```python
-    def get_language_id(self) -> str:
-        return "bash"
-
-    def get_display_name(self) -> str:
-        return "Bash"
-
     def get_entry_point_patterns(self) -> list[str]:
-        return []  # All .sh/.bash files are considered entry points by convention
+        """All .sh/.bash files are entry points - return empty to signal this."""
+        return []
 
-    def get_route_table(self) -> None:
-        return None  # Bash has no routes
+    def get_route_table(self):
+        """Bash has no route table."""
+        return None
 ```
 
 - [ ] 2.5 Complete
@@ -300,74 +369,63 @@ FILE_EXTENSIONS = {
 ```python
 from theauditor.core.language_metadata import LanguageMetadataService
 
-def get_supported_extensions() -> set[str]:
+
+def _get_supported_extensions() -> set[str]:
     """Get supported extensions from metadata service.
 
     ZERO FALLBACK: Raises RuntimeError if service not initialized.
-    Must be called from command context (after orchestrator init).
     """
     extensions = LanguageMetadataService.get_all_extensions()
     if not extensions:
         raise RuntimeError(
             "LanguageMetadataService not initialized. "
-            "This function must be called from command execution context, not at module import time."
+            "Run indexing first (aud full)."
         )
     return set(extensions)
+
+
+# Lazy initialization - computed on first use
+_FILE_EXTENSIONS_CACHE: set[str] | None = None
+
+
+def get_supported_extensions() -> set[str]:
+    """Get file extensions, initializing lazily."""
+    global _FILE_EXTENSIONS_CACHE
+    if _FILE_EXTENSIONS_CACHE is None:
+        _FILE_EXTENSIONS_CACHE = _get_supported_extensions()
+    return _FILE_EXTENSIONS_CACHE
 ```
 
-**MIGRATION NOTE**: The old `FILE_EXTENSIONS` constant was evaluated at module import time.
-Replace all usages of `FILE_EXTENSIONS` with `get_supported_extensions()` calls inside command
-functions (where orchestrator has already run). Do NOT call at module level.
-
-**Find usages:**
-```bash
-grep -n "FILE_EXTENSIONS" theauditor/commands/explain.py
-```
-
-**Replace pattern:**
-```python
-# BEFORE (module level)
-if ext in FILE_EXTENSIONS:
-
-# AFTER (inside function, after service is initialized)
-if ext in get_supported_extensions():
-```
-
-**ZERO FALLBACK COMPLIANCE**: No fallback. If service not initialized, fail loud with clear error.
+**Update all usages**: Replace `FILE_EXTENSIONS` with `get_supported_extensions()`.
 
 - [ ] 4.1 Complete
 
 ### 4.2 Migrate deadcode_graph.py entry points
 **File**: `theauditor/context/deadcode_graph.py`
+**Location**: `_find_entry_points` method (lines 299-326)
 
-**Location**: `_find_entry_points` method (lines 282-309)
+**BEFORE (lines 303-316):** Hardcoded patterns
 
-**BEFORE (lines 287-298):** Hardcoded patterns inline
-
-**AFTER:** Replace the hardcoded pattern check with service call
-
+**AFTER:** Replace with service call
 ```python
-from theauditor.core.language_metadata import LanguageMetadataService
-
 def _find_entry_points(self, graph: nx.DiGraph) -> set[str]:
     """Multi-strategy entry point detection."""
     entry_points = set()
 
-    # Get all entry point patterns from metadata service
-    all_entry_points = LanguageMetadataService.get_all_entry_points()
+    # Get entry point patterns from metadata service
+    from theauditor.core.language_metadata import LanguageMetadataService
+
+    patterns = LanguageMetadataService.get_flat_entry_point_patterns()
+    if not patterns:
+        # Fallback for standalone usage (service not initialized)
+        patterns = [
+            "cli.py", "__main__.py", "main.py",
+            "index.ts", "index.js", "index.tsx", "App.tsx",
+            "main.rs", "lib.rs", "main.go",
+        ]
 
     for node in graph.nodes():
-        # Check against all language entry point patterns
-        for lang_id, patterns in all_entry_points.items():
-            if any(pattern in node for pattern in patterns):
-                entry_points.add(node)
-                break
-
-        # BASH EDGE CASE: BashExtractor returns [] for entry_point_patterns
-        # because ALL .sh/.bash files are entry points by convention.
-        # This logic must remain here (not in extractor) because it's a
-        # "match all files of this type" rule, not a filename pattern.
-        if node.endswith(".sh") or node.endswith(".bash"):
+        if any(pattern in node for pattern in patterns):
             entry_points.add(node)
 
     entry_points.update(self._find_decorated_entry_points())
@@ -381,21 +439,22 @@ def _find_entry_points(self, graph: nx.DiGraph) -> set[str]:
     return entry_points
 ```
 
-**BASH EDGE CASE DOCUMENTED**: BashExtractor.get_entry_point_patterns() returns `[]` because
-the rule is "all .sh/.bash files are entry points" - not specific filename patterns. This
-extension-based check remains in deadcode_graph.py because the metadata service pattern
-matching is filename-based, not extension-based.
-
 - [ ] 4.2 Complete
 
-### 4.3 Migrate boundary_analyzer.py route tables (ZERO FALLBACK FIX)
+### 4.3 Migrate boundary_analyzer.py (GENERIC FALLBACK ONLY)
 **File**: `theauditor/boundaries/boundary_analyzer.py`
 
-**CRITICAL**: Current code uses `_table_exists()` checks which VIOLATES ZERO FALLBACK.
+**CRITICAL**: This migration has 3 parts:
+1. DELETE `_table_exists()` function (ZERO FALLBACK violation)
+2. PRESERVE `_analyze_express_boundaries()` (framework analyzer - DO NOT TOUCH)
+3. MODIFY generic fallback section to use RouteTableInfo queries
 
-**Step 1: DELETE `_table_exists` function (lines 16-22)**
+---
+
+#### Part 1: DELETE _table_exists() (lines 19-25)
+
 ```python
-# DELETE THIS ENTIRE FUNCTION
+# DELETE THIS ENTIRE FUNCTION - ZERO FALLBACK VIOLATION
 def _table_exists(cursor, table_name: str) -> bool:
     """Check if a table exists in the database."""
     cursor.execute(
@@ -405,118 +464,129 @@ def _table_exists(cursor, table_name: str) -> bool:
     return cursor.fetchone() is not None
 ```
 
-**Step 2: Add import at top of file (after existing imports):**
-```python
-from theauditor.core.language_metadata import LanguageMetadataService
+---
+
+#### Part 2: PRESERVE framework functions (NO CHANGES)
+
+**Lines 28-54**: `_detect_frameworks()` - **DO NOT MODIFY**
+**Lines 57-182**: `_analyze_express_boundaries()` - **DO NOT MODIFY**
+
+These functions contain specialized framework logic that should NOT be replaced.
+The Express analyzer uses `express_middleware_chains` table with custom distance
+calculation based on middleware execution order.
+
+---
+
+#### Part 3: MODIFY generic fallback in `analyze_input_validation_boundaries()`
+
+**Current structure (lines 185-418):**
+```
+analyze_input_validation_boundaries()
+├── Framework detection (lines 201-206) - KEEP
+├── Framework routing (lines 208-226)
+│   └── Express routing (lines 210-214) - KEEP (uses _analyze_express_boundaries)
+└── Generic fallback (lines 227-413)
+    └── Multiple _table_exists checks - FIX THIS
 ```
 
-**Step 3: REPLACE entire `analyze_input_validation_boundaries` function (lines 25-215):**
+**Only modify the generic fallback section.** The framework detection and Express routing STAY.
+
+**BEFORE (generic fallback, lines 229-323):**
+```python
+    # Generic fallback - queries each route table with _table_exists check
+    if _table_exists(cursor, "python_routes"):
+        cursor.execute("SELECT file, line, pattern, method FROM python_routes ...")
+        ...
+    if _table_exists(cursor, "js_routes"):
+        cursor.execute("SELECT file, line, pattern, method FROM js_routes ...")
+        ...
+    if _table_exists(cursor, "go_routes"):
+        cursor.execute("SELECT file, line, path, method FROM go_routes ...")
+        ...
+    if _table_exists(cursor, "rust_attributes"):
+        cursor.execute("SELECT file_path, target_line, args, attribute_name FROM rust_attributes ...")
+        ...
+```
+
+**AFTER (generic fallback):**
+```python
+    # Import at top of file
+    from theauditor.core.language_metadata import LanguageMetadataService
+
+    # In generic fallback section (AFTER framework routing):
+
+    # Get all route tables from metadata service (ZERO FALLBACK compliant)
+    # These tables are KNOWN to exist - no existence checks needed
+    route_tables = LanguageMetadataService.get_all_route_tables()
+    if route_tables:
+        entries_per_table = max(1, remaining_entries // len(route_tables))
+
+        for route_info in route_tables:
+            # Build query with correct column names for this language
+            query = route_info.build_query(limit=entries_per_table)
+            cursor.execute(query)
+
+            for row in cursor.fetchall():
+                # Columns are normalized by build_query(): file, line, pattern, method
+                entry_points.append({
+                    "file": row[0],
+                    "line": row[1] or 0,
+                    "pattern": row[2],
+                    "method": row[3],
+                    "language": route_info.table_name.replace("_routes", "").replace("_attributes", ""),
+                    "source": "route_table",
+                })
+
+            remaining_entries -= cursor.rowcount
+            if remaining_entries <= 0:
+                break
+```
+
+**IMPORTANT**: The `api_endpoints` table query should REMAIN as a separate query
+because it's a normalized endpoint table, not a language-specific route table.
+
+---
+
+#### Framework Integration Pattern
+
+The updated function structure should be:
+
 ```python
 def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> list[dict]:
-    """Analyze input validation boundaries across all entry points.
+    """Analyze input validation boundaries across entry points.
 
-    ZERO FALLBACK: Queries only route tables that are registered via LanguageMetadataService.
-    No _table_exists() checks. No try-except around queries.
+    Uses framework-aware routing:
+    1. Detect frameworks (Express, FastAPI, etc.)
+    2. Route to framework-specific analyzers if available
+    3. Fall back to generic RouteTableInfo queries for other languages
     """
     conn = sqlite3.connect(db_path)
     cursor = conn.cursor()
     results = []
 
     try:
-        entry_points = []
+        # Step 1: Detect frameworks (KEEP - uses _detect_frameworks)
+        frameworks = _detect_frameworks(cursor)
 
-        # Get all route tables from metadata service (ZERO FALLBACK compliant)
-        # These tables are GUARANTEED to exist because they're defined by loaded extractors
-        route_tables = LanguageMetadataService.get_all_route_tables()
-        entries_per_table = max_entries // max(len(route_tables), 1)
+        # Step 2: Route to framework-specific analyzers (KEEP)
+        if "express" in frameworks:
+            # Check if framework has custom analyzer via metadata service
+            from theauditor.core.language_metadata import LanguageMetadataService
+            if LanguageMetadataService.has_custom_analyzer("javascript", "express"):
+                # Use existing dedicated Express analyzer
+                results.extend(_analyze_express_boundaries(cursor, frameworks["express"], max_entries))
+                # Reduce remaining entries
+                remaining_entries = max_entries - len(results)
+            else:
+                remaining_entries = max_entries
+        else:
+            remaining_entries = max_entries
 
-        for route_info in route_tables:
-            query = route_info.build_query(limit=entries_per_table)
-            cursor.execute(query)
-            for file, line, pattern, method in cursor.fetchall():
-                entry_points.append({
-                    "type": "http",
-                    "name": f"{method or 'GET'} {pattern}",
-                    "file": file,
-                    "line": line or 0,
-                })
-
-        # Load graph ONCE before loop (O(1) instead of O(N) disk I/O)
-        graph_db_path = str(Path(db_path).parent / "graphs.db")
-        store = XGraphStore(graph_db_path)
-        call_graph = store.load_call_graph()
-
-        if not call_graph.get("nodes") or not call_graph.get("edges"):
-            raise RuntimeError(
-                f"Graph DB empty or missing at {graph_db_path}. "
-                "Run 'aud graph build' to generate the call graph."
-            )
-
-        # Build index ONCE for O(1) node lookups (instead of O(N) per lookup)
-        _build_graph_index(call_graph)
-
-        for entry in entry_points[:max_entries]:
-            controls = find_all_paths_to_controls(
-                db_path=db_path,
-                entry_file=entry["file"],
-                entry_line=entry["line"],
-                control_patterns=VALIDATION_PATTERNS,
-                max_depth=5,
-                call_graph=call_graph,
-            )
-
-            quality = measure_boundary_quality(controls)
-
-            violations = []
-
-            if quality["quality"] == "missing":
-                violations.append(
-                    {
-                        "type": "NO_VALIDATION",
-                        "severity": "CRITICAL",
-                        "message": "Entry point accepts external data without validation control in call chain",
-                        "facts": quality["facts"],
-                    }
-                )
-
-            elif quality["quality"] == "fuzzy":
-                if len(controls) > 1:
-                    control_names = [c["control_function"] for c in controls]
-                    violations.append(
-                        {
-                            "type": "SCATTERED_VALIDATION",
-                            "severity": "MEDIUM",
-                            "message": f"Multiple validation controls: {', '.join(control_names)}",
-                            "facts": quality["facts"],
-                        }
-                    )
-
-                for control in controls:
-                    if control["distance"] >= 3:
-                        violations.append(
-                            {
-                                "type": "VALIDATION_DISTANCE",
-                                "severity": "HIGH",
-                                "message": f"Validation '{control['control_function']}' occurs at distance {control['distance']}",
-                                "control": control,
-                                "facts": [
-                                    f"Data flows through {control['distance']} functions before validation",
-                                    f"Call path: {' -> '.join(control['path'])}",
-                                    f"Distance {control['distance']} creates {control['distance']} potential unvalidated code paths",
-                                ],
-                            }
-                        )
-
-            results.append(
-                {
-                    "entry_point": entry["name"],
-                    "entry_file": entry["file"],
-                    "entry_line": entry["line"],
-                    "controls": controls,
-                    "quality": quality,
-                    "violations": violations,
-                }
-            )
+        # Step 3: Generic fallback (FIX THIS SECTION)
+        # Use RouteTableInfo queries instead of _table_exists checks
+        if remaining_entries > 0:
+            route_tables = LanguageMetadataService.get_all_route_tables()
+            # ... process route tables using build_query() ...
 
     finally:
         conn.close()
@@ -524,12 +594,14 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
     return results
 ```
 
-**ZERO FALLBACK COMPLIANCE:**
-- NO `_table_exists()` checks - DELETED
-- NO try-except around `cursor.execute()` - queries fail loud if tables missing
-- Route tables from `get_all_route_tables()` are KNOWN to exist (defined by extractors)
+---
 
-**NOTE**: The `generate_report` function (lines 218-288) remains UNCHANGED.
+**ZERO FALLBACK COMPLIANCE CHECKLIST:**
+- [ ] `_table_exists()` function DELETED
+- [ ] NO `if _table_exists(cursor, "xxx"):` checks remain
+- [ ] NO try-except around `cursor.execute()` with fallback
+- [ ] `_analyze_express_boundaries()` UNCHANGED (preserves middleware chain analysis)
+- [ ] Generic fallback uses RouteTableInfo.build_query()
 
 - [ ] 4.3 Complete
 
@@ -558,11 +630,12 @@ aud deadcode
 ```
 - [ ] 5.3 Complete
 
-### 5.4 Test boundaries command
+### 5.4 Test boundaries command (including Express)
 ```bash
 aud boundaries --help
 aud boundaries --type input-validation
 ```
+Verify Express middleware analysis still works.
 - [ ] 5.4 Complete
 
 ### 5.5 Verify metadata service populated
@@ -571,42 +644,55 @@ cd C:/Users/santa/Desktop/TheAuditor && .venv/Scripts/python.exe -c "
 from theauditor.core.language_metadata import LanguageMetadataService
 print('Extensions:', len(LanguageMetadataService.get_all_extensions()))
 print('Route tables:', len(LanguageMetadataService.get_all_route_tables()))
-print('Entry points:', LanguageMetadataService.get_all_entry_points().keys())
+print('Entry points:', list(LanguageMetadataService.get_all_entry_points().keys()))
+print('Express has custom analyzer:', LanguageMetadataService.has_custom_analyzer('javascript', 'express'))
 "
 ```
+Expected output:
+- Extensions: 15+ (all supported file types)
+- Route tables: 4 (python, js, go, rust)
+- Entry points: ['python', 'javascript', 'rust', 'go']
+- Express has custom analyzer: True
+
 - [ ] 5.5 Complete
 
 ---
 
-## 6. Cleanup (Delete Hardcoded Data)
+## 6. Post-Implementation Audit (TEAMSOP REQUIRED)
 
-### 6.1 Delete FILE_EXTENSIONS constant from explain.py
-After validation, remove the static fallback set if no longer needed.
-- [ ] 6.1 Complete
+### 6.1 Re-read all modified files
+- [ ] 6.1 Verify `theauditor/core/__init__.py` syntax correct
+- [ ] 6.2 Verify `theauditor/core/language_metadata.py` syntax correct
+- [ ] 6.3 Verify `theauditor/indexer/extractors/__init__.py` syntax correct
+- [ ] 6.4 Verify all 5 extractor files syntax correct
+- [ ] 6.5 Verify `theauditor/indexer/orchestrator.py` syntax correct
+- [ ] 6.6 Verify `theauditor/commands/explain.py` syntax correct
+- [ ] 6.7 Verify `theauditor/context/deadcode_graph.py` syntax correct
+- [ ] 6.8 Verify `theauditor/boundaries/boundary_analyzer.py` syntax correct
 
-### 6.2 Delete _table_exists function from boundary_analyzer.py
-- [ ] 6.2 Complete
+### 6.2 Confirm ZERO FALLBACK compliance
+- [ ] 6.9 No try-except fallbacks in any migration code
+- [ ] 6.10 No _table_exists() checks remain in generic fallback
+- [ ] 6.11 No multiple query attempts with fallback
 
-### 6.3 Simplify deadcode_graph.py _find_framework_entry_points
-The framework entry points query (lines 329-376) can also be simplified
-using metadata service, but this is OPTIONAL (separate ticket).
-- [ ] 6.3 Complete (or deferred)
+### 6.3 Confirm framework integration
+- [ ] 6.12 Express analyzer preserved (_analyze_express_boundaries unchanged)
+- [ ] 6.13 JavaScriptExtractor.get_framework_routes() returns Express info
+- [ ] 6.14 LanguageMetadataService.has_custom_analyzer("javascript", "express") returns True
 
 ---
 
-## 7. Post-Implementation Audit (TEAMSOP REQUIRED)
+## Summary
 
-### 7.1 Re-read all modified files
-- [ ] 7.1 Verify `theauditor/core/__init__.py` syntax correct
-- [ ] 7.2 Verify `theauditor/core/language_metadata.py` syntax correct
-- [ ] 7.3 Verify `theauditor/indexer/extractors/__init__.py` syntax correct
-- [ ] 7.4 Verify all 5 extractor files syntax correct
-- [ ] 7.5 Verify `theauditor/indexer/orchestrator.py` syntax correct
-- [ ] 7.6 Verify `theauditor/commands/explain.py` syntax correct
-- [ ] 7.7 Verify `theauditor/context/deadcode_graph.py` syntax correct
-- [ ] 7.8 Verify `theauditor/boundaries/boundary_analyzer.py` syntax correct
+| Phase | Tasks | Est. Lines Changed | Risk |
+|-------|-------|-------------------|------|
+| Phase 1 | 4 tasks | +200 (new files) | LOW |
+| Phase 2 | 5 tasks | +100 (metadata methods) | LOW |
+| Phase 3 | 1 task | +3 (initialization) | LOW |
+| Phase 4 | 3 tasks | -150 / +50 (net -100) | MEDIUM |
+| Phase 5 | 5 tasks | 0 (verification) | N/A |
+| Phase 6 | 3 audits | 0 (verification) | N/A |
 
-### 7.2 Confirm ZERO FALLBACK compliance
-- [ ] 7.9 No try-except fallbacks in any migration code
-- [ ] 7.10 No _table_exists() checks remain
-- [ ] 7.11 No multiple query attempts with fallback
+**Total**: ~300 lines added, ~150 lines deleted = net +150 lines
+**Key Risk**: boundary_analyzer.py migration - mitigated by preserving framework analyzers
+**Framework Preservation**: Express analyzer (_analyze_express_boundaries) remains intact

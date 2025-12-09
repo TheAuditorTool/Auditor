@@ -65,7 +65,7 @@ Fixture validation SHALL be automated and produce machine-readable output.
 #### Scenario: Depth distribution analysis
 
 - **WHEN** `aud full --offline` completes on either fixture
-- **THEN** the `.pf/raw/taint_analysis.json` output SHALL contain vulnerability entries with `path` arrays
+- **THEN** the `.pf/repo_index.db` database SHALL contain `taint_flows` table entries with `path_json` data
 - **AND** a verification script SHALL report:
   - Maximum depth observed
   - Depth distribution histogram

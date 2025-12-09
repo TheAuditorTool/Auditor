@@ -7,20 +7,13 @@ TheAuditor commands have **hardcoded language-specific data scattered across 10+
 | File | Lines | What's Hardcoded | Languages |
 |------|-------|------------------|-----------|
 | `theauditor/commands/explain.py` | 33-45 | `FILE_EXTENSIONS` set | 11 extensions |
-| `theauditor/commands/blueprint.py` | 378-441 | Naming convention SQL CASE statements | py, js, jsx, ts, tsx, go, rs, sh, bash |
-| `theauditor/commands/blueprint.py` | 449-473 | Language name dict keys | 6 languages |
-| `theauditor/commands/blueprint.py` | 922-937 | Symbol types per language | go, rust, bash |
-| `theauditor/commands/refactor.py` | 422-442 | Migration file globs | js, ts, sql only |
-| `theauditor/context/deadcode_graph.py` | 287-298 | Entry point filenames | py, ts, js, tsx |
-| `theauditor/context/deadcode_graph.py` | 350-355 | Go entry points | go |
-| `theauditor/context/deadcode_graph.py` | 364-370 | Rust entry points | rs |
-| `theauditor/context/deadcode_graph.py` | 372-374 | Bash entry points | sh, bash |
-| `theauditor/context/deadcode_graph.py` | 316-327 | Python decorator patterns | py |
-| `theauditor/boundaries/boundary_analyzer.py` | 35-52 | `python_routes` table query | py |
-| `theauditor/boundaries/boundary_analyzer.py` | 55-72 | `js_routes` table query | js |
-| `theauditor/boundaries/boundary_analyzer.py` | 95-112 | `go_routes` table query | go |
-| `theauditor/boundaries/boundary_analyzer.py` | 115-130 | `rust_attributes` table query | rs |
-| `theauditor/context/query.py` | 1403-1525 | Massive if-elif chain by extension | all |
+| `theauditor/commands/blueprint.py` | 385-455 | Naming convention SQL CASE statements | py, js, jsx, ts, tsx, go, rs, sh, bash |
+| `theauditor/commands/blueprint.py` | 459-483 | Language name dict keys | 6 languages |
+| `theauditor/context/deadcode_graph.py` | 303-316 | Entry point patterns in `_find_entry_points()` | py, ts, js, tsx |
+| `theauditor/context/deadcode_graph.py` | 346-386 | Framework entry points in `_find_framework_entry_points()` | all |
+| `theauditor/commands/refactor.py` | 800-802 | Migration file globs | js, ts, sql only |
+| `theauditor/boundaries/boundary_analyzer.py` | 19-25 | `_table_exists()` function | N/A |
+| `theauditor/boundaries/boundary_analyzer.py` | 229-323 | Route table queries with `_table_exists` checks | py, js, go, rs |
 
 ### CRITICAL: Route Table Column Differences (Discovered During Investigation)
 
@@ -36,9 +29,23 @@ Route tables have **DIFFERENT column names** per language:
 A unified "SELECT file, line, pattern, method FROM {table}" query **DOES NOT WORK**.
 This proposal includes `RouteTableInfo` dataclass with column mapping.
 
+### CRITICAL: Framework-Specific Route Sources
+
+**This was missed in initial proposal.** Frameworks override default language route sources:
+
+| Framework | Language | Route Source | Notes |
+|-----------|----------|--------------|-------|
+| Express | JavaScript | `express_middleware_chains` | NOT `js_routes` - uses middleware chain analysis |
+| FastAPI | Python | `python_routes` + `python_decorators` | Default + decorator enrichment |
+| Django | Python | `python_routes` | Default |
+| Actix/Rocket | Rust | `rust_attributes` | Default with filter |
+
+The current `boundary_analyzer.py` already implements framework-aware routing (lines 57-182 for Express).
+This proposal extends LanguageMetadataService to be **framework-aware**.
+
 ### ZERO FALLBACK VIOLATION in Current Code
 
-The current `boundary_analyzer.py` uses `_table_exists()` checks (lines 16-22, 35, 55, 95, 115) which **VIOLATES ZERO FALLBACK POLICY**. This proposal fixes that.
+The current `boundary_analyzer.py` uses `_table_exists()` checks (lines 19-25, used at 35, 69, 74, 93, 229, 248, 267, 286, 305) which **VIOLATES ZERO FALLBACK POLICY**. This proposal fixes that.
 
 ### Problem Example: Adding Lua Support
 
@@ -46,11 +53,11 @@ The current `boundary_analyzer.py` uses `_table_exists()` checks (lines 16-22, 3
 1. Create `LuaExtractor` in `extractors/lua.py`
 2. Create `lua_schema.py` with tables
 3. Edit `explain.py` line 33: add `.lua` to FILE_EXTENSIONS
-4. Edit `blueprint.py` lines 378-441: add 6 new SQL CASE statements
-5. Edit `blueprint.py` lines 449-473: add "lua" key to conventions dict
-6. Edit `deadcode_graph.py` lines 287-375: add Lua entry point patterns
+4. Edit `blueprint.py` lines 385-455: add new SQL CASE statements
+5. Edit `blueprint.py` lines 459-483: add "lua" key to conventions dict
+6. Edit `deadcode_graph.py` lines 303-386: add Lua entry point patterns
 7. Edit `boundary_analyzer.py`: add `lua_routes` query
-8. Edit `query.py` lines 1403-1525: add Lua if-elif branch
+8. Edit `refactor.py` lines 800-802: add `.lua` to migration globs (if applicable)
 9. Edit `fce/registry.py`: add Lua tables to CONTEXT_LANGUAGE
 10. Pray you didn't miss anything
 
@@ -62,10 +69,10 @@ The current `boundary_analyzer.py` uses `_table_exists()` checks (lines 16-22, 3
 
 ### NEW Files
 - `theauditor/core/__init__.py` - Core package init
-- `theauditor/core/language_metadata.py` - RouteTableInfo, LanguageMetadata dataclasses + LanguageMetadataService singleton
+- `theauditor/core/language_metadata.py` - RouteTableInfo, FrameworkRouteInfo, LanguageMetadata dataclasses + LanguageMetadataService singleton
 
 ### MODIFIED Files (Core Infrastructure)
-- `theauditor/indexer/extractors/__init__.py` - Add 5 metadata methods to BaseExtractor, 5 query methods to ExtractorRegistry
+- `theauditor/indexer/extractors/__init__.py` - Add 6 metadata methods to BaseExtractor (including framework-aware), 5 query methods to ExtractorRegistry
 
 ### MODIFIED Files (5 Main Extractors - add metadata overrides)
 - `theauditor/indexer/extractors/python.py`
@@ -80,7 +87,7 @@ The current `boundary_analyzer.py` uses `_table_exists()` checks (lines 16-22, 3
 ### MODIFIED Files (Command Migration)
 - `theauditor/commands/explain.py` - Replace FILE_EXTENSIONS with service call
 - `theauditor/context/deadcode_graph.py` - Replace entry point patterns with service call
-- `theauditor/boundaries/boundary_analyzer.py` - Replace route table queries with RouteTableInfo + DELETE `_table_exists()`
+- `theauditor/boundaries/boundary_analyzer.py` - Replace `_table_exists` checks in GENERIC fallback only (preserve Express analyzer)
 
 ### UNCHANGED Files (7 Secondary Extractors - use default metadata)
 - `theauditor/indexer/extractors/terraform.py` - Uses default: `terraform`
@@ -91,17 +98,21 @@ The current `boundary_analyzer.py` uses `_table_exists()` checks (lines 16-22, 3
 - `theauditor/indexer/extractors/github_actions.py` - Uses default: `githubworkflow`
 - `theauditor/indexer/extractors/generic.py` - Uses default: `generic`
 
-### DELETED Code (~200 lines)
+### DELETED Code (~150 lines from generic fallback only)
 - `explain.py:33-45` - FILE_EXTENSIONS set (replaced by service)
-- `boundary_analyzer.py:16-22` - `_table_exists()` function (ZERO FALLBACK violation)
-- `boundary_analyzer.py:35-130` - Hardcoded route table queries (replaced by RouteTableInfo loop)
-- `deadcode_graph.py:287-298` - Hardcoded entry point patterns (replaced by service)
+- `boundary_analyzer.py:19-25` - `_table_exists()` function (ZERO FALLBACK violation)
+- `boundary_analyzer.py:229-323` - Hardcoded route table queries in generic fallback (replaced by RouteTableInfo loop)
+
+### PRESERVED Code (Express framework analyzer)
+- `boundary_analyzer.py:28-54` - `_detect_frameworks()` function (KEEP - uses LanguageMetadataService internally)
+- `boundary_analyzer.py:57-182` - `_analyze_express_boundaries()` function (KEEP - framework-specific logic)
 
 ## Impact
 
 - **Affected specs**: NEW `language-metadata`
 - **Breaking changes**: NONE - all new methods have defaults
-- **ZERO FALLBACK fix**: Removes `_table_exists()` violation in boundary_analyzer.py
+- **ZERO FALLBACK fix**: Removes `_table_exists()` violation in boundary_analyzer.py generic fallback
+- **Framework preservation**: Express analyzer remains intact, gets metadata from service
 - **Risk level**: LOW - additive changes, gradual migration supported
 - **Testing**: Run `aud full --offline` + all commands on polyglot test repo
 
@@ -111,5 +122,6 @@ The current `boundary_analyzer.py` uses `_table_exists()` checks (lines 16-22, 3
 2. All existing tests pass unchanged
 3. Adding new language requires only 1 extractor file
 4. Commands discover new language metadata automatically
-5. NO `_table_exists()` checks remain in boundary_analyzer.py
-6. NO try-except fallbacks in any migration code
+5. NO `_table_exists()` checks remain in boundary_analyzer.py generic fallback
+6. Express framework analyzer continues to work (uses middleware chains)
+7. NO try-except fallbacks in any migration code
