@@ -5,7 +5,6 @@ from .core import (
     deduplicate_paths,
     has_sanitizer_between,
     normalize_taint_path,
-    save_taint_analysis,
     trace_taint,
 )
 from .discovery import TaintDiscovery
@@ -16,7 +15,6 @@ __all__ = [
     "trace_taint",
     "TaintPath",
     "TaintRegistry",
-    "save_taint_analysis",
     "normalize_taint_path",
     "has_sanitizer_between",
     "deduplicate_paths",

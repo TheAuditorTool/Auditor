@@ -13,6 +13,14 @@ if TYPE_CHECKING:
     from .memory_cache import MemoryCache
 
 from theauditor.indexer.schema import build_query
+from theauditor.taint.fidelity import (
+    create_analysis_manifest,
+    create_db_output_receipt,
+    create_dedup_manifest,
+    create_discovery_manifest,
+    create_json_output_receipt,
+    reconcile_taint_fidelity,
+)
 
 
 class TaintRegistry:
@@ -565,6 +573,17 @@ def trace_taint(
         sinks = discovery.discover_sinks(merged_sinks)
         sinks = discovery.filter_framework_safe_sinks(sinks)
 
+        # Fidelity Checkpoint 1: Discovery
+        discovery_manifest = create_discovery_manifest(sources, sinks)
+        reconcile_taint_fidelity(
+            discovery_manifest,
+            {"sinks_to_analyze": len(sinks)},
+            stage="discovery",
+        )
+        logger.info(
+            f"Taint Discovery: {len(sources)} sources, {len(sinks)} sinks [Fidelity: OK]"
+        )
+
         def filter_sinks_by_proximity(source, all_sinks):
             """Filter sinks to same module as source for performance."""
             source_file = source.get("file", "")
@@ -683,6 +702,19 @@ def trace_taint(
             all_vulnerable_paths.extend(vulnerable)
             all_sanitized_paths.extend(sanitized)
 
+        # Fidelity Checkpoint 2: Analysis
+        analysis_manifest = create_analysis_manifest(
+            all_vulnerable_paths,
+            all_sanitized_paths,
+            sinks_analyzed=len(sinks),
+            sources_checked=len(sources),
+        )
+        reconcile_taint_fidelity(
+            analysis_manifest,
+            {"sinks_to_analyze": len(sinks)},
+            stage="analysis",
+        )
+
         ifds_analyzer.close()
 
         graph_conn.close()
@@ -694,6 +726,12 @@ def trace_taint(
         unique_vulnerable_paths = deduplicate_paths(all_vulnerable_paths)
 
         unique_sanitized_paths = deduplicate_paths(all_sanitized_paths)
+
+        # Fidelity Checkpoint 3: Deduplication
+        pre_dedup_total = len(all_vulnerable_paths) + len(all_sanitized_paths)
+        post_dedup_total = len(unique_vulnerable_paths) + len(unique_sanitized_paths)
+        dedup_manifest = create_dedup_manifest(pre_dedup_total, post_dedup_total)
+        reconcile_taint_fidelity(dedup_manifest, {}, stage="dedup")
 
         import json
 
@@ -794,9 +832,22 @@ def trace_taint(
             )
 
         conn.commit()
+
+        # Fidelity Checkpoint 4a: DB Output
+        db_receipt = create_db_output_receipt(
+            db_rows_inserted=total_inserted,
+            vulnerable_count=len(unique_vulnerable_paths),
+            sanitized_count=len(unique_sanitized_paths),
+        )
+        reconcile_taint_fidelity(
+            {"paths_to_write": len(unique_vulnerable_paths) + len(unique_sanitized_paths)},
+            db_receipt,
+            stage="db_output",
+        )
+
         conn.close()
         logger.info(
-            f"Persisted {total_inserted} flows to resolved_flow_audit ({len(unique_vulnerable_paths)} vulnerable, {len(unique_sanitized_paths)} sanitized)"
+            f"Persisted {total_inserted} flows to resolved_flow_audit ({len(unique_vulnerable_paths)} vulnerable, {len(unique_sanitized_paths)} sanitized) [Fidelity: OK]"
         )
         logger.info(
             f"Persisted {len(unique_vulnerable_paths)} vulnerable flows to taint_flows (backward compatibility)"
@@ -950,26 +1001,6 @@ def trace_taint(
         }
     finally:
         conn.close()
-
-
-def save_taint_analysis(
-    analysis_result: dict[str, Any], output_path: str = "./.pf/taint_analysis.json"
-):
-    """Save taint analysis results to JSON file with normalized structure."""
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-
-    if "taint_paths" in analysis_result:
-        analysis_result["taint_paths"] = [
-            normalize_taint_path(p) for p in analysis_result.get("taint_paths", [])
-        ]
-    if "paths" in analysis_result:
-        analysis_result["paths"] = [
-            normalize_taint_path(p) for p in analysis_result.get("paths", [])
-        ]
-
-    with open(output, "w") as f:
-        json.dump(analysis_result, f, indent=2, sort_keys=True)
 
 
 VULN_TYPE_TO_SEVERITY: dict[str, str] = {

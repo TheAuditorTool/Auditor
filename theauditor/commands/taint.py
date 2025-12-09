@@ -16,9 +16,6 @@ IS_WINDOWS = platform.system() == "Windows"
 @handle_exceptions
 @click.option("--db", default=None, help="Path to the SQLite database (default: repo_index.db)")
 @click.option(
-    "--output", default="./.pf/raw/taint_analysis.json", help="Output path for analysis results"
-)
-@click.option(
     "--max-depth", default=25, type=int, help="Maximum depth for taint propagation tracing"
 )
 @click.option("--json", is_flag=True, help="Output raw JSON instead of formatted report")
@@ -48,7 +45,7 @@ IS_WINDOWS = platform.system() == "Windows"
     help="Analysis mode: backward (IFDS), forward (entry->exit), complete (all flows)",
 )
 def taint_analyze(
-    db, output, max_depth, json, verbose, severity, rules, memory, memory_limit, mode
+    db, max_depth, json, verbose, severity, rules, memory, memory_limit, mode
 ):
     """Trace data flow from untrusted sources to dangerous sinks to detect injection vulnerabilities.
 
@@ -59,7 +56,7 @@ def taint_analyze(
     AI ASSISTANT CONTEXT:
       Purpose: Detects injection vulnerabilities via taint propagation analysis
       Input: .pf/repo_index.db (function calls, assignments, control flow)
-      Output: .pf/raw/taint_analysis.json (taint paths with severity)
+      Output: findings_consolidated table, --json for stdout
       Prerequisites: aud full (populates database with call graph + CFG)
       Integration: Core security analysis, runs in 'aud full' pipeline
       Performance: ~30s-5min depending on codebase size (CFG+memory optimization)
@@ -521,13 +518,29 @@ def taint_analyze(
             )
             console.print("\\[DB] JSON output will still be generated for AI consumption")
 
+    # JSON Output with Fidelity Checkpoint 4b
+    from theauditor.taint.fidelity import create_json_output_receipt, reconcile_taint_fidelity
+
     output_path = Path(".pf") / "raw" / "taint.json"
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
-        import json as json_lib
 
-        json_lib.dump(result, f, indent=2, sort_keys=True)
-    console.print(f"[success]Taint analysis saved to {output_path}[/success]")
+    # Use dumps() + write() instead of dump() to capture byte count for fidelity
+    json_str = json_lib.dumps(result, indent=2, sort_keys=True)
+    with open(output_path, "w") as f:
+        f.write(json_str)
+    json_bytes = len(json_str.encode("utf-8"))
+
+    # Fidelity Checkpoint 4b: JSON Output
+    vuln_count = len(result.get("taint_paths", result.get("paths", [])))
+    json_receipt = create_json_output_receipt(vuln_count, json_bytes)
+    reconcile_taint_fidelity(
+        {"paths_to_write": vuln_count},
+        json_receipt,
+        stage="json_output",
+    )
+    console.print(
+        f"[success]Taint JSON: {vuln_count} paths, {json_bytes} bytes [Fidelity: OK][/success]"
+    )
 
     if json:
         console.print(json_lib.dumps(result, indent=2, sort_keys=True), markup=False)
