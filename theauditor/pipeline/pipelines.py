@@ -484,7 +484,7 @@ async def run_full_pipeline(
             ("detect-frameworks", []),
             ("deps", ["--vuln-scan"]),
             ("deps", ["--check-latest"]),
-            ("docs", ["fetch", "--deps", "./.pf/raw/deps.json"]),
+            ("docs", ["fetch"]),
             ("workset", ["--all"]),
             ("lint", ["--workset"]),
             ("detect-patterns", []),
@@ -495,10 +495,10 @@ async def run_full_pipeline(
             ("cdk", ["analyze"]),
             ("workflows", ["analyze"]),
             ("graph", ["analyze"]),
-            ("graph", ["viz", "--view", "full", "--include-analysis"]),
-            ("graph", ["viz", "--view", "cycles", "--include-analysis"]),
-            ("graph", ["viz", "--view", "hotspots", "--include-analysis"]),
-            ("graph", ["viz", "--view", "layers", "--include-analysis"]),
+            ("graph", ["viz", "--view", "full", "--include-analysis", "--out-dir", ".pf/graphs/"]),
+            ("graph", ["viz", "--view", "cycles", "--include-analysis", "--out-dir", ".pf/graphs/"]),
+            ("graph", ["viz", "--view", "hotspots", "--include-analysis", "--out-dir", ".pf/graphs/"]),
+            ("graph", ["viz", "--view", "layers", "--include-analysis", "--out-dir", ".pf/graphs/"]),
             ("cfg", ["analyze", "--complexity-threshold", "10"]),
             ("metadata", ["churn"]),
             ("taint", []),
@@ -1058,7 +1058,7 @@ async def run_full_pipeline(
                     def run_taint_sync() -> PhaseResult:
                         """Run taint analysis synchronously with live progress output."""
                         from theauditor.rules.orchestrator import RulesOrchestrator
-                        from theauditor.taint import TaintRegistry, save_taint_analysis, trace_taint
+                        from theauditor.taint import TaintRegistry, trace_taint
                         from theauditor.utils.memory import get_recommended_memory_limit
 
                         start_time = time.time()
@@ -1145,10 +1145,6 @@ async def run_full_pipeline(
                         result["all_rule_findings"] = all_findings
                         result["total_vulnerabilities"] = len(taint_paths) + len(all_findings)
 
-                        output_path = Path(root) / ".pf" / "raw" / "taint_analysis.json"
-                        output_path.parent.mkdir(parents=True, exist_ok=True)
-                        save_taint_analysis(result, str(output_path))
-
                         if db_path.exists():
                             from theauditor.indexer.database import DatabaseManager
 
@@ -1207,7 +1203,6 @@ async def run_full_pipeline(
                             f"  Taint paths (IFDS): {len(taint_paths)}",
                             f"  Advanced security issues: {len(advanced_findings)}",
                             f"  Total vulnerabilities: {len(all_findings) + len(taint_paths)}",
-                            "  Results saved to .pf/raw/taint_analysis.json",
                         ]
 
                         elapsed = time.time() - start_time

@@ -91,28 +91,3 @@ def get_fce_json(
     }
 
     return formatter.format_json(output_data)
-
-
-def write_fce_report(root_path: str, min_vectors: int = 2) -> Path:
-    """Run FCE and write JSON report to .pf/raw/fce.json.
-
-    Args:
-        root_path: Project root directory
-        min_vectors: Minimum vectors required
-
-    Returns:
-        Path to written report file
-    """
-    json_output = get_fce_json(root_path=root_path, min_vectors=min_vectors)
-
-    data = json.loads(json_output)
-    if "error" in data and data["error"]:
-        raise RuntimeError(data["error"])
-
-    output_path = Path(root_path) / ".pf" / "raw" / "fce.json"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(json_output)
-
-    return output_path

@@ -16,7 +16,7 @@ class MetadataCollector:
         """Initialize metadata collector."""
         self.root_path = Path(root_path).resolve()
 
-    def collect_churn(self, days: int = 90, output_path: str | None = None) -> dict[str, Any]:
+    def collect_churn(self, days: int = 90) -> dict[str, Any]:
         """Collect git churn metrics for all files."""
         cmd = [
             "git",
@@ -125,18 +125,9 @@ class MetadataCollector:
             except Exception as e:
                 logger.info(f"Warning: Could not write findings to database: {e}")
 
-        if output_path:
-            output_file = Path(output_path)
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(result, f, indent=2)
-            logger.info(f"Churn analysis saved to {output_path}")
-
         return result
 
-    def collect_coverage(
-        self, coverage_file: str | None = None, output_path: str | None = None
-    ) -> dict[str, Any]:
+    def collect_coverage(self, coverage_file: str | None = None) -> dict[str, Any]:
         """Parse Python or Node.js coverage reports into pure facts."""
 
         if not coverage_file:
@@ -276,13 +267,6 @@ class MetadataCollector:
             except Exception as e:
                 logger.info(f"Warning: Could not write findings to database: {e}")
 
-        if output_path:
-            output_file = Path(output_path)
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(result, f, indent=2)
-            logger.info(f"Coverage analysis saved to {output_path}")
-
         return result
 
 
@@ -293,7 +277,7 @@ def main():
     collector = MetadataCollector()
 
     if len(sys.argv) > 1 and sys.argv[1] == "churn":
-        result = collector.collect_churn(output_path=".pf/raw/churn_analysis.json")
+        result = collector.collect_churn()
         logger.info(f"Analyzed {result.get('total_files_analyzed', 0)} files")
         if result.get("files"):
             logger.info(
@@ -303,9 +287,7 @@ def main():
 
     elif len(sys.argv) > 1 and sys.argv[1] == "coverage":
         coverage_file = sys.argv[2] if len(sys.argv) > 2 else None
-        result = collector.collect_coverage(
-            coverage_file=coverage_file, output_path=".pf/raw/coverage_analysis.json"
-        )
+        result = collector.collect_coverage(coverage_file=coverage_file)
         if result.get("files"):
             logger.info(f"Format: {result['format_detected']}")
             logger.info(f"Average coverage: {result['average_coverage']}%")

@@ -16,8 +16,7 @@ from theauditor.pipeline.ui import console, err_console
 
 @click.command("detect-frameworks", cls=RichCommand)
 @click.option("--project-path", default=".", help="Root directory to analyze")
-@click.option("--output-json", help="Path to output JSON file (default: .pf/raw/frameworks.json)")
-def detect_frameworks(project_path, output_json):
+def detect_frameworks(project_path):
     """Display detected frameworks from indexed codebase in AI-consumable format.
 
     Reads framework metadata from the database (populated during 'aud full') and outputs
@@ -27,7 +26,7 @@ def detect_frameworks(project_path, output_json):
     AI ASSISTANT CONTEXT:
       Purpose: Exposes detected frameworks/libraries for architecture understanding
       Input: .pf/repo_index.db (frameworks table)
-      Output: .pf/raw/frameworks.json (structured framework list)
+      Output: Console (table) or JSON (--json flag)
       Prerequisites: aud full (must run first to populate database)
       Integration: Used by blueprint and structure commands for architecture visualization
       Performance: ~1 second (database query only, no file I/O)
@@ -50,15 +49,14 @@ def detect_frameworks(project_path, output_json):
       1. Connects to .pf/repo_index.db (fails if not exists)
       2. Queries frameworks table (populated by 'aud full' extractors)
       3. Retrieves: framework name, version, language, source file, detection method
-      4. Outputs JSON to .pf/raw/frameworks.json (AI-consumable format)
-      5. Displays human-readable ASCII table to stdout
+      4. Outputs human-readable ASCII table to stdout (or JSON with --json flag)
 
     EXAMPLES:
       # Use Case 1: Basic framework detection after indexing
       aud full && aud detect-frameworks
 
-      # Use Case 2: Custom output path for CI/CD integration
-      aud detect-frameworks --output-json ./build/frameworks.json
+      # Use Case 2: JSON output for CI/CD integration
+      aud detect-frameworks --json > ./build/frameworks.json
 
       # Use Case 3: Detect frameworks in specific project directory
       aud detect-frameworks --project-path ./services/api
@@ -76,10 +74,10 @@ def detect_frameworks(project_path, output_json):
       Tech Stack Analysis (for new team members):
         aud detect-frameworks > tech_stack.txt
 
-    OUTPUT FILES:
-      .pf/raw/frameworks.json          # AI-consumable structured output
-      .pf/repo_index.db (tables read):
-        - frameworks: framework metadata with detection provenance
+    OUTPUT:
+      Console: Human-readable table
+      --json: Structured JSON to stdout (pipe to file if needed)
+      Data source: .pf/repo_index.db (frameworks table)
 
     OUTPUT FORMAT (JSON Schema):
       [
@@ -158,11 +156,7 @@ def detect_frameworks(project_path, output_json):
 
         if not frameworks:
             console.print("No frameworks detected.")
-
-            _write_output(frameworks, project_path, output_json)
             return
-
-        _write_output(frameworks, project_path, output_json)
 
         table = _format_table(frameworks)
         console.print(table, markup=False)
@@ -207,24 +201,6 @@ def _read_frameworks_from_db(db_path: Path) -> list[dict]:
 
     conn.close()
     return frameworks
-
-
-def _write_output(frameworks: list[dict], project_path: Path, output_json: str):
-    """Write AI-consumable output to consolidated dependency_analysis.
-
-    Args:
-        frameworks: List of framework dictionaries
-        project_path: Project root path
-        output_json: Optional custom output path (for backward compatibility)
-    """
-
-    output_path = (
-        Path(output_json) if output_json else (project_path / ".pf" / "raw" / "frameworks.json")
-    )
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(frameworks, f, indent=2)
-    console.print(f"[success]Frameworks analysis saved to {output_path}[/success]")
 
 
 def _format_table(frameworks: list[dict]) -> str:

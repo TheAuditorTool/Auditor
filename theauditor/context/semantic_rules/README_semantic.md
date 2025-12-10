@@ -59,7 +59,7 @@ Use this directory to define **semantic context YAML files** for `aud context`. 
    - **transitional** → temporarily acceptable until `expires`
 3. Summaries + migration progress land in:
    - CLI output (truth courier facts only)
-   - `.pf/raw/semantic_context_<name>.json`
+   - Use `--json` for machine-readable output (pipe to file if needed)
 
 ## Recommended workflow
 

@@ -66,11 +66,10 @@ def _normalize_path_filter(path_filter: tuple) -> str | None:
 @click.option(
     "--format", type=click.Choice(["text", "json", "summary"]), default="text", help="Output format"
 )
-@click.option("--save", type=click.Path(), help="Save output to file")
 @click.option("--fail-on-dead-code", is_flag=True, help="Exit 1 if dead code found")
 @click.argument("extra_paths", nargs=-1, required=False)
 @handle_exceptions
-def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code, extra_paths):
+def deadcode(project_path, path_filter, exclude, format, fail_on_dead_code, extra_paths):
     """Detect isolated modules, unreachable functions, and never-imported code.
 
     Identifies dead code by analyzing the import graph - any module with symbols (functions, classes)
@@ -247,13 +246,6 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
             str(db_path), path_filter=normalized_filter, exclude_patterns=exclude_list
         )
 
-        output_path = project_path / ".pf" / "raw" / "deadcode.json"
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        deadcode_data = json.loads(_format_json(modules))
-        with open(output_path, "w") as f:
-            json.dump(deadcode_data, f, indent=2)
-        console.print(f"[success]Deadcode analysis saved to {output_path}[/success]")
-
         if format == "json":
             output = _format_json(modules)
         elif format == "summary":
@@ -262,13 +254,6 @@ def deadcode(project_path, path_filter, exclude, format, save, fail_on_dead_code
             output = _format_text(modules)
 
         console.print(output, markup=False)
-
-        if save:
-            save_path = Path(save)
-            save_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(save_path, "w", encoding="utf-8") as f:
-                f.write(output)
-            err_console.print(f"[error]\nSaved to: {save_path}[/error]", highlight=False)
 
         if fail_on_dead_code and len(modules) > 0:
             raise click.ClickException(f"Dead code detected: {len(modules)} files")

@@ -144,7 +144,6 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     OUTPUT FILES:
       .pf/repo_index.db           Symbol database (queryable with aud query)
       .pf/graphs.db               Call and data flow graphs
-      .pf/raw/*.json              All analysis artifacts
       .pf/pipeline.log            Detailed execution trace
       .pf/fce.log                 Factual Correlation Engine output
 
@@ -229,14 +228,12 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
 
     created_files = result.get("created_files", [])
     pf_files = [f for f in created_files if f.startswith(".pf/")]
-    raw_files = [f for f in created_files if f.startswith(".pf/raw/")]
 
     console.print()
     console.print(
         f"[bold]Files Created[/bold]  "
         f"[dim]Total:[/dim] [bold cyan]{len(created_files)}[/bold cyan]  "
-        f"[dim].pf/:[/dim] [cyan]{len(pf_files)}[/cyan]  "
-        f"[dim].pf/raw/:[/dim] [cyan]{len(raw_files)}[/cyan]"
+        f"[dim].pf/:[/dim] [cyan]{len(pf_files)}[/cyan]"
     )
 
     console.print()
@@ -252,7 +249,6 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
     else:
         console.print("  [cyan].pf/repo_index.db[/cyan]     [dim]Symbol database (queryable)[/dim]")
         console.print("  [cyan].pf/graphs.db[/cyan]         [dim]Call/data flow graphs[/dim]")
-        console.print("  [cyan].pf/raw/[/cyan]              [dim]All analysis artifacts[/dim]")
         console.print("  [cyan].pf/allfiles.md[/cyan]       [dim]Complete file list[/dim]")
         console.print("  [cyan].pf/pipeline.log[/cyan]      [dim]Full execution log[/dim]")
         console.print("  [cyan].pf/fce.log[/cyan]           [dim]FCE detailed output[/dim]")
@@ -413,7 +409,7 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
                     severity_str = ", ".join(parts) if parts else "0"
                     console.print(f"  [dim]{label}:[/dim] {severity_str}")
 
-        console.print("\nReview the findings in [path].pf/raw/[/path]")
+        console.print("\nQuery findings: [cmd]aud query --findings[/cmd]")
         console.rule()
 
     if exit_code != ExitCodes.SUCCESS:

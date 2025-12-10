@@ -21,7 +21,7 @@ def cfg():
     AI ASSISTANT CONTEXT:
       Purpose: Analyze control flow graph complexity and detect unreachable code
       Input: .pf/repo_index.db (after aud full)
-      Output: .pf/raw/cfg.json (complexity metrics), DOT/SVG diagrams
+      Output: Console or JSON (--json), DOT/SVG diagrams (viz subcommand)
       Prerequisites: aud full (populates CFG data in database)
       Integration: Use after aud full to identify complex functions needing refactoring
 
@@ -50,10 +50,9 @@ def cfg():
 @click.option(
     "--complexity-threshold", default=10, type=int, help="Complexity threshold for reporting"
 )
-@click.option("--output", default="./.pf/raw/cfg_analysis.json", help="Output JSON file path")
 @click.option("--find-dead-code", is_flag=True, help="Find unreachable code blocks")
 @click.option("--workset", is_flag=True, help="Analyze workset files only")
-def analyze(db, file, function, complexity_threshold, output, find_dead_code, workset):
+def analyze(db, file, function, complexity_threshold, find_dead_code, workset):
     """Analyze control flow complexity and find issues.
 
     Examples:
@@ -64,7 +63,7 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
         aud cfg analyze --file src/auth.py --find-dead-code
 
         # Analyze specific function
-        aud cfg analyze --function process_payment --output payment_cfg.json
+        aud cfg analyze --function process_payment
     """
     from theauditor.graph.cfg_builder import CFGBuilder
 
@@ -182,12 +181,6 @@ def analyze(db, file, function, complexity_threshold, output, find_dead_code, wo
             db_manager.write_findings_batch(meta_findings, "cfg-analysis")
             db_manager.close()
             console.print(f"  Wrote {len(meta_findings)} CFG findings to database", highlight=False)
-
-        output_path = Path(".pf") / "raw" / "cfg.json"
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w") as f:
-            json.dump(results, f, indent=2)
-        console.print(f"\n\\[OK] CFG analysis saved to {output_path}")
 
         console.print("\n\\[SUMMARY]")
         console.print(f"  Total functions analyzed: {len(functions)}", highlight=False)

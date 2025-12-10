@@ -38,8 +38,8 @@ def context(context_file: str, output: str | None, verbose: bool):
 
     AI ASSISTANT CONTEXT:
       Purpose: Semantic classification of findings based on business context
-      Input: context.yaml (rules), .pf/raw/*.json (analysis findings)
-      Output: .pf/raw/context_report.json (classified findings)
+      Input: context.yaml (rules), findings_consolidated table (from aud full)
+      Output: Console or JSON (--json), classified findings to stdout
       Prerequisites: aud full or aud detect-patterns (populates findings)
       Integration: Refactoring workflows, technical debt tracking, migration planning
       Performance: ~1-3 seconds (YAML parsing + finding classification)
@@ -70,7 +70,7 @@ def context(context_file: str, output: str | None, verbose: bool):
          - Rules specify patterns (file paths, finding types) and their states
 
       2. Load Analysis Findings:
-         - Reads findings from .pf/raw/*.json
+         - Reads findings from database (findings_consolidated table)
          - Includes detect-patterns, taint, deadcode, etc.
 
       3. Apply Classification Rules:
@@ -81,7 +81,7 @@ def context(context_file: str, output: str | None, verbose: bool):
       4. Generate Report:
          - Groups findings by state
          - Calculates counts per classification
-         - Outputs to .pf/raw/context_report.json
+         - Outputs to console (or JSON with --json flag)
 
     YAML RULE FORMAT:
       refactor_context:
@@ -147,7 +147,7 @@ def context(context_file: str, output: str | None, verbose: bool):
 
     FLAG INTERACTIONS:
       --file: YAML rules file (REQUIRED)
-      --output: Custom output path (default: .pf/raw/context_report.json)
+      --output: Custom output path (writes JSON to file)
       --verbose: Shows detailed findings in console output
 
     PREREQUISITES:
@@ -177,7 +177,7 @@ def context(context_file: str, output: str | None, verbose: bool):
 
       No findings classified:
         -> Run 'aud full' or 'aud detect-patterns' first
-        -> Check .pf/raw/*.json files exist and have content
+        -> Check database has findings: aud query --findings
         -> Verify YAML patterns match actual finding types
 
       All findings marked "current" (no obsolete):
@@ -325,27 +325,12 @@ def context(context_file: str, output: str | None, verbose: bool):
     report = context.generate_report(result, verbose=verbose)
     console.print(report, markup=False)
 
-    console.print("\n" + "=" * 80, markup=False)
-    console.print(" Writing results...")
-    console.rule()
-
-    raw_dir = pf_dir / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
-
-    output_file = raw_dir / f"semantic_context_{context.context_name}.json"
-    context.export_to_json(result, output_file)
-    console.print(f"\n\\[OK] Raw results: {output_file}", highlight=False)
-
     if output:
+        console.print("\n" + "=" * 80, markup=False)
+        console.print(" Writing results...")
+        console.rule()
         context.export_to_json(result, Path(output))
         console.print(f"\n\\[OK] Custom output: {output}", highlight=False)
-
-    console.print("\n" + "=" * 80, markup=False)
-    console.print(" OUTPUT LOCATIONS")
-    console.rule()
-    console.print(f"\n  Raw JSON:     {output_file}", highlight=False)
-    if output:
-        console.print(f"  Custom:       {output}", highlight=False)
 
     console.print("\n" + "=" * 80, markup=False)
     console.print("[success]SEMANTIC CONTEXT ANALYSIS COMPLETE[/success]")

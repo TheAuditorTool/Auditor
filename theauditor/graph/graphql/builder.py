@@ -450,22 +450,6 @@ class GraphQLBuilder:
         logger.info(f"Coverage:            {self.get_coverage_percent():.1f}%")
         logger.info(f"Missing resolvers:   {self.stats['missing_resolvers']}")
 
-    def export_courier_artifacts(self, output_dir: Path) -> tuple[Path, Path]:
-        """Export GraphQL data to courier-compliant JSON artifacts."""
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        schema_path = output_dir / "graphql_schema.json"
-        schema_data = self._export_schema_data()
-        with open(schema_path, "w", encoding="utf-8") as f:
-            json.dump(schema_data, f, indent=2)
-
-        execution_path = output_dir / "graphql_execution.json"
-        execution_data = self._export_execution_data()
-        with open(execution_path, "w", encoding="utf-8") as f:
-            json.dump(execution_data, f, indent=2)
-
-        return (schema_path, execution_path)
 
     def _export_schema_data(self) -> dict:
         """Export GraphQL schema data with provenance."""

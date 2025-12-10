@@ -142,12 +142,6 @@ def graphql_build(root, db, verbose):
         edges_count = builder.build_execution_graph()
         console.print(f"  Created {edges_count} execution edges", highlight=False)
 
-        console.print("Phase 5: Exporting courier artifacts...")
-        output_dir = Path(root) / ".pf" / "raw"
-        schema_path, execution_path = builder.export_courier_artifacts(output_dir)
-        console.print(f"  Exported: {schema_path.name}", highlight=False)
-        console.print(f"  Exported: {execution_path.name}", highlight=False)
-
         console.print("\nGraphQL build complete!")
         console.print(
             f"  Resolver coverage: {builder.get_coverage_percent():.1f}%", highlight=False

@@ -26,7 +26,7 @@ def terraform():
     AI ASSISTANT CONTEXT:
       Purpose: Detect infrastructure security issues in Terraform code
       Input: *.tf files (extracted by 'aud full')
-      Output: .pf/raw/terraform_findings.json (security issues)
+      Output: Console or JSON (--json), findings stored in database
       Prerequisites: aud full (extracts Terraform resources)
       Integration: Pre-deployment security validation, IaC auditing
       Performance: ~5-15 seconds (HCL parsing + security rules)
@@ -55,7 +55,7 @@ def terraform():
 
     EXAMPLES:
       aud terraform provision
-      aud terraform analyze --output ./tf_issues.json
+      aud terraform analyze --severity critical
 
     RELATED COMMANDS:
       aud cdk       # AWS CDK security analysis
@@ -73,10 +73,9 @@ def terraform():
 @terraform.command("provision", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--workset", is_flag=True, help="Build graph for workset files only")
-@click.option("--output", default="./.pf/raw/terraform_graph.json", help="Output JSON path")
 @click.option("--db", default="./.pf/repo_index.db", help="Source database path")
 @click.option("--graphs-db", default="./.pf/graphs.db", help="Graph database path")
-def provision(root, workset, output, db, graphs_db):
+def provision(root, workset, db, graphs_db):
     """Build Terraform provisioning flow graph.
 
     Constructs a data flow graph showing how variables, resources, and
@@ -91,7 +90,6 @@ def provision(root, workset, output, db, graphs_db):
     Examples:
       aud terraform provision                    # Build full graph
       aud terraform provision --workset          # Graph for changed files
-      aud terraform provision --output graph.json # Custom output path
 
     Prerequisites:
       - Must run 'aud full' first to extract Terraform resources
@@ -99,7 +97,7 @@ def provision(root, workset, output, db, graphs_db):
 
     Output:
       .pf/graphs.db                      # Graph stored with type 'terraform_provisioning'
-      .pf/raw/terraform_graph.json       # JSON export of graph structure
+      Use --json for graph export        # Pipe to file if needed
 
     Graph Structure:
       Nodes:
@@ -156,11 +154,6 @@ def provision(root, workset, output, db, graphs_db):
             graph["edges"] = filtered_edges
             graph["metadata"]["stats"]["workset_filtered"] = True
 
-        output_path = Path(output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(graph, f, indent=2)
-
         stats = graph["metadata"]["stats"]
 
         console.print("\nProvisioning Graph Built:")
@@ -170,7 +163,6 @@ def provision(root, workset, output, db, graphs_db):
         console.print(f"  Edges: {stats['edges_created']}", highlight=False)
         console.print(f"  Files: {stats['files_processed']}", highlight=False)
         console.print(f"\nGraph stored in: {graphs_db}", highlight=False)
-        console.print(f"JSON export: {output_path}", highlight=False)
 
         sensitive_nodes = [n for n in graph["nodes"] if n.get("is_sensitive")]
         if sensitive_nodes:
@@ -212,9 +204,8 @@ def provision(root, workset, output, db, graphs_db):
     multiple=True,
     help="Specific categories to check (e.g., public_exposure, iam_wildcard)",
 )
-@click.option("--output", default="./.pf/raw/terraform_findings.json", help="Output JSON path")
 @click.option("--db", default="./.pf/repo_index.db", help="Database path")
-def analyze(root, severity, categories, output, db):
+def analyze(root, severity, categories, db):
     """Analyze Terraform for security issues.
 
     Detects infrastructure security issues including:
@@ -234,8 +225,8 @@ def analyze(root, severity, categories, output, db):
       - Optionally run 'aud terraform provision' for graph-based analysis
 
     Output:
-      .pf/raw/terraform_findings.json    # JSON findings export
-      terraform_findings table           # Database findings for FCE
+      Console or JSON (--format json)    # Findings to stdout
+      findings_consolidated table        # Database findings for FCE
     """
     from ..terraform.analyzer import TerraformAnalyzer
 
@@ -256,27 +247,6 @@ def analyze(root, severity, categories, output, db):
             findings = [f for f in findings if f.category in categories]
             console.print(f"Filtered to categories: {', '.join(categories)}", highlight=False)
 
-        output_path = Path(output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        findings_json = [
-            {
-                "finding_id": f.finding_id,
-                "file_path": f.file_path,
-                "resource_id": f.resource_id,
-                "category": f.category,
-                "severity": f.severity,
-                "title": f.title,
-                "description": f.description,
-                "line": f.line,
-                "remediation": f.remediation,
-            }
-            for f in findings
-        ]
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(findings_json, f, indent=2)
-
         console.print("\nTerraform Security Analysis Complete:")
         console.print(f"  Total findings: {len(findings)}", highlight=False)
 
@@ -292,8 +262,7 @@ def analyze(root, severity, categories, output, db):
         for cat, count in category_counts.most_common():
             console.print(f"  {cat}: {count}", highlight=False)
 
-        console.print(f"\nFindings exported to: {output_path}", highlight=False)
-        console.print("Findings stored in terraform_findings table for FCE correlation")
+        console.print("\nFindings stored in terraform_findings table for FCE correlation")
 
         if findings:
             console.print("\nSample findings (first 3):")

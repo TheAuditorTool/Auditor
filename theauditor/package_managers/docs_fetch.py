@@ -633,18 +633,14 @@ def check_latest(
     deps: list[dict[str, Any]],
     allow_net: bool = True,
     offline: bool = False,
-    output_path: str = "./.pf/deps_latest.json",
 ) -> dict[str, Any]:
     """Check latest versions and compare to locked versions."""
-    from .deps import check_latest_versions, write_deps_latest_json
+    from .deps import check_latest_versions
 
     if offline or not allow_net:
         return {"mode": "offline", "checked": 0, "outdated": 0}
 
     latest_info = check_latest_versions(deps, allow_net=allow_net, offline=offline, root_path=".")
-
-    if latest_info:
-        write_deps_latest_json(latest_info, str(output_path))
 
     outdated = sum(1 for info in latest_info.values() if info.get("is_outdated"))
 
@@ -652,5 +648,4 @@ def check_latest(
         "mode": "online",
         "checked": len(latest_info),
         "outdated": outdated,
-        "output": output_path,
     }

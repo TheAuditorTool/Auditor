@@ -30,7 +30,7 @@ def workflows():
     AI ASSISTANT CONTEXT:
       Purpose: Detect CI/CD security issues in GitHub Actions workflows
       Input: .github/workflows/*.yml files (extracted by 'aud full')
-      Output: .pf/raw/workflow_findings.json (security issues)
+      Output: Console or JSON (--json), findings stored in database
       Prerequisites: aud full (extracts workflow files)
       Integration: CI/CD security audits, supply chain validation
       Performance: ~2-5 seconds (workflow parsing + rule matching)
@@ -52,7 +52,7 @@ def workflows():
 
     EXAMPLES:
       aud workflows analyze
-      aud workflows analyze --output ./workflow_issues.json
+      aud workflows analyze --severity critical
 
     RELATED COMMANDS:
       aud detect-patterns  # Includes workflow security rules
@@ -76,13 +76,12 @@ def workflows():
     default="all",
     help="Minimum severity to report",
 )
-@click.option("--output", default="./.pf/raw/github_workflows.json", help="Output JSON path")
 @click.option("--db", default="./.pf/repo_index.db", help="Database path")
 @click.option(
     "--chunk-size", default=60000, type=int, help="Max chunk size for AI consumption (bytes)"
 )
 @handle_exceptions
-def analyze(root, workset, severity, output, db, chunk_size):
+def analyze(root, workset, severity, db, chunk_size):
     """Analyze GitHub Actions workflows for security issues.
 
     Extracts workflow data from the database and generates AI-optimized
@@ -100,14 +99,14 @@ def analyze(root, workset, severity, output, db, chunk_size):
       aud workflows analyze                      # Analyze all workflows
       aud workflows analyze --workset            # Changed files only
       aud workflows analyze --severity critical  # Critical findings only
-      aud workflows analyze --output report.json # Custom output path
 
     Prerequisites:
       - Must run 'aud full' first to extract workflows
       - Optionally run 'aud detect-patterns' for security findings
 
-    Output Files:
-      .pf/raw/github_workflows.json      # Complete workflow analysis
+    Output:
+      Console or JSON (--json)           # Workflow analysis to stdout
+      Data stored in database            # Query with aud query --findings
     """
     try:
         db_path = Path(db)
@@ -164,13 +163,6 @@ def analyze(root, workset, severity, output, db, chunk_size):
             "findings": findings,
         }
 
-        output_path = Path(output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(analysis, f, indent=2)
-
-        console.print(f"[success]Workflows analysis saved to {output_path}[/success]")
-
         console.print("\nGitHub Actions Workflow Analysis:")
         console.print(f"  Workflows: {analysis['summary']['total_workflows']}", highlight=False)
         console.print(f"  Jobs: {analysis['summary']['total_jobs']}", highlight=False)
@@ -181,9 +173,6 @@ def analyze(root, workset, severity, output, db, chunk_size):
             for sev, count in analysis["summary"]["severity_counts"].items():
                 if count > 0:
                     console.print(f"    {sev.title()}: {count}", highlight=False)
-
-        console.print("\nOutput:")
-        console.print(f"  Full report: {output_path}", highlight=False)
 
         critical_workflows = [
             w for w in workflow_data if "pull_request_target" in w.get("on_triggers", [])

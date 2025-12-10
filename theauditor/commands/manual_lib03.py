@@ -379,7 +379,7 @@ TROUBLESHOOTING:
 - No patterns matched: Check aud detect-patterns ran, verify scope, test regex
 - Too many matches: Narrow scope or refine regex
 - Transitional never expires: Update expires field, re-run after date
-- Need JSON for AI agents: Use --output or read .pf/raw/semantic_context_<name>.json
+- Need JSON for AI agents: Use --json flag for stdout output
 
 RELATIONSHIP TO REFACTOR PROFILES:
 - Semantic context (this): Input to aud context --file, classifies existing findings
@@ -392,8 +392,9 @@ Commands: aud context, aud full, aud refactor, aud deadcode
 Topics: aud manual refactor, aud manual deadcode
 
 OUTPUT:
-- .pf/raw/semantic_context_<name>.json with classified findings
+- Classified findings stored in database (query with aud query --findings)
 - Summary counts: obsolete_count, current_count, transitional_count
+- Use --json for machine-readable stdout output
 """,
     },
 }

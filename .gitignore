@@ -82,6 +82,7 @@ repo_index.db
 /tmp/
 teamsop.md
 node_modules/
+.auditor_venv
 
 # JavaScript extractor build artifacts
 theauditor/ast_extractors/javascript/dist/

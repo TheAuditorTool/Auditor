@@ -45,7 +45,7 @@ def lint_command(
         else:
             console.print("  Scope: All source files")
         console.print("  Linters: ESLint, Ruff, Mypy")
-        console.print("  Output: .pf/raw/lint.json + findings_consolidated table")
+        console.print("  Output: findings_consolidated table")
         return {"success": True, "printed_plan": True}
 
     db_path = Path(root_path) / ".pf" / "repo_index.db"
@@ -75,13 +75,12 @@ def lint_command(
     console.print(f"  Total findings: {stats['total_findings']}", highlight=False)
     console.print(f"  Errors: {stats['errors']}", highlight=False)
     console.print(f"  Warnings: {stats['warnings']}", highlight=False)
-    console.print("  Output: .pf/raw/lint.json")
     console.print("  Database: findings written to findings_consolidated table")
 
     return {
         "success": True,
         "stats": stats,
-        "output_files": [str(Path(root_path) / ".pf" / "raw" / "lint.json")],
+        "output_files": [],
         "auto_fix_applied": False,
     }
 
@@ -105,7 +104,7 @@ def lint(root, workset, workset_path, timeout, print_plan):
     AI ASSISTANT CONTEXT:
       Purpose: Run static analysis linters and normalize findings to unified format
       Input: Source files (Python, JS/TS, Go, Docker), .pf/workset.json (optional)
-      Output: .pf/raw/lint.json (normalized findings), findings_consolidated table
+      Output: findings_consolidated table (query with aud query --findings)
       Prerequisites: aud full (for workset mode), linters installed in project
       Integration: Part of full pipeline, works with workset for targeted analysis
       Performance: ~10-60 seconds depending on codebase size and linters installed
@@ -153,9 +152,8 @@ def lint(root, workset, workset_path, timeout, print_plan):
       CI Pipeline:
         aud lint || exit 1
 
-    OUTPUT FILES:
-      .pf/raw/lint.json               # Normalized findings
-      .pf/raw/ast_cache/eslint/*.json # Cached ASTs from ESLint
+    OUTPUT:
+      findings_consolidated table     # Query with aud query --findings
 
     PERFORMANCE:
       Small (<1K files):     ~10-20 seconds

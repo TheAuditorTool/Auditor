@@ -281,7 +281,7 @@ class UniversalPatternDetector:
 
         if len(sorted_findings) > max_rows:
             lines.append(f"\n... and {len(sorted_findings) - max_rows} more findings")
-            lines.append("\nTIP: View all findings in .pf/patterns.json")
+            lines.append("\nTIP: Use --json for full output (pipe to file if needed)")
 
         return "\n".join(lines)
 

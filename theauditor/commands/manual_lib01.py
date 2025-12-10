@@ -28,7 +28,7 @@ STEPS:
     aud taint --severity critical      # Only critical findings
     aud taint --verbose                # Show full taint paths
 
-2. Review findings in .pf/raw/taint_analysis.json
+2. Query findings: aud query --findings --source taint
 
 3. For each finding, verify:
    - Is the source actually user-controlled?
@@ -69,7 +69,7 @@ KEY OPTIONS:
 COMMON MISTAKES:
 - Running taint before aud full: No database = no analysis
 - Ignoring MEDIUM findings: They often combine to CRITICAL via FCE
-- Not checking .pf/raw/taint_analysis.json: Terminal output is summary only
+- Not using --json for detailed output: Terminal output is summary only
 - Using --mode forward for security audits: Less accurate, use backward
 
 EXIT CODES:
@@ -224,7 +224,7 @@ COMBINING WITH OTHER TOOLS:
 - Run after aud full to use all analysis data
 - Use aud explain on flagged files for detailed context
 - Use aud taint for data flow details on F-vector findings
-- Write report: aud fce --write saves to .pf/raw/fce.json
+- Save report: aud fce --format json > fce_report.json
 
 AGENT WORKFLOW:
 The security agent runs FCE after taint and patterns to identify
@@ -234,7 +234,6 @@ KEY OPTIONS:
 - --min-vectors N: Require N vectors (1-4, default 2)
 - --format: text (human) or json (machine)
 - --detailed: Include facts in text output
-- --write: Save JSON to .pf/raw/fce.json
 
 COMMON MISTAKES:
 - Running fce before aud full: No data = no correlations
@@ -419,7 +418,6 @@ STEPS:
     2. Check the output directory:
        .pf/repo_index.db           # Symbol database (query with aud query)
        .pf/graphs.db               # Call and import graphs
-       .pf/raw/*.json              # All analysis artifacts
        .pf/pipeline.log            # Detailed execution trace
 
     3. Review findings:
@@ -591,7 +589,7 @@ STEPS:
     aud detect-patterns --no-ast           # Fast regex-only scan
     aud detect-patterns --patterns auth_issues  # Specific category
 
-2. Review findings in terminal or .pf/raw/patterns.json
+2. Review findings in terminal or use --json for detailed output
 
 3. Use --file-filter for targeted scans:
     aud detect-patterns --file-filter "*.py"   # Python only
@@ -706,7 +704,7 @@ USING INSIGHTS:
 
 OUTPUT STRUCTURE:
 .pf/
-|-- raw/               # Immutable facts (truth)
+|-- repo_index.db      # Immutable facts (database)
 +-- insights/          # Interpretations (opinions)
     |-- ml_suggestions.json
     |-- graph_health.json
@@ -785,7 +783,6 @@ OUTPUT STRUCTURE:
     .pf/
     |-- repo_index.db           # All code symbols and relationships
     |-- graphs.db               # Call and import graphs
-    |-- raw/*.json              # Raw analysis artifacts
     +-- pipeline.log            # Execution trace
 
 COMBINING WITH OTHER TOOLS:
@@ -952,7 +949,7 @@ EXAMPLE - Warn on High, Block on Critical:
 COMBINING WITH OTHER TOOLS:
 - Use with --quiet for minimal output in pipelines
 - Use with --offline to skip network operations
-- Parse .pf/raw/*.json for detailed findings if needed
+- Query findings with: aud query --findings
 
 RELATED:
 - Commands: aud full, aud taint, aud detect-patterns
@@ -1228,7 +1225,7 @@ GETTING HELP:
 COMBINING WITH OTHER TOOLS:
 - Use aud manual database to understand schema
 - Use aud blueprint --structure to verify indexing
-- Check .pf/raw/*.json for raw analysis output
+- Query findings with: aud query --findings
 
 RELATED:
 - Commands: aud full, aud query, aud explain

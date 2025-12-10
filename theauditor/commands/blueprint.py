@@ -44,6 +44,9 @@ VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_e
     help="Line count threshold for --monoliths (default: 1950)",
 )
 @click.option("--fce", is_flag=True, help="Drill down into FCE vector convergence analysis")
+@click.option("--findings", is_flag=True, help="Drill down into findings from all analysis tools")
+@click.option("--findings-tool", help="Filter findings by tool (ruff, eslint, taint, cfg-analysis)")
+@click.option("--findings-severity", help="Filter findings by severity (critical, high, medium, low)")
 @handle_exceptions
 def blueprint(
     structure,
@@ -58,6 +61,9 @@ def blueprint(
     monoliths,
     threshold,
     fce,
+    findings,
+    findings_tool,
+    findings_severity,
 ):
     """Architectural fact visualization with drill-down analysis modes (NO recommendations).
 
@@ -189,6 +195,7 @@ def blueprint(
             "boundaries": boundaries,
             "deps": deps,
             "fce": fce,
+            "findings": findings,
             "all": all,
         }
 
@@ -212,6 +219,8 @@ def blueprint(
             _show_deps_drilldown(data, cursor)
         elif fce:
             _show_fce_drilldown(data)
+        elif findings:
+            _show_findings_drilldown(cursor, findings_tool, findings_severity)
         else:
             if output_format == "json":
                 summary = {
@@ -1997,5 +2006,147 @@ def _show_fce_drilldown(data: dict):
     console.print("  -> aud fce --format json       # JSON output for AI consumption")
     console.print("  -> aud fce --min-vectors 3     # Filter to 3+ vectors only")
     console.print("  -> aud explain <file> --fce    # FCE signal for specific file")
+
+    console.print("\n" + "=" * 80 + "\n", markup=False)
+
+
+def _show_findings_drilldown(cursor: sqlite3.Cursor, tool_filter: str | None, severity_filter: str | None):
+    """Drill down: All findings from analysis tools.
+
+    Shows findings from: ruff, eslint, taint, cfg-analysis, mypy, terraform, osv, etc.
+    """
+    console.print("\nFINDINGS DRILL-DOWN")
+    console.rule()
+    console.print("Consolidated findings from all analysis tools")
+    console.rule()
+
+    # Build query with optional filters
+    where_clauses = []
+    params = []
+
+    if tool_filter:
+        where_clauses.append("tool = ?")
+        params.append(tool_filter)
+
+    if severity_filter:
+        where_clauses.append("severity = ?")
+        params.append(severity_filter)
+
+    where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
+
+    # Get summary stats
+    cursor.execute(f"""
+        SELECT tool, COUNT(*) as count
+        FROM findings_consolidated
+        WHERE {where_sql}
+        GROUP BY tool
+        ORDER BY count DESC
+    """, params)
+    tool_counts = {row[0]: row[1] for row in cursor.fetchall()}
+
+    cursor.execute(f"""
+        SELECT severity, COUNT(*) as count
+        FROM findings_consolidated
+        WHERE {where_sql}
+        GROUP BY severity
+        ORDER BY
+            CASE severity
+                WHEN 'critical' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'error' THEN 3
+                WHEN 'medium' THEN 4
+                WHEN 'warning' THEN 5
+                WHEN 'low' THEN 6
+                ELSE 7
+            END
+    """, params)
+    severity_counts = {row[0]: row[1] for row in cursor.fetchall()}
+
+    total = sum(tool_counts.values())
+
+    if total == 0:
+        console.print("\n(!) No findings found")
+        if tool_filter or severity_filter:
+            console.print(f"  Filters applied: tool={tool_filter}, severity={severity_filter}")
+        console.print("  Run: aud full (to populate findings)")
+        console.print("\n" + "=" * 80 + "\n", markup=False)
+        return
+
+    console.print(f"\nTotal Findings: {total:,}", highlight=False)
+    if tool_filter or severity_filter:
+        console.print(f"  Filters: tool={tool_filter or 'all'}, severity={severity_filter or 'all'}", highlight=False)
+
+    console.print("\nFindings by Tool:")
+    for tool_name, count in tool_counts.items():
+        pct = (count / total * 100) if total > 0 else 0
+        bar_len = int(pct / 2)
+        bar = "#" * bar_len
+        console.print(f"  {tool_name:20s} {count:6d} ({pct:5.1f}%) {bar}", highlight=False)
+
+    console.print("\nFindings by Severity:")
+    severity_colors = {
+        "critical": "red bold",
+        "high": "red",
+        "error": "yellow",
+        "medium": "yellow",
+        "warning": "cyan",
+        "low": "dim",
+    }
+    for sev, count in severity_counts.items():
+        color = severity_colors.get(sev, "white")
+        console.print(f"  [{color}]{sev:12s}[/{color}] {count:6d}", highlight=False)
+
+    # Get top files with most findings
+    cursor.execute(f"""
+        SELECT file, COUNT(*) as count,
+               SUM(CASE WHEN severity IN ('critical', 'high', 'error') THEN 1 ELSE 0 END) as high_sev
+        FROM findings_consolidated
+        WHERE {where_sql}
+        GROUP BY file
+        ORDER BY high_sev DESC, count DESC
+        LIMIT 15
+    """, params)
+    top_files = cursor.fetchall()
+
+    if top_files:
+        console.print("\nTop 15 Files (by high-severity findings):")
+        for i, (file, count, high_sev) in enumerate(top_files, 1):
+            sev_indicator = f"[red]{high_sev}H[/red]" if high_sev > 0 else "   "
+            console.print(f"  {i:2d}. {sev_indicator} {count:4d} findings  {file}", highlight=False)
+
+    # Get sample findings (high severity first)
+    cursor.execute(f"""
+        SELECT file, line, rule, tool, message, severity
+        FROM findings_consolidated
+        WHERE {where_sql}
+        ORDER BY
+            CASE severity
+                WHEN 'critical' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'error' THEN 3
+                ELSE 4
+            END,
+            file, line
+        LIMIT 10
+    """, params)
+    sample_findings = cursor.fetchall()
+
+    if sample_findings:
+        console.print("\nSample High-Priority Findings (first 10):")
+        for file, line, rule, tool_name, message, sev in sample_findings:
+            sev_display = f"[{severity_colors.get(sev, 'white')}]{sev:8s}[/{severity_colors.get(sev, 'white')}]"
+            console.print(f"\n  {sev_display} {file}:{line}", highlight=False)
+            console.print(f"    [{tool_name}] {rule}", highlight=False)
+            if message:
+                msg_short = message[:100] + "..." if len(message) > 100 else message
+                console.print(f"    {msg_short}", highlight=False)
+
+    console.print("\nRelated Commands:")
+    console.print("  -> aud query --findings                    # All findings (structured)")
+    console.print("  -> aud query --findings --severity high    # Filter by severity")
+    console.print("  -> aud query --findings --tool ruff        # Filter by tool")
+    console.print("  -> aud query --findings --format json      # JSON output for AI")
+    console.print("  -> aud blueprint --taint                   # Focus on taint analysis")
+    console.print("  -> aud blueprint --security                # Focus on security surface")
 
     console.print("\n" + "=" * 80 + "\n", markup=False)

@@ -59,6 +59,9 @@ def _normalize_path_filter(path_filter: tuple) -> str | None:
 @click.option(
     "--category", help="Search by security category (jwt, oauth, password, sql, xss, auth)"
 )
+@click.option("--findings", is_flag=True, help="Query findings from all tools (lint, taint, rules, osv)")
+@click.option("--severity", help="Filter findings by severity (critical, high, medium, low, warning, error)")
+@click.option("--tool", help="Filter findings by tool (ruff, eslint, taint, cfg-analysis, mypy, terraform)")
 @click.option("--search", help="Cross-table exploratory search (finds term across all tables)")
 @click.option(
     "--list",
@@ -155,6 +158,9 @@ def query(
     pattern,
     content,
     category,
+    findings,
+    severity,
+    tool,
     search,
     list_mode,
     list_symbols,
@@ -327,6 +333,7 @@ def query(
             variable,
             pattern,
             category,
+            findings,
             search,
             show_api_coverage,
             list_mode,
@@ -363,6 +370,9 @@ def query(
         )
         err_console.print(
             "[error]    --category CATEGORY (search by security category)[/error]",
+        )
+        err_console.print(
+            "[error]    --findings          (query findings from all tools)[/error]",
         )
         err_console.print(
             "[error]    --search TERM       (cross-table exploratory search)[/error]",
@@ -488,6 +498,39 @@ def query(
 
         elif category:
             results = engine.category_search(category)
+
+        elif findings:
+            # Query findings from all tools with optional filters
+            file_filter = file or (sql_path_filter.rstrip('%') if sql_path_filter else None)
+            raw_findings = engine.get_findings(
+                file_path=file_filter,
+                tool=tool,
+                severity=severity,
+            )
+
+            # Group findings by tool for summary
+            tool_counts = {}
+            severity_counts = {}
+            for f in raw_findings:
+                t = f.get("tool", "unknown")
+                s = f.get("severity", "unknown")
+                tool_counts[t] = tool_counts.get(t, 0) + 1
+                severity_counts[s] = severity_counts.get(s, 0) + 1
+
+            results = {
+                "type": "findings",
+                "count": len(raw_findings),
+                "filters": {
+                    "file": file_filter,
+                    "tool": tool,
+                    "severity": severity,
+                },
+                "summary": {
+                    "by_tool": tool_counts,
+                    "by_severity": severity_counts,
+                },
+                "findings": raw_findings,
+            }
 
         elif search:
             tables = include_tables.split(",") if include_tables else None

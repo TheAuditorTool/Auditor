@@ -14,7 +14,6 @@ from theauditor.utils.error_handler import handle_exceptions
 @click.command("docker-analyze", cls=RichCommand)
 @handle_exceptions
 @click.option("--db-path", default="./.pf/repo_index.db", help="Path to repo_index.db")
-@click.option("--output", help="Output file for findings (JSON format)")
 @click.option(
     "--severity",
     type=click.Choice(["all", "critical", "high", "medium", "low"]),
@@ -26,7 +25,7 @@ from theauditor.utils.error_handler import handle_exceptions
     default=True,
     help="Check base images for vulnerabilities (requires network)",
 )
-def docker_analyze(db_path, output, severity, check_vulns):
+def docker_analyze(db_path, severity, check_vulns):
     """Analyze Dockerfiles and container images for security vulnerabilities and misconfigurations.
 
     Performs static analysis on Dockerfiles to detect common security issues including privilege
@@ -36,7 +35,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
     AI ASSISTANT CONTEXT:
       Purpose: Identifies Docker security issues and container misconfigurations
       Input: .pf/repo_index.db (Dockerfile contents extracted by 'aud full')
-      Output: .pf/raw/docker_findings.json (security issues with severity)
+      Output: findings_consolidated table (security issues with severity)
       Prerequisites: aud full (populates database with Dockerfile contents)
       Integration: Part of security audit workflow, runs in 'aud full' pipeline
       Performance: ~2-5 seconds local analysis, +10-30s if checking vulnerabilities
@@ -78,7 +77,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
       3. Applies security rules (privilege checks, secret detection, etc.)
       4. Optionally queries vulnerability databases for base image CVEs
       5. Generates findings with severity (critical/high/medium/low)
-      6. Outputs JSON to .pf/raw/docker_findings.json
+      6. Stores findings in findings_consolidated table
 
     EXAMPLES:
       # Use Case 1: Quick Docker security scan after indexing
@@ -90,8 +89,8 @@ def docker_analyze(db_path, output, severity, check_vulns):
       # Use Case 3: Only show critical/high severity issues
       aud docker-analyze --severity high
 
-      # Use Case 4: CI/CD integration with JSON output
-      aud docker-analyze --output ./build/docker_security.json || exit $?
+      # Use Case 4: CI/CD integration with exit code
+      aud docker-analyze --severity critical || exit $?
 
       # Use Case 5: Combined security audit workflow
       aud full && aud docker-analyze --severity critical
@@ -104,10 +103,10 @@ def docker_analyze(db_path, output, severity, check_vulns):
         aud docker-analyze --severity critical || exit 2
 
       Development Audit (all issues):
-        aud docker-analyze --output ./docker_audit.json
+        aud docker-analyze --severity all
 
     OUTPUT FILES:
-      .pf/raw/docker_findings.json     # Security findings (if --output specified)
+      findings_consolidated table      # Security findings (query with aud query --findings)
       .pf/repo_index.db (tables read):
         - files: Dockerfile paths and content
         - assignments: ENV/ARG instructions
@@ -213,7 +212,7 @@ def docker_analyze(db_path, output, severity, check_vulns):
     console.print("", highlight=False)
     console.print("To analyze Dockerfiles:", highlight=False)
     console.print("  1. Run 'aud full' to index and analyze", highlight=False)
-    console.print("  2. Check findings in .pf/raw/ output files", highlight=False)
+    console.print("  2. Query findings with: aud query --findings", highlight=False)
     console.print("", highlight=False)
 
     if not Path(db_path).exists():
@@ -280,17 +279,6 @@ def docker_analyze(db_path, output, severity, check_vulns):
                 console.print(f"  Fix: {finding['recommendation']}", highlight=False)
     else:
         console.print("No Docker security issues found")
-
-    if output:
-        output_path = Path(output)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-
-        docker_data = {"findings": findings, "summary": severity_counts, "total": len(findings)}
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(docker_data, f, indent=2)
-
-        console.print(f"\nResults saved to: {output}", highlight=False)
 
     if severity_counts.get("critical", 0) > 0:
         return ExitCodes.CRITICAL_SEVERITY

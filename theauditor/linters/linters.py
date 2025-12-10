@@ -5,7 +5,6 @@ Individual linter implementations are in separate modules.
 """
 
 import asyncio
-import json
 from pathlib import Path
 from typing import Any
 
@@ -152,8 +151,6 @@ class LinterOrchestrator:
             logger.info(f"Writing {len(findings_dicts)} findings to database")
             self.db.write_findings_batch(findings_dicts, "lint")
 
-        self._write_json_output(findings_dicts)
-
         return findings_dicts
 
     def _get_all_source_files(self) -> list[tuple[str, str]]:
@@ -172,30 +169,3 @@ class LinterOrchestrator:
         files = cursor.fetchall()
         logger.debug(f"Fetched {len(files)} source files from database")
         return files
-
-    def _write_json_output(self, findings: list[dict[str, Any]]):
-        """Write findings to JSON file for AI consumption.
-
-        Args:
-            findings: List of finding dictionaries
-        """
-        output_file = self.root / ".pf" / "raw" / "lint.json"
-
-        try:
-            output_file.parent.mkdir(parents=True, exist_ok=True)
-        except OSError as e:
-            logger.error(f"Failed to create output directory: {e}")
-            raise OSError(f"Cannot create {output_file.parent}: {e}") from e
-
-        sorted_findings = sorted(findings, key=lambda f: (f["file"], f["line"], f["rule"]))
-
-        try:
-            with open(output_file, "w", encoding="utf-8") as f:
-                json.dump(sorted_findings, f, indent=2, sort_keys=True)
-            logger.info(f"Wrote {len(findings)} findings to {output_file}")
-        except OSError as e:
-            logger.error(f"Failed to write lint.json (disk full? permissions?): {e}")
-            raise
-        except Exception as e:
-            logger.error(f"Unexpected error writing lint.json: {e}")
-            raise OSError(f"Failed to write {output_file}: {e}") from e

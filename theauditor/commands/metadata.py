@@ -19,7 +19,7 @@ def metadata():
     AI ASSISTANT CONTEXT:
       Purpose: Extract temporal and quality facts for risk correlation
       Input: Git history, coverage reports, repo_index.db
-      Output: .pf/raw/churn_analysis.json, .pf/raw/coverage_analysis.json
+      Output: Console or JSON (--json), data stored in database
       Prerequisites: Git repository (for churn), coverage tool output (for coverage)
       Integration: Data feeds into 'aud fce' for compound risk detection
       Performance: ~5-20 seconds (git log parsing + database queries)
@@ -53,7 +53,7 @@ def metadata():
         aud full && aud metadata churn && aud fce
 
       Technical Debt Tracking:
-        aud metadata analyze --output ./debt_report.json
+        aud metadata churn && aud metadata coverage && aud fce
 
     EXAMPLES:
       # Analyze git churn for last 90 days
@@ -80,8 +80,7 @@ def metadata():
 @metadata.command("churn", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory to analyze")
 @click.option("--days", default=90, type=int, help="Number of days to analyze")
-@click.option("--output", default="./.pf/raw/churn_analysis.json", help="Output JSON path")
-def analyze_churn(root, days, output):
+def analyze_churn(root, days):
     """Analyze git commit history for code churn metrics.
 
     Collects pure facts about file volatility:
@@ -97,9 +96,6 @@ def analyze_churn(root, days, output):
 
         # Analyze last 30 days
         aud metadata churn --days 30
-
-        # Custom output location
-        aud metadata churn --output analysis/churn.json
     """
     from theauditor.indexer.metadata_collector import MetadataCollector
 
@@ -107,7 +103,7 @@ def analyze_churn(root, days, output):
         console.print(f"Analyzing git history for last {days} days...", highlight=False)
 
         collector = MetadataCollector(root_path=root)
-        result = collector.collect_churn(days=days, output_path=output)
+        result = collector.collect_churn(days=days)
 
         if "error" in result:
             err_console.print(
@@ -130,8 +126,6 @@ def analyze_churn(root, days, output):
                     highlight=False,
                 )
 
-        console.print(f"\n\\[SAVED] Churn analysis saved to {output}", highlight=False)
-
     except Exception as e:
         logger.error(f"Churn analysis failed: {e}")
         err_console.print(f"[error]Error: {e}[/error]", highlight=False)
@@ -141,8 +135,7 @@ def analyze_churn(root, days, output):
 @metadata.command("coverage", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory")
 @click.option("--coverage-file", help="Path to coverage file (auto-detects if not specified)")
-@click.option("--output", default="./.pf/raw/coverage_analysis.json", help="Output JSON path")
-def analyze_coverage(root, coverage_file, output):
+def analyze_coverage(root, coverage_file):
     """Parse test coverage reports for quality metrics.
 
     Supports:
@@ -175,7 +168,7 @@ def analyze_coverage(root, coverage_file, output):
             console.print("Auto-detecting coverage file...")
 
         collector = MetadataCollector(root_path=root)
-        result = collector.collect_coverage(coverage_file=coverage_file, output_path=output)
+        result = collector.collect_coverage(coverage_file=coverage_file)
 
         if "error" in result:
             err_console.print(
@@ -247,7 +240,7 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
         if not skip_churn:
             console.print(f"\\[1/2] Analyzing git history for last {days} days...", highlight=False)
             churn_result = collector.collect_churn(
-                days=days, output_path="./.pf/raw/churn_analysis.json"
+                days=days, output_path=None
             )
 
             if "error" in churn_result:
@@ -263,7 +256,7 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
         if not skip_coverage:
             console.print("\\[2/2] Analyzing test coverage...")
             coverage_result = collector.collect_coverage(
-                coverage_file=coverage_file, output_path="./.pf/raw/coverage_analysis.json"
+                coverage_file=coverage_file, output_path=None
             )
 
             if "error" in coverage_result:
@@ -281,8 +274,7 @@ def analyze_all(root, days, coverage_file, skip_churn, skip_coverage):
             console.print("\\[2/2] Skipping coverage analysis")
 
         console.print("\n\\[COMPLETE] Metadata analysis finished")
-        console.print("  Output: .pf/raw/churn_analysis.json")
-        console.print("  Output: .pf/raw/coverage_analysis.json")
+        console.print("  Data stored in database (query with aud query)")
 
     except Exception as e:
         logger.error(f"Metadata analysis failed: {e}")

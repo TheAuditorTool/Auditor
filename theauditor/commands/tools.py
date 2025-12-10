@@ -194,7 +194,7 @@ def tools(ctx: click.Context) -> None:
     AI ASSISTANT CONTEXT:
       Purpose: Detect and verify installed analysis tools (linters, runtimes, scanners)
       Input: System PATH, .auditor_venv sandbox
-      Output: Tool version information (stdout or .pf/raw/tools.json)
+      Output: Console (table) or JSON (--json flag)
       Prerequisites: None (reads system state directly)
       Integration: Run before aud full to verify toolchain, or after setup-ai
 
@@ -208,7 +208,7 @@ def tools(ctx: click.Context) -> None:
     EXAMPLES:
       aud tools              # List all tools
       aud tools check        # Verify installation
-      aud tools report       # Generate .pf/raw/tools.json
+      aud tools report --json # JSON version report to stdout
 
     SEE ALSO:
       aud manual tools   Learn about analysis tool dependencies
@@ -323,7 +323,7 @@ def tools_check(strict: bool, required: tuple[str, ...]) -> None:
 
 
 @tools.command("report", cls=RichCommand)
-@click.option("--out-dir", default=".pf/raw", type=click.Path(), help="Output directory")
+@click.option("--out-dir", required=True, type=click.Path(), help="Output directory (required)")
 @click.option(
     "--format",
     "fmt",

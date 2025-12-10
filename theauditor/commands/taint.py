@@ -135,7 +135,7 @@ def taint_analyze(
       aud taint --verbose --severity critical
 
       # Use Case 4: Export for SAST tool integration
-      aud taint --json --output ./sast_results.json
+      aud taint --json > ./sast_results.json
 
       # Use Case 5: Fast scan (forward mode, less accurate)
       aud taint --mode forward  # Faster but may miss complex paths
@@ -159,8 +159,9 @@ def taint_analyze(
       Full Security Audit:
         aud full --offline && aud taint --verbose
 
-    OUTPUT FILES:
-      .pf/raw/taint_analysis.json      # Taint paths with severity
+    OUTPUT:
+      Console or JSON (--json)         # Taint paths with severity
+      taint_flows table                # Stored in database
       .pf/repo_index.db (tables read):
         - function_call_args: Sink detection
         - assignments: Taint propagation

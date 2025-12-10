@@ -324,14 +324,6 @@ def _parse_cargo_toml(path: Path) -> list[dict[str, Any]]:
     return deps
 
 
-def write_deps_json(deps: list[dict[str, Any]], output_path: str = "./.pf/deps.json") -> None:
-    """Write dependencies to JSON file."""
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w", encoding="utf-8") as f:
-        json.dump(deps, f, indent=2, sort_keys=True)
-
-
 async def _fetch_npm_async(client, name: str) -> str | None:
     """Fetch latest version from npm registry (async)."""
     if not _validate_package_name(name, "npm"):
@@ -740,16 +732,6 @@ def _calculate_version_delta(locked: str, latest: str) -> str:
         return "patch"
     else:
         return "unknown"
-
-
-def write_deps_latest_json(
-    latest_info: dict[str, dict[str, Any]], output_path: str = "./.pf/deps_latest.json"
-) -> None:
-    """Write latest version info to JSON file."""
-    output = Path(output_path)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with open(output, "w", encoding="utf-8") as f:
-        json.dump(latest_info, f, indent=2, sort_keys=True)
 
 
 def _create_versioned_backup(path: Path) -> Path:

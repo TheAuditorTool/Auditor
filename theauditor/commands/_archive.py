@@ -37,7 +37,6 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
     - .pf/context/ (documentation cache and summaries)
 
     Always archived:
-    - .pf/raw/ (raw tool outputs)
     - All other .pf/ contents
 
     AI ASSISTANT CONTEXT:

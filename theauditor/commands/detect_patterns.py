@@ -14,7 +14,7 @@ from theauditor.utils.helpers import get_self_exclusion_patterns
 @click.option(
     "--patterns", multiple=True, help="Pattern categories to use (e.g., runtime_issues, db_issues)"
 )
-@click.option("--output-json", help="Path to output JSON file")
+@click.option("--json", "as_json", is_flag=True, help="Output findings as JSON to stdout")
 @click.option("--file-filter", help="Glob pattern to filter files")
 @click.option("--max-rows", default=50, type=int, help="Maximum rows to display in table")
 @click.option("--print-stats", is_flag=True, help="Print summary statistics")
@@ -30,7 +30,7 @@ from theauditor.utils.helpers import get_self_exclusion_patterns
 def detect_patterns(
     project_path,
     patterns,
-    output_json,
+    as_json,
     file_filter,
     max_rows,
     print_stats,
@@ -53,7 +53,7 @@ def detect_patterns(
     AI ASSISTANT CONTEXT:
       Purpose: Detect security vulnerabilities via pattern matching
       Input: Source code files (Python, JavaScript, TypeScript, etc.)
-      Output: .pf/raw/patterns.json (findings with severity and CWE)
+      Output: Console (summary) or JSON (--json), findings stored in database
       Prerequisites: None (can run standalone or after aud full)
       Integration: Runs in 'aud full' pipeline Stage 3 Track B
       Performance: 30 seconds to 5 minutes depending on codebase size
@@ -81,8 +81,9 @@ def detect_patterns(
       aud detect-patterns --no-ast                  # Regex only (faster)
       aud detect-patterns --exclude-self            # Skip TheAuditor files
 
-    OUTPUT FILES:
-      .pf/raw/patterns.json       All findings in JSON format
+    OUTPUT:
+      Console: Summary counts by severity
+      --json:  All findings to stdout (pipe to file if needed)
 
       Finding Format:
         {
@@ -161,20 +162,27 @@ def detect_patterns(
                     f"[error]\\[DB] Warning: Database write failed: {e}[/error]",
                     highlight=False,
                 )
-                console.print("\\[DB] JSON output will still be generated for AI consumption")
         else:
             console.print(
                 "\\[DB] Database not found - run 'aud full' first for optimal FCE performance"
             )
 
-        output_path = (
-            Path(output_json) if output_json else (project_path / ".pf" / "raw" / "patterns.json")
-        )
-        detector.to_json(output_path)
-        console.print(f"[success]Patterns analysis saved to {output_path}[/success]")
-
-        table = detector.format_table(max_rows=max_rows)
-        console.print(table, markup=False)
+        if as_json:
+            # Output JSON to stdout for piping
+            import json
+            findings_output = []
+            for f in findings:
+                if hasattr(f, "to_dict"):
+                    findings_output.append(f.to_dict())
+                elif isinstance(f, dict):
+                    findings_output.append(f)
+                else:
+                    findings_output.append(dict(f))
+            print(json.dumps(findings_output, indent=2))
+        else:
+            # Console table output
+            table = detector.format_table(max_rows=max_rows)
+            console.print(table, markup=False)
 
         if print_stats:
             stats = detector.get_summary_stats()

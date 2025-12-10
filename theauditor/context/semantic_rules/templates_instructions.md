@@ -136,7 +136,7 @@ Severity changes how `aud context` sorts output—it doesn’t auto-fix anything
 | “No patterns matched” | Check that `aud detect-patterns` ran; verify scope includes the files; test regex. |
 | Too many matches | Narrow scope or refine regex (e.g., `product_id(?!_variant)` instead of `product_id`). |
 | Transitional never expires | Update `expires`; once the date passes, re-run to see them as obsolete. |
-| Need JSON for AI agents | Use `--output` or read `.pf/raw/semantic_context_<name>.json`. |
+| Need JSON for AI agents | Use `--json` flag for stdout output (pipe to file if needed). |
 
 Still stuck? Inspect `theauditor/insights/semantic_context.py` for exact behavior or open an issue.
 

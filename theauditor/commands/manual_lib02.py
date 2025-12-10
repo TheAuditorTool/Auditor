@@ -190,7 +190,7 @@ STEPS:
 
 3. Review findings in output:
    - Terminal shows summary by severity
-   - Detailed JSON at .pf/raw/docker_findings.json
+   - Use --json for machine-readable output
 
 4. For each finding, verify and remediate:
    - Check if finding is true positive
@@ -354,8 +354,7 @@ COMMON MISTAKES:
   -> Add aud lint || exit 1 to CI pipeline
 
 OUTPUT:
-- .pf/raw/lint.json: All normalized findings
-- findings_consolidated table: Merged into database
+- findings_consolidated table: All normalized findings (query with aud query --findings)
 - Exit code 1: If errors found
 """,
     },
@@ -387,13 +386,13 @@ STEPS:
 
 2. View detected frameworks:
    aud detect-frameworks                  # Display in terminal
-   aud detect-frameworks --output-json ./stack.json  # Export to file
+   aud detect-frameworks --json > ./stack.json  # Export to file
 
 3. See frameworks in architecture context:
    aud blueprint --structure              # Shows frameworks with file organization
 
 EXAMPLE - Tech Stack Documentation:
-    aud full && aud detect-frameworks --output-json ./tech_stack.json
+    aud full && aud detect-frameworks --json > ./tech_stack.json
 
 DETECTION METHODS:
 - Package Manifests: package.json, requirements.txt, pyproject.toml, Cargo.toml
@@ -1073,8 +1072,8 @@ STEPS:
 
 4. Review findings:
    - Terminal shows summary by category
-   - Detailed JSON at .pf/raw/terraform_findings.json
-   - Graph visualization at .pf/raw/terraform_graph.json
+   - Use --format json for machine-readable output
+   - Query graph with: aud graph query
 
 EXAMPLE - Pre-Deployment Security Check:
     aud full && aud terraform provision && aud terraform analyze --severity high
@@ -1103,10 +1102,9 @@ When using the security agent (/theauditor:security), Terraform analysis runs
 as part of Phase 3 infrastructure checks. The agent queries:
     aud terraform provision && aud terraform analyze --severity high
 
-OUTPUT FILES:
-    .pf/raw/terraform_graph.json      # Provisioning flow graph
-    .pf/raw/terraform_findings.json   # Security findings
+OUTPUT:
     .pf/graphs.db                     # Graph stored for querying
+    findings_consolidated table       # Security findings (query with aud query --findings)
 
 RELATED:
 Commands: aud terraform provision, aud terraform analyze, aud cdk analyze
@@ -1172,7 +1170,7 @@ TOOL SOURCES:
 SUBCOMMANDS:
   list    Show all tools and their versions (default)
   check   Verify required tools are installed
-  report  Generate version report files (.pf/raw/tools.json)
+  report  Generate version report (use --json for machine-readable)
 
 COMBINING WITH OTHER TOOLS:
   Tools + Setup:
@@ -1218,7 +1216,7 @@ USE THE COMMANDS:
     aud tools check                    # Verify core tools
     aud tools check --strict           # All tools required
     aud tools check --required semgrep # Require specific tool
-    aud tools report                   # Generate .pf/raw/tools.json
+    aud tools report --json            # JSON version report to stdout
 """,
     },
     "metadata": {
@@ -1323,9 +1321,9 @@ COMMON MISTAKES:
 - Using wrong coverage format (pytest-cov needs --cov-report=json)
 - Not running aud full first (FCE needs indexed findings to correlate)
 
-OUTPUT FILES:
-    .pf/raw/churn_analysis.json     # Git churn data
-    .pf/raw/coverage_analysis.json  # Test coverage data
+OUTPUT:
+    Data stored in repo_index.db    # Query with aud query
+    Use --json for stdout output    # Pipe to file if needed
 """,
     },
     "cdk": {
@@ -1487,9 +1485,9 @@ When using the dataflow agent (/theauditor:dataflow), GraphQL analysis runs
 as part of Phase 2 to build execution edges. The agent queries:
     aud graphql build --verbose
 
-OUTPUT FILES:
-    .pf/raw/graphql_schema.json      # Schema metadata
-    .pf/raw/graphql_execution.json   # Execution graph edges
+OUTPUT:
+    Data stored in database tables (see below)
+    Use --format json for stdout output
 
 DATABASE TABLES:
     graphql_types              # Type definitions from SDL
@@ -1750,10 +1748,9 @@ EXAMPLES:
     aud deps --upgrade-all                # DANGEROUS: Upgrade everything
     aud deps --offline                    # Skip all network operations
 
-OUTPUT FILES:
-    .pf/raw/deps.json               # Dependency inventory
-    .pf/raw/deps_latest.json        # Latest version info
-    .pf/raw/vulnerabilities.json    # Security findings
+OUTPUT:
+    Data stored in database         # Query with aud query --findings
+    Use --json for stdout output    # Pipe to file if needed
 
 EXIT CODES:
     0 = Success

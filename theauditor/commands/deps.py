@@ -34,7 +34,6 @@ IS_WINDOWS = platform.system() == "Windows"
     "--allow-prerelease", is_flag=True, help="Allow alpha/beta/rc versions (default: stable only)"
 )
 @click.option("--offline", is_flag=True, help="Force offline mode (no network)")
-@click.option("--out", default="./.pf/raw/deps.json", help="Output dependencies file")
 @click.option("--print-stats", is_flag=True, help="Print dependency statistics")
 @click.option("--vuln-scan", is_flag=True, help="Scan dependencies for known vulnerabilities")
 def deps(
@@ -47,7 +46,6 @@ def deps(
     upgrade_cargo,
     allow_prerelease,
     offline,
-    out,
     print_stats,
     vuln_scan,
 ):
@@ -81,7 +79,7 @@ def deps(
     AI ASSISTANT CONTEXT:
       Purpose: Analyze dependencies for vulnerabilities, outdated packages, and upgrades
       Input: package.json, pyproject.toml, requirements.txt, Cargo.toml, Dockerfiles
-      Output: .pf/raw/deps.json, .pf/raw/deps_latest.json, .pf/raw/vulnerabilities.json
+      Output: Console or JSON (--json), findings stored in database
       Prerequisites: None (reads manifest files directly, no database required)
       Integration: Run standalone or as part of aud full pipeline
 
@@ -107,10 +105,9 @@ def deps(
       - Creates .bak files of originals
       - May break your project (that's the point!)
 
-    Output Files:
-      .pf/raw/deps.json               # Dependency inventory
-      .pf/raw/deps_latest.json        # Latest version info
-      .pf/raw/vulnerabilities.json    # Security findings
+    Output:
+      Data stored in database         # Query with aud query --findings
+      Use --json for stdout output    # Pipe to file if needed
 
     Exit Codes:
       0 = Success
@@ -128,8 +125,6 @@ def deps(
         generate_grouped_report,
         parse_dependencies,
         upgrade_all_deps,
-        write_deps_json,
-        write_deps_latest_json,
     )
     from theauditor.vulnerability_scanner import format_vulnerability_report, scan_dependencies
 
@@ -139,8 +134,6 @@ def deps(
         console.print("No dependency files found (package.json, pyproject.toml, requirements.txt)")
         console.print("  Searched in: " + str(Path(root).resolve()), markup=False)
         return
-
-    write_deps_json(deps_list, output_path=out)
 
     if vuln_scan:
         console.print("\n\\[SCAN] Running native vulnerability scanners...")
@@ -391,10 +384,6 @@ def deps(
             deps_list, allow_net=True, offline=offline, allow_prerelease=allow_prerelease
         )
         if latest_info:
-            write_deps_latest_json(
-                latest_info, output_path=out.replace("deps.json", "deps_latest.json")
-            )
-
             successful_checks = sum(
                 1 for info in latest_info.values() if info.get("latest") is not None
             )
@@ -415,8 +404,6 @@ def deps(
             console.print(
                 "  [error]Failed to check versions (network issue or offline mode)[/error]"
             )
-
-    console.print(f"Dependencies written to {out}", highlight=False)
 
     npm_count = sum(1 for d in deps_list if d["manager"] == "npm")
     py_count = sum(1 for d in deps_list if d["manager"] == "py")

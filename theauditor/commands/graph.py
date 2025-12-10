@@ -110,10 +110,9 @@ def graph():
     EXAMPLE:
       aud graph query --calls api.send_email # What does send_email call?
 
-    OUTPUT FILES:
+    OUTPUT:
       .pf/graphs.db                   # SQLite database with graphs
-      .pf/raw/graph_analysis.json     # Cycles, hotspots, metrics
-      .pf/raw/graph_summary.json      # AI-readable summary
+      Use --json for analysis output  # Pipe to file if needed
 
     See: aud manual graph, aud manual callgraph, aud manual dependencies
     """
@@ -128,8 +127,7 @@ def graph():
 @click.option("--resume", is_flag=True, help="Resume from checkpoint")
 @click.option("--db", default="./.pf/graphs.db", help="SQLite database path for output graphs")
 @click.option("--repo-db", default="./.pf/repo_index.db", help="Repo index database for file list")
-@click.option("--out-json", default="./.pf/raw/", help="JSON output directory")
-def graph_build(root, langs, workset, batch_size, resume, db, repo_db, out_json):
+def graph_build(root, langs, workset, batch_size, resume, db, repo_db):
     """Build import and call graphs from indexed codebase.
 
     Constructs two graph types from the indexed database for architectural analysis,
@@ -401,12 +399,11 @@ def graph_build_dfg(root, db, repo_db):
 @graph.command("analyze", cls=RichCommand)
 @click.option("--root", default=".", help="Root directory")
 @click.option("--db", default="./.pf/graphs.db", help="SQLite database path")
-@click.option("--out", default="./.pf/raw/graph_analysis.json", help="Output JSON path")
 @click.option("--max-depth", default=3, type=int, help="Max traversal depth for impact analysis")
 @click.option("--workset", help="Path to workset.json for change impact")
 @click.option("--path", "path_filter", multiple=True, help="Filter analysis to paths matching pattern (e.g., 'src/api/%', 'frontend/*')")
 @click.argument("extra_paths", nargs=-1, required=False)
-def graph_analyze(root, db, out, max_depth, workset, path_filter, extra_paths):
+def graph_analyze(root, db, max_depth, workset, path_filter, extra_paths):
     """Analyze dependency graphs for architectural issues and change impact.
 
     Performs comprehensive graph analysis to detect circular dependencies,
@@ -417,7 +414,7 @@ def graph_analyze(root, db, out, max_depth, workset, path_filter, extra_paths):
     AI ASSISTANT CONTEXT:
       Purpose: Detect architectural issues via graph analysis
       Input: .pf/graphs.db (import and call graphs from 'aud graph build')
-      Output: .pf/raw/graph_analysis.json (cycles, hotspots, health metrics)
+      Output: Console or JSON (--json), analysis results to stdout
       Prerequisites: aud full, aud graph build
       Integration: Architecture reviews, refactoring planning, impact analysis
       Performance: ~3-10 seconds (graph traversal + metrics calculation)
@@ -654,26 +651,7 @@ def graph_analyze(root, db, out, max_depth, workset, path_filter, extra_paths):
                     highlight=False,
                 )
 
-        with open(out, "w") as f:
-            json.dump(analysis, f, indent=2)
-
-        console.print(f"\nAnalysis saved to {out}", highlight=False)
-
-        if insights and hotspots:
-            metrics = {}
-            for hotspot in hotspots:
-                metrics[hotspot["id"]] = hotspot.get("centrality", 0)
-
-            metrics_path = Path(root) / ".pf" / "raw" / "graph_metrics.json"
-            with open(metrics_path, "w") as f:
-                json.dump(metrics, f, indent=2)
-            console.print(f"  Saved graph metrics to {metrics_path}", highlight=False)
-
-        graph_summary = analyzer.get_graph_summary(import_graph)
-        summary_path = Path(root) / ".pf" / "raw" / "graph_summary.json"
-        with open(summary_path, "w") as f:
-            json.dump(graph_summary, f, indent=2)
-        console.print(f"  Saved graph summary to {summary_path}", highlight=False)
+        console.print("\n[success]Analysis complete.[/success] Use --json for machine-readable output.")
 
     except Exception as e:
         console.print(f"[error]Error: {e}[/error]", highlight=False)
@@ -962,7 +940,7 @@ def graph_query(db, uses, calls, nearest_path, format):
     default="import",
     help="Graph type to visualize",
 )
-@click.option("--out-dir", default="./.pf/raw/", help="Output directory for visualizations")
+@click.option("--out-dir", required=True, help="Output directory for visualizations")
 @click.option("--limit-nodes", default=500, type=int, help="Maximum nodes to display")
 @click.option(
     "--format",
@@ -1012,7 +990,7 @@ def graph_viz(
     AI ASSISTANT CONTEXT:
       Purpose: Visualize dependency and call graphs for architecture understanding
       Input: .pf/graphs.db (from 'aud graph build')
-      Output: .pf/raw/*.dot (and optionally .svg/.png)
+      Output: DOT files, optionally SVG/PNG (specify --out-dir)
       Prerequisites: aud graph build (optionally aud graph analyze for cycles/hotspots)
       Integration: Architecture documentation, code review presentations
       Performance: ~1-5 seconds (graph rendering)
@@ -1084,37 +1062,19 @@ def graph_viz(
 
         analysis = {}
         if include_analysis:
-            analysis_path = Path("./.pf/raw/graph_analysis.json")
-            if analysis_path.exists():
-                with open(analysis_path, encoding="utf-8") as f:
-                    analysis_data = json.load(f)
-                    analysis = {
-                        "cycles": analysis_data.get("cycles", []),
-                        "hotspots": analysis_data.get("hotspots", []),
-                        "impact": analysis_data.get("impact", {}),
-                    }
-                console.print(
-                    f"Loaded analysis: {len(analysis['cycles'])} cycles, {len(analysis['hotspots'])} hotspots",
-                    highlight=False,
-                )
-            else:
-                console.print(
-                    "No analysis found. Run 'aud graph analyze' first for richer visualization."
-                )
-
-        out_path = Path(out_dir)
-        out_path.mkdir(parents=True, exist_ok=True)
+            # Analysis data is now only in database, not in .pf/raw/
+            console.print(
+                "[dim]Note: Use 'aud graph analyze' for detailed analysis metrics.[/dim]"
+            )
 
         if format == "json":
-            json_file = out_path / f"{output_name}.json"
-            with open(json_file, "w") as f:
-                json.dump({"nodes": graph["nodes"], "edges": graph["edges"]}, f, indent=2)
-
-            console.print(f"[success]JSON saved to: {json_file}[/success]")
-            console.print(
-                f"  Nodes: {len(graph['nodes'])}, Edges: {len(graph['edges'])}", highlight=False
-            )
+            # Output JSON to stdout
+            json_output = json.dumps({"nodes": graph["nodes"], "edges": graph["edges"]}, indent=2)
+            console.print(json_output, markup=False, highlight=False)
+            return
         else:
+            out_path = Path(out_dir)
+            out_path.mkdir(parents=True, exist_ok=True)
             visualizer = GraphVisualizer()
 
             options = {

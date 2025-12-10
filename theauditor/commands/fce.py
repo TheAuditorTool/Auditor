@@ -199,8 +199,7 @@ def _render_summary(summary: dict) -> None:
     help="Minimum vectors for convergence (1-4, default 2)",
 )
 @click.option("--detailed", is_flag=True, help="Show facts in text output")
-@click.option("--write", is_flag=True, help="Write JSON report to .pf/raw/fce.json")
-def fce(root, output_format, min_vectors, detailed, write):
+def fce(root, output_format, min_vectors, detailed):
     """Identify where multiple analysis vectors converge.
 
     The Factual Correlation Engine (FCE) identifies locations where multiple
@@ -233,7 +232,7 @@ def fce(root, output_format, min_vectors, detailed, write):
       aud fce --min-vectors 3        # Only show 3+ vector convergence
       aud fce --format json          # JSON output
       aud fce --detailed             # Include facts in text output
-      aud fce --write                # Write report to .pf/raw/fce.json
+      aud fce --format json > out.json  # Save JSON to file
 
     Output Legend:
       [3/4] [SF-T] src/auth/login.py
@@ -258,7 +257,7 @@ def fce(root, output_format, min_vectors, detailed, write):
     AI ASSISTANT CONTEXT:
       Purpose: Identify multi-vector convergence points (fact aggregation)
       Input: .pf/repo_index.db (findings_consolidated, taint_flows)
-      Output: Console (text/json) or .pf/raw/fce.json (--write)
+      Output: Console (text or json via --format)
       Key Insight: Vector count = signal, tool count = noise
       Philosophy: Report facts, let consumer decide severity
 
@@ -267,23 +266,7 @@ def fce(root, output_format, min_vectors, detailed, write):
       aud taint           # Populates FLOW vector
       aud cfg analyze     # Populates STRUCTURAL vector
       aud detect-patterns # Populates STATIC vector"""
-    from theauditor.fce.engine import get_fce_json, run_fce, write_fce_report
-
-    if write:
-        try:
-            output_path = write_fce_report(root, min_vectors=min_vectors)
-            console.print(f"[success]FCE report written to:[/success] {output_path}")
-            return
-        except FileNotFoundError as e:
-            err_console.print(
-                f"[error]Error:[/error] {e}",
-            )
-            raise click.ClickException(str(e)) from e
-        except RuntimeError as e:
-            err_console.print(
-                f"[error]Error:[/error] {e}",
-            )
-            raise click.ClickException(str(e)) from e
+    from theauditor.fce.engine import get_fce_json, run_fce
 
     if output_format == "json":
         json_output = get_fce_json(root_path=root, min_vectors=min_vectors)
