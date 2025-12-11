@@ -15,7 +15,7 @@ authors = [
 dependencies = [
     # Core CLI and output
     "click==8.3.1",
-    "rich>=13.0.0",
+    "rich>=14.2.0",
     "loguru==0.7.3",
 ]
 
@@ -24,41 +24,41 @@ dependencies = [
 # These are NOT installed globally to keep user's Python environment clean
 runtime = [
     # Data validation (FCE schema)
-    "pydantic==2.12.4",
+    "pydantic==2.12.5",
     # Config and rules
     "PyYAML==6.0.3",
     "json5==0.12.1",
     # Language parsers
-    "sqlparse==0.5.3",
+    "sqlparse==0.5.4",
     "graphql-core==3.2.7",
     "dockerfile-parse==2.0.1",
     "tree-sitter==0.25.2",
-    "tree-sitter-language-pack==0.11.0",
+    "tree-sitter-language-pack==0.13.0",
     # ML features
     "numpy==2.3.5",
-    "scikit-learn==1.7.2",
+    "scikit-learn==1.8.0",
     "joblib==1.5.2",
     # Documentation fetching
-    "beautifulsoup4>=4.14.2",
+    "beautifulsoup4>=4.14.3",
     "markdownify>=1.2.2",
     # Async HTTP client for dependency checking
-    "httpx>=0.28.0",
+    "httpx>=0.28.1",
     # Graph analysis
-    "networkx==3.5",
+    "networkx==3.6.1",
     # Git object database (shadow snapshots)
-    "pygit2>=1.14.0",
+    "pygit2>=1.19.0",
 ]
 
 # Development tools (for developing TheAuditor itself)
 dev = [
-    "pytest==9.0.1",
+    "pytest==9.0.2",
     "pytest-cov>=7.0.0",
     "pytest-xdist>=3.8.0",
-    "ruff==0.14.5",
-    "black==25.11.0",
+    "ruff==0.14.8",
+    "black==25.12.0",
     "mypy==1.19.0",
-    "bandit==1.9.1",
-    "pylint==4.0.3",
+    "bandit==1.9.2",
+    "pylint==4.0.4",
     # Codemod for logging migration
     "libcst==1.8.6",
 ]
