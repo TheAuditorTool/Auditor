@@ -831,38 +831,25 @@ class XGraphBuilder:
                                 target_module = normalized_pre
                                 resolution_status = "pre_resolved_db"
 
-                    # Fallback to symbol lookup if pre-resolution didn't work
+                    # ZERO FALLBACK: Single lookup path, no guessing
+                    # If pre_resolved_path didn't work, try exact symbol lookup only
                     if not target_module:
-                        target_candidates = function_defs.get(callee, set())
-
-                        if not target_candidates and "." in callee:
-                            short_name = callee.split(".")[-1]
-                            target_candidates = function_defs.get(short_name, set())
-
-                        if not target_candidates:
-                            suffix = f".{callee}"
-                            for func_name, paths in function_defs.items():
-                                if func_name.endswith(suffix):
-                                    target_candidates = paths
-                                    break
+                        # For namespace calls like variantService.createVariant, extract the function name
+                        lookup_name = callee.split(".")[-1] if "." in callee else callee
+                        target_candidates = function_defs.get(lookup_name, set())
 
                         if target_candidates:
+                            # Priority 1: Defined in current file (local call)
                             if rel_path in target_candidates:
                                 target_module = rel_path
                                 resolution_status = "local_def"
-
                             else:
+                                # Priority 2: Defined in exactly one imported file
                                 matches = [c for c in target_candidates if c in resolved_imports]
-
                                 if len(matches) == 1:
                                     target_module = matches[0]
                                     resolution_status = "imported_def"
-                                elif len(matches) > 1:
-                                    target_module = matches[0]
-                                    resolution_status = "ambiguous_import"
-                                else:
-                                    target_module = None
-                                    resolution_status = "ambiguous_global"
+                                # No guessing on ambiguous - mark as unresolved
 
                     if target_module:
                         target_lang = current_files.get(target_module, {}).get("language")
@@ -874,13 +861,8 @@ class XGraphBuilder:
                         )
                         resolved = True
                     else:
-                        if target_candidates:
-                            node_id = f"ambiguous::{callee}"
-                            node_type = "ambiguous_function"
-                        else:
-                            node_id = f"external::{callee}"
-                            node_type = "external_function"
-
+                        # Unresolved = external. No ambiguous guessing.
+                        node_id = f"external::{callee}"
                         if node_id not in nodes:
                             nodes[node_id] = GraphNode(
                                 id=node_id,
@@ -888,12 +870,8 @@ class XGraphBuilder:
                                 lang=None,
                                 loc=0,
                                 churn=None,
-                                type=node_type,
-                                metadata={
-                                    "status": "external"
-                                    if node_type == "external_function"
-                                    else "ambiguous"
-                                },
+                                type="external_function",
+                                metadata={"status": "external"},
                             )
                         callee_node = nodes[node_id]
                         resolved = False
