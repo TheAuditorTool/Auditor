@@ -47,6 +47,7 @@ VALID_TABLES = frozenset({"symbols", "function_call_args", "assignments", "api_e
 @click.option("--findings", is_flag=True, help="Drill down into findings from all analysis tools")
 @click.option("--findings-tool", help="Filter findings by tool (ruff, eslint, taint, cfg-analysis)")
 @click.option("--findings-severity", help="Filter findings by severity (critical, high, medium, low)")
+@click.option("--validated", is_flag=True, help="Drill down into validation chain health (type safety)")
 @handle_exceptions
 def blueprint(
     structure,
@@ -64,6 +65,7 @@ def blueprint(
     findings,
     findings_tool,
     findings_severity,
+    validated,
 ):
     """Architectural fact visualization with drill-down analysis modes (NO recommendations).
 
@@ -196,6 +198,7 @@ def blueprint(
             "deps": deps,
             "fce": fce,
             "findings": findings,
+            "validated": validated,
             "all": all,
         }
 
@@ -221,6 +224,8 @@ def blueprint(
             _show_fce_drilldown(data)
         elif findings:
             _show_findings_drilldown(cursor, findings_tool, findings_severity)
+        elif validated:
+            _show_validated_drilldown(data, str(repo_db))
         else:
             if output_format == "json":
                 summary = {
@@ -264,6 +269,7 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: dict) -> dict:
             flags.get("boundaries"),
             flags.get("deps"),
             flags.get("fce"),
+            flags.get("validated"),
         ]
     )
 
@@ -324,6 +330,16 @@ def _gather_all_data(cursor, graphs_db_path: Path, flags: dict) -> dict:
         data["fce"] = _get_fce_data()
     else:
         data["fce"] = {"total_points": 0, "by_density": {}, "convergence_points": []}
+
+    if run_all or flags.get("validated"):
+        data["validated"] = _get_validation_chain_health()
+    else:
+        data["validated"] = {
+            "total_chains": 0,
+            "by_status": {},
+            "break_reasons": {},
+            "chains": [],
+        }
 
     return data
 
@@ -2006,6 +2022,152 @@ def _show_fce_drilldown(data: dict):
     console.print("  -> aud fce --format json       # JSON output for AI consumption")
     console.print("  -> aud fce --min-vectors 3     # Filter to 3+ vectors only")
     console.print("  -> aud explain <file> --fce    # FCE signal for specific file")
+
+    console.print("\n" + "=" * 80 + "\n", markup=False)
+
+
+def _get_validation_chain_health() -> dict:
+    """Get validation chain health data.
+
+    Runs validation chain analysis and returns summary for blueprint integration.
+    """
+    from theauditor.boundaries.chain_tracer import trace_validation_chains
+
+    root = Path.cwd()
+    db_path = root / ".pf" / "repo_index.db"
+    chain_data = {
+        "total_chains": 0,
+        "by_status": {"intact": 0, "broken": 0, "no_validation": 0},
+        "break_reasons": {},
+        "chains": [],
+    }
+
+    try:
+        chains = trace_validation_chains(db_path=str(db_path), max_entries=100)
+        chain_data["total_chains"] = len(chains)
+
+        for chain in chains:
+            status = chain.chain_status
+            chain_data["by_status"][status] = chain_data["by_status"].get(status, 0) + 1
+
+            # Track break reasons
+            if status == "broken" and chain.hops:
+                for hop in chain.hops:
+                    if hop.break_reason:
+                        reason = hop.break_reason
+                        chain_data["break_reasons"][reason] = (
+                            chain_data["break_reasons"].get(reason, 0) + 1
+                        )
+
+            chain_data["chains"].append(
+                {
+                    "entry_point": chain.entry_point,
+                    "file": chain.entry_file,
+                    "line": chain.entry_line,
+                    "status": chain.chain_status,
+                    "hops": len(chain.hops),
+                    "break_index": chain.break_index,
+                }
+            )
+
+    except FileNotFoundError:
+        chain_data["error"] = "Database not found (run aud full)"
+    except Exception as e:
+        chain_data["error"] = f"Analysis error: {e}"
+
+    return chain_data
+
+
+def _show_validated_drilldown(data: dict, db_path: str):
+    """Drill down: Validation chain health analysis.
+
+    Shows where type safety breaks in validation chains from entry points.
+    """
+    validated = data.get("validated", {})
+
+    console.print("\nVALIDATION CHAIN HEALTH DRILL-DOWN")
+    console.rule()
+    console.print("Type Safety Analysis: Where does validation break down?")
+    console.rule()
+
+    if validated.get("error"):
+        console.print(f"\n(!) {validated['error']}", highlight=False)
+        console.print("  Run: aud full (populates entry points and call graph)")
+        console.print("\n" + "=" * 80 + "\n", markup=False)
+        return
+
+    total = validated.get("total_chains", 0)
+    if total == 0:
+        console.print("\n(!) No entry points found for chain analysis")
+        console.print("  This may indicate:")
+        console.print("    - No HTTP routes/endpoints indexed")
+        console.print("    - Run: aud full (indexes routes and handlers)")
+        console.print("\n" + "=" * 80 + "\n", markup=False)
+        return
+
+    by_status = validated.get("by_status", {})
+    intact = by_status.get("intact", 0)
+    broken = by_status.get("broken", 0)
+    no_val = by_status.get("no_validation", 0)
+
+    console.print(f"\nEntry Points Analyzed: {total}", highlight=False)
+
+    console.print("\nChain Health Breakdown:")
+    intact_pct = (intact * 100 // total) if total else 0
+    broken_pct = (broken * 100 // total) if total else 0
+    no_val_pct = (no_val * 100 // total) if total else 0
+
+    console.print(
+        f"  [green]Chains Intact:[/green]    {intact:4d} ({intact_pct}%) - Validation preserved"
+    )
+    console.print(
+        f"  [red]Chains Broken:[/red]    {broken:4d} ({broken_pct}%) - Type safety lost"
+    )
+    console.print(
+        f"  [yellow]No Validation:[/yellow]    {no_val:4d} ({no_val_pct}%) - Missing at entry"
+    )
+
+    # Show break reasons
+    break_reasons = validated.get("break_reasons", {})
+    if break_reasons:
+        console.print("\nTop Break Reasons:")
+        sorted_reasons = sorted(break_reasons.items(), key=lambda x: x[1], reverse=True)
+        for reason, count in sorted_reasons[:5]:
+            console.print(f"  - {reason}: {count}", highlight=False)
+
+    # Show problematic chains
+    chains = validated.get("chains", [])
+    broken_chains = [c for c in chains if c.get("status") == "broken"]
+    no_val_chains = [c for c in chains if c.get("status") == "no_validation"]
+
+    if broken_chains:
+        console.print("\nBroken Chains (first 5):")
+        for i, chain in enumerate(broken_chains[:5], 1):
+            ep = chain.get("entry_point", "unknown")
+            file = chain.get("file", "")
+            line = chain.get("line", 0)
+            hops = chain.get("hops", 0)
+            break_idx = chain.get("break_index")
+            console.print(f"\n  {i}. [BROKEN] {ep}", highlight=False)
+            console.print(f"     Location: {file}:{line}", highlight=False)
+            console.print(
+                f"     Chain: {hops} hops, breaks at hop {break_idx}", highlight=False
+            )
+
+    if no_val_chains:
+        console.print("\nMissing Validation (first 5):")
+        for i, chain in enumerate(no_val_chains[:5], 1):
+            ep = chain.get("entry_point", "unknown")
+            file = chain.get("file", "")
+            line = chain.get("line", 0)
+            console.print(f"\n  {i}. [NO VALIDATION] {ep}", highlight=False)
+            console.print(f"     Location: {file}:{line}", highlight=False)
+
+    console.print("\nRelated Commands:")
+    console.print("  -> aud boundaries --validated              # Full chain analysis")
+    console.print("  -> aud boundaries --validated --format json  # JSON output")
+    console.print("  -> aud boundaries --audit                  # Security boundary audit")
+    console.print("  -> aud explain <file> --validated          # Chains for specific file")
 
     console.print("\n" + "=" * 80 + "\n", markup=False)
 

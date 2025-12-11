@@ -21,6 +21,7 @@ import click
 from rich.panel import Panel
 from rich.table import Table
 
+from theauditor.boundaries.chain_tracer import trace_validation_chains
 from theauditor.cli import RichCommand
 from theauditor.context.explain_formatter import ExplainFormatter
 from theauditor.context.query import CodeQueryEngine
@@ -108,6 +109,11 @@ def detect_target_type(target: str, engine: CodeQueryEngine) -> str:
     default=True,
     help="Include known issues from findings_consolidated and taint flows (default: on)",
 )
+@click.option(
+    "--validated",
+    is_flag=True,
+    help="Show validation chain status for entry points in this file",
+)
 @handle_exceptions
 def explain(
     target: str,
@@ -118,6 +124,7 @@ def explain(
     limit: int,
     fce: bool,
     issues: bool,
+    validated: bool,
 ):
     """Get comprehensive context about a file, symbol, or component.
 
@@ -407,6 +414,57 @@ def explain(
                 fce_engine.close()
             except FileNotFoundError:
                 pass
+
+        # Handle --validated flag: Show validation chain status for entry points
+        if validated and target_type == "file":
+            try:
+                chains = trace_validation_chains(
+                    db_path=str(root / ".pf" / "repo_index.db"),
+                    max_entries=50,
+                    file_filter=target,
+                )
+                if chains:
+                    # Add to data for JSON output
+                    data["validation_chains"] = []
+                    for chain in chains:
+                        data["validation_chains"].append(
+                            {
+                                "entry_point": chain.entry_point,
+                                "status": chain.chain_status,
+                                "hops": len(chain.hops),
+                                "break_index": chain.break_index,
+                            }
+                        )
+
+                    # Add to text output
+                    output += "\n\nVALIDATION CHAINS:\n"
+                    intact = sum(1 for c in chains if c.chain_status == "intact")
+                    broken = sum(1 for c in chains if c.chain_status == "broken")
+                    no_val = sum(1 for c in chains if c.chain_status == "no_validation")
+                    output += f"  Entry Points: {len(chains)}\n"
+                    output += f"  Chains Intact: {intact}\n"
+                    output += f"  Chains Broken: {broken}\n"
+                    output += f"  No Validation: {no_val}\n"
+
+                    for chain in chains[:5]:
+                        status_marker = (
+                            "[PASS]"
+                            if chain.chain_status == "intact"
+                            else "[FAIL]"
+                            if chain.chain_status == "broken"
+                            else "[NONE]"
+                        )
+                        output += f"\n  {status_marker} {chain.entry_point}\n"
+                        if chain.chain_status == "broken" and chain.break_index is not None:
+                            output += f"    -> breaks at hop {chain.break_index}\n"
+                        elif chain.chain_status == "no_validation":
+                            output += "    -> no validation at entry\n"
+
+                    if len(chains) > 5:
+                        output += f"\n  ... and {len(chains) - 5} more chains\n"
+                    output += "  -> Run 'aud boundaries --validated' for full analysis\n"
+            except Exception:
+                pass  # Validation chains are optional enhancement
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         data["metadata"] = {
