@@ -16,6 +16,30 @@ from .base import GraphStrategy
 from .resolution import path_matches
 
 
+def _get_clean_handler_name(handler_row: sqlite3.Row) -> str | None:
+    """Get clean scope name from handler, avoiding full function bodies.
+
+    When handler_function is NULL (inline arrows), construct a clean name
+    from route metadata instead of using the full arrow function body.
+    """
+    if handler_row["handler_function"]:
+        return handler_row["handler_function"]
+
+    # Inline arrow - construct from route metadata
+    # These columns must be present in the SQL query
+    try:
+        route_method = handler_row["route_method"] or "HANDLER"
+        route_path = handler_row["route_path"] or ""
+        route_line = handler_row["route_line"] or 0
+    except (KeyError, IndexError):
+        return None
+
+    if route_method and route_line:
+        return f"{route_method}:{route_path}@{route_line}"
+
+    return None
+
+
 class NodeExpressStrategy(GraphStrategy):
     """Strategy for building Node.js Express middleware and controller edges."""
 
@@ -82,7 +106,7 @@ class NodeExpressStrategy(GraphStrategy):
 
         cursor.execute("""
             SELECT file, route_path, route_method, execution_order,
-                   handler_expr, handler_type, handler_function
+                   handler_expr, handler_type, handler_function, route_line
             FROM express_middleware_chains
             WHERE handler_type IN ('middleware', 'controller')
             ORDER BY file, route_path, route_method, execution_order
@@ -114,8 +138,9 @@ class NodeExpressStrategy(GraphStrategy):
                     if curr_handler["handler_type"] == "controller":
                         continue
 
-                    curr_func = curr_handler["handler_function"] or curr_handler["handler_expr"]
-                    next_func = next_handler["handler_function"] or next_handler["handler_expr"]
+                    # Use clean handler names to avoid full arrow function bodies in IDs
+                    curr_func = _get_clean_handler_name(curr_handler)
+                    next_func = _get_clean_handler_name(next_handler)
 
                     if not curr_func or not next_func:
                         continue
@@ -219,7 +244,8 @@ class NodeExpressStrategy(GraphStrategy):
                 symbols_by_suffix[suffix].extend(syms)
 
         cursor.execute("""
-            SELECT DISTINCT file, route_path, route_method, handler_expr
+            SELECT DISTINCT file, route_path, route_method, handler_expr,
+                   handler_function, route_line
             FROM express_middleware_chains
             WHERE handler_type = 'controller' AND handler_expr IS NOT NULL
         """)
@@ -230,6 +256,9 @@ class NodeExpressStrategy(GraphStrategy):
         for handler in handlers:
             route_file = self._normalize_path(handler["file"])
             handler_expr = handler["handler_expr"]
+
+            # Get clean handler name for node IDs (avoids full arrow function bodies)
+            clean_handler_name = _get_clean_handler_name(handler) or handler_expr
 
             object_name = None
             method_name = None
@@ -322,13 +351,13 @@ class NodeExpressStrategy(GraphStrategy):
                     )
 
                 for suffix in ["req", "req.body", "req.params", "req.query", "res"]:
-                    source_id = f"{route_file}::{handler_expr}::{suffix}"
+                    source_id = f"{route_file}::{clean_handler_name}::{suffix}"
                     if source_id not in nodes:
                         nodes[source_id] = DFGNode(
                             id=source_id,
                             file=route_file,
                             variable_name=suffix,
-                            scope=handler_expr,
+                            scope=clean_handler_name,
                             type="parameter",
                             metadata={"handler": True},
                         )
@@ -350,8 +379,8 @@ class NodeExpressStrategy(GraphStrategy):
                         edge_type="controller_unresolved",
                         file=route_file,
                         line=0,
-                        expression=f"{handler_expr} -> UNRESOLVED:{object_name}.{method_name}",
-                        function=handler_expr,
+                        expression=f"{clean_handler_name} -> UNRESOLVED:{object_name}.{method_name}",
+                        function=clean_handler_name,
                         metadata={
                             "route_path": handler["route_path"],
                             "route_method": handler["route_method"],
@@ -390,13 +419,13 @@ class NodeExpressStrategy(GraphStrategy):
             stats["controllers_resolved"] += 1
 
             for suffix in ["req", "req.body", "req.params", "req.query", "res"]:
-                source_id = f"{route_file}::{handler_expr}::{suffix}"
+                source_id = f"{route_file}::{clean_handler_name}::{suffix}"
                 if source_id not in nodes:
                     nodes[source_id] = DFGNode(
                         id=source_id,
                         file=route_file,
                         variable_name=suffix,
-                        scope=handler_expr,
+                        scope=clean_handler_name,
                         type="parameter",
                         metadata={"handler": True},
                     )
@@ -418,8 +447,8 @@ class NodeExpressStrategy(GraphStrategy):
                     edge_type="controller_implementation",
                     file=route_file,
                     line=0,
-                    expression=f"{handler_expr} -> {full_method_name}",
-                    function=handler_expr,
+                    expression=f"{clean_handler_name} -> {full_method_name}",
+                    function=clean_handler_name,
                     metadata={
                         "route_path": handler["route_path"],
                         "route_method": handler["route_method"],

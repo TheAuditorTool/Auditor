@@ -542,7 +542,8 @@ class DFGBuilder:
 
                 cursor.execute(
                     """
-                    SELECT file, handler_function, handler_expr, execution_order
+                    SELECT file, handler_function, handler_expr, execution_order,
+                           route_method, route_path, route_line
                     FROM express_middleware_chains
                     WHERE file = ?
                       AND route_method = ?
@@ -556,9 +557,15 @@ class DFGBuilder:
                 first_middleware = cursor.fetchone()
 
                 if first_middleware:
-                    middleware_func = (
-                        first_middleware["handler_function"] or first_middleware["handler_expr"]
-                    )
+                    # Use handler_function if available, otherwise construct clean name
+                    # from route metadata (avoids using full arrow function body)
+                    if first_middleware["handler_function"]:
+                        middleware_func = first_middleware["handler_function"]
+                    else:
+                        route_method = first_middleware["route_method"] or "HANDLER"
+                        route_path = first_middleware["route_path"] or ""
+                        route_line = first_middleware["route_line"] or 0
+                        middleware_func = f"{route_method}:{route_path}@{route_line}"
                     target_file = first_middleware["file"]
                     target_id = f"{target_file}::{middleware_func}::{req_field}"
                 else:

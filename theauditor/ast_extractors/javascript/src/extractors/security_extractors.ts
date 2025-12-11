@@ -168,7 +168,11 @@ export function extractAPIEndpoints(
       let handlerFunction: string | null = null;
       const expr = call.argument_expr || "";
       if (expr && !expr.includes("=>") && !expr.includes("function")) {
+        // Named handler reference (e.g., "userController.create")
         handlerFunction = expr;
+      } else if (expr.includes("=>") || expr.includes("function")) {
+        // Inline arrow/function - generate clean name from route metadata
+        handlerFunction = `${method.toUpperCase()}:${cleanRoute}@${line}`;
       }
 
       middlewareChains.push({

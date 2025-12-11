@@ -949,6 +949,32 @@ export function buildScopeMap(
       }
     }
 
+    // Handle arrow functions passed as arguments: handler(async (req, res) => {})
+    if (parentKind === "CallExpression") {
+      const callExpr = parent as ts.CallExpression;
+      const calleeName = callExpr.expression.getText
+        ? callExpr.expression.getText(sourceFile)
+        : "";
+
+      // Find which argument index this arrow function is
+      const argIndex =
+        callExpr.arguments?.findIndex((arg) => arg === node) ?? -1;
+
+      if (calleeName && argIndex >= 0) {
+        // Extract short callee name (e.g., "handler" from "router.post")
+        const shortCallee = calleeName.includes(".")
+          ? calleeName.split(".").pop() || calleeName
+          : calleeName;
+        return `${shortCallee}_callback${argIndex}`;
+      }
+
+      // Fallback: use line number for unnamed callbacks
+      const { line } = sourceFile.getLineAndCharacterOfPosition(
+        node.getStart(sourceFile),
+      );
+      return `callback@${line + 1}`;
+    }
+
     return "<anonymous>";
   }
 
