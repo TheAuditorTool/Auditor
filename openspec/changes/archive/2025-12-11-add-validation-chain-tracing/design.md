@@ -26,12 +26,18 @@ This feature adds validation-aware data flow analysis to `aud boundaries`. The e
 
 ### Decision 1: Reuse existing database tables
 
-**What**: Use `function_call_args`, `symbols`, `refs` tables. NO new tables.
+**What**: Use `function_call_args`, `symbols`, `type_annotations`, `refs` tables. NO new tables.
 
 **Why**:
 - `function_call_args` already captures call chains with caller/callee relationships
 - `symbols` has type annotations (via `type_annotation` column if populated)
+- `type_annotations` table has dedicated `is_any`, `is_unknown`, `is_generic` boolean flags for TypeScript/JavaScript
 - Schema changes require re-indexing all codebases - too disruptive
+
+**Language-specific type info tables**:
+- **TypeScript/JavaScript**: Use `type_annotations` table (has `is_any`, `is_unknown` booleans)
+- **Python**: Use `symbols.type_annotation` column (type_annotations also populated)
+- **Go/Rust**: Use `symbols.type_annotation` column
 
 **Trade-off**: May have incomplete type info if indexer doesn't capture annotations. Accept this - we show "unknown" status rather than fail.
 
@@ -41,12 +47,50 @@ This feature adds validation-aware data flow analysis to `aud boundaries`. The e
 
 | Language | Type Loss Pattern | Detection |
 |----------|------------------|-----------|
-| TypeScript | `as any`, `: any`, no annotation after typed | Check type_annotation column |
-| Python | No type hints after typed, `# type: ignore` | Check type_annotation column |
-| Go | Interface{} after typed struct | Check type in symbols table |
-| Rust | `.unwrap()` without type, `as _` | Check type in symbols table |
+| TypeScript | `as any`, `: any`, `as unknown`, missing generic | Regex on `type_annotations.type_annotation` with word boundaries |
+| Python | No type hints after typed, `# type: ignore` | Regex on `type_annotations.type_annotation` |
+| Go | `interface{}` after typed struct | Regex on `symbols.type_annotation` |
+| Rust | `.unwrap()` without type, `as _` | Regex on `symbols.type_annotation` |
 
 **Why**: Type systems differ fundamentally. Generic "any" detection won't work.
+
+**ZERO FALLBACK DECISION**: The `type_annotations.is_any` boolean is unreliable (only 3 records populated vs 351 with "any" in strings). We use regex pattern matching ONLY. No fallback. If regex fails, it fails loud.
+
+**Regex Patterns for TypeScript `any` Detection** (word boundaries prevent false positives):
+
+```python
+import re
+
+# CORRECT - Word boundaries prevent matching "Company", "Germany", "ManyItems"
+ANY_TYPE_PATTERNS = [
+    re.compile(r':\s*any\b'),           # Type annotation: `: any`
+    re.compile(r'\bas\s+any\b'),        # Cast: `as any`
+    re.compile(r'<\s*any\s*>'),         # Generic: `<any>`
+    re.compile(r'<\s*any\s*,'),         # Generic first: `<any, T>`
+    re.compile(r',\s*any\s*>'),         # Generic last: `<T, any>`
+    re.compile(r'\|\s*any\b'),          # Union: `| any`
+    re.compile(r'\bany\s*\|'),          # Union: `any |`
+    re.compile(r'=>\s*any\b'),          # Return: `=> any`
+]
+
+# EXCLUSION - These are validation SOURCES, not breaks
+VALIDATION_ANY_EXCLUSIONS = ['z.any()', 'Joi.any()', 'yup.mixed()']
+
+def is_type_unsafe(type_annotation: str) -> bool:
+    """Single code path. No fallbacks."""
+    if not type_annotation:
+        return False  # Unknown, not unsafe
+    # Check exclusions first
+    for excl in VALIDATION_ANY_EXCLUSIONS:
+        if excl in type_annotation:
+            return False
+    # Check patterns
+    return any(p.search(type_annotation) for p in ANY_TYPE_PATTERNS)
+```
+
+**Why word boundaries matter**:
+- `'any' in s` matches "Comp**any**", "Germ**any**" - FALSE POSITIVES
+- `r':\s*any\b'` only matches `: any` as distinct token - CORRECT
 
 ### Decision 3: Chain visualization format
 
@@ -141,9 +185,9 @@ def analyze_validation_chains(db_path: str) -> list[ValidationChain]:
 
 | Framework | Entry Points Table | Validation Table | Type Info Table |
 |-----------|-------------------|------------------|-----------------|
-| Express/JS/TS | `express_middleware_chains` | `validation_framework_usage` | `symbols` |
-| FastAPI | `python_routes` | `python_decorators` | `symbols` |
-| Flask | `python_routes` | `function_call_args` | `symbols` |
+| Express/JS/TS | `express_middleware_chains` | `validation_framework_usage` | `type_annotations` (has `is_any`, `is_unknown` flags) |
+| FastAPI | `python_routes` | `python_decorators` | `type_annotations` or `symbols` |
+| Flask | `python_routes` | `function_call_args` | `type_annotations` or `symbols` |
 | Gin/Echo/Chi | `go_routes` | `function_call_args` | `symbols` |
 | Actix/Axum | `rust_attributes` | `function_call_args` | `symbols` |
 
@@ -160,10 +204,13 @@ Entry Point Detection (existing)
 Call Chain Query (function_call_args table)
          |
          v
-Type Annotation Lookup (symbols table) <-- per hop
+Type Annotation Lookup <-- per hop
+    |-- TypeScript/JS: type_annotations table (is_any, is_unknown flags)
+    |-- Python: type_annotations OR symbols.type_annotation
+    |-- Go/Rust: symbols.type_annotation
          |
          v
-Type Degradation Check (pattern matching)
+Type Degradation Check (is_any=1 OR pattern matching)
          |
          v
 Chain Status Determination (intact/broken/no_validation)
@@ -216,10 +263,25 @@ SELECT * FROM call_chain ORDER BY depth;
 
 ### Query 2: Get type annotation for symbol
 
+**For TypeScript/JavaScript/Python** (use `type_annotations` table):
 ```sql
-SELECT type_annotation, type
+SELECT type_annotation
+FROM type_annotations
+WHERE file = ? AND line = ? AND symbol_name = ?
+```
+
+**For Go/Rust** (use `symbols` table):
+```sql
+SELECT type_annotation
 FROM symbols
 WHERE path = ? AND line = ? AND name = ?
+```
+
+**Type safety detection** (regex only - NO FALLBACKS per CLAUDE.md Section 4):
+```python
+# See Decision 2 for full regex patterns
+# Single code path - if regex doesn't match, type is considered safe
+is_unsafe = is_type_unsafe(row['type_annotation'])
 ```
 
 ### Query 3: Security audit - find unvalidated entry points
@@ -279,7 +341,23 @@ WHERE NOT EXISTS (
 
 ### Risk 3: False positives on intentional type widening
 **Impact**: Flagging legitimate `any` usage (e.g., serialization)
-**Mitigation**: Show facts, don't judge. Developer sees chain and decides.
+**Mitigation**: Show facts, don't judge. Developer sees chain and decides. Exclude known validation patterns (`z.any()`, `Joi.any()`) via explicit exclusion list.
+
+### Risk 4: Path normalization in JOIN queries
+**Impact**: The JOIN between `function_call_args.callee_file_path` and `symbols.path` may fail due to path format mismatches:
+- `function_call_args` may have relative imports: `./utils/helper.ts`
+- `symbols` may have absolute paths: `/src/utils/helper.ts`
+- Result: Chain terminates early, user sees "No validation chain" even when code is correct
+
+**Mitigation**:
+1. First attempt: Exact path match in SQL JOIN
+2. If chain terminates with 0 hops: Log warning "Path mismatch suspected" with both paths
+3. Do NOT implement fuzzy matching fallback (Zero Fallback policy)
+4. Document this as known limitation - fix must be in indexer path normalization, not in chain tracer
+
+### Risk 5: Recursive CTE may terminate early
+**Impact**: Chain tracing may miss hops if `callee_file_path` is NULL for unresolved calls
+**Mitigation**: This is acceptable - incomplete chains still show partial validation status. Document in output when chain terminates early due to unresolved callee.
 
 ## File Changes
 

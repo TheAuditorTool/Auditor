@@ -1,127 +1,131 @@
 ## Why
 
-TheAuditor commands have **hardcoded language-specific data scattered across 10+ locations**. Adding a new language (e.g., Java, C#, Lua) requires modifying all of them manually - a maintenance nightmare that violates DRY.
+TheAuditor commands are **language-blind**. They assume Python-style schemas and fail silently or produce garbage results on Rust, Go, and framework-specific projects.
 
-### Current State: Hardcoded Data Inventory
+### The Problem: Commands Don't Know How to Query Different Languages
 
-| File | Lines | What's Hardcoded | Languages |
-|------|-------|------------------|-----------|
-| `theauditor/commands/explain.py` | 33-45 | `FILE_EXTENSIONS` set | 11 extensions |
-| `theauditor/commands/blueprint.py` | 385-455 | Naming convention SQL CASE statements | py, js, jsx, ts, tsx, go, rs, sh, bash |
-| `theauditor/commands/blueprint.py` | 459-483 | Language name dict keys | 6 languages |
-| `theauditor/context/deadcode_graph.py` | 303-316 | Entry point patterns in `_find_entry_points()` | py, ts, js, tsx |
-| `theauditor/context/deadcode_graph.py` | 346-386 | Framework entry points in `_find_framework_entry_points()` | all |
-| `theauditor/commands/refactor.py` | 800-802 | Migration file globs | js, ts, sql only |
-| `theauditor/boundaries/boundary_analyzer.py` | 19-25 | `_table_exists()` function | N/A |
-| `theauditor/boundaries/boundary_analyzer.py` | 229-323 | Route table queries with `_table_exists` checks | py, js, go, rs |
+**Route tables have DIFFERENT column names per language:**
 
-### CRITICAL: Route Table Column Differences (Discovered During Investigation)
-
-Route tables have **DIFFERENT column names** per language:
-
-| Table | file column | line column | pattern column | method column |
-|-------|-------------|-------------|----------------|---------------|
+| Table | file | line | pattern | method |
+|-------|------|------|---------|--------|
 | `python_routes` | `file` | `line` | `pattern` | `method` |
 | `js_routes` | `file` | `line` | `pattern` | `method` |
-| `go_routes` | `file` | `line` | `path` | `method` |
-| `rust_attributes` | `file_path` | `target_line` | `args` | `attribute_name` |
+| `go_routes` | `file` | `line` | `path` (NOT pattern!) | `method` |
+| `rust_attributes` | `file_path` (NOT file!) | `target_line` (NOT line!) | `args` (NOT pattern!) | `attribute_name` (NOT method!) |
 
-A unified "SELECT file, line, pattern, method FROM {table}" query **DOES NOT WORK**.
-This proposal includes `RouteTableInfo` dataclass with column mapping.
+A command that runs `SELECT file, line, pattern FROM go_routes` **gets wrong data** because Go uses `path` not `pattern`.
 
-### CRITICAL: Framework-Specific Route Sources
+A command that runs `SELECT file, line FROM rust_attributes` **fails** because Rust uses `file_path` and `target_line`.
 
-**This was missed in initial proposal.** Frameworks override default language route sources:
+### The Problem: Frameworks Override Language Defaults
 
-| Framework | Language | Route Source | Notes |
-|-----------|----------|--------------|-------|
-| Express | JavaScript | `express_middleware_chains` | NOT `js_routes` - uses middleware chain analysis |
-| FastAPI | Python | `python_routes` + `python_decorators` | Default + decorator enrichment |
-| Django | Python | `python_routes` | Default |
-| Actix/Rocket | Rust | `rust_attributes` | Default with filter |
+Express.js projects don't use `js_routes` at all. They use `express_middleware_chains` with completely different analysis logic. The current `boundary_analyzer.py` has a dedicated `_analyze_express_boundaries()` function (lines 57-182) for this.
 
-The current `boundary_analyzer.py` already implements framework-aware routing (lines 57-182 for Express).
-This proposal extends LanguageMetadataService to be **framework-aware**.
+Commands need to know: "This is an Express project, don't query js_routes - route to the Express analyzer instead."
 
-### ZERO FALLBACK VIOLATION in Current Code
+### The Problem: ZERO FALLBACK Violations
 
-The current `boundary_analyzer.py` uses `_table_exists()` checks (lines 19-25, used at 35, 69, 74, 93, 229, 248, 267, 286, 305) which **VIOLATES ZERO FALLBACK POLICY**. This proposal fixes that.
+The current `boundary_analyzer.py` uses `_table_exists()` checks (lines 19-25) to handle language differences:
 
-### Problem Example: Adding Lua Support
+```python
+if _table_exists(cursor, "python_routes"):
+    cursor.execute("SELECT file, line, pattern...")
+if _table_exists(cursor, "go_routes"):
+    cursor.execute("SELECT file, line, path...")  # Different column!
+if _table_exists(cursor, "rust_attributes"):
+    cursor.execute("SELECT file_path, target_line, args...")  # All different!
+```
 
-**Current process (10 file changes):**
-1. Create `LuaExtractor` in `extractors/lua.py`
-2. Create `lua_schema.py` with tables
-3. Edit `explain.py` line 33: add `.lua` to FILE_EXTENSIONS
-4. Edit `blueprint.py` lines 385-455: add new SQL CASE statements
-5. Edit `blueprint.py` lines 459-483: add "lua" key to conventions dict
-6. Edit `deadcode_graph.py` lines 303-386: add Lua entry point patterns
-7. Edit `boundary_analyzer.py`: add `lua_routes` query
-8. Edit `refactor.py` lines 800-802: add `.lua` to migration globs (if applicable)
-9. Edit `fce/registry.py`: add Lua tables to CONTEXT_LANGUAGE
-10. Pray you didn't miss anything
+This violates ZERO FALLBACK policy and is unmaintainable.
 
-**Future process (1 file change):**
-1. Create `LuaExtractor` in `extractors/lua.py` with metadata methods
-2. Done. All commands discover the new language automatically.
+### What Commands Need
+
+Commands need a service that answers:
+1. **"What route table does this language use?"** → `RouteTableInfo` with correct column names
+2. **"Does this framework have custom analysis?"** → `FrameworkRouteInfo` with `uses_custom_analyzer=True`
+3. **"How do I build a query for this language?"** → `RouteTableInfo.build_query()` with column mapping
+4. **"What are entry points for this language?"** → Language-specific patterns (main.rs, main.go, etc.)
 
 ## What Changes
 
-### NEW Files
-- `theauditor/core/__init__.py` - Core package init
-- `theauditor/core/language_metadata.py` - RouteTableInfo, FrameworkRouteInfo, LanguageMetadata dataclasses + LanguageMetadataService singleton
+### NEW: LanguageMetadataService
 
-### MODIFIED Files (Core Infrastructure)
-- `theauditor/indexer/extractors/__init__.py` - Add 6 metadata methods to BaseExtractor (including framework-aware), 5 query methods to ExtractorRegistry
+A polyglot-aware service that provides language-specific query patterns:
 
-### MODIFIED Files (5 Main Extractors - add metadata overrides)
-- `theauditor/indexer/extractors/python.py`
-- `theauditor/indexer/extractors/javascript.py`
-- `theauditor/indexer/extractors/rust.py`
-- `theauditor/indexer/extractors/go.py`
-- `theauditor/indexer/extractors/bash.py`
+```python
+# Instead of hardcoded column guessing:
+cursor.execute("SELECT file, line, pattern FROM python_routes")
+cursor.execute("SELECT file, line, path FROM go_routes")  # Different!
+cursor.execute("SELECT file_path, target_line, args FROM rust_attributes")  # All different!
 
-### MODIFIED Files (Service Initialization)
-- `theauditor/indexer/orchestrator.py` - Initialize LanguageMetadataService after ExtractorRegistry
+# Commands use the service:
+for route_info in LanguageMetadataService.get_all_route_tables():
+    query = route_info.build_query()  # Correct columns for each language
+    cursor.execute(query)
+```
 
-### MODIFIED Files (Command Migration)
-- `theauditor/commands/explain.py` - Replace FILE_EXTENSIONS with service call
-- `theauditor/context/deadcode_graph.py` - Replace entry point patterns with service call
-- `theauditor/boundaries/boundary_analyzer.py` - Replace `_table_exists` checks in GENERIC fallback only (preserve Express analyzer)
+### NEW: RouteTableInfo with Column Mapping
 
-### UNCHANGED Files (7 Secondary Extractors - use default metadata)
-- `theauditor/indexer/extractors/terraform.py` - Uses default: `terraform`
-- `theauditor/indexer/extractors/sql.py` - Uses default: `sql`
-- `theauditor/indexer/extractors/graphql.py` - Uses default: `graphql`
-- `theauditor/indexer/extractors/prisma.py` - Uses default: `prisma`
-- `theauditor/indexer/extractors/docker.py` - Uses default: `docker`
-- `theauditor/indexer/extractors/github_actions.py` - Uses default: `githubworkflow`
-- `theauditor/indexer/extractors/generic.py` - Uses default: `generic`
+```python
+@dataclass
+class RouteTableInfo:
+    table_name: str       # "rust_attributes"
+    file_column: str      # "file_path" (not "file"!)
+    line_column: str      # "target_line" (not "line"!)
+    pattern_column: str   # "args" (not "pattern"!)
+    method_column: str    # "attribute_name" (not "method"!)
 
-### DELETED Code (~150 lines from generic fallback only)
-- `explain.py:33-45` - FILE_EXTENSIONS set (replaced by service)
-- `boundary_analyzer.py:19-25` - `_table_exists()` function (ZERO FALLBACK violation)
-- `boundary_analyzer.py:229-323` - Hardcoded route table queries in generic fallback (replaced by RouteTableInfo loop)
+    def build_query(self, limit: int = None) -> str:
+        """Build SELECT with correct columns for this language."""
+```
 
-### PRESERVED Code (Express framework analyzer)
-- `boundary_analyzer.py:28-54` - `_detect_frameworks()` function (KEEP - uses LanguageMetadataService internally)
-- `boundary_analyzer.py:57-182` - `_analyze_express_boundaries()` function (KEEP - framework-specific logic)
+### NEW: FrameworkRouteInfo for Framework-Specific Routing
+
+```python
+@dataclass
+class FrameworkRouteInfo:
+    framework_name: str           # "express"
+    route_table: RouteTableInfo | None  # None = use custom analyzer
+    uses_custom_analyzer: bool    # True = route to dedicated function
+    analyzer_function: str | None # "_analyze_express_boundaries"
+```
+
+When `LanguageMetadataService.has_custom_analyzer("javascript", "express")` returns `True`, commands route to the dedicated Express analyzer instead of generic table queries.
+
+### MODIFIED: boundary_analyzer.py Generic Fallback
+
+**DELETE:** `_table_exists()` function and all 10 usage sites in generic fallback
+**KEEP:** `_detect_frameworks()` and `_analyze_express_boundaries()` (framework-specific logic)
+**REPLACE:** Hardcoded route table queries with `RouteTableInfo.build_query()` loop
+
+### MODIFIED: Extractors Provide Metadata
+
+Each extractor declares its language-specific query patterns:
+
+```python
+class RustExtractor(BaseExtractor):
+    def get_route_table(self) -> RouteTableInfo:
+        return RouteTableInfo(
+            table_name="rust_attributes",
+            file_column="file_path",      # Rust-specific
+            line_column="target_line",    # Rust-specific
+            pattern_column="args",        # Rust-specific
+            method_column="attribute_name",
+            filter_clause="attribute_name IN ('get', 'post', 'put', 'delete')"
+        )
+```
 
 ## Impact
 
-- **Affected specs**: NEW `language-metadata`
-- **Breaking changes**: NONE - all new methods have defaults
-- **ZERO FALLBACK fix**: Removes `_table_exists()` violation in boundary_analyzer.py generic fallback
-- **Framework preservation**: Express analyzer remains intact, gets metadata from service
-- **Risk level**: LOW - additive changes, gradual migration supported
-- **Testing**: Run `aud full --offline` + all commands on polyglot test repo
+- **Affected code**: `boundary_analyzer.py`, `explain.py`, `deadcode_graph.py`, all 5 main extractors
+- **Breaking changes**: NONE - additive metadata methods with defaults
+- **ZERO FALLBACK fix**: Removes `_table_exists()` pattern from generic fallback
+- **Risk level**: LOW - framework-specific analyzers preserved, only generic fallback changes
 
 ## Success Criteria
 
-1. `openspec validate add-language-metadata-service --strict` passes
-2. All existing tests pass unchanged
-3. Adding new language requires only 1 extractor file
-4. Commands discover new language metadata automatically
-5. NO `_table_exists()` checks remain in boundary_analyzer.py generic fallback
-6. Express framework analyzer continues to work (uses middleware chains)
-7. NO try-except fallbacks in any migration code
+1. `aud boundaries` produces correct results on Rust projects (uses `file_path`, `target_line`)
+2. `aud boundaries` produces correct results on Go projects (uses `path` not `pattern`)
+3. Express projects route to `_analyze_express_boundaries()` via metadata service
+4. NO `_table_exists()` checks remain in generic fallback
+5. Adding a new language's route support = 1 extractor method override

@@ -15,6 +15,17 @@ Chain break detection patterns:
 - Go: `interface{}` after typed struct, unguarded type assertion
 - Rust: `.unwrap()` discarding Result type information
 
+Type detection data sources (language-specific):
+- **TypeScript/JavaScript**: Query `type_annotations` table, use regex on `type_annotation` column
+- **Python**: Query `type_annotations` table, use regex on `type_annotation` column
+- **Go/Rust**: Query `symbols.type_annotation`, use regex
+
+**ZERO FALLBACK DECISION**: The `type_annotations.is_any` flag is unreliable. Detection uses regex pattern matching ONLY with word boundaries:
+- `r':\s*any\b'` (type annotation)
+- `r'\bas\s+any\b'` (cast)
+- `r'<\s*any\s*>'` (generic)
+- Exclusions: `z.any()`, `Joi.any()` (validation sources, not breaks)
+
 #### Scenario: Intact validation chain detected
 
 - **WHEN** `aud boundaries --validated` runs on a codebase
@@ -38,6 +49,20 @@ Chain break detection patterns:
 - **AND** entry point has no validation library call
 - **THEN** chain status is "no_validation"
 - **AND** first hop shows "[FAIL] No validation at entry"
+
+#### Scenario: Type safety break detected via regex pattern
+
+- **WHEN** `aud boundaries --validated` traces through a TypeScript function
+- **AND** `type_annotations.type_annotation` matches regex `r':\s*any\b'` or `r'<\s*any\s*>'`
+- **THEN** chain status is "broken"
+- **AND** break hop shows "[FAIL] Type contains any"
+
+#### Scenario: Validation source any is NOT a break
+
+- **WHEN** `aud boundaries --validated` traces through a TypeScript function
+- **AND** `type_annotations.type_annotation` contains `z.any()` or `Joi.any()`
+- **THEN** chain status is NOT broken by this (it's a validation source)
+- **AND** chain continues tracing downstream
 
 ---
 
@@ -178,12 +203,12 @@ VALIDATION CHAIN HEALTH:
 
 The system SHALL detect validation libraries across supported languages.
 
-| Language | Validation Libraries | Entry Point Table |
-|----------|---------------------|-------------------|
-| TypeScript/JavaScript | Zod, Joi, Yup, io-ts, runtypes, class-validator | `express_middleware_chains` (NOT `js_routes` - doesn't exist) |
-| Python | Pydantic, marshmallow, cerberus, voluptuous | `python_routes` |
-| Go | go-playground/validator, ozzo-validation | `go_routes` |
-| Rust | validator crate, garde | `rust_attributes` |
+| Language | Validation Libraries | Entry Point Table | Type Info Table |
+|----------|---------------------|-------------------|-----------------|
+| TypeScript/JavaScript | Zod, Joi, Yup, io-ts, runtypes, class-validator | `express_middleware_chains` (NOT `js_routes` - doesn't exist) | `type_annotations` |
+| Python | Pydantic, marshmallow, cerberus, voluptuous | `python_routes` | `type_annotations` or `symbols` |
+| Go | go-playground/validator, ozzo-validation | `go_routes` | `symbols` |
+| Rust | validator crate, garde | `rust_attributes` | `symbols` |
 
 #### Scenario: Zod validation detected in TypeScript
 
