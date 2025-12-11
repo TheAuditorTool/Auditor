@@ -15,10 +15,9 @@ if TYPE_CHECKING:
 from theauditor.indexer.schema import build_query
 from theauditor.taint.fidelity import (
     create_analysis_manifest,
-    create_db_output_receipt,
-    create_dedup_manifest,
+    create_db_manifest,
+    create_db_receipt,
     create_discovery_manifest,
-    create_json_output_receipt,
     reconcile_taint_fidelity,
 )
 
@@ -724,14 +723,12 @@ def trace_taint(
         )
 
         unique_vulnerable_paths = deduplicate_paths(all_vulnerable_paths)
-
         unique_sanitized_paths = deduplicate_paths(all_sanitized_paths)
 
-        # Fidelity Checkpoint 3: Deduplication
-        pre_dedup_total = len(all_vulnerable_paths) + len(all_sanitized_paths)
-        post_dedup_total = len(unique_vulnerable_paths) + len(unique_sanitized_paths)
-        dedup_manifest = create_dedup_manifest(pre_dedup_total, post_dedup_total)
-        reconcile_taint_fidelity(dedup_manifest, {}, stage="dedup")
+        logger.info(
+            f"Dedup: {len(all_vulnerable_paths)} -> {len(unique_vulnerable_paths)} vulnerable, "
+            f"{len(all_sanitized_paths)} -> {len(unique_sanitized_paths)} sanitized"
+        )
 
         import json
 
@@ -740,6 +737,10 @@ def trace_taint(
 
         cursor.execute("DELETE FROM resolved_flow_audit WHERE engine = 'IFDS'")
         cursor.execute("DELETE FROM taint_flows")
+
+        # Fidelity: Create manifest BEFORE writes with tx_id
+        paths_to_write = len(unique_vulnerable_paths) + len(unique_sanitized_paths)
+        db_manifest = create_db_manifest(paths_to_write)
 
         total_inserted = 0
 
@@ -833,17 +834,12 @@ def trace_taint(
 
         conn.commit()
 
-        # Fidelity Checkpoint 4a: DB Output
-        db_receipt = create_db_output_receipt(
-            db_rows_inserted=total_inserted,
-            vulnerable_count=len(unique_vulnerable_paths),
-            sanitized_count=len(unique_sanitized_paths),
+        # Fidelity Checkpoint 3: DB Output (tx_id verification)
+        db_receipt = create_db_receipt(
+            rows_inserted=total_inserted,
+            tx_id=db_manifest["tx_id"],
         )
-        reconcile_taint_fidelity(
-            {"paths_to_write": len(unique_vulnerable_paths) + len(unique_sanitized_paths)},
-            db_receipt,
-            stage="db_output",
-        )
+        reconcile_taint_fidelity(db_manifest, db_receipt, stage="db_output")
 
         conn.close()
         logger.info(

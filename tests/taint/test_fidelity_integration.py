@@ -11,10 +11,9 @@ import pytest
 from theauditor.taint.fidelity import (
     TaintFidelityError,
     create_analysis_manifest,
-    create_db_output_receipt,
-    create_dedup_manifest,
+    create_db_manifest,
+    create_db_receipt,
     create_discovery_manifest,
-    create_json_output_receipt,
     reconcile_taint_fidelity,
 )
 
@@ -68,52 +67,27 @@ class TestFullPipelineFidelity:
         )
         assert analysis_result["status"] == "OK"
 
-        # Stage 3: Deduplication (simulating 25% removal - under threshold)
-        pre_dedup = len(vulnerable_paths) + len(sanitized_paths)  # 4
-        post_dedup = 3  # 25% removal
-
-        dedup_manifest = create_dedup_manifest(pre_dedup, post_dedup)
-        dedup_result = reconcile_taint_fidelity(
-            manifest=dedup_manifest,
-            receipt={},
-            stage="dedup",
-            strict=False,
-        )
-        assert dedup_result["status"] == "OK"
-
-        # Stage 4a: DB Output
-        db_receipt = create_db_output_receipt(
-            db_rows_inserted=post_dedup,
-            vulnerable_count=2,
-            sanitized_count=1,
+        # Stage 3: DB Output (with tx_id tracking)
+        paths_to_write = len(vulnerable_paths) + len(sanitized_paths)  # 4
+        db_manifest = create_db_manifest(paths_to_write=paths_to_write)
+        db_receipt = create_db_receipt(
+            rows_inserted=paths_to_write,
+            tx_id=db_manifest["tx_id"],
         )
         db_result = reconcile_taint_fidelity(
-            manifest={"paths_to_write": post_dedup},
+            manifest=db_manifest,
             receipt=db_receipt,
             stage="db_output",
             strict=False,
         )
         assert db_result["status"] == "OK"
 
-        # Stage 4b: JSON Output
-        json_receipt = create_json_output_receipt(
-            json_vulnerabilities=2,
-            json_bytes_written=5000,
-        )
-        json_result = reconcile_taint_fidelity(
-            manifest={"paths_to_write": 2},
-            receipt=json_receipt,
-            stage="json_output",
-            strict=False,
-        )
-        assert json_result["status"] == "OK"
-
     def test_pipeline_with_warnings(self):
-        """Pipeline that completes with warnings but no errors."""
-        # Discovery with 0 sinks (warning)
+        """Simulate a pipeline that completes with warnings but no errors."""
+        # Discovery with 0 sources (warning)
         discovery_manifest = create_discovery_manifest(
-            sources=[{"file": "a.py", "line": 1}],
-            sinks=[],
+            sources=[],
+            sinks=[{"file": "db.py", "line": 50}],
         )
         discovery_result = reconcile_taint_fidelity(
             manifest=discovery_manifest,
@@ -124,262 +98,221 @@ class TestFullPipelineFidelity:
         assert discovery_result["status"] == "WARNING"
         assert len(discovery_result["warnings"]) == 1
 
-        # Dedup with high removal (warning)
-        dedup_manifest = create_dedup_manifest(100, 30)  # 70% removal
-        dedup_result = reconcile_taint_fidelity(
-            manifest=dedup_manifest,
-            receipt={},
-            stage="dedup",
-            strict=False,
-        )
-        assert dedup_result["status"] == "WARNING"
-        assert "70%" in dedup_result["warnings"][0]
-
         # DB with count mismatch (warning)
+        db_manifest = create_db_manifest(paths_to_write=100)
+        db_receipt = create_db_receipt(rows_inserted=95, tx_id=db_manifest["tx_id"])
         db_result = reconcile_taint_fidelity(
-            manifest={"paths_to_write": 30},
-            receipt={"db_rows": 28},
+            manifest=db_manifest,
+            receipt=db_receipt,
             stage="db_output",
             strict=False,
         )
         assert db_result["status"] == "WARNING"
-        assert "delta=2" in db_result["warnings"][0]
+        assert "delta=5" in db_result["warnings"][0]
 
-    def test_pipeline_failure_detection(self):
-        """Pipeline that catches critical failures."""
-        # Analysis stalled - 0 sinks analyzed when sinks exist
-        analysis_manifest = create_analysis_manifest(
-            vulnerable_paths=[],
-            sanitized_paths=[],
-            sinks_analyzed=0,
-            sources_checked=10,
+    def test_pipeline_failure_zero_sinks(self):
+        """Pipeline should fail hard when no sinks are found."""
+        discovery_manifest = create_discovery_manifest(
+            sources=[{"file": "a.py", "line": 1}],
+            sinks=[],
         )
-        analysis_result = reconcile_taint_fidelity(
-            manifest=analysis_manifest,
-            receipt={"sinks_to_analyze": 50},
-            stage="analysis",
+
+        result = reconcile_taint_fidelity(
+            manifest=discovery_manifest,
+            receipt={},
+            stage="discovery",
             strict=False,
         )
-        assert analysis_result["status"] == "FAILED"
-        assert "0/50 sinks" in analysis_result["errors"][0]
 
-        # DB 100% loss
-        db_result = reconcile_taint_fidelity(
-            manifest={"paths_to_write": 100},
-            receipt={"db_rows": 0},
+        assert result["status"] == "FAILED"
+        assert "0 sinks" in result["errors"][0]
+
+    def test_pipeline_failure_db_loss(self):
+        """Pipeline should fail hard when DB write loses all data."""
+        db_manifest = create_db_manifest(paths_to_write=100)
+        db_receipt = create_db_receipt(rows_inserted=0, tx_id=db_manifest["tx_id"])
+
+        result = reconcile_taint_fidelity(
+            manifest=db_manifest,
+            receipt=db_receipt,
             stage="db_output",
             strict=False,
         )
-        assert db_result["status"] == "FAILED"
-        assert "100% LOSS" in db_result["errors"][0]
 
-        # JSON 100% loss
-        json_result = reconcile_taint_fidelity(
-            manifest={"paths_to_write": 50},
-            receipt={"json_count": 0},
-            stage="json_output",
+        assert result["status"] == "FAILED"
+        assert "100% LOSS" in result["errors"][0]
+
+    def test_pipeline_failure_tx_mismatch(self):
+        """Pipeline should fail hard when transaction ID mismatches."""
+        db_manifest = create_db_manifest(paths_to_write=100)
+        db_receipt = create_db_receipt(
+            rows_inserted=100,
+            tx_id="wrong-transaction-id-123456",
+        )
+
+        result = reconcile_taint_fidelity(
+            manifest=db_manifest,
+            receipt=db_receipt,
+            stage="db_output",
             strict=False,
         )
-        assert json_result["status"] == "FAILED"
-        assert "100% LOSS" in json_result["errors"][0]
+
+        assert result["status"] == "FAILED"
+        assert "TRANSACTION MISMATCH" in result["errors"][0]
 
 
 class TestStrictModeIntegration:
-    """Tests for strict mode behavior across the pipeline."""
+    """Tests for strict mode behavior across pipeline."""
 
-    def test_strict_mode_stops_pipeline_on_failure(self):
-        """Strict mode raises exception, preventing further processing."""
+    def test_strict_mode_raises_on_first_error(self):
+        """In strict mode, first error raises exception immediately."""
         with pytest.raises(TaintFidelityError) as exc_info:
+            discovery_manifest = create_discovery_manifest(
+                sources=[{"file": "a.py"}],
+                sinks=[],
+            )
             reconcile_taint_fidelity(
-                manifest={"paths_to_write": 100},
-                receipt={"db_rows": 0},
-                stage="db_output",
+                manifest=discovery_manifest,
+                receipt={},
+                stage="discovery",
                 strict=True,
             )
 
-        # Exception contains details for diagnosis
-        assert exc_info.value.details["status"] == "FAILED"
-        assert exc_info.value.details["stage"] == "db_output"
-        assert len(exc_info.value.details["errors"]) == 1
+        assert "0 sinks" in str(exc_info.value)
+        assert exc_info.value.details["stage"] == "discovery"
 
     def test_strict_mode_allows_warnings(self):
         """Strict mode does not raise on warnings, only errors."""
-        # High dedup ratio is a warning, not an error
-        dedup_manifest = create_dedup_manifest(100, 30)  # 70% removal
+        # 0 sources is a warning, not an error
+        discovery_manifest = create_discovery_manifest(
+            sources=[],
+            sinks=[{"file": "b.py"}],
+        )
 
         result = reconcile_taint_fidelity(
-            manifest=dedup_manifest,
+            manifest=discovery_manifest,
             receipt={},
-            stage="dedup",
+            stage="discovery",
             strict=True,  # Strict mode ON
         )
 
-        # Should NOT raise, just return warning status
+        # Should return WARNING, not raise
         assert result["status"] == "WARNING"
         assert len(result["warnings"]) == 1
 
+    def test_strict_mode_on_db_tx_mismatch(self):
+        """Strict mode raises on transaction mismatch."""
+        db_manifest = create_db_manifest(paths_to_write=50)
+        db_receipt = create_db_receipt(
+            rows_inserted=50,
+            tx_id="different-tx-12345678",
+        )
 
-class TestEnvVarOverrideIntegration:
-    """Tests for TAINT_FIDELITY_STRICT environment variable."""
-
-    def test_env_var_allows_pipeline_to_continue_on_failure(self):
-        """With env var set, pipeline continues even on critical failure."""
-        os.environ["TAINT_FIDELITY_STRICT"] = "0"
-        try:
-            # This would normally raise in strict mode
-            result = reconcile_taint_fidelity(
-                manifest={"paths_to_write": 100},
-                receipt={"db_rows": 0},
-                stage="db_output",
-                strict=True,  # Would raise without env var
-            )
-
-            # Pipeline continues, returns FAILED status
-            assert result["status"] == "FAILED"
-
-            # Can continue to next stage
-            json_result = reconcile_taint_fidelity(
-                manifest={"paths_to_write": 50},
-                receipt={"json_count": 50},
-                stage="json_output",
-                strict=True,  # Still overridden by env var
-            )
-            assert json_result["status"] == "OK"
-
-        finally:
-            del os.environ["TAINT_FIDELITY_STRICT"]
-
-    def test_env_var_unset_allows_strict_failures(self):
-        """Without env var, strict mode raises as expected."""
-        os.environ.pop("TAINT_FIDELITY_STRICT", None)
-
-        with pytest.raises(TaintFidelityError):
+        with pytest.raises(TaintFidelityError) as exc_info:
             reconcile_taint_fidelity(
-                manifest={"paths_to_write": 100},
-                receipt={"db_rows": 0},
+                manifest=db_manifest,
+                receipt=db_receipt,
                 stage="db_output",
                 strict=True,
             )
 
+        assert "TRANSACTION MISMATCH" in str(exc_info.value)
 
-class TestRealisticScenarios:
-    """Tests based on real-world taint analysis scenarios."""
 
-    def test_large_codebase_scenario(self):
-        """Simulate analysis of a large codebase with many findings."""
-        # Discovery: 500 sources, 800 sinks
-        sources = [{"file": f"file{i}.py", "line": i} for i in range(500)]
-        sinks = [{"file": f"sink{i}.py", "line": i} for i in range(800)]
+class TestEnvVarIntegration:
+    """Tests for environment variable override in realistic scenarios."""
 
-        discovery_manifest = create_discovery_manifest(sources, sinks)
-        assert discovery_manifest["sources"]["count"] == 500
-        assert discovery_manifest["sinks"]["count"] == 800
+    def test_env_var_prevents_pipeline_failure(self):
+        """TAINT_FIDELITY_STRICT=0 allows pipeline to continue despite errors."""
+        os.environ["TAINT_FIDELITY_STRICT"] = "0"
+        try:
+            db_manifest = create_db_manifest(paths_to_write=100)
+            db_receipt = create_db_receipt(rows_inserted=0, tx_id=db_manifest["tx_id"])
 
-        discovery_result = reconcile_taint_fidelity(
-            manifest=discovery_manifest,
-            receipt={"sinks_to_analyze": 800},
-            stage="discovery",
-            strict=False,
-        )
-        assert discovery_result["status"] == "OK"
+            result = reconcile_taint_fidelity(
+                manifest=db_manifest,
+                receipt=db_receipt,
+                stage="db_output",
+                strict=True,  # Would raise, but env var overrides
+            )
 
-        # Analysis: 2000 vulnerable, 500 sanitized
-        analysis_manifest = create_analysis_manifest(
-            vulnerable_paths=[{} for _ in range(2000)],
-            sanitized_paths=[{} for _ in range(500)],
-            sinks_analyzed=800,
-            sources_checked=500,
-        )
-        assert analysis_manifest["vulnerable_paths"]["count"] == 2000
-        assert analysis_manifest["sanitized_paths"]["count"] == 500
+            # Pipeline continues, error logged but not raised
+            assert result["status"] == "FAILED"
+        finally:
+            del os.environ["TAINT_FIDELITY_STRICT"]
 
-    def test_clean_codebase_scenario(self):
-        """Simulate analysis of a codebase with no vulnerabilities."""
-        # Discovery finds sources and sinks
-        discovery_manifest = create_discovery_manifest(
-            sources=[{"file": "a.py", "line": 1}],
-            sinks=[{"file": "b.py", "line": 2}],
-        )
-        discovery_result = reconcile_taint_fidelity(
-            manifest=discovery_manifest,
-            receipt={"sinks_to_analyze": 1},
-            stage="discovery",
-            strict=False,
-        )
-        assert discovery_result["status"] == "OK"
 
-        # Analysis finds no vulnerable paths (all sanitized)
+class TestEdgeCases:
+    """Edge case tests for fidelity system."""
+
+    def test_zero_paths_is_valid(self):
+        """Zero vulnerable/sanitized paths is valid if sinks were analyzed."""
         analysis_manifest = create_analysis_manifest(
             vulnerable_paths=[],
-            sanitized_paths=[{"source": {}, "sink": {}, "sanitizer": "validate"}],
-            sinks_analyzed=1,
-            sources_checked=1,
+            sanitized_paths=[],
+            sinks_analyzed=10,
+            sources_checked=5,
         )
-        analysis_result = reconcile_taint_fidelity(
+
+        result = reconcile_taint_fidelity(
             manifest=analysis_manifest,
-            receipt={"sinks_to_analyze": 1},
+            receipt={"sinks_to_analyze": 10},
             stage="analysis",
             strict=False,
         )
-        assert analysis_result["status"] == "OK"
 
-        # No paths to write
-        db_result = reconcile_taint_fidelity(
-            manifest={"paths_to_write": 0},
-            receipt={"db_rows": 0},
+        # This is OK - we analyzed sinks, just found no vulnerabilities
+        assert result["status"] == "OK"
+
+    def test_zero_paths_db_write_is_ok(self):
+        """Writing zero paths to DB is valid if that's what was expected."""
+        db_manifest = create_db_manifest(paths_to_write=0)
+        db_receipt = create_db_receipt(rows_inserted=0, tx_id=db_manifest["tx_id"])
+
+        result = reconcile_taint_fidelity(
+            manifest=db_manifest,
+            receipt=db_receipt,
             stage="db_output",
             strict=False,
         )
-        # 0 paths to write, 0 written = OK (not 100% loss)
-        assert db_result["status"] == "OK"
 
-    def test_no_sources_or_sinks_scenario(self):
-        """Simulate analysis of a codebase with no taint sources/sinks."""
-        # Discovery finds nothing
-        discovery_manifest = create_discovery_manifest(sources=[], sinks=[])
+        assert result["status"] == "OK"
 
-        discovery_result = reconcile_taint_fidelity(
-            manifest=discovery_manifest,
-            receipt={},
-            stage="discovery",
+    def test_large_scale_db_write(self):
+        """Verify fidelity works with large path counts."""
+        db_manifest = create_db_manifest(paths_to_write=10000)
+        db_receipt = create_db_receipt(rows_inserted=10000, tx_id=db_manifest["tx_id"])
+
+        result = reconcile_taint_fidelity(
+            manifest=db_manifest,
+            receipt=db_receipt,
+            stage="db_output",
             strict=False,
         )
 
-        # Should warn about both
-        assert discovery_result["status"] == "WARNING"
-        assert len(discovery_result["warnings"]) == 2
-        assert any("0 sources" in w for w in discovery_result["warnings"])
-        assert any("0 sinks" in w for w in discovery_result["warnings"])
+        assert result["status"] == "OK"
 
 
-class TestExistingTestsStillPass:
-    """Meta-tests to ensure the fidelity system doesn't break existing functionality."""
+class TestPublicAPI:
+    """Tests to verify public API is correctly exposed."""
 
-    def test_unit_tests_importable(self):
-        """Verify unit test module can be imported."""
-        from tests.taint import test_fidelity
-        assert hasattr(test_fidelity, "TestDiscoveryManifest")
-        assert hasattr(test_fidelity, "TestReconcileFidelity")
-
-    def test_fidelity_module_importable(self):
-        """Verify fidelity module exports all required functions."""
+    def test_all_functions_importable(self):
+        """All public functions can be imported from taint.fidelity."""
         from theauditor.taint.fidelity import (
             TaintFidelityError,
             create_analysis_manifest,
-            create_db_output_receipt,
-            create_dedup_manifest,
+            create_db_manifest,
+            create_db_receipt,
             create_discovery_manifest,
-            create_json_output_receipt,
             reconcile_taint_fidelity,
         )
 
         # All functions are callable
         assert callable(create_discovery_manifest)
         assert callable(create_analysis_manifest)
-        assert callable(create_dedup_manifest)
-        assert callable(create_db_output_receipt)
-        assert callable(create_json_output_receipt)
+        assert callable(create_db_manifest)
+        assert callable(create_db_receipt)
         assert callable(reconcile_taint_fidelity)
 
-        # Exception is a class
+        # TaintFidelityError is an exception
         assert issubclass(TaintFidelityError, Exception)

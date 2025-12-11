@@ -528,7 +528,7 @@ def parse_git_churn(
         from theauditor.indexer.metadata_collector import MetadataCollector
 
         collector = MetadataCollector(root_path=str(root_path))
-        result = collector.collect_churn(days=days, output_path=None)
+        result = collector.collect_churn(days=days)
 
         if "error" in result:
             return {}

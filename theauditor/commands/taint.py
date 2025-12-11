@@ -517,31 +517,6 @@ def taint_analyze(
                 f"[error]\\[DB] Warning: Database write failed: {e}[/error]",
                 highlight=False,
             )
-            console.print("\\[DB] JSON output will still be generated for AI consumption")
-
-    # JSON Output with Fidelity Checkpoint 4b
-    from theauditor.taint.fidelity import create_json_output_receipt, reconcile_taint_fidelity
-
-    output_path = Path(".pf") / "raw" / "taint.json"
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # Use dumps() + write() instead of dump() to capture byte count for fidelity
-    json_str = json_lib.dumps(result, indent=2, sort_keys=True)
-    with open(output_path, "w") as f:
-        f.write(json_str)
-    json_bytes = len(json_str.encode("utf-8"))
-
-    # Fidelity Checkpoint 4b: JSON Output
-    vuln_count = len(result.get("taint_paths", result.get("paths", [])))
-    json_receipt = create_json_output_receipt(vuln_count, json_bytes)
-    reconcile_taint_fidelity(
-        {"paths_to_write": vuln_count},
-        json_receipt,
-        stage="json_output",
-    )
-    console.print(
-        f"[success]Taint JSON: {vuln_count} paths, {json_bytes} bytes [Fidelity: OK][/success]"
-    )
 
     if json:
         console.print(json_lib.dumps(result, indent=2, sort_keys=True), markup=False)

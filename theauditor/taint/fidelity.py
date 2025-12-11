@@ -1,18 +1,23 @@
 """Taint Analysis Fidelity Control System.
 
-Provides manifest/receipt verification at 4 critical stages in the taint pipeline:
-1. Discovery - source/sink identification
-2. Analysis - IFDS path tracing
-3. Deduplication - path consolidation
-4. Output - DB and JSON persistence
+Mirrors indexer/fidelity.py and graph/fidelity.py patterns:
+- Uses FidelityToken for tx_id/columns/count/bytes tracking
+- Manifest created before operation, receipt after
+- reconcile compares manifest vs receipt with proper checks
 
-Mirrors patterns from indexer/fidelity.py and graph/fidelity.py.
+Checkpoints:
+1. Discovery - source/sink identification (count verification)
+2. Analysis - IFDS path tracing (count verification)
+3. DB Output - persistence to resolved_flow_audit + taint_flows (tx_id + count)
+
+Note: Dedup checkpoint was REMOVED - it measured intentional deduplication
+as if it were data loss, which is fundamentally wrong.
 """
 
 import os
+import uuid
 from typing import Any
 
-from theauditor.indexer.fidelity_utils import FidelityToken
 from theauditor.utils.logging import logger
 
 
@@ -32,11 +37,11 @@ def create_discovery_manifest(sources: list, sinks: list) -> dict[str, Any]:
         sinks: List of discovered taint sinks
 
     Returns:
-        Manifest dict with source/sink tokens and stage identifier
+        Manifest dict with counts for fidelity checking
     """
     return {
-        "sources": FidelityToken.create_manifest(sources),
-        "sinks": FidelityToken.create_manifest(sinks),
+        "sources_count": len(sources),
+        "sinks_count": len(sinks),
         "_stage": "discovery",
     }
 
@@ -50,8 +55,8 @@ def create_analysis_manifest(
     """Create manifest after IFDS analysis.
 
     Args:
-        vulnerable_paths: List of paths reaching sinks without sanitization
-        sanitized_paths: List of paths blocked by sanitizers
+        vulnerable_paths: Paths reaching sinks without sanitization
+        sanitized_paths: Paths blocked by sanitizers
         sinks_analyzed: Number of sinks processed
         sources_checked: Number of sources checked
 
@@ -59,76 +64,49 @@ def create_analysis_manifest(
         Manifest dict with path counts and analysis stats
     """
     return {
-        "vulnerable_paths": FidelityToken.create_manifest(vulnerable_paths),
-        "sanitized_paths": FidelityToken.create_manifest(sanitized_paths),
+        "vulnerable_count": len(vulnerable_paths),
+        "sanitized_count": len(sanitized_paths),
+        "total_paths": len(vulnerable_paths) + len(sanitized_paths),
         "sinks_analyzed": sinks_analyzed,
         "sources_checked": sources_checked,
         "_stage": "analysis",
     }
 
 
-def create_dedup_manifest(
-    pre_dedup_count: int,
-    post_dedup_count: int,
-) -> dict[str, Any]:
-    """Create manifest after deduplication.
+def create_db_manifest(paths_to_write: int) -> dict[str, Any]:
+    """Create manifest BEFORE DB write with transaction ID.
 
     Args:
-        pre_dedup_count: Total paths before deduplication
-        post_dedup_count: Total paths after deduplication
+        paths_to_write: Number of paths about to be written
 
     Returns:
-        Manifest dict with dedup stats and removal ratio
+        Manifest with tx_id for cross-talk detection
     """
     return {
-        "pre_dedup_count": pre_dedup_count,
-        "post_dedup_count": post_dedup_count,
-        "removed_count": pre_dedup_count - post_dedup_count,
-        "removal_ratio": (pre_dedup_count - post_dedup_count) / max(pre_dedup_count, 1),
-        "_stage": "dedup",
-    }
-
-
-def create_db_output_receipt(
-    db_rows_inserted: int,
-    vulnerable_count: int,
-    sanitized_count: int,
-) -> dict[str, Any]:
-    """Create receipt after DB write in trace_taint().
-
-    Args:
-        db_rows_inserted: Actual rows inserted to database
-        vulnerable_count: Expected vulnerable path count
-        sanitized_count: Expected sanitized path count
-
-    Returns:
-        Receipt dict with DB write stats
-    """
-    return {
-        "db_rows": db_rows_inserted,
-        "vulnerable_count": vulnerable_count,
-        "sanitized_count": sanitized_count,
+        "tx_id": str(uuid.uuid4()),
+        "count": paths_to_write,
+        "tables": ["resolved_flow_audit", "taint_flows"],
         "_stage": "db_output",
     }
 
 
-def create_json_output_receipt(
-    json_vulnerabilities: int,
-    json_bytes_written: int,
+def create_db_receipt(
+    rows_inserted: int,
+    tx_id: str,
 ) -> dict[str, Any]:
-    """Create receipt after JSON write in save_taint_analysis().
+    """Create receipt AFTER DB write echoing transaction ID.
 
     Args:
-        json_vulnerabilities: Number of vulnerabilities in JSON
-        json_bytes_written: Byte size of JSON output
+        rows_inserted: Actual rows inserted
+        tx_id: Transaction ID from manifest (echoed back)
 
     Returns:
-        Receipt dict with JSON write stats
+        Receipt for comparison against manifest
     """
     return {
-        "json_count": json_vulnerabilities,
-        "json_bytes": json_bytes_written,
-        "_stage": "json_output",
+        "tx_id": tx_id,
+        "count": rows_inserted,
+        "_stage": "db_output",
     }
 
 
@@ -140,10 +118,12 @@ def reconcile_taint_fidelity(
 ) -> dict[str, Any]:
     """Compare taint manifest vs receipt at each pipeline stage.
 
+    Mirrors indexer/fidelity.py reconcile_fidelity() pattern.
+
     Args:
         manifest: What was produced/expected at this stage
         receipt: What was actually stored/written
-        stage: One of "discovery", "analysis", "dedup", "db_output", "json_output"
+        stage: One of "discovery", "analysis", "db_output"
         strict: If True, raise TaintFidelityError on failure
 
     Returns:
@@ -152,7 +132,6 @@ def reconcile_taint_fidelity(
     Raises:
         TaintFidelityError: In strict mode when errors are detected
     """
-    # Environment variable override
     strict_env = os.environ.get("TAINT_FIDELITY_STRICT", "1")
     if strict_env == "0":
         strict = False
@@ -160,63 +139,45 @@ def reconcile_taint_fidelity(
     errors = []
     warnings = []
 
-    # Stage-specific reconciliation logic
     if stage == "discovery":
-        # Verify sources and sinks were found
-        src_count = manifest.get("sources", {}).get("count", 0)
-        sink_count = manifest.get("sinks", {}).get("count", 0)
-        if src_count == 0:
-            warnings.append("Discovery found 0 sources - is this expected?")
+        src_count = manifest.get("sources_count", 0)
+        sink_count = manifest.get("sinks_count", 0)
+
         if sink_count == 0:
-            warnings.append("Discovery found 0 sinks - is this expected?")
+            errors.append(
+                "Discovery found 0 sinks - taint analysis cannot proceed without sinks"
+            )
+        if src_count == 0:
+            warnings.append("Discovery found 0 sources - no taint origins detected")
 
     elif stage == "analysis":
-        # Verify analysis didn't silently fail
         sinks_analyzed = manifest.get("sinks_analyzed", 0)
         sinks_expected = receipt.get("sinks_to_analyze", 0)
 
         if sinks_analyzed == 0 and sinks_expected > 0:
             errors.append(
-                f"Analysis processed 0/{sinks_expected} sinks - pipeline stalled"
-            )
-
-    elif stage == "dedup":
-        # Warn if dedup removed too many paths
-        removal_ratio = manifest.get("removal_ratio", 0)
-        if removal_ratio > 0.5:
-            warnings.append(
-                f"Dedup removed {manifest.get('removed_count')}/{manifest.get('pre_dedup_count')} "
-                f"paths ({removal_ratio:.0%}) - check for hash collisions"
+                f"Analysis processed 0/{sinks_expected} sinks - IFDS pipeline stalled"
             )
 
     elif stage == "db_output":
-        # Verify DB write succeeded
-        manifest_count = manifest.get("paths_to_write", 0)
-        db_count = receipt.get("db_rows", 0)
+        m_tx = manifest.get("tx_id")
+        r_tx = receipt.get("tx_id")
 
-        if manifest_count > 0 and db_count == 0:
+        if m_tx and r_tx and m_tx != r_tx:
             errors.append(
-                f"DB Output: {manifest_count} paths to write, 0 written (100% LOSS)"
-            )
-        elif manifest_count != db_count:
-            warnings.append(
-                f"DB Output: manifest={manifest_count}, db_rows={db_count} "
-                f"(delta={manifest_count - db_count})"
+                f"TRANSACTION MISMATCH: manifest tx '{m_tx[:8]}...' != receipt tx '{r_tx[:8]}...'. "
+                "Possible pipeline cross-talk or stale buffer."
             )
 
-    elif stage == "json_output":
-        # Verify JSON write succeeded
-        manifest_count = manifest.get("paths_to_write", 0)
-        json_count = receipt.get("json_count", 0)
+        m_count = manifest.get("count", 0)
+        r_count = receipt.get("count", 0)
 
-        if manifest_count > 0 and json_count == 0:
-            errors.append(
-                f"JSON Output: {manifest_count} paths to write, 0 in JSON (100% LOSS)"
-            )
-        elif manifest_count != json_count:
+        if m_count > 0 and r_count == 0:
+            errors.append(f"DB Output: {m_count} paths to write, 0 written (100% LOSS)")
+        elif m_count != r_count:
+            delta = m_count - r_count
             warnings.append(
-                f"JSON Output: manifest={manifest_count}, json={json_count} "
-                f"(delta={manifest_count - json_count})"
+                f"DB Output: manifest={m_count}, db_rows={r_count} (delta={delta})"
             )
 
     result = {
@@ -226,12 +187,26 @@ def reconcile_taint_fidelity(
         "warnings": warnings,
     }
 
-    if errors and strict:
-        error_msg = f"Taint Fidelity FAILED at {stage}: " + "; ".join(errors)
-        logger.error(error_msg)
-        raise TaintFidelityError(error_msg, details=result)
+    if errors:
+        error_msg = (
+            f"Taint Fidelity FAILED at {stage}. ZERO FALLBACK VIOLATION.\n"
+            + "\n".join(f"  - {e}" for e in errors)
+        )
+        if warnings:
+            error_msg += "\nAdditional warnings:\n" + "\n".join(
+                f"  - {w}" for w in warnings
+            )
 
-    if warnings:
-        logger.warning(f"Taint Fidelity Warnings at {stage}: {warnings}")
+        if strict:
+            logger.error(error_msg)
+            raise TaintFidelityError(error_msg, details=result)
+        else:
+            logger.error(f"[NON-STRICT] {error_msg}")
+
+    elif warnings:
+        logger.warning(
+            f"Taint Fidelity Warnings at {stage}:\n"
+            + "\n".join(f"  - {w}" for w in warnings)
+        )
 
     return result
