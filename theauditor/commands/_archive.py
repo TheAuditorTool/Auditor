@@ -96,6 +96,15 @@ def _archive(run_type: str, diff_spec: str = None, wipe_cache: bool = False):
             logger.warning(f"Could not archive {item.name}: {e}")
             skipped_count += 1
 
+    # Copy journal.ndjson to archive (ml/ is preserved but journal needs archiving for ML training)
+    journal_src = pf_dir / "ml" / "journal.ndjson"
+    if journal_src.exists():
+        try:
+            shutil.copy2(str(journal_src), str(archive_dest / "journal.ndjson"))
+            logger.info("[ARCHIVE] Copied journal.ndjson to history for ML training")
+        except Exception as e:
+            logger.warning(f"Could not copy journal.ndjson: {e}")
+
     if archived_count > 0:
         logger.info(f"[ARCHIVE] Archived {archived_count} items to {archive_dest}")
         if preserved_count > 0:
