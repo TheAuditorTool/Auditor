@@ -103,6 +103,11 @@ repo.insert(data: any)        <- CHAIN BROKEN
 - `theauditor/boundaries/boundary_analyzer.py:28-54` - `_detect_frameworks()` function
 - `theauditor/boundaries/boundary_analyzer.py:57-182` - `_analyze_express_boundaries()` function
 
+**ZERO FALLBACK WARNING**: The existing `boundary_analyzer.py` uses `_table_exists()` checks (10 instances) which **violate Zero Fallback policy** (CLAUDE.md Section 4.1). The NEW `chain_tracer.py` MUST NOT copy this pattern. Instead:
+- Assume tables exist
+- Let queries fail loudly if tables are missing
+- Do NOT wrap queries in `if _table_exists()` guards
+
 **Pattern**:
 ```python
 def analyze_validation_chains(db_path: str) -> list[ValidationChain]:
@@ -136,11 +141,13 @@ def analyze_validation_chains(db_path: str) -> list[ValidationChain]:
 
 | Framework | Entry Points Table | Validation Table | Type Info Table |
 |-----------|-------------------|------------------|-----------------|
-| Express | `express_middleware_chains` | `validation_framework_usage` | `symbols` |
+| Express/JS/TS | `express_middleware_chains` | `validation_framework_usage` | `symbols` |
 | FastAPI | `python_routes` | `python_decorators` | `symbols` |
 | Flask | `python_routes` | `function_call_args` | `symbols` |
 | Gin/Echo/Chi | `go_routes` | `function_call_args` | `symbols` |
 | Actix/Axum | `rust_attributes` | `function_call_args` | `symbols` |
+
+**NOTE**: `js_routes` table does NOT exist in the schema. All JavaScript/TypeScript entry points come from `express_middleware_chains` (for Express) or `api_endpoints` (generic).
 
 **CRITICAL**: Do NOT write generic code that tries to handle all frameworks. Query `frameworks` table first, then call the right analyzer.
 
@@ -219,16 +226,17 @@ WHERE path = ? AND line = ? AND name = ?
 
 ```sql
 -- Entry points without validation in call chain
+-- NOTE: js_routes table does NOT exist. Use express_middleware_chains for JS/TS.
 SELECT
     r.method,
     r.path,
     r.file,
     r.line
-FROM python_routes r  -- or js_routes, go_routes, etc
+FROM python_routes r  -- or go_routes, rust_attributes (NOT js_routes - doesn't exist)
 WHERE NOT EXISTS (
     SELECT 1 FROM function_call_args f
     WHERE f.file = r.file
-    AND f.callee_name IN ('validate', 'parse', 'safeParse', 'sanitize')
+    AND f.callee_function IN ('validate', 'parse', 'safeParse', 'sanitize')
 );
 ```
 
@@ -238,7 +246,8 @@ WHERE NOT EXISTS (
 - **Validation libraries**: Zod, Joi, Yup, io-ts, runtypes
 - **Type loss patterns**: `as any`, `: any`, `as unknown`, missing generics
 - **Entry points**: Express routes, Next.js API routes, tRPC procedures
-- **Tables**: `function_call_args_jsx`, `symbols` with TS types
+- **Tables**: `express_middleware_chains` (entry points), `validation_framework_usage` (validators), `function_call_args_jsx`, `symbols` with TS types
+- **NOTE**: `js_routes` table does NOT exist - use `express_middleware_chains` for Express or `api_endpoints` for generic
 
 ### Python
 - **Validation libraries**: Pydantic, marshmallow, cerberus, voluptuous

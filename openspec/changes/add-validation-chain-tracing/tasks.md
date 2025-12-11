@@ -12,7 +12,12 @@
   - `theauditor/boundaries/boundary_analyzer.py:28-54` - `_detect_frameworks()`: queries `frameworks` table, returns dict grouped by framework name
   - `theauditor/boundaries/boundary_analyzer.py:57-182` - `_analyze_express_boundaries()`: Express-specific logic using `express_middleware_chains` table
   - `theauditor/boundaries/boundary_analyzer.py:185-418` - `analyze_input_validation_boundaries()`: main router that calls `_detect_frameworks()` then dispatches to framework-specific analyzer
-  - Copy this pattern for chain tracing (DO NOT write generic if/else chains)
+  - Copy this routing pattern for chain tracing (DO NOT write generic if/else chains)
+- [ ] 0.8 **ZERO FALLBACK WARNING**: The existing boundary_analyzer.py uses `_table_exists()` checks (10 instances) which VIOLATE Zero Fallback policy. DO NOT copy this pattern. New code must:
+  - Assume tables exist
+  - Let queries fail loudly if tables missing
+  - NO `if _table_exists()` guards
+- [ ] 0.9 **TABLE NOTE**: `js_routes` table does NOT exist. Use `express_middleware_chains` for JS/TS entry points.
 
 ## 1. Core: Validation Chain Tracer
 

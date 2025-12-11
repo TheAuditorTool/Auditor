@@ -178,12 +178,12 @@ VALIDATION CHAIN HEALTH:
 
 The system SHALL detect validation libraries across supported languages.
 
-| Language | Validation Libraries |
-|----------|---------------------|
-| TypeScript/JavaScript | Zod, Joi, Yup, io-ts, runtypes, class-validator |
-| Python | Pydantic, marshmallow, cerberus, voluptuous |
-| Go | go-playground/validator, ozzo-validation |
-| Rust | validator crate, garde |
+| Language | Validation Libraries | Entry Point Table |
+|----------|---------------------|-------------------|
+| TypeScript/JavaScript | Zod, Joi, Yup, io-ts, runtypes, class-validator | `express_middleware_chains` (NOT `js_routes` - doesn't exist) |
+| Python | Pydantic, marshmallow, cerberus, voluptuous | `python_routes` |
+| Go | go-playground/validator, ozzo-validation | `go_routes` |
+| Rust | validator crate, garde | `rust_attributes` |
 
 #### Scenario: Zod validation detected in TypeScript
 
