@@ -228,7 +228,8 @@ function extractVarsFromNode(
 
     if (n.kind === ts.SyntaxKind.PropertyAccessExpression) {
       const fullText = n.getText(sourceFile);
-      if (fullText && !seen.has(fullText)) {
+      // Skip if contains arrow/function - not a simple variable reference
+      if (fullText && !seen.has(fullText) && !fullText.includes("=>") && !fullText.includes("function")) {
         vars.push(fullText);
         seen.add(fullText);
       }
@@ -236,7 +237,8 @@ function extractVarsFromNode(
 
     if (n.kind === ts.SyntaxKind.ElementAccessExpression) {
       const fullText = n.getText(sourceFile);
-      if (fullText && !seen.has(fullText)) {
+      // Skip if contains arrow/function - not a simple variable reference
+      if (fullText && !seen.has(fullText) && !fullText.includes("=>") && !fullText.includes("function")) {
         vars.push(fullText);
         seen.add(fullText);
       }
@@ -252,7 +254,8 @@ function extractVarsFromNode(
 
     if (n.kind === ts.SyntaxKind.NewExpression) {
       const fullText = n.getText(sourceFile);
-      if (fullText && fullText.length < 200 && !seen.has(fullText)) {
+      // Skip if contains arrow/function or is too long
+      if (fullText && fullText.length < 200 && !seen.has(fullText) && !fullText.includes("=>") && !fullText.includes("function")) {
         vars.push(fullText);
         seen.add(fullText);
       }
