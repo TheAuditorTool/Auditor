@@ -403,6 +403,12 @@ def _format_text(results: Any) -> str:
             lines.append("  (no endpoints found)")
         return "\n".join(lines)
 
+    # Handle findings results
+    if isinstance(results, dict) and results.get("type") == "findings":
+        from theauditor.context.findings_formatter import format_findings_plain
+
+        return format_findings_plain(results)
+
     return json.dumps(_to_dict(results), indent=2, default=str)
 
 

@@ -100,6 +100,16 @@ WORKER_FUNCTIONS: frozenset[str] = frozenset(
 )
 
 
+# Synchronous process functions that block until completion - no worker to terminate
+SYNC_PROCESS_FUNCTIONS: frozenset[str] = frozenset(
+    [
+        "execSync",
+        "execFileSync",
+        "spawnSync",
+    ]
+)
+
+
 STREAM_FUNCTIONS: frozenset[str] = frozenset(
     [
         "createReadStream",
@@ -614,6 +624,11 @@ def _check_workers_not_terminated(db: RuleDB) -> list[StandardFinding]:
     )
 
     for file, line, func in rows:
+        # Skip synchronous functions - they block until completion, no worker to terminate
+        is_sync = any(sync_func in func for sync_func in SYNC_PROCESS_FUNCTIONS)
+        if is_sync:
+            continue
+
         is_worker = any(pattern in func for pattern in WORKER_FUNCTIONS)
         if not is_worker:
             continue

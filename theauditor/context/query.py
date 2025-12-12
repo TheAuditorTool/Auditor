@@ -780,6 +780,7 @@ class CodeQueryEngine:
         severity: str | None = None,
         rule: str | None = None,
         category: str | None = None,
+        limit: int = 5000,
     ) -> list[dict]:
         """Query findings from findings_consolidated table."""
         cursor = self.repo_db.cursor()
@@ -809,6 +810,9 @@ class CodeQueryEngine:
 
         where_sql = " AND ".join(where_clauses) if where_clauses else "1=1"
 
+        # Build limit clause (0 = unlimited)
+        limit_sql = f"LIMIT {limit}" if limit > 0 else ""
+
         cursor.execute(
             f"""
             SELECT file, line, column, rule, tool, message, severity,
@@ -820,7 +824,7 @@ class CodeQueryEngine:
             FROM findings_consolidated
             WHERE {where_sql}
             ORDER BY severity DESC, file, line
-            LIMIT 1000
+            {limit_sql}
         """,
             params,
         )

@@ -62,6 +62,8 @@ def _normalize_path_filter(path_filter: tuple) -> str | None:
 @click.option("--findings", is_flag=True, help="Query findings from all tools (lint, taint, rules, osv)")
 @click.option("--severity", help="Filter findings by severity (critical, high, medium, low, warning, error)")
 @click.option("--tool", help="Filter findings by tool (ruff, eslint, taint, cfg-analysis, mypy, terraform)")
+@click.option("--rule", "rule_filter", help="Filter findings by rule name pattern (e.g., 'unused%', 'SQL%')")
+@click.option("--limit", "findings_limit", type=int, default=5000, help="Max findings to return (default 5000, 0=unlimited)")
 @click.option("--search", help="Cross-table exploratory search (finds term across all tables)")
 @click.option(
     "--list",
@@ -161,6 +163,8 @@ def query(
     findings,
     severity,
     tool,
+    rule_filter,
+    findings_limit,
     search,
     list_mode,
     list_symbols,
@@ -506,6 +510,8 @@ def query(
                 file_path=file_filter,
                 tool=tool,
                 severity=severity,
+                rule=rule_filter,
+                limit=findings_limit,
             )
 
             # Group findings by tool for summary
@@ -524,6 +530,7 @@ def query(
                     "file": file_filter,
                     "tool": tool,
                     "severity": severity,
+                    "rule": rule_filter,
                 },
                 "summary": {
                     "by_tool": tool_counts,
@@ -752,13 +759,28 @@ def query(
                         if not snippet.startswith("["):
                             call.arguments.append(f"__snippet__:{snippet}")
 
-    output_str = format_output(results, format=output_format)
+    # Special handling for findings with Rich output
+    if (
+        isinstance(results, dict)
+        and results.get("type") == "findings"
+        and output_format == "text"
+        and not save
+    ):
+        from theauditor.context.findings_formatter import render_findings_rich
 
-    console.print(output_str, markup=False)
+        render_findings_rich(results, console)
+    else:
+        output_str = format_output(results, format=output_format)
+        console.print(output_str, markup=False)
 
-    if save:
-        save_path = Path(save)
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(save_path, "w", encoding="utf-8") as f:
-            f.write(output_str)
-        err_console.print(f"[error]\nSaved to: {save_path}[/error]", highlight=False)
+        if save:
+            save_path = Path(save)
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            # For findings, use plain text formatter when saving
+            if isinstance(results, dict) and results.get("type") == "findings":
+                from theauditor.context.findings_formatter import format_findings_plain
+
+                output_str = format_findings_plain(results)
+            with open(save_path, "w", encoding="utf-8") as f:
+                f.write(output_str)
+            err_console.print(f"[dim]Saved to: {save_path}[/dim]", highlight=False)
