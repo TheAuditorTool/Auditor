@@ -370,54 +370,60 @@ def _check_public_acl(db: RuleDB) -> list[StandardFinding]:
 def _check_public_access_methods(db: RuleDB) -> list[StandardFinding]:
     """Detect method calls that grant public access after bucket initialization.
 
-    Catches patterns like:
-        bucket = s3.Bucket(self, "MyBucket", block_public_access=BLOCK_ALL)
-        bucket.grant_public_access()  # Bypasses constructor security!
-
-    This is a critical blind spot - constructor properties alone are insufficient.
+    Uses single query + Python filtering instead of 4 leading-wildcard queries.
     """
     findings: list[StandardFinding] = []
 
-    public_grant_methods = (
+    public_grant_methods = frozenset({
         "grant_public_access",
         "grantPublicAccess",
         "grant_read",
         "grantRead",
+    })
+
+    critical_methods = frozenset({"grant_public_access", "grantPublicAccess"})
+
+    # Single query to get all function calls - filter in Python
+    rows = db.query(
+        Q("function_call_args")
+        .select("file", "line", "callee_function", "argument_expr")
     )
 
-    for method_name in public_grant_methods:
-        rows = db.query(
-            Q("function_call_args")
-            .select("file", "line", "callee_function", "argument_expr")
-            .where("callee_function LIKE ?", f"%.{method_name}")
-        )
+    for file_path, line, callee, args in rows:
+        if not callee:
+            continue
 
-        for file_path, line, callee, args in rows:
-            is_public_grant = method_name in ("grant_public_access", "grantPublicAccess")
+        # Extract method name from callee (e.g., "bucket.grant_public_access" -> "grant_public_access")
+        method_name = callee.rsplit(".", 1)[-1] if "." in callee else callee
 
-            if not is_public_grant:
-                args_lower = (args or "").lower()
-                if "anyone" not in args_lower and "*" not in args_lower:
-                    continue
+        if method_name not in public_grant_methods:
+            continue
 
-            severity = Severity.CRITICAL if is_public_grant else Severity.HIGH
+        is_public_grant = method_name in critical_methods
 
-            findings.append(
-                StandardFinding(
-                    rule_name="aws-cdk-s3-public-grant-method",
-                    message=f"S3 bucket method call '{callee}' grants public access",
-                    severity=severity,
-                    confidence="high",
-                    file_path=file_path,
-                    line=line,
-                    snippet=f"{callee}({args or ''})" if args else f"{callee}()",
-                    category="public_exposure",
-                    cwe_id="CWE-732",
-                    additional_info={
-                        "method": callee,
-                        "remediation": "Remove public grant method call. Use bucket policies with specific principals instead of granting public access.",
-                    },
-                )
+        if not is_public_grant:
+            args_lower = (args or "").lower()
+            if "anyone" not in args_lower and "*" not in args_lower:
+                continue
+
+        severity = Severity.CRITICAL if is_public_grant else Severity.HIGH
+
+        findings.append(
+            StandardFinding(
+                rule_name="aws-cdk-s3-public-grant-method",
+                message=f"S3 bucket method call '{callee}' grants public access",
+                severity=severity,
+                confidence="high",
+                file_path=file_path,
+                line=line,
+                snippet=f"{callee}({args or ''})" if args else f"{callee}()",
+                category="public_exposure",
+                cwe_id="CWE-732",
+                additional_info={
+                    "method": callee,
+                    "remediation": "Remove public grant method call. Use bucket policies with specific principals instead of granting public access.",
+                },
             )
+        )
 
     return findings

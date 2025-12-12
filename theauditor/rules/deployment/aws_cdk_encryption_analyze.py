@@ -75,52 +75,52 @@ def _check_s3_encryption(db: RuleDB) -> list[StandardFinding]:
     """Detect S3 buckets with encryption explicitly disabled.
 
     CDK v2 defaults to S3-managed encryption, but explicit UNENCRYPTED is a problem.
-    Also flags buckets without any encryption configuration as informational.
+    Uses single JOIN query instead of N+1 pattern.
     """
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        Q("cdk_constructs")
+        .select(
+            "cdk_constructs.construct_id",
+            "cdk_constructs.file_path",
+            "cdk_constructs.construct_name",
+            "cdk_construct_properties.property_value_expr",
+            "cdk_construct_properties.line",
         )
+        .join("cdk_construct_properties", on=[("construct_id", "construct_id")])
+        .where(
+            "cdk_constructs.cdk_class LIKE ? AND (cdk_constructs.cdk_class LIKE ? OR cdk_constructs.cdk_class LIKE ?)",
+            "%Bucket%",
+            "%s3%",
+            "%aws_s3%",
+        )
+        .where("cdk_construct_properties.property_name = ?", "encryption")
     )
 
-    for construct_id, file_path, _line, construct_name, cdk_class in rows:
-        if not cdk_class:
+    for construct_id, file_path, construct_name, prop_value, prop_line in rows:
+        if not prop_value:
             continue
-        if not ("Bucket" in cdk_class and ("s3" in cdk_class.lower() or "aws_s3" in cdk_class)):
-            continue
-
-        display_name = construct_name or "UnnamedBucket"
-
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-            .where("property_name = ?", "encryption")
-        )
-
-        if prop_rows:
-            prop_value, prop_line = prop_rows[0]
-            if "UNENCRYPTED" in prop_value.upper():
-                findings.append(
-                    StandardFinding(
-                        rule_name="aws-cdk-s3-unencrypted",
-                        message=f"S3 bucket '{display_name}' has encryption explicitly disabled",
-                        severity=Severity.HIGH,
-                        confidence="high",
-                        file_path=file_path,
-                        line=prop_line,
-                        snippet=f"encryption={prop_value}",
-                        category="missing_encryption",
-                        cwe_id="CWE-311",
-                        additional_info={
-                            "construct_id": construct_id,
-                            "construct_name": display_name,
-                            "remediation": "Remove encryption=BucketEncryption.UNENCRYPTED or use S3_MANAGED/KMS_MANAGED.",
-                        },
-                    )
+        if "UNENCRYPTED" in prop_value.upper():
+            display_name = construct_name or "UnnamedBucket"
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-s3-unencrypted",
+                    message=f"S3 bucket '{display_name}' has encryption explicitly disabled",
+                    severity=Severity.HIGH,
+                    confidence="high",
+                    file_path=file_path,
+                    line=prop_line,
+                    snippet=f"encryption={prop_value}",
+                    category="missing_encryption",
+                    cwe_id="CWE-311",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "remediation": "Remove encryption=BucketEncryption.UNENCRYPTED or use S3_MANAGED/KMS_MANAGED.",
+                    },
                 )
+            )
 
     return findings
 
@@ -129,96 +129,106 @@ def _check_rds_public_subnet(db: RuleDB) -> list[StandardFinding]:
     """Detect RDS databases placed in public subnets.
 
     A database in a public subnet is critically exposed regardless of encryption.
-    This is a common infrastructure mistake that leads to data breaches.
+    Uses single JOIN query instead of N+1 pattern.
     """
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        Q("cdk_constructs")
+        .select(
+            "cdk_constructs.construct_id",
+            "cdk_constructs.file_path",
+            "cdk_constructs.construct_name",
+            "cdk_construct_properties.property_name",
+            "cdk_construct_properties.property_value_expr",
+            "cdk_construct_properties.line",
+        )
+        .join("cdk_construct_properties", on=[("construct_id", "construct_id")])
+        .where(
+            "cdk_constructs.cdk_class LIKE ? AND (cdk_constructs.cdk_class LIKE ? OR cdk_constructs.cdk_class LIKE ?)",
+            "%DatabaseInstance%",
+            "%rds%",
+            "%aws_rds%",
         )
     )
 
-    for construct_id, file_path, _line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        if not (
-            "DatabaseInstance" in cdk_class
-            and ("rds" in cdk_class.lower() or "aws_rds" in cdk_class)
-        ):
+    for construct_id, file_path, construct_name, prop_name, prop_value, prop_line in rows:
+        if not prop_name or not prop_value:
             continue
 
-        display_name = construct_name or "UnnamedDB"
+        prop_name_lower = prop_name.lower()
+        prop_value_upper = prop_value.upper()
 
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_name", "property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-        )
+        is_subnet_prop = "subnet" in prop_name_lower or "vpc_subnets" in prop_name_lower
+        is_public = "PUBLIC" in prop_value_upper or "SubnetType.PUBLIC" in prop_value
 
-        for prop_name, prop_value, prop_line in prop_rows:
-            if not prop_name or not prop_value:
-                continue
-            prop_name_lower = prop_name.lower()
-            prop_value_upper = prop_value.upper()
-
-            is_subnet_prop = "subnet" in prop_name_lower or "vpc_subnets" in prop_name_lower
-            is_public = "PUBLIC" in prop_value_upper or "SubnetType.PUBLIC" in prop_value
-
-            if is_subnet_prop and is_public:
-                findings.append(
-                    StandardFinding(
-                        rule_name="aws-cdk-rds-public-subnet",
-                        message=f"RDS instance '{display_name}' is placed in a PUBLIC subnet - critically exposed",
-                        severity=Severity.CRITICAL,
-                        confidence="high",
-                        file_path=file_path,
-                        line=prop_line,
-                        snippet=f"{prop_name}={prop_value}",
-                        category="public_exposure",
-                        cwe_id="CWE-284",
-                        additional_info={
-                            "construct_id": construct_id,
-                            "construct_name": display_name,
-                            "remediation": "Move database to private subnet: vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS)",
-                        },
-                    )
+        if is_subnet_prop and is_public:
+            display_name = construct_name or "UnnamedDB"
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-rds-public-subnet",
+                    message=f"RDS instance '{display_name}' is placed in a PUBLIC subnet - critically exposed",
+                    severity=Severity.CRITICAL,
+                    confidence="high",
+                    file_path=file_path,
+                    line=prop_line,
+                    snippet=f"{prop_name}={prop_value}",
+                    category="public_exposure",
+                    cwe_id="CWE-284",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "remediation": "Move database to private subnet: vpc_subnets=ec2.SubnetSelection(subnet_type=ec2.SubnetType.PRIVATE_WITH_EGRESS)",
+                    },
                 )
+            )
 
     return findings
 
 
 def _check_unencrypted_rds(db: RuleDB) -> list[StandardFinding]:
-    """Detect RDS DatabaseInstance without encryption."""
+    """Detect RDS DatabaseInstance without encryption.
+
+    Uses set difference for missing detection + JOIN for explicit false.
+    """
     findings: list[StandardFinding] = []
 
-    rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+    # Query 1: Get all RDS DatabaseInstance constructs
+    all_rds = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name")
+        .where(
+            "cdk_class LIKE ? AND (cdk_class LIKE ? OR cdk_class LIKE ?)",
+            "%DatabaseInstance%",
+            "%rds%",
+            "%aws_rds%",
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        if not (
-            "DatabaseInstance" in cdk_class
-            and ("rds" in cdk_class.lower() or "aws_rds" in cdk_class)
-        ):
-            continue
+    if not all_rds:
+        return []
 
+    rds_map = {row[0]: (row[1], row[2], row[3]) for row in all_rds}
+
+    # Query 2: Get constructs that have storage_encrypted property
+    configured_rows = db.query(
+        Q("cdk_construct_properties")
+        .select("construct_id", "property_value_expr", "line")
+        .where(
+            "property_name IN (?, ?)",
+            "storage_encrypted",
+            "storageEncrypted",
+        )
+    )
+
+    configured_map = {row[0]: (row[1], row[2]) for row in configured_rows}
+
+    # Check each RDS construct
+    for construct_id, (file_path, line, construct_name) in rds_map.items():
         display_name = construct_name or "UnnamedDB"
 
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-            .where(
-                "property_name = ? OR property_name = ?", "storage_encrypted", "storageEncrypted"
-            )
-        )
-
-        if not prop_rows:
+        if construct_id not in configured_map:
+            # Missing encryption property
             findings.append(
                 StandardFinding(
                     rule_name="aws-cdk-rds-unencrypted",
@@ -238,7 +248,7 @@ def _check_unencrypted_rds(db: RuleDB) -> list[StandardFinding]:
                 )
             )
         else:
-            prop_value, prop_line = prop_rows[0]
+            prop_value, prop_line = configured_map[construct_id]
             if prop_value and "false" in prop_value.lower():
                 findings.append(
                     StandardFinding(
@@ -263,31 +273,42 @@ def _check_unencrypted_rds(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_unencrypted_ebs(db: RuleDB) -> list[StandardFinding]:
-    """Detect EBS Volume without encryption."""
+    """Detect EBS Volume without encryption.
+
+    Uses set difference for missing detection + map lookup for explicit false.
+    """
     findings: list[StandardFinding] = []
 
-    rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+    # Query 1: Get all EBS Volume constructs
+    all_volumes = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name")
+        .where(
+            "cdk_class LIKE ? AND (cdk_class LIKE ? OR cdk_class LIKE ?)",
+            "%Volume%",
+            "%ec2%",
+            "%aws_ec2%",
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        if not ("Volume" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)):
-            continue
+    if not all_volumes:
+        return []
 
+    volume_map = {row[0]: (row[1], row[2], row[3]) for row in all_volumes}
+
+    # Query 2: Get constructs that have encrypted property
+    configured_rows = db.query(
+        Q("cdk_construct_properties")
+        .select("construct_id", "property_value_expr", "line")
+        .where("property_name = ?", "encrypted")
+    )
+
+    configured_map = {row[0]: (row[1], row[2]) for row in configured_rows}
+
+    for construct_id, (file_path, line, construct_name) in volume_map.items():
         display_name = construct_name or "UnnamedVolume"
 
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-            .where("property_name = ?", "encrypted")
-        )
-
-        if not prop_rows:
+        if construct_id not in configured_map:
             findings.append(
                 StandardFinding(
                     rule_name="aws-cdk-ebs-unencrypted",
@@ -307,7 +328,7 @@ def _check_unencrypted_ebs(db: RuleDB) -> list[StandardFinding]:
                 )
             )
         else:
-            prop_value, prop_line = prop_rows[0]
+            prop_value, prop_line = configured_map[construct_id]
             if prop_value and "false" in prop_value.lower():
                 findings.append(
                     StandardFinding(
@@ -335,36 +356,40 @@ def _check_dynamodb_encryption(db: RuleDB) -> list[StandardFinding]:
     """Detect DynamoDB Table with default encryption (not customer-managed).
 
     Note: AWS default encryption IS still encrypted (AWS-managed keys).
-    This finding is for compliance/best practice - customer-managed keys
-    provide more control over key rotation and access policies.
+    Uses set difference for missing detection + map lookup for DEFAULT value.
     """
     findings: list[StandardFinding] = []
 
-    rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+    # Query 1: Get all DynamoDB Table constructs
+    all_tables = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name")
+        .where(
+            "cdk_class LIKE ? AND (cdk_class LIKE ? OR cdk_class LIKE ?)",
+            "%Table%",
+            "%dynamodb%",
+            "%aws_dynamodb%",
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        if not (
-            "Table" in cdk_class
-            and ("dynamodb" in cdk_class.lower() or "aws_dynamodb" in cdk_class)
-        ):
-            continue
+    if not all_tables:
+        return []
 
+    table_map = {row[0]: (row[1], row[2], row[3]) for row in all_tables}
+
+    # Query 2: Get constructs that have encryption property
+    configured_rows = db.query(
+        Q("cdk_construct_properties")
+        .select("construct_id", "property_value_expr", "line")
+        .where("property_name = ?", "encryption")
+    )
+
+    configured_map = {row[0]: (row[1], row[2]) for row in configured_rows}
+
+    for construct_id, (file_path, line, construct_name) in table_map.items():
         display_name = construct_name or "UnnamedTable"
 
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-            .where("property_name = ?", "encryption")
-        )
-
-        if not prop_rows:
+        if construct_id not in configured_map:
             findings.append(
                 StandardFinding(
                     rule_name="aws-cdk-dynamodb-default-encryption",
@@ -384,7 +409,7 @@ def _check_dynamodb_encryption(db: RuleDB) -> list[StandardFinding]:
                 )
             )
         else:
-            prop_value, prop_line = prop_rows[0]
+            prop_value, prop_line = configured_map[construct_id]
             if prop_value and "DEFAULT" in prop_value:
                 findings.append(
                     StandardFinding(
@@ -411,49 +436,59 @@ def _check_dynamodb_encryption(db: RuleDB) -> list[StandardFinding]:
 def _check_elasticache_encryption(db: RuleDB) -> list[StandardFinding]:
     """Detect ElastiCache clusters without encryption.
 
-    Checks for:
-    - CfnReplicationGroup (Redis) without at_rest_encryption_enabled
-    - CfnReplicationGroup without transit_encryption_enabled
-    - CfnCacheCluster without encryption
+    Uses 2-query pattern: get constructs, get all relevant properties, match in Python.
     """
     findings: list[StandardFinding] = []
 
-    rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+    # Query 1: Get all ElastiCache constructs
+    all_caches = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name", "cdk_class")
+        .where(
+            "(cdk_class LIKE ? OR cdk_class LIKE ?) AND (cdk_class LIKE ? OR cdk_class LIKE ?)",
+            "%elasticache%",
+            "%aws_elasticache%",
+            "%ReplicationGroup%",
+            "%CacheCluster%",
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        is_elasticache = "elasticache" in cdk_class.lower() or "aws_elasticache" in cdk_class
-        is_replication_group = "ReplicationGroup" in cdk_class or "CfnReplicationGroup" in cdk_class
-        is_cache_cluster = "CacheCluster" in cdk_class or "CfnCacheCluster" in cdk_class
+    if not all_caches:
+        return []
 
-        if not (is_elasticache and (is_replication_group or is_cache_cluster)):
-            continue
+    cache_map = {row[0]: (row[1], row[2], row[3], row[4]) for row in all_caches}
 
-        display_name = construct_name or "UnnamedCache"
-
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_name", "property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
+    # Query 2: Get all encryption-related properties for these constructs
+    prop_rows = db.query(
+        Q("cdk_construct_properties")
+        .select("construct_id", "property_name", "property_value_expr", "line")
+        .where(
+            "property_name IN (?, ?, ?, ?)",
+            "at_rest_encryption_enabled",
+            "atRestEncryptionEnabled",
+            "transit_encryption_enabled",
+            "transitEncryptionEnabled",
         )
+    )
 
-        props = {row[0]: (row[1], row[2]) for row in prop_rows}
+    # Build property lookup: construct_id -> {prop_name: (value, line)}
+    props_by_construct: dict[str, dict[str, tuple]] = {}
+    for cid, pname, pval, pline in prop_rows:
+        if cid not in props_by_construct:
+            props_by_construct[cid] = {}
+        props_by_construct[cid][pname] = (pval, pline)
 
+    for construct_id, (file_path, line, construct_name, _cdk_class) in cache_map.items():
+        display_name = construct_name or "UnnamedCache"
+        props = props_by_construct.get(construct_id, {})
+
+        # Check at-rest encryption
         at_rest_key = next(
             (k for k in props if k in ("at_rest_encryption_enabled", "atRestEncryptionEnabled")),
             None,
         )
-        transit_key = next(
-            (k for k in props if k in ("transit_encryption_enabled", "transitEncryptionEnabled")),
-            None,
-        )
-
         at_rest_val = props[at_rest_key][0] if at_rest_key else None
+
         if not at_rest_key or (at_rest_val and "false" in at_rest_val.lower()):
             findings.append(
                 StandardFinding(
@@ -476,7 +511,13 @@ def _check_elasticache_encryption(db: RuleDB) -> list[StandardFinding]:
                 )
             )
 
+        # Check transit encryption
+        transit_key = next(
+            (k for k in props if k in ("transit_encryption_enabled", "transitEncryptionEnabled")),
+            None,
+        )
         transit_val = props[transit_key][0] if transit_key else None
+
         if not transit_key or (transit_val and "false" in transit_val.lower()):
             findings.append(
                 StandardFinding(
@@ -503,34 +544,42 @@ def _check_elasticache_encryption(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_efs_encryption(db: RuleDB) -> list[StandardFinding]:
-    """Detect EFS FileSystem without encryption."""
+    """Detect EFS FileSystem without encryption.
+
+    Uses set difference for missing detection + map lookup for explicit false.
+    """
     findings: list[StandardFinding] = []
 
-    rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+    # Query 1: Get all EFS FileSystem constructs
+    all_efs = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name")
+        .where(
+            "(cdk_class LIKE ? OR cdk_class LIKE ?) AND cdk_class LIKE ?",
+            "%efs%",
+            "%aws_efs%",
+            "%FileSystem%",
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        is_efs = "efs" in cdk_class.lower() or "aws_efs" in cdk_class
-        is_filesystem = "FileSystem" in cdk_class
+    if not all_efs:
+        return []
 
-        if not (is_efs and is_filesystem):
-            continue
+    efs_map = {row[0]: (row[1], row[2], row[3]) for row in all_efs}
 
+    # Query 2: Get constructs that have encrypted property
+    configured_rows = db.query(
+        Q("cdk_construct_properties")
+        .select("construct_id", "property_value_expr", "line")
+        .where("property_name = ?", "encrypted")
+    )
+
+    configured_map = {row[0]: (row[1], row[2]) for row in configured_rows}
+
+    for construct_id, (file_path, line, construct_name) in efs_map.items():
         display_name = construct_name or "UnnamedEFS"
 
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-            .where("property_name = ?", "encrypted")
-        )
-
-        if not prop_rows:
+        if construct_id not in configured_map:
             findings.append(
                 StandardFinding(
                     rule_name="aws-cdk-efs-unencrypted",
@@ -550,7 +599,7 @@ def _check_efs_encryption(db: RuleDB) -> list[StandardFinding]:
                 )
             )
         else:
-            prop_value, prop_line = prop_rows[0]
+            prop_value, prop_line = configured_map[construct_id]
             if prop_value and "false" in prop_value.lower():
                 findings.append(
                     StandardFinding(
@@ -575,34 +624,43 @@ def _check_efs_encryption(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_kinesis_encryption(db: RuleDB) -> list[StandardFinding]:
-    """Detect Kinesis Stream without encryption."""
+    """Detect Kinesis Stream without encryption.
+
+    Uses set difference for missing detection + map lookup for UNENCRYPTED value.
+    """
     findings: list[StandardFinding] = []
 
-    rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+    # Query 1: Get all Kinesis Stream constructs (excluding DeliveryStream)
+    all_streams = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name")
+        .where(
+            "(cdk_class LIKE ? OR cdk_class LIKE ?) AND cdk_class LIKE ? AND cdk_class NOT LIKE ?",
+            "%kinesis%",
+            "%aws_kinesis%",
+            "%Stream%",
+            "%DeliveryStream%",
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        is_kinesis = "kinesis" in cdk_class.lower() or "aws_kinesis" in cdk_class
-        is_stream = "Stream" in cdk_class and "DeliveryStream" not in cdk_class
+    if not all_streams:
+        return []
 
-        if not (is_kinesis and is_stream):
-            continue
+    stream_map = {row[0]: (row[1], row[2], row[3]) for row in all_streams}
 
+    # Query 2: Get constructs that have encryption or encryptionKey property
+    configured_rows = db.query(
+        Q("cdk_construct_properties")
+        .select("construct_id", "property_value_expr", "line")
+        .where("property_name IN (?, ?)", "encryption", "encryptionKey")
+    )
+
+    configured_map = {row[0]: (row[1], row[2]) for row in configured_rows}
+
+    for construct_id, (file_path, line, construct_name) in stream_map.items():
         display_name = construct_name or "UnnamedStream"
 
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-            .where("property_name = ? OR property_name = ?", "encryption", "encryptionKey")
-        )
-
-        if not prop_rows:
+        if construct_id not in configured_map:
             findings.append(
                 StandardFinding(
                     rule_name="aws-cdk-kinesis-unencrypted",
@@ -622,7 +680,7 @@ def _check_kinesis_encryption(db: RuleDB) -> list[StandardFinding]:
                 )
             )
         else:
-            prop_value, prop_line = prop_rows[0]
+            prop_value, prop_line = configured_map[construct_id]
             if prop_value and "UNENCRYPTED" in prop_value.upper():
                 findings.append(
                     StandardFinding(
@@ -647,40 +705,54 @@ def _check_kinesis_encryption(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_sqs_encryption(db: RuleDB) -> list[StandardFinding]:
-    """Detect SQS Queue without server-side encryption."""
+    """Detect SQS Queue without server-side encryption.
+
+    Uses 2-query pattern: get constructs, get all encryption properties, match in Python.
+    """
     findings: list[StandardFinding] = []
 
-    rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+    # Query 1: Get all SQS Queue constructs
+    all_queues = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name")
+        .where(
+            "(cdk_class LIKE ? OR cdk_class LIKE ?) AND cdk_class LIKE ?",
+            "%sqs%",
+            "%aws_sqs%",
+            "%Queue%",
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        is_sqs = "sqs" in cdk_class.lower() or "aws_sqs" in cdk_class
-        is_queue = "Queue" in cdk_class
+    if not all_queues:
+        return []
 
-        if not (is_sqs and is_queue):
-            continue
+    queue_map = {row[0]: (row[1], row[2], row[3]) for row in all_queues}
 
-        display_name = construct_name or "UnnamedQueue"
-
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_name", "property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
+    # Query 2: Get all encryption-related properties
+    prop_rows = db.query(
+        Q("cdk_construct_properties")
+        .select("construct_id", "property_name", "property_value_expr", "line")
+        .where(
+            "property_name IN (?, ?, ?)",
+            "encryption_master_key",
+            "encryptionMasterKey",
+            "encryption",
         )
+    )
 
-        props = {row[0]: (row[1], row[2]) for row in prop_rows}
+    # Build property lookup
+    props_by_construct: dict[str, dict[str, tuple]] = {}
+    for cid, pname, pval, pline in prop_rows:
+        if cid not in props_by_construct:
+            props_by_construct[cid] = {}
+        props_by_construct[cid][pname] = (pval, pline)
+
+    for construct_id, (file_path, line, construct_name) in queue_map.items():
+        display_name = construct_name or "UnnamedQueue"
+        props = props_by_construct.get(construct_id, {})
 
         encryption_key = next(
-            (
-                k
-                for k in props
-                if k in ("encryption_master_key", "encryptionMasterKey", "encryption")
-            ),
+            (k for k in props if k in ("encryption_master_key", "encryptionMasterKey", "encryption")),
             None,
         )
 
@@ -729,51 +801,60 @@ def _check_sqs_encryption(db: RuleDB) -> list[StandardFinding]:
 
 
 def _check_sns_encryption(db: RuleDB) -> list[StandardFinding]:
-    """Detect SNS Topic without server-side encryption."""
+    """Detect SNS Topic without server-side encryption.
+
+    Uses set difference for missing detection.
+    """
     findings: list[StandardFinding] = []
 
-    rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+    # Query 1: Get all SNS Topic constructs
+    all_topics = db.query(
+        Q("cdk_constructs")
+        .select("construct_id", "file_path", "line", "construct_name")
+        .where(
+            "(cdk_class LIKE ? OR cdk_class LIKE ?) AND cdk_class LIKE ?",
+            "%sns%",
+            "%aws_sns%",
+            "%Topic%",
         )
     )
 
-    for construct_id, file_path, line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        is_sns = "sns" in cdk_class.lower() or "aws_sns" in cdk_class
-        is_topic = "Topic" in cdk_class
+    if not all_topics:
+        return []
 
-        if not (is_sns and is_topic):
+    topic_map = {row[0]: (row[1], row[2], row[3]) for row in all_topics}
+
+    # Query 2: Get constructs that have master_key property
+    configured_rows = db.query(
+        Q("cdk_construct_properties")
+        .select("construct_id")
+        .where("property_name IN (?, ?)", "master_key", "masterKey")
+    )
+
+    configured_ids = {row[0] for row in configured_rows}
+
+    for construct_id, (file_path, line, construct_name) in topic_map.items():
+        if construct_id in configured_ids:
             continue
 
         display_name = construct_name or "UnnamedTopic"
-
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-            .where("property_name = ? OR property_name = ?", "master_key", "masterKey")
-        )
-
-        if not prop_rows:
-            findings.append(
-                StandardFinding(
-                    rule_name="aws-cdk-sns-unencrypted",
-                    message=f"SNS topic '{display_name}' does not have server-side encryption configured",
-                    severity=Severity.MEDIUM,
-                    confidence="high",
-                    file_path=file_path,
-                    line=line,
-                    snippet=f"sns.Topic(self, '{display_name}', ...)",
-                    category="missing_encryption",
-                    cwe_id="CWE-311",
-                    additional_info={
-                        "construct_id": construct_id,
-                        "construct_name": display_name,
-                        "remediation": "Add master_key=kms.Key(...) to enable server-side encryption.",
-                    },
-                )
+        findings.append(
+            StandardFinding(
+                rule_name="aws-cdk-sns-unencrypted",
+                message=f"SNS topic '{display_name}' does not have server-side encryption configured",
+                severity=Severity.MEDIUM,
+                confidence="high",
+                file_path=file_path,
+                line=line,
+                snippet=f"sns.Topic(self, '{display_name}', ...)",
+                category="missing_encryption",
+                cwe_id="CWE-311",
+                additional_info={
+                    "construct_id": construct_id,
+                    "construct_name": display_name,
+                    "remediation": "Add master_key=kms.Key(...) to enable server-side encryption.",
+                },
             )
+        )
 
     return findings

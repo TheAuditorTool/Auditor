@@ -136,85 +136,83 @@ def _is_all_traffic(value: str) -> bool:
 def _check_unrestricted_ingress(db: RuleDB) -> list[StandardFinding]:
     """Detect security groups allowing unrestricted ingress (0.0.0.0/0 or ::/0).
 
-    Note: This flags all instances of 0.0.0.0/0 ingress. In practice, load balancers
-    and public-facing services legitimately need this on specific ports (80, 443).
+    Uses single JOIN query instead of N+1 pattern.
     """
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        Q("cdk_constructs")
+        .select(
+            "cdk_constructs.construct_id",
+            "cdk_constructs.file_path",
+            "cdk_constructs.construct_name",
+            "cdk_construct_properties.property_name",
+            "cdk_construct_properties.property_value_expr",
+            "cdk_construct_properties.line",
+        )
+        .join("cdk_construct_properties", on=[("construct_id", "construct_id")])
+        .where(
+            "cdk_constructs.cdk_class LIKE ? AND (cdk_constructs.cdk_class LIKE ? OR cdk_constructs.cdk_class LIKE ?)",
+            "%SecurityGroup%",
+            "%ec2%",
+            "%aws_ec2%",
         )
     )
 
-    for construct_id, file_path, _line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        if not (
-            "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
-        ):
+    for construct_id, file_path, construct_name, prop_name, property_value, prop_line in rows:
+        if not property_value:
             continue
 
         display_name = construct_name or "UnnamedSecurityGroup"
+        port = _extract_port_from_value(property_value)
 
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_name", "property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-        )
-
-        for prop_name, property_value, prop_line in prop_rows:
-            if not property_value:
+        if "0.0.0.0/0" in property_value or "Peer.anyIpv4" in property_value:
+            if port in SAFE_PUBLIC_PORTS:
                 continue
-            port = _extract_port_from_value(property_value)
 
-            if "0.0.0.0/0" in property_value or "Peer.anyIpv4" in property_value:
-                if port in SAFE_PUBLIC_PORTS:
-                    continue
-
-                findings.append(
-                    StandardFinding(
-                        rule_name="aws-cdk-sg-unrestricted-ingress-ipv4",
-                        message=f"Security group '{display_name}' allows unrestricted ingress from 0.0.0.0/0",
-                        severity=Severity.CRITICAL,
-                        confidence="high",
-                        file_path=file_path,
-                        line=prop_line,
-                        snippet=f"{prop_name}={property_value}",
-                        category="unrestricted_access",
-                        cwe_id="CWE-284",
-                        additional_info={
-                            "construct_id": construct_id,
-                            "construct_name": display_name,
-                            "port": port,
-                            "remediation": 'Restrict ingress to specific IP ranges or security groups. Use ec2.Peer.ipv4("10.0.0.0/8") instead of 0.0.0.0/0.',
-                        },
-                    )
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-sg-unrestricted-ingress-ipv4",
+                    message=f"Security group '{display_name}' allows unrestricted ingress from 0.0.0.0/0",
+                    severity=Severity.CRITICAL,
+                    confidence="high",
+                    file_path=file_path,
+                    line=prop_line,
+                    snippet=f"{prop_name}={property_value}",
+                    category="unrestricted_access",
+                    cwe_id="CWE-284",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "port": port,
+                        "remediation": 'Restrict ingress to specific IP ranges or security groups. Use ec2.Peer.ipv4("10.0.0.0/8") instead of 0.0.0.0/0.',
+                    },
                 )
+            )
 
-            if "::/0" in property_value or "Peer.anyIpv6" in property_value:
-                if port in SAFE_PUBLIC_PORTS:
-                    continue
+        if "::/0" in property_value or "Peer.anyIpv6" in property_value:
+            if port in SAFE_PUBLIC_PORTS:
+                continue
 
-                findings.append(
-                    StandardFinding(
-                        rule_name="aws-cdk-sg-unrestricted-ingress-ipv6",
-                        message=f"Security group '{display_name}' allows unrestricted IPv6 ingress from ::/0",
-                        severity=Severity.CRITICAL,
-                        confidence="high",
-                        file_path=file_path,
-                        line=prop_line,
-                        snippet=f"{prop_name}={property_value}",
-                        category="unrestricted_access",
-                        cwe_id="CWE-284",
-                        additional_info={
-                            "construct_id": construct_id,
-                            "construct_name": display_name,
-                            "port": port,
-                            "remediation": "Restrict IPv6 ingress to specific ranges or security groups.",
-                        },
-                    )
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-sg-unrestricted-ingress-ipv6",
+                    message=f"Security group '{display_name}' allows unrestricted IPv6 ingress from ::/0",
+                    severity=Severity.CRITICAL,
+                    confidence="high",
+                    file_path=file_path,
+                    line=prop_line,
+                    snippet=f"{prop_name}={property_value}",
+                    category="unrestricted_access",
+                    cwe_id="CWE-284",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "port": port,
+                        "remediation": "Restrict IPv6 ingress to specific ranges or security groups.",
+                    },
                 )
+            )
 
     return findings
 
@@ -222,70 +220,68 @@ def _check_unrestricted_ingress(db: RuleDB) -> list[StandardFinding]:
 def _check_dangerous_ports_exposed(db: RuleDB) -> list[StandardFinding]:
     """Detect dangerous ports exposed to 0.0.0.0/0.
 
-    Administrative ports (SSH, RDP) and database ports should never be
-    exposed to the internet. These are common attack vectors.
+    Uses single JOIN query instead of N+1 pattern.
     """
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        Q("cdk_constructs")
+        .select(
+            "cdk_constructs.construct_id",
+            "cdk_constructs.file_path",
+            "cdk_constructs.construct_name",
+            "cdk_construct_properties.property_name",
+            "cdk_construct_properties.property_value_expr",
+            "cdk_construct_properties.line",
+        )
+        .join("cdk_construct_properties", on=[("construct_id", "construct_id")])
+        .where(
+            "cdk_constructs.cdk_class LIKE ? AND (cdk_constructs.cdk_class LIKE ? OR cdk_constructs.cdk_class LIKE ?)",
+            "%SecurityGroup%",
+            "%ec2%",
+            "%aws_ec2%",
         )
     )
 
-    for construct_id, file_path, _line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        if not (
-            "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
-        ):
+    for construct_id, file_path, construct_name, prop_name, property_value, prop_line in rows:
+        if not property_value:
             continue
 
-        display_name = construct_name or "UnnamedSecurityGroup"
-
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_name", "property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
+        is_public = (
+            "0.0.0.0/0" in property_value
+            or "Peer.anyIpv4" in property_value
+            or "::/0" in property_value
+            or "Peer.anyIpv6" in property_value
         )
 
-        for prop_name, property_value, prop_line in prop_rows:
-            if not property_value:
-                continue
-            is_public = (
-                "0.0.0.0/0" in property_value
-                or "Peer.anyIpv4" in property_value
-                or "::/0" in property_value
-                or "Peer.anyIpv6" in property_value
-            )
+        if not is_public:
+            continue
 
-            if not is_public:
-                continue
+        port = _extract_port_from_value(property_value)
 
-            port = _extract_port_from_value(property_value)
-
-            if port and port in DANGEROUS_PORTS:
-                service_name, severity = DANGEROUS_PORTS[port]
-                findings.append(
-                    StandardFinding(
-                        rule_name=f"aws-cdk-sg-{service_name.lower()}-exposed",
-                        message=f"Security group '{display_name}' exposes {service_name} (port {port}) to the internet",
-                        severity=severity,
-                        confidence="high",
-                        file_path=file_path,
-                        line=prop_line,
-                        snippet=f"{prop_name}={property_value}",
-                        category="dangerous_exposure",
-                        cwe_id="CWE-284",
-                        additional_info={
-                            "construct_id": construct_id,
-                            "construct_name": display_name,
-                            "port": port,
-                            "service": service_name,
-                            "remediation": f"Never expose {service_name} to the internet. Use VPN, bastion hosts, or AWS Systems Manager Session Manager for access.",
-                        },
-                    )
+        if port and port in DANGEROUS_PORTS:
+            display_name = construct_name or "UnnamedSecurityGroup"
+            service_name, severity = DANGEROUS_PORTS[port]
+            findings.append(
+                StandardFinding(
+                    rule_name=f"aws-cdk-sg-{service_name.lower()}-exposed",
+                    message=f"Security group '{display_name}' exposes {service_name} (port {port}) to the internet",
+                    severity=severity,
+                    confidence="high",
+                    file_path=file_path,
+                    line=prop_line,
+                    snippet=f"{prop_name}={property_value}",
+                    category="dangerous_exposure",
+                    cwe_id="CWE-284",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "port": port,
+                        "service": service_name,
+                        "remediation": f"Never expose {service_name} to the internet. Use VPN, bastion hosts, or AWS Systems Manager Session Manager for access.",
+                    },
                 )
+            )
 
     return findings
 
@@ -293,65 +289,63 @@ def _check_dangerous_ports_exposed(db: RuleDB) -> list[StandardFinding]:
 def _check_all_traffic_rules(db: RuleDB) -> list[StandardFinding]:
     """Detect security groups allowing all traffic (protocol -1).
 
-    All traffic rules bypass port-level filtering entirely, which is
-    almost never appropriate for production security groups.
+    Uses single JOIN query instead of N+1 pattern.
     """
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        Q("cdk_constructs")
+        .select(
+            "cdk_constructs.construct_id",
+            "cdk_constructs.file_path",
+            "cdk_constructs.construct_name",
+            "cdk_construct_properties.property_name",
+            "cdk_construct_properties.property_value_expr",
+            "cdk_construct_properties.line",
+        )
+        .join("cdk_construct_properties", on=[("construct_id", "construct_id")])
+        .where(
+            "cdk_constructs.cdk_class LIKE ? AND (cdk_constructs.cdk_class LIKE ? OR cdk_constructs.cdk_class LIKE ?)",
+            "%SecurityGroup%",
+            "%ec2%",
+            "%aws_ec2%",
         )
     )
 
-    for construct_id, file_path, _line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        if not (
-            "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
-        ):
+    for construct_id, file_path, construct_name, prop_name, property_value, prop_line in rows:
+        if not property_value:
             continue
 
-        display_name = construct_name or "UnnamedSecurityGroup"
+        if _is_all_traffic(property_value):
+            display_name = construct_name or "UnnamedSecurityGroup"
+            is_public = (
+                "0.0.0.0/0" in property_value
+                or "Peer.anyIpv4" in property_value
+                or "::/0" in property_value
+                or "Peer.anyIpv6" in property_value
+            )
 
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_name", "property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-        )
+            severity = Severity.CRITICAL if is_public else Severity.HIGH
 
-        for prop_name, property_value, prop_line in prop_rows:
-            if not property_value:
-                continue
-            if _is_all_traffic(property_value):
-                is_public = (
-                    "0.0.0.0/0" in property_value
-                    or "Peer.anyIpv4" in property_value
-                    or "::/0" in property_value
-                    or "Peer.anyIpv6" in property_value
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-sg-all-traffic",
+                    message=f"Security group '{display_name}' allows all traffic (protocol -1)",
+                    severity=severity,
+                    confidence="high",
+                    file_path=file_path,
+                    line=prop_line,
+                    snippet=f"{prop_name}={property_value}",
+                    category="excessive_permissions",
+                    cwe_id="CWE-284",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "public_exposure": is_public,
+                        "remediation": "Specify exact ports and protocols needed instead of allowing all traffic.",
+                    },
                 )
-
-                severity = Severity.CRITICAL if is_public else Severity.HIGH
-
-                findings.append(
-                    StandardFinding(
-                        rule_name="aws-cdk-sg-all-traffic",
-                        message=f"Security group '{display_name}' allows all traffic (protocol -1)",
-                        severity=severity,
-                        confidence="high",
-                        file_path=file_path,
-                        line=prop_line,
-                        snippet=f"{prop_name}={property_value}",
-                        category="excessive_permissions",
-                        cwe_id="CWE-284",
-                        additional_info={
-                            "construct_id": construct_id,
-                            "construct_name": display_name,
-                            "public_exposure": is_public,
-                            "remediation": "Specify exact ports and protocols needed instead of allowing all traffic.",
-                        },
-                    )
-                )
+            )
 
     return findings
 
@@ -359,56 +353,53 @@ def _check_all_traffic_rules(db: RuleDB) -> list[StandardFinding]:
 def _check_allow_all_outbound(db: RuleDB) -> list[StandardFinding]:
     """Detect security groups with allow_all_outbound=True.
 
-    This is LOW severity as egress filtering is defense-in-depth.
-    Default AWS behavior is allow-all-outbound, so this is informational.
+    Uses single JOIN query instead of N+1 pattern.
     """
     findings: list[StandardFinding] = []
 
     rows = db.query(
-        Q("cdk_constructs").select(
-            "construct_id", "file_path", "line", "construct_name", "cdk_class"
+        Q("cdk_constructs")
+        .select(
+            "cdk_constructs.construct_id",
+            "cdk_constructs.file_path",
+            "cdk_constructs.construct_name",
+            "cdk_construct_properties.property_value_expr",
+            "cdk_construct_properties.line",
+        )
+        .join("cdk_construct_properties", on=[("construct_id", "construct_id")])
+        .where(
+            "cdk_constructs.cdk_class LIKE ? AND (cdk_constructs.cdk_class LIKE ? OR cdk_constructs.cdk_class LIKE ?)",
+            "%SecurityGroup%",
+            "%ec2%",
+            "%aws_ec2%",
+        )
+        .where(
+            "cdk_construct_properties.property_name IN (?, ?)",
+            "allow_all_outbound",
+            "allowAllOutbound",
         )
     )
 
-    for construct_id, file_path, _line, construct_name, cdk_class in rows:
-        if not cdk_class:
-            continue
-        if not (
-            "SecurityGroup" in cdk_class and ("ec2" in cdk_class.lower() or "aws_ec2" in cdk_class)
-        ):
-            continue
-
-        display_name = construct_name or "UnnamedSecurityGroup"
-
-        prop_rows = db.query(
-            Q("cdk_construct_properties")
-            .select("property_value_expr", "line")
-            .where("construct_id = ?", construct_id)
-            .where(
-                "property_name = ? OR property_name = ?", "allow_all_outbound", "allowAllOutbound"
-            )
-        )
-
-        if prop_rows:
-            prop_value, prop_line = prop_rows[0]
-            if prop_value and prop_value.lower() == "true":
-                findings.append(
-                    StandardFinding(
-                        rule_name="aws-cdk-sg-allow-all-outbound",
-                        message=f"Security group '{display_name}' allows all outbound traffic",
-                        severity=Severity.LOW,
-                        confidence="high",
-                        file_path=file_path,
-                        line=prop_line,
-                        snippet="allow_all_outbound=True",
-                        category="broad_permissions",
-                        cwe_id="CWE-284",
-                        additional_info={
-                            "construct_id": construct_id,
-                            "construct_name": display_name,
-                            "remediation": "Consider restricting outbound traffic to specific destinations if defense-in-depth is required.",
-                        },
-                    )
+    for construct_id, file_path, construct_name, prop_value, prop_line in rows:
+        if prop_value and prop_value.lower() == "true":
+            display_name = construct_name or "UnnamedSecurityGroup"
+            findings.append(
+                StandardFinding(
+                    rule_name="aws-cdk-sg-allow-all-outbound",
+                    message=f"Security group '{display_name}' allows all outbound traffic",
+                    severity=Severity.LOW,
+                    confidence="high",
+                    file_path=file_path,
+                    line=prop_line,
+                    snippet="allow_all_outbound=True",
+                    category="broad_permissions",
+                    cwe_id="CWE-284",
+                    additional_info={
+                        "construct_id": construct_id,
+                        "construct_name": display_name,
+                        "remediation": "Consider restricting outbound traffic to specific destinations if defense-in-depth is required.",
+                    },
                 )
+            )
 
     return findings
