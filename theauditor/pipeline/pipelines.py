@@ -1395,6 +1395,7 @@ async def run_full_pipeline(
                     all_success = all(r.success for r in result)
                     summary["elapsed"] = total_elapsed
                     summary["success"] = all_success
+                    aggregated_stderr: list[str] = []
 
                     for phase_result in result:
                         phase_info = {
@@ -1402,6 +1403,7 @@ async def run_full_pipeline(
                             "success": phase_result.success,
                             "elapsed": phase_result.elapsed,
                             "findings": 0,
+                            "stderr": phase_result.stderr if not phase_result.success else "",
                         }
 
                         if phase_result.stdout:
@@ -1428,6 +1430,19 @@ async def run_full_pipeline(
                             f"{'[OK]' if phase_result.success else '[FAILED]'} {phase_result.name} ({phase_result.elapsed:.1f}s)"
                         )
 
+                        # Log stderr immediately for failed subphases
+                        if not phase_result.success and phase_result.stderr:
+                            short_name = (
+                                phase_result.name.split(". ", 1)[-1]
+                                if ". " in phase_result.name
+                                else phase_result.name
+                            )
+                            renderer.on_log(f"  [red]{short_name} error:[/red]")
+                            for error_line in _format_stderr_output(phase_result.stderr):
+                                renderer.on_log(error_line, is_error=True)
+                                log_lines.append(error_line)
+                            aggregated_stderr.append(f"[{short_name}] {phase_result.stderr}")
+
                         short_name = (
                             phase_result.name.split(". ", 1)[-1]
                             if ". " in phase_result.name
@@ -1438,6 +1453,10 @@ async def run_full_pipeline(
                             "status": "success" if phase_result.success else "FAILED",
                             "elapsed": phase_result.elapsed,
                         }
+
+                    # Store aggregated stderr for summary display
+                    if aggregated_stderr:
+                        summary["stderr"] = "\n".join(aggregated_stderr)
 
                     if not all_success:
                         failed_phases += 1

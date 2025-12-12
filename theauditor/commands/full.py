@@ -348,70 +348,96 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
                 level="success",
             )
 
+        # Show breakdown by source/tool
+        by_tool = findings.get("by_tool", {})
+
+        # Separate security tools from quality tools
+        SECURITY_TOOLS = {
+            "taint", "patterns", "terraform", "cdk",
+            "github-actions-rules", "vulnerability_scanner", "indexer"
+        }
+
+        # Human-friendly tool names
+        tool_labels = {
+            # Security tools (affect exit code)
+            "taint": "Taint Analysis",
+            "patterns": "Pattern Detection",
+            "terraform": "Terraform Security",
+            "cdk": "AWS CDK Security",
+            "github-actions-rules": "GitHub Actions",
+            "vulnerability_scanner": "Dependency Vulns (OSV)",
+            "indexer": "Indexer Errors",
+            # Quality tools (visible but don't affect exit code)
+            "ruff": "Ruff (Python)",
+            "eslint": "ESLint (JS/TS)",
+            "mypy": "Mypy (Types)",
+            "cfg-analysis": "CFG Analysis",
+            "graph-analysis": "Graph Analysis",
+            "clippy": "Clippy (Rust)",
+            "golangci-lint": "golangci-lint (Go)",
+            "shellcheck": "ShellCheck (Bash)",
+        }
+
+        def format_tool_line(tool: str, counts: dict) -> str | None:
+            """Format a single tool's findings. Returns None if no findings."""
+            tool_total = sum(counts.values())
+            if tool_total == 0:
+                return None
+
+            label = tool_labels.get(tool, tool.replace("-", " ").title())
+            parts = []
+            if counts.get("critical", 0) > 0:
+                parts.append(f"[critical]{counts['critical']} crit[/critical]")
+            if counts.get("high", 0) > 0:
+                parts.append(f"[high]{counts['high']} high[/high]")
+            if counts.get("medium", 0) > 0:
+                parts.append(f"[medium]{counts['medium']} med[/medium]")
+            if counts.get("low", 0) > 0:
+                parts.append(f"[low]{counts['low']} low[/low]")
+
+            severity_str = ", ".join(parts) if parts else "0"
+            return f"  {label}: {severity_str}"
+
+        # Split tools into security vs quality
+        security_findings = {t: c for t, c in by_tool.items() if t in SECURITY_TOOLS and sum(c.values()) > 0}
+        quality_findings = {t: c for t, c in by_tool.items() if t not in SECURITY_TOOLS and sum(c.values()) > 0}
+
+        # Show security findings (these affect exit code)
         if critical + high + medium + low > 0:
-            console.print("\n[bold]Findings breakdown:[/bold]")
+            console.print("\n[bold]Security findings[/bold] [dim](affects exit code)[/dim]")
             if critical > 0:
-                console.print(f"  - [critical]Critical: {critical}[/critical]")
+                console.print(f"  [critical]Critical: {critical}[/critical]")
             if high > 0:
-                console.print(f"  - [high]High:     {high}[/high]")
+                console.print(f"  [high]High:     {high}[/high]")
             if medium > 0:
-                console.print(f"  - [medium]Medium:   {medium}[/medium]")
+                console.print(f"  [medium]Medium:   {medium}[/medium]")
             if low > 0:
-                console.print(f"  - [low]Low:      {low}[/low]")
+                console.print(f"  [low]Low:      {low}[/low]")
 
-            # Show breakdown by source/tool
-            by_tool = findings.get("by_tool", {})
-            if by_tool:
-                console.print("\n[bold]By source:[/bold]")
+            if security_findings:
+                console.print()
+                # Sort security tools by total findings (highest first)
+                for tool, counts in sorted(security_findings.items(), key=lambda x: sum(x[1].values()), reverse=True):
+                    line = format_tool_line(tool, counts)
+                    if line:
+                        console.print(line)
 
-                # Human-friendly tool names
-                tool_labels = {
-                    # Security tools (affect exit code)
-                    "taint": "Taint Analysis",
-                    "patterns": "Pattern Detection",
-                    "terraform": "Terraform Security",
-                    "cdk": "AWS CDK Security",
-                    "github-actions-rules": "GitHub Actions",
-                    "vulnerability_scanner": "Dependency Vulns (OSV)",
-                    "indexer": "Indexer Errors",  # Parse failures should block deployment
-                    # Quality tools (visible but don't affect exit code)
-                    "ruff": "Ruff (Python)",
-                    "eslint": "ESLint (JS/TS)",
-                    "mypy": "Mypy (Types)",
-                    "cfg-analysis": "CFG Analysis",
-                    "graph-analysis": "Graph Analysis",
-                    "clippy": "Clippy (Rust)",
-                    "golangci-lint": "golangci-lint (Go)",
-                    "shellcheck": "ShellCheck (Bash)",
-                }
+        # Show quality findings separately (don't affect exit code)
+        if quality_findings:
+            # Calculate quality totals
+            quality_totals = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+            for counts in quality_findings.values():
+                for sev, cnt in counts.items():
+                    if sev in quality_totals:
+                        quality_totals[sev] += cnt
+            quality_total = sum(quality_totals.values())
 
-                # Sort by total findings (highest first)
-                sorted_tools = sorted(
-                    by_tool.items(),
-                    key=lambda x: sum(x[1].values()),
-                    reverse=True,
-                )
-
-                for tool, counts in sorted_tools:
-                    tool_total = sum(counts.values())
-                    if tool_total == 0:
-                        continue
-
-                    label = tool_labels.get(tool, tool.replace("-", " ").title())
-
-                    # Build severity breakdown string
-                    parts = []
-                    if counts.get("critical", 0) > 0:
-                        parts.append(f"[critical]{counts['critical']} crit[/critical]")
-                    if counts.get("high", 0) > 0:
-                        parts.append(f"[high]{counts['high']} high[/high]")
-                    if counts.get("medium", 0) > 0:
-                        parts.append(f"[medium]{counts['medium']} med[/medium]")
-                    if counts.get("low", 0) > 0:
-                        parts.append(f"[low]{counts['low']} low[/low]")
-
-                    severity_str = ", ".join(parts) if parts else "0"
-                    console.print(f"  [dim]{label}:[/dim] {severity_str}")
+            console.print(f"\n[bold]Quality/lint findings[/bold] [dim]({quality_total} total, informational)[/dim]")
+            # Sort quality tools by total findings (highest first)
+            for tool, counts in sorted(quality_findings.items(), key=lambda x: sum(x[1].values()), reverse=True):
+                line = format_tool_line(tool, counts)
+                if line:
+                    console.print(line)
 
         console.print("\nQuery findings: [cmd]aud query --findings[/cmd]")
         console.rule()
