@@ -255,16 +255,41 @@ def _analyze_django_boundaries(cursor, framework_info: list[dict], max_entries: 
                 "is_validation": is_validation,
             })
 
-    # Step 2: Get Django routes
-    if not _table_exists(cursor, "python_routes"):
-        return results
+    # Step 2: Get Django entry points
+    # First try python_routes, then derive from decorated views
+    routes = []
 
-    cursor.execute("""
-        SELECT file, line, pattern, method, handler_function
-        FROM python_routes
-        WHERE framework = 'django'
-    """)
-    routes = cursor.fetchall()
+    if _table_exists(cursor, "python_routes"):
+        cursor.execute("""
+            SELECT file, line, pattern, method, handler_function
+            FROM python_routes
+            WHERE framework = 'django'
+        """)
+        routes = [(r[0], r[1], r[2], r[3], r[4]) for r in cursor.fetchall()]
+
+    # If no routes in python_routes, derive from Django-decorated view functions
+    # Django views are typically decorated with @csrf_exempt, @require_http_methods, etc.
+    if not routes and _table_exists(cursor, "python_decorators"):
+        django_view_decorators = (
+            "csrf_exempt", "csrf_protect", "require_http_methods",
+            "require_POST", "require_GET", "require_safe",
+            "login_required", "permission_required", "user_passes_test",
+        )
+        placeholders = ",".join("?" * len(django_view_decorators))
+        cursor.execute(f"""
+            SELECT DISTINCT d.file, MIN(d.line) as line, d.target_name
+            FROM python_decorators d
+            WHERE d.decorator_name IN ({placeholders})
+              AND d.target_type = 'function'
+            GROUP BY d.file, d.target_name
+            ORDER BY d.file, line
+            LIMIT ?
+        """, (*django_view_decorators, max_entries))
+
+        for file, line, handler_function in cursor.fetchall():
+            # Derive pattern from function name (best effort without urls.py parsing)
+            pattern = f"/{handler_function.replace('_', '-')}"
+            routes.append((file, line, pattern, "ANY", handler_function))
 
     for file, line, pattern, method, handler_function in routes:
         entry_name = f"{method or 'GET'} {pattern or '/'}"

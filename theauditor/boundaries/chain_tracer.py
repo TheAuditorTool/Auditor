@@ -1114,14 +1114,37 @@ def _trace_django_chains(
             "is_validation": is_validation,
         })
 
-    # Step 2: Get Django routes
+    # Step 2: Get Django entry points
+    # First try python_routes, then derive from decorated views
     cursor.execute("""
         SELECT file, line, pattern, method, handler_function
         FROM python_routes
         WHERE framework = 'django'
         LIMIT ?
     """, (max_entries,))
-    routes = cursor.fetchall()
+    routes = [(r[0], r[1], r[2], r[3], r[4]) for r in cursor.fetchall()]
+
+    # If no routes in python_routes, derive from Django-decorated view functions
+    if not routes:
+        django_view_decorators = (
+            "csrf_exempt", "csrf_protect", "require_http_methods",
+            "require_POST", "require_GET", "require_safe",
+            "login_required", "permission_required", "user_passes_test",
+        )
+        placeholders = ",".join("?" * len(django_view_decorators))
+        cursor.execute(f"""
+            SELECT DISTINCT d.file, MIN(d.line) as line, d.target_name
+            FROM python_decorators d
+            WHERE d.decorator_name IN ({placeholders})
+              AND d.target_type = 'function'
+            GROUP BY d.file, d.target_name
+            ORDER BY d.file, line
+            LIMIT ?
+        """, (*django_view_decorators, max_entries))
+
+        for file, line, handler_function in cursor.fetchall():
+            pattern = f"/{handler_function.replace('_', '-')}"
+            routes.append((file, line, pattern, "ANY", handler_function))
 
     for file, line, pattern, method, handler_function in routes:
         entry_point = f"{method or 'GET'} {pattern or '/'}"
@@ -1612,6 +1635,7 @@ def _trace_single_django_chain(
     db_path: str,
 ) -> ValidationChain:
     """Trace validation chain for a single Django entry point."""
+    # First try python_routes
     cursor.execute(
         """
         SELECT method, pattern, handler_function
@@ -1622,15 +1646,32 @@ def _trace_single_django_chain(
         (entry_file, entry_line),
     )
     row = cursor.fetchone()
-    if not row:
-        return ValidationChain(
-            entry_point=f"Django entry at {entry_file}:{entry_line}",
-            entry_file=entry_file,
-            entry_line=entry_line,
-            chain_status="unknown",
-        )
 
-    method, pattern, handler_function = row
+    if row:
+        method, pattern, handler_function = row
+    else:
+        # Try to get from decorated function at this location
+        cursor.execute(
+            """
+            SELECT target_name FROM python_decorators
+            WHERE file = ? AND line = ?
+            LIMIT 1
+            """,
+            (entry_file, entry_line),
+        )
+        dec_row = cursor.fetchone()
+        if dec_row:
+            handler_function = dec_row[0]
+            pattern = f"/{handler_function.replace('_', '-')}"
+            method = "ANY"
+        else:
+            return ValidationChain(
+                entry_point=f"Django entry at {entry_file}:{entry_line}",
+                entry_file=entry_file,
+                entry_line=entry_line,
+                chain_status="unknown",
+            )
+
     entry_point = f"{method or 'GET'} {pattern or '/'}"
 
     # Check for global middleware validation
