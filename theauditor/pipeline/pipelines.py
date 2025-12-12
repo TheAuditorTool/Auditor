@@ -414,6 +414,46 @@ def _get_findings_from_db(root: Path) -> dict:
     }
 
 
+def _detect_iac_presence(db_path: Path) -> dict[str, bool]:
+    """Check which IaC types have data in the database.
+
+    Called after Stage 1 Foundation to determine which IaC-specific commands
+    to run. Skips terraform/cdk/workflows commands if no data exists.
+
+    Returns:
+        dict with keys: terraform, cdk, github_workflows
+        Values are True if that IaC type has indexed data.
+    """
+    import sqlite3
+
+    if not db_path.exists():
+        return {"terraform": False, "cdk": False, "github_workflows": False}
+
+    conn = sqlite3.connect(str(db_path))
+    cursor = conn.cursor()
+
+    result = {
+        "terraform": False,
+        "cdk": False,
+        "github_workflows": False,
+    }
+
+    # Check terraform_files table
+    cursor.execute("SELECT COUNT(*) FROM terraform_files")
+    result["terraform"] = cursor.fetchone()[0] > 0
+
+    # Check cdk_constructs table
+    cursor.execute("SELECT COUNT(*) FROM cdk_constructs")
+    result["cdk"] = cursor.fetchone()[0] > 0
+
+    # Check github_workflows table
+    cursor.execute("SELECT COUNT(*) FROM github_workflows")
+    result["github_workflows"] = cursor.fetchone()[0] > 0
+
+    conn.close()
+    return result
+
+
 async def run_full_pipeline(
     root: str = ".",
     quiet: bool = False,
@@ -909,6 +949,49 @@ async def run_full_pipeline(
                     pass
 
                 break
+
+        # After Stage 1, detect which IaC types exist and filter commands
+        if failed_phases == 0:
+            db_path = Path(root) / ".pf" / "repo_index.db"
+            iac_presence = _detect_iac_presence(db_path)
+
+            # Log what was detected
+            detected_iac = [k for k, v in iac_presence.items() if v]
+            if detected_iac:
+                renderer.on_log(f"[dim]IaC detected: {', '.join(detected_iac)}[/dim]")
+                log_lines.append(f"[INFO] IaC detected: {', '.join(detected_iac)}")
+
+            # Filter data_prep_commands - remove terraform provision if no terraform
+            if not iac_presence["terraform"]:
+                original_count = len(data_prep_commands)
+                data_prep_commands = [
+                    (name, cmd)
+                    for name, cmd in data_prep_commands
+                    if "terraform" not in " ".join(cmd)
+                ]
+                if len(data_prep_commands) < original_count:
+                    renderer.on_log("[dim]Skipping Terraform provision (no .tf files)[/dim]")
+                    log_lines.append("[SKIP] Terraform provision - no .tf files indexed")
+
+            # Filter track_b_commands - remove IaC-specific commands if no data
+            original_track_b = len(track_b_commands)
+            filtered_track_b = []
+            for name, cmd in track_b_commands:
+                cmd_str = " ".join(cmd)
+                if "terraform" in cmd_str and not iac_presence["terraform"]:
+                    renderer.on_log("[dim]Skipping Terraform analyze (no .tf files)[/dim]")
+                    log_lines.append("[SKIP] Terraform analyze - no .tf files indexed")
+                    continue
+                if "cdk" in cmd_str and not iac_presence["cdk"]:
+                    renderer.on_log("[dim]Skipping CDK analyze (no CDK constructs)[/dim]")
+                    log_lines.append("[SKIP] CDK analyze - no CDK constructs indexed")
+                    continue
+                if "workflows" in cmd_str and not iac_presence["github_workflows"]:
+                    renderer.on_log("[dim]Skipping GitHub workflows analyze (no workflows)[/dim]")
+                    log_lines.append("[SKIP] GitHub workflows - no workflows indexed")
+                    continue
+                filtered_track_b.append((name, cmd))
+            track_b_commands = filtered_track_b
 
         if failed_phases == 0 and data_prep_commands:
             renderer.on_stage_start("DATA PREPARATION - Sequential Execution", 2)
