@@ -334,10 +334,23 @@ class IFDSTaintAnalyzer:
         return bool(ap1.matches(ap2))
 
     def _access_paths_match(self, ap1: AccessPath, ap2: AccessPath) -> bool:
-        """Check if two access paths represent the same data."""
+        """Check if two access paths represent the same data.
+
+        Matching strategy (in order):
+        1. HTTP objects guard - prevent cross-controller false positives
+        2. Exact match - same base AND same fields (fast path)
+        3. Type-aware match - different bases but same ORM model type
+        4. Prefix match - same base with field prefix overlap
+
+        The type-aware match is CRITICAL for catching aliased variables:
+        - input = req; sink(input.body) should match source(req.body)
+        - This works when both variables have ORM model metadata attached
+        """
 
         http_objects = {"req", "res", "request", "response"}
 
+        # 1. HTTP OBJECTS GUARD: Prevent cross-controller false positives
+        # req.body in UserController should NOT match req.body in AdminController
         if (
             ap1.base in http_objects
             and ap2.base in http_objects
@@ -354,15 +367,21 @@ class IFDSTaintAnalyzer:
             ):
                 return False
 
-        if self.type_resolver and ap1.base == ap2.base:
+        # 2. EXACT MATCH (fast path): Same base AND same fields
+        if ap1.base == ap2.base and ap1.fields == ap2.fields:
+            return True
+
+        # 3. TYPE-AWARE MATCH: Different bases but same underlying type
+        # This catches: req.body vs input.body when input = req (aliased)
+        # Key insight: check when FIELDS match, even if BASES differ
+        if self.type_resolver and ap1.fields == ap2.fields:
             ap1_node_id = f"{ap1.file}::{ap1.function}::{ap1.base}"
             ap2_node_id = f"{ap2.file}::{ap2.function}::{ap2.base}"
             if self.type_resolver.is_same_type(ap1_node_id, ap2_node_id):
                 return True
 
-        if ap1.base == ap2.base and ap1.fields == ap2.fields:
-            return True
-
+        # 4. PREFIX MATCH: Same base with field prefix overlap
+        # Handles partial aliasing like x.y matching x
         return bool(ap1.matches(ap2))
 
     def _dict_to_access_path(self, node_dict: dict) -> AccessPath | None:

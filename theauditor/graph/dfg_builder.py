@@ -774,8 +774,15 @@ class DFGBuilder:
         When B = A, and B.data exists, create edge B.data <-> A.data.
         Must run AFTER other builders to see created field nodes.
 
-        Uses pre-indexed node lookup for O(1) field discovery instead of
-        O(N) iteration per alias assignment.
+        Uses FIXPOINT ITERATION to handle transitive alias chains:
+        - If a=b; b=c; c=d, we need multiple passes to connect a.field to d.field
+        - Each pass creates new nodes that subsequent passes can discover
+        - Converges when no new edges are created in a pass
+
+        Uses INCREMENTAL INDEX UPDATES for O(1) performance:
+        - Build nodes_by_prefix once from all_nodes
+        - When creating new nodes, immediately append to index
+        - Avoids O(N) full rebuild on each iteration
         """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
@@ -788,8 +795,11 @@ class DFGBuilder:
             "aliases_found": 0,
             "field_edges_created": 0,
             "nodes_created": 0,
+            "iterations": 0,
+            "converged": False,
         }
 
+        # Build initial index from all_nodes (O(N) - done once)
         nodes_by_prefix: dict[str, list[str]] = defaultdict(list)
         for node_id in all_nodes:
             parts = node_id.split("::")
@@ -814,55 +824,99 @@ class DFGBuilder:
         """)
 
         aliases = cursor.fetchall()
+        stats["aliases_found"] = len(aliases)
 
-        for row in aliases:
-            file = row["file"]
-            func = row["in_function"] or "global"
-            target = row["target_var"]
-            source = row["source_expr"]
-            line = row["line"]
+        # Track created edges to prevent duplicates across iterations
+        edge_hashes: set[str] = set()
 
-            stats["aliases_found"] += 1
+        # Fixpoint iteration: keep running until no new edges created
+        max_iterations = 10  # Safety valve for circular aliases (a=b; b=a)
 
-            target_prefix = f"{file}::{func}::{target}"
-            target_field_nodes = nodes_by_prefix.get(target_prefix, [])
+        for iteration in range(max_iterations):
+            stats["iterations"] = iteration + 1
+            edges_created_in_pass = 0
 
-            for target_node_id in target_field_nodes:
-                field_suffix = target_node_id[len(target_prefix) :]
+            for row in aliases:
+                file = row["file"]
+                func = row["in_function"] or "global"
+                target = row["target_var"]
+                source = row["source_expr"]
+                line = row["line"]
 
-                source_field_var = f"{source}{field_suffix}"
-                source_node_id = f"{file}::{func}::{source_field_var}"
+                target_prefix = f"{file}::{func}::{target}"
+                target_field_nodes = nodes_by_prefix.get(target_prefix, [])
 
-                if source_node_id not in all_nodes and source_node_id not in nodes:
-                    nodes[source_node_id] = DFGNode(
-                        id=source_node_id,
+                for target_node_id in target_field_nodes:
+                    field_suffix = target_node_id[len(target_prefix) :]
+
+                    source_field_var = f"{source}{field_suffix}"
+                    source_node_id = f"{file}::{func}::{source_field_var}"
+
+                    # Check edge hash to prevent duplicates
+                    edge_hash = f"{target_node_id}->{source_node_id}"
+                    if edge_hash in edge_hashes:
+                        continue
+
+                    # Create node if it doesn't exist
+                    if source_node_id not in all_nodes and source_node_id not in nodes:
+                        new_node = DFGNode(
+                            id=source_node_id,
+                            file=file,
+                            variable_name=source_field_var,
+                            scope=func,
+                            type="aliased_field",
+                            metadata={
+                                "created_by": "field_alias",
+                                "alias_of": target_node_id,
+                                "iteration": iteration,
+                            },
+                        )
+                        nodes[source_node_id] = new_node
+                        stats["nodes_created"] += 1
+
+                        # INCREMENTAL INDEX UPDATE: append new node immediately
+                        # This allows subsequent aliases in THIS pass to find it
+                        parts = source_node_id.split("::")
+                        if len(parts) >= 3:
+                            var_part = parts[2]
+                            if "." in var_part:
+                                base_var = var_part.split(".")[0]
+                                prefix_key = f"{parts[0]}::{parts[1]}::{base_var}"
+                                nodes_by_prefix[prefix_key].append(source_node_id)
+
+                    # Create bidirectional edges
+                    new_edges = create_bidirectional_edges(
+                        source=target_node_id,
+                        target=source_node_id,
+                        edge_type="field_alias",
                         file=file,
-                        variable_name=source_field_var,
-                        scope=func,
-                        type="aliased_field",
+                        line=line,
+                        expression=f"{target} = {source} -> field alias",
+                        function=func,
                         metadata={
-                            "created_by": "field_alias",
-                            "alias_of": target_node_id,
+                            "alias_target": target,
+                            "alias_source": source,
+                            "field_suffix": field_suffix,
+                            "iteration": iteration,
                         },
                     )
-                    stats["nodes_created"] += 1
+                    edges.extend(new_edges)
+                    edge_hashes.add(edge_hash)
+                    edge_hashes.add(f"{source_node_id}->{target_node_id}")  # Reverse
+                    edges_created_in_pass += len(new_edges)
+                    stats["field_edges_created"] += len(new_edges)
 
-                new_edges = create_bidirectional_edges(
-                    source=target_node_id,
-                    target=source_node_id,
-                    edge_type="field_alias",
-                    file=file,
-                    line=line,
-                    expression=f"{target} = {source} -> field alias",
-                    function=func,
-                    metadata={
-                        "alias_target": target,
-                        "alias_source": source,
-                        "field_suffix": field_suffix,
-                    },
-                )
-                edges.extend(new_edges)
-                stats["field_edges_created"] += len(new_edges)
+            # Convergence check: if no new edges, we're done
+            if edges_created_in_pass == 0:
+                stats["converged"] = True
+                logger.info(f"Alias resolution converged after {iteration + 1} iteration(s)")
+                break
+
+        if not stats["converged"]:
+            logger.warning(
+                f"Alias resolution hit max iterations ({max_iterations}). "
+                f"Possible circular aliases or very deep chain."
+            )
 
         conn.close()
 
