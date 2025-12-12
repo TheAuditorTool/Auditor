@@ -36,6 +36,7 @@ IS_WINDOWS = platform.system() == "Windows"
 @click.option("--offline", is_flag=True, help="Force offline mode (no network)")
 @click.option("--print-stats", is_flag=True, help="Print dependency statistics")
 @click.option("--vuln-scan", is_flag=True, help="Scan dependencies for known vulnerabilities")
+@click.option("--usage", default=None, help="Show usage examples for a package (e.g., 'axios', 'requests')")
 def deps(
     root,
     check_latest,
@@ -48,6 +49,7 @@ def deps(
     offline,
     print_stats,
     vuln_scan,
+    usage,
 ):
     """Analyze dependencies for vulnerabilities and updates.
 
@@ -127,6 +129,11 @@ def deps(
         upgrade_all_deps,
     )
     from theauditor.vulnerability_scanner import format_vulnerability_report, scan_dependencies
+
+    # Handle --usage flag: extract and display code snippets from cached docs
+    if usage:
+        _handle_usage_query(usage, root, offline)
+        return
 
     deps_list = parse_dependencies(root_path=root)
 
@@ -425,3 +432,142 @@ def deps(
 
     if not check_latest and not upgrade_all:
         console.print("\nTIP: Run with --check-latest to check for outdated packages.")
+
+
+# =============================================================================
+# Usage Extractor Integration (Tasks 2.3, 2.4, 2.5)
+# =============================================================================
+
+
+def _detect_manager(package: str, docs_dir: Path) -> str | None:
+    """Detect which package manager has cached docs for this package.
+
+    Algorithm:
+    1. If package starts with '@' -> npm only (scoped package)
+    2. Otherwise check BOTH in priority order:
+       a. npm first (larger ecosystem, more likely)
+       b. py second
+    3. Return first match found, or None if no cache exists
+
+    Case sensitivity: Directory names are case-sensitive on Linux,
+    but package names in cache use original casing from registry.
+    """
+    npm_dir = docs_dir / "npm"
+    py_dir = docs_dir / "py"
+
+    if package.startswith("@"):
+        # Scoped packages are npm-only
+        npm_pattern = package.replace("@", "_at_").replace("/", "_")
+        if npm_dir.exists() and any(npm_dir.glob(f"{npm_pattern}@*")):
+            return "npm"
+        return None
+
+    # Check npm first (larger ecosystem)
+    if npm_dir.exists() and any(npm_dir.glob(f"{package}@*")):
+        return "npm"
+    # Then check Python
+    if py_dir.exists() and any(py_dir.glob(f"{package}@*")):
+        return "py"
+    return None
+
+
+def _handle_usage_query(package: str, root: str, offline: bool) -> None:
+    """Handle --usage flag: extract and display code snippets as JSON."""
+    from theauditor.package_managers.usage_extractor import UsageExtractor
+
+    docs_dir = Path(root) / ".pf" / "context" / "docs"
+    extractor = UsageExtractor(str(docs_dir))
+
+    # Detect manager
+    manager = _detect_manager(package, docs_dir)
+    snippets = extractor.extract_usage(manager, package) if manager else []
+
+    # Cache miss handling - try fetch if online
+    if not snippets and not offline and manager is None:
+        # Try to determine manager for fetch (default to npm for unknown)
+        fetch_manager = "npm"
+        from theauditor.package_managers.docs_fetch import fetch_docs
+
+        fetch_docs(
+            deps=[{"name": package, "version": "latest", "manager": fetch_manager}],
+            offline=False,
+        )
+        # Retry detection and extraction
+        manager = _detect_manager(package, docs_dir)
+        if manager:
+            snippets = extractor.extract_usage(manager, package)
+
+    # Output JSON and write finding to database
+    _output_usage_json(package, manager, snippets, root)
+
+
+def _output_usage_json(package: str, manager: str | None, snippets: list, root: str) -> None:
+    """Output snippets as JSON and write finding to database."""
+    import json
+    import sqlite3
+    from datetime import UTC, datetime
+
+    total = len(snippets)
+    returned = min(10, total)
+
+    output = {
+        "package": package,
+        "manager": manager,
+        "snippets": [
+            {
+                "rank": i + 1,
+                "score": s.score,
+                "language": s.language,
+                "content": s.content,
+                "context": s.context,
+                "source_file": s.source_file,
+            }
+            for i, s in enumerate(snippets[:returned])
+        ],
+        "total_found": total,
+        "returned": returned,
+    }
+
+    if not snippets:
+        output["error"] = f"No cached docs found for {package}"
+
+    # Write finding to findings_consolidated
+    db_path = Path(root) / ".pf" / "repo_index.db"
+    if db_path.exists():
+        try:
+            conn = sqlite3.connect(str(db_path))
+            cursor = conn.cursor()
+
+            if snippets:
+                # Success finding - usage examples found
+                message = f"Found {total} usage examples for {package} (top score: {snippets[0].score})"
+                severity = "info"
+            else:
+                # Cache miss finding - no docs available
+                message = f"No cached documentation found for package: {package}"
+                severity = "low"
+
+            cursor.execute(
+                """INSERT INTO findings_consolidated
+                   (file, line, rule, tool, message, severity, category, confidence, timestamp, details_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    f"package:{package}",  # file field stores package reference
+                    0,
+                    "USAGE_QUERY",
+                    "usage-extractor",
+                    message,
+                    severity,
+                    "documentation",
+                    1.0,
+                    datetime.now(UTC).isoformat(),
+                    json.dumps(output),
+                ),
+            )
+            conn.commit()
+            conn.close()
+        except sqlite3.Error:
+            pass  # Database write failure is non-fatal
+
+    # Output JSON to stdout
+    print(json.dumps(output, indent=2))

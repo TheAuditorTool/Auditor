@@ -1712,6 +1712,7 @@ OPERATION MODES:
   --check-latest: Check for available updates (grouped by file)
   --vuln-scan:    Run security scanners (npm audit + OSV-Scanner)
   --upgrade-all:  YOLO mode - upgrade everything to latest
+  --usage <pkg>:  Extract usage examples from cached docs (JSON output)
 
 SELECTIVE UPGRADES:
   --upgrade-py:     Only requirements*.txt + pyproject.toml
@@ -1747,6 +1748,8 @@ EXAMPLES:
     aud deps --vuln-scan                  # Security vulnerability scan
     aud deps --upgrade-all                # DANGEROUS: Upgrade everything
     aud deps --offline                    # Skip all network operations
+    aud deps --usage axios                # Get usage examples for axios (JSON)
+    aud deps --usage @angular/core        # Works with scoped npm packages
 
 OUTPUT:
     Data stored in database         # Query with aud query --findings
