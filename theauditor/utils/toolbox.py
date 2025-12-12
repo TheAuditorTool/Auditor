@@ -196,3 +196,27 @@ class Toolbox:
             )
 
         return None
+
+    def get_temp_dir(self) -> Path:
+        """Get path to temp directory for generated configs.
+
+        Returns:
+            Path to .pf/temp/ directory (may not exist yet)
+        """
+        return self.root / ".pf" / "temp"
+
+    def get_generated_tsconfig(self) -> Path:
+        """Get path to generated TypeScript config.
+
+        Returns:
+            Path to .pf/temp/tsconfig.json (may not exist yet)
+        """
+        return self.get_temp_dir() / "tsconfig.json"
+
+    def get_generated_eslint_config(self) -> Path:
+        """Get path to generated ESLint config.
+
+        Returns:
+            Path to .pf/temp/eslint.config.cjs (may not exist yet)
+        """
+        return self.get_temp_dir() / "eslint.config.cjs"

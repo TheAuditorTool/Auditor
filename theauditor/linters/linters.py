@@ -11,6 +11,7 @@ from typing import Any
 from theauditor.indexer.database import DatabaseManager
 from theauditor.linters.base import Finding, LinterResult
 from theauditor.linters.clippy import ClippyLinter
+from theauditor.linters.config_generator import ConfigGenerator, ConfigResult
 from theauditor.linters.eslint import EslintLinter
 from theauditor.linters.golangci import GolangciLinter
 from theauditor.linters.mypy import MypyLinter
@@ -96,11 +97,17 @@ class LinterOrchestrator:
             go_files = [f for f in go_files if f in workset_set]
             sh_files = [f for f in sh_files if f in workset_set]
 
+        # Generate intelligent ESLint/TypeScript configs before linting
+        config_result: ConfigResult | None = None
+        if js_files:
+            with ConfigGenerator(self.root, Path(self.db.db_path)) as generator:
+                config_result = generator.prepare_configs()
+
         linters = []
 
         if js_files:
             logger.info(f"Queuing ESLint for {len(js_files)} JavaScript/TypeScript files")
-            linters.append(("eslint", EslintLinter(self.toolbox, self.root), js_files))
+            linters.append(("eslint", EslintLinter(self.toolbox, self.root, config_result=config_result), js_files))
 
         if py_files:
             logger.info(f"Queuing Ruff for {len(py_files)} Python files")

@@ -5,13 +5,19 @@ and is subject to Windows command line length limits (8191 chars), so we
 use dynamic batching based on actual path lengths.
 """
 
+from __future__ import annotations
+
 import asyncio
 import json
 import time
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from theauditor.linters.base import LINTER_TIMEOUT, BaseLinter, Finding, LinterResult
 from theauditor.utils.logging import logger
+
+if TYPE_CHECKING:
+    from theauditor.linters.config_generator import ConfigResult
 
 ESLINT_SEVERITY_ERROR = 2
 ESLINT_SEVERITY_WARNING = 1
@@ -29,6 +35,17 @@ class EslintLinter(BaseLinter):
     Uses dynamic batching to avoid Windows command line length limits.
     Batches run in parallel with limited concurrency (MAX_CONCURRENT_BATCHES).
     """
+
+    def __init__(self, toolbox, root: Path, *, config_result: ConfigResult | None = None):
+        """Initialize ESLint linter.
+
+        Args:
+            toolbox: Toolbox instance for tool paths
+            root: Project root directory
+            config_result: Optional config generation result for intelligent config selection
+        """
+        super().__init__(toolbox, root)
+        self.config_result = config_result
 
     @property
     def name(self) -> str:
@@ -50,9 +67,21 @@ class EslintLinter(BaseLinter):
         if not eslint_bin:
             return LinterResult.skipped(self.name, "ESLint not found")
 
-        config_path = self.toolbox.get_eslint_config()
-        if not config_path.exists():
-            return LinterResult.skipped(self.name, f"ESLint config not found: {config_path}")
+        # Config selection - NO FALLBACK
+        if self.config_result is None:
+            # No ConfigGenerator was run - use static sandbox config (backward compat)
+            config_path = self.toolbox.get_eslint_config()
+            if not config_path.exists():
+                return LinterResult.skipped(self.name, f"ESLint config not found: {config_path}")
+        elif self.config_result.use_project_eslint:
+            # Project has its own config - omit --config flag, let ESLint auto-discover
+            config_path = None
+            logger.info(f"[{self.name}] Using project ESLint config (auto-discovery)")
+        else:
+            # Use generated config
+            config_path = self.config_result.eslint_config_path
+            if config_path is None or not config_path.exists():
+                return LinterResult.skipped(self.name, "Generated ESLint config not found")
 
         start_time = time.perf_counter()
 
@@ -77,7 +106,7 @@ class EslintLinter(BaseLinter):
         return LinterResult.success(self.name, all_findings, duration)
 
     def _create_batches(
-        self, files: list[str], eslint_bin: Path, config_path: Path
+        self, files: list[str], eslint_bin: Path, config_path: Path | None
     ) -> list[list[str]]:
         """Create batches based on command line length limits.
 
@@ -86,13 +115,15 @@ class EslintLinter(BaseLinter):
         Args:
             files: All files to lint
             eslint_bin: Path to ESLint binary
-            config_path: Path to ESLint config
+            config_path: Path to ESLint config (None for project auto-discovery)
 
         Returns:
             List of file batches
         """
-
-        base_cmd = f"{eslint_bin} --config {config_path} --format json --output-file temp.json "
+        if config_path is not None:
+            base_cmd = f"{eslint_bin} --config {config_path} --format json --output-file temp.json "
+        else:
+            base_cmd = f"{eslint_bin} --format json --output-file temp.json "
         base_len = len(base_cmd)
 
         batches = []
@@ -119,7 +150,7 @@ class EslintLinter(BaseLinter):
         self,
         files: list[str],
         eslint_bin: Path,
-        config_path: Path,
+        config_path: Path | None,
         batch_num: int,
     ) -> list[Finding]:
         """Run ESLint on a single batch of files.
@@ -129,7 +160,7 @@ class EslintLinter(BaseLinter):
         Args:
             files: Files in this batch
             eslint_bin: Path to ESLint binary
-            config_path: Path to ESLint config
+            config_path: Path to ESLint config (None for project auto-discovery)
             batch_num: Batch number for logging
 
         Returns:
@@ -139,16 +170,10 @@ class EslintLinter(BaseLinter):
         temp_dir.mkdir(parents=True, exist_ok=True)
         output_file = temp_dir / f"eslint_output_batch{batch_num}.json"
 
-        cmd = [
-            str(eslint_bin),
-            "--config",
-            str(config_path),
-            "--format",
-            "json",
-            "--output-file",
-            str(output_file),
-            *files,
-        ]
+        cmd = [str(eslint_bin)]
+        if config_path is not None:
+            cmd.extend(["--config", str(config_path)])
+        cmd.extend(["--format", "json", "--output-file", str(output_file), *files])
 
         try:
             proc = await asyncio.create_subprocess_exec(
