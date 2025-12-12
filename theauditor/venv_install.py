@@ -912,17 +912,8 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
         with open(sandbox_package_json, "w") as f:
             json.dump(package_data, f, indent=2)
 
-        eslint_config_source = theauditor_root / "theauditor" / "linters" / "eslint.config.cjs"
-        eslint_config_dest = sandbox_dir / "eslint.config.cjs"
-
-        if eslint_config_source.exists():
-            import shutil
-
-            shutil.copy2(str(eslint_config_source), str(eslint_config_dest))
-            check_mark = "[OK]"
-            logger.info(f"    {check_mark} ESLint v9 flat config copied to sandbox")
-        else:
-            logger.warning(f"\\ ESLint config not found at {eslint_config_source}")
+        # ESLint config is now generated dynamically by ConfigGenerator to .pf/temp/
+        # No need to copy a static config - it was removed in commit f88e2995
 
         python_config_source = theauditor_root / "theauditor" / "linters" / "pyproject_template.toml"
         python_config_dest = sandbox_dir / "pyproject.toml"
