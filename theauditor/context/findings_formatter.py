@@ -180,11 +180,11 @@ def _render_severity_section(
         if cwe:
             console.print(f" [red](CWE-{cwe})[/red]", end="")
         console.print()
-        # Message (truncated if needed)
+        # Message (truncated if needed) - use highlight=False to avoid CP1252 crash
         if message:
             if len(message) > 100:
                 message = message[:97] + "..."
-            console.print(f"  [dim]{message}[/dim]")
+            console.print(f"  {message}", style="dim", highlight=False, markup=False)
 
     console.print()
 
