@@ -122,7 +122,10 @@ class TerraformAnalyzer:
 
         from datetime import UTC, datetime
 
-        conn = sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=60)
+        # Enable WAL mode for concurrent access during parallel pipeline execution
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         cursor = conn.cursor()
 
         cursor.execute("DELETE FROM terraform_findings")

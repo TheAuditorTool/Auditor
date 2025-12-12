@@ -171,7 +171,10 @@ class AWSCdkAnalyzer:
         if not findings:
             return
 
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(self.db_path, timeout=60) as conn:
+            # Enable WAL mode for concurrent access during parallel pipeline execution
+            conn.execute("PRAGMA journal_mode=WAL")
+            conn.execute("PRAGMA synchronous=NORMAL")
             cursor = conn.cursor()
 
             for finding in findings:
