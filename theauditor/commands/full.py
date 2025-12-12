@@ -4,7 +4,9 @@
 """
 
 import asyncio
+import sqlite3
 import sys
+from pathlib import Path
 
 import click
 from rich.panel import Panel
@@ -14,6 +16,45 @@ from theauditor.cli import RichCommand
 from theauditor.pipeline.ui import console, print_status_panel
 from theauditor.utils.constants import ExitCodes
 from theauditor.utils.error_handler import handle_exceptions
+
+
+def _get_indexer_errors(db_path: Path, limit: int = 5) -> list[tuple[str, str]]:
+    """Fetch indexer errors from database.
+
+    Returns list of (file, short_message) tuples.
+    """
+    if not db_path.exists():
+        return []
+
+    try:
+        conn = sqlite3.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT file, message FROM findings_consolidated
+            WHERE tool = 'indexer'
+            ORDER BY severity DESC, file
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+
+        results = []
+        for file_path, message in rows:
+            # Extract just the error type, not the full path
+            short_msg = message
+            if ":" in message:
+                # "Parse Error: FATAL: Failed to parse C:\...: Python syntax error: invalid syntax"
+                # -> "Python syntax error: invalid syntax"
+                parts = message.split(":")
+                if len(parts) >= 2:
+                    short_msg = parts[-1].strip()
+            results.append((file_path, short_msg))
+        return results
+    except Exception:
+        return []
 
 
 def print_audit_complete_panel(
@@ -421,6 +462,16 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
                     line = format_tool_line(tool, counts)
                     if line:
                         console.print(line)
+
+            # Show indexer errors inline if present
+            if "indexer" in security_findings:
+                db_path = Path(root) / ".pf" / "repo_index.db"
+                indexer_errors = _get_indexer_errors(db_path)
+                if indexer_errors:
+                    console.print()
+                    console.print("  [dim]Indexer errors (files not analyzed):[/dim]")
+                    for file_path, error_msg in indexer_errors:
+                        console.print(f"    [red]{file_path}[/red]: {error_msg}")
 
         # Show quality findings separately (don't affect exit code)
         if quality_findings:
