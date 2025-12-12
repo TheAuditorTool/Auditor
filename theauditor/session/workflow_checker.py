@@ -29,6 +29,7 @@ class WorkflowChecker:
         "blueprint_first": "Run aud blueprint before modifications",
         "query_before_edit": "Use aud query before editing",
         "no_blind_reads": "Read files before editing",
+        "complete_batch_reads": "Complete all batch reads before proceeding",
     }
 
     def __init__(self, workflow_path: Path = None):
@@ -45,6 +46,7 @@ class WorkflowChecker:
             "blueprint_first": self._check_blueprint_first(tool_sequence),
             "query_before_edit": self._check_query_usage(tool_sequence),
             "no_blind_reads": self._check_blind_edits(tool_sequence),
+            "complete_batch_reads": self._check_batch_read_completion(session),
         }
 
         score = self._calculate_compliance_score(checks)
@@ -121,6 +123,82 @@ class WorkflowChecker:
 
         if blind_edits:
             logger.info(f"Found {len(blind_edits)} blind edits")
+            return False
+
+        return True
+
+    def _check_batch_read_completion(self, session: Session) -> bool:
+        """Check if batch reads completed fully before agent proceeded.
+
+        Detects the pattern where:
+        1. Multiple Read calls are made in a single assistant message (batch)
+        2. One or more reads fail (file not found, error, etc.)
+        3. Agent proceeds with partial information instead of retrying/acknowledging
+
+        This violates the Prime Directive: "Verify Everything" - proceeding with
+        incomplete verification is a critical workflow failure.
+        """
+        incomplete_batches = []
+
+        for i, assistant_msg in enumerate(session.assistant_messages):
+            # Find Read calls in this message
+            read_calls = [
+                call for call in assistant_msg.tool_calls if call.tool_name == "Read"
+            ]
+
+            # Only check if this was a batch read (2+ reads in same message)
+            if len(read_calls) < 2:
+                continue
+
+            # Check for failed reads in this batch
+            failed_reads = []
+            successful_reads = []
+
+            for read_call in read_calls:
+                if read_call.result is None:
+                    # No result captured - can't determine
+                    continue
+
+                if read_call.failed:
+                    failed_reads.append(read_call)
+                else:
+                    successful_reads.append(read_call)
+
+            # If we have failures in a batch, check if agent proceeded
+            if failed_reads and successful_reads:
+                # Check if there's a subsequent message (agent continued)
+                has_subsequent_work = i + 1 < len(session.assistant_messages)
+
+                if has_subsequent_work:
+                    next_msg = session.assistant_messages[i + 1]
+                    # Check if next message has meaningful work (not just asking for clarification)
+                    has_edits = any(
+                        tc.tool_name in ["Edit", "Write", "Bash"]
+                        for tc in next_msg.tool_calls
+                    )
+                    has_reasoning = len(next_msg.text_content) > 100
+
+                    if has_edits or has_reasoning:
+                        incomplete_batches.append(
+                            {
+                                "message_index": i,
+                                "total_reads": len(read_calls),
+                                "failed_reads": len(failed_reads),
+                                "successful_reads": len(successful_reads),
+                                "failed_files": [
+                                    rc.input_params.get("file_path", "unknown")
+                                    for rc in failed_reads
+                                ],
+                            }
+                        )
+
+        if incomplete_batches:
+            for batch in incomplete_batches:
+                logger.warning(
+                    f"Partial batch read detected: {batch['failed_reads']}/{batch['total_reads']} "
+                    f"reads failed, agent proceeded with partial info. "
+                    f"Failed files: {batch['failed_files']}"
+                )
             return False
 
         return True

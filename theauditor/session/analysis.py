@@ -180,6 +180,7 @@ class SessionAnalysis:
         findings.extend(self._detect_blind_edits(session))
         findings.extend(self._detect_duplicate_reads(session))
         findings.extend(self._detect_missing_searches(session))
+        findings.extend(self._detect_partial_batch_reads(session))
         findings.extend(self._detect_comment_hallucinations(session, comment_graveyard_path))
 
         if self.conn:
@@ -410,6 +411,100 @@ class SessionAnalysis:
                     evidence={"files_written": len(writes)},
                 )
             )
+
+        return findings
+
+    def _detect_partial_batch_reads(self, session: Session) -> list[Finding]:
+        """Detect when agent proceeds after partial batch read failures.
+
+        This catches the critical anti-pattern where:
+        1. Agent is asked to read multiple files (batch read)
+        2. Some reads fail (file not found, permission denied, etc.)
+        3. Agent proceeds with partial information instead of:
+           - Acknowledging the failure
+           - Searching for correct file paths
+           - Asking for clarification
+
+        This violates the Prime Directive: assumptions are forbidden,
+        all beliefs must be verified before acting.
+        """
+        findings = []
+
+        for i, assistant_msg in enumerate(session.assistant_messages):
+            read_calls = [
+                call for call in assistant_msg.tool_calls if call.tool_name == "Read"
+            ]
+
+            if len(read_calls) < 2:
+                continue
+
+            failed_reads = []
+            successful_reads = []
+
+            for read_call in read_calls:
+                if read_call.result is None:
+                    continue
+
+                if read_call.failed:
+                    failed_reads.append(read_call)
+                else:
+                    successful_reads.append(read_call)
+
+            if not (failed_reads and successful_reads):
+                continue
+
+            # Check if agent proceeded without addressing failures
+            has_subsequent_work = i + 1 < len(session.assistant_messages)
+
+            if has_subsequent_work:
+                next_msg = session.assistant_messages[i + 1]
+                # Agent proceeded with work (not just asking about failure)
+                proceeded_without_addressing = (
+                    any(tc.tool_name in ["Edit", "Write"] for tc in next_msg.tool_calls)
+                    or (
+                        len(next_msg.text_content) > 100
+                        and not any(
+                            phrase in next_msg.text_content.lower()
+                            for phrase in [
+                                "could not read",
+                                "file not found",
+                                "failed to read",
+                                "error reading",
+                                "let me find",
+                                "let me search",
+                            ]
+                        )
+                    )
+                )
+
+                if proceeded_without_addressing:
+                    failed_files = [
+                        rc.input_params.get("file_path", "unknown")
+                        for rc in failed_reads
+                    ]
+                    findings.append(
+                        Finding(
+                            category="partial_batch_read",
+                            severity="error",
+                            title="Proceeded with incomplete information",
+                            description=(
+                                f"Batch read: {len(failed_reads)}/{len(read_calls)} reads failed. "
+                                f"Agent proceeded with partial info instead of addressing failures."
+                            ),
+                            session_id=session.session_id,
+                            timestamp=assistant_msg.timestamp,
+                            evidence={
+                                "total_reads": len(read_calls),
+                                "successful_reads": len(successful_reads),
+                                "failed_reads": len(failed_reads),
+                                "failed_files": failed_files[:5],
+                                "successful_files": [
+                                    rc.input_params.get("file_path", "unknown")
+                                    for rc in successful_reads
+                                ][:5],
+                            },
+                        )
+                    )
 
         return findings
 

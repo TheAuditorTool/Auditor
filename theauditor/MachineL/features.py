@@ -566,18 +566,18 @@ def load_comment_hallucination_features(
         return dict(stats)
 
     try:
-        from theauditor.session.analyzer import SessionAnalyzer
+        from theauditor.session.analysis import SessionAnalysis
         from theauditor.session.parser import SessionParser
 
         parser = SessionParser()
-        analyzer = SessionAnalyzer(db_path=None)
+        analyzer = SessionAnalysis(db_path=None)
 
         sessions = parser.parse_all_sessions(Path(session_dir))
 
         project_root = Path.cwd()
 
         for session in sessions:
-            _, findings = analyzer.analyze_session(session, comment_graveyard_path=graveyard_path)
+            _, findings = analyzer.analyze_session_with_findings(session, graveyard_path)
 
             for finding in findings:
                 if finding.category != "comment_hallucination":
@@ -628,15 +628,16 @@ def load_agent_behavior_features(
             "agent_duplicate_impl_rate": 0.0,
             "agent_missed_search_count": 0,
             "agent_read_efficiency": 0.0,
+            "agent_partial_batch_read_count": 0,
         }
     )
 
     try:
-        from theauditor.session.analyzer import SessionAnalyzer
+        from theauditor.session.analysis import SessionAnalysis
         from theauditor.session.parser import SessionParser
 
         parser = SessionParser()
-        analyzer = SessionAnalyzer(db_path=db_path if Path(db_path).exists() else None)
+        analyzer = SessionAnalysis(db_path=Path(db_path) if Path(db_path).exists() else None)
 
         sessions = parser.parse_all_sessions(Path(session_dir))
 
@@ -646,9 +647,24 @@ def load_agent_behavior_features(
         project_root = Path.cwd()
 
         for session in sessions:
-            _, findings = analyzer.analyze_session(session)
+            _, findings = analyzer.analyze_session_with_findings(session)
 
             for finding in findings:
+                # Handle partial_batch_read which has failed_files list instead of file
+                if finding.category == "partial_batch_read":
+                    failed_files = finding.evidence.get("failed_files", [])
+                    for ff in failed_files:
+                        try:
+                            ff_path = Path(ff)
+                            if ff_path.is_absolute():
+                                ff_path = ff_path.relative_to(project_root)
+                            normalized = str(ff_path).replace("\\", "/")
+                            if normalized in file_paths:
+                                stats[normalized]["agent_partial_batch_read_count"] += 1
+                        except ValueError:
+                            continue
+                    continue
+
                 file = finding.evidence.get("file", "")
                 if not file:
                     continue

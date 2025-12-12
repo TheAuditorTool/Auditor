@@ -10,6 +10,21 @@ from theauditor.utils.logging import logger
 
 
 @dataclass
+class ToolResult:
+    """Represents the result of a tool invocation."""
+
+    tool_use_id: str
+    is_error: bool
+    content: str
+    timestamp: str
+
+    @property
+    def datetime(self) -> datetime:
+        """Parse ISO timestamp."""
+        return datetime.fromisoformat(self.timestamp.replace("Z", "+00:00"))
+
+
+@dataclass
 class ToolCall:
     """Represents a single tool invocation by the agent."""
 
@@ -17,11 +32,22 @@ class ToolCall:
     timestamp: str
     uuid: str
     input_params: dict[str, Any] = field(default_factory=dict)
+    result: ToolResult | None = None
 
     @property
     def datetime(self) -> datetime:
         """Parse ISO timestamp."""
         return datetime.fromisoformat(self.timestamp.replace("Z", "+00:00"))
+
+    @property
+    def succeeded(self) -> bool:
+        """Check if tool call succeeded (has result and no error)."""
+        return self.result is not None and not self.result.is_error
+
+    @property
+    def failed(self) -> bool:
+        """Check if tool call failed (has result with error)."""
+        return self.result is not None and self.result.is_error
 
 
 @dataclass
@@ -138,6 +164,9 @@ class SessionParser:
             git_branch=first_entry.get("gitBranch", ""),
         )
 
+        # Track tool calls by their ID to link results later
+        tool_calls_by_id: dict[str, ToolCall] = {}
+
         for entry in entries:
             entry_type = entry.get("type")
 
@@ -149,6 +178,13 @@ class SessionParser:
                         block.get("text", "") or block.get("source", {}).get("data", "")
                         for block in content
                         if isinstance(block, dict)
+                    )
+
+                # Check for tool result in this user entry
+                tool_result_data = entry.get("toolUseResult")
+                if tool_result_data:
+                    self._link_tool_result(
+                        tool_calls_by_id, tool_result_data, entry, msg
                     )
 
                 session.user_messages.append(
@@ -173,14 +209,16 @@ class SessionParser:
                         text_blocks.append(block.get("text", ""))
 
                     elif block_type == "tool_use":
-                        tool_calls.append(
-                            ToolCall(
-                                tool_name=block.get("name", ""),
-                                timestamp=entry.get("timestamp", ""),
-                                uuid=block.get("id", ""),
-                                input_params=block.get("input", {}),
-                            )
+                        tool_call = ToolCall(
+                            tool_name=block.get("name", ""),
+                            timestamp=entry.get("timestamp", ""),
+                            uuid=block.get("id", ""),
+                            input_params=block.get("input", {}),
                         )
+                        tool_calls.append(tool_call)
+                        # Index by ID for result linking
+                        if tool_call.uuid:
+                            tool_calls_by_id[tool_call.uuid] = tool_call
 
                 session.assistant_messages.append(
                     AssistantMessage(
@@ -194,6 +232,70 @@ class SessionParser:
                 )
 
         return session
+
+    def _link_tool_result(
+        self,
+        tool_calls_by_id: dict[str, ToolCall],
+        result_data: Any,
+        entry: dict,
+        msg: dict,
+    ) -> None:
+        """Link a tool result back to its corresponding tool call."""
+        timestamp = entry.get("timestamp", "")
+
+        # Handle different result formats
+        if isinstance(result_data, str):
+            # Error result is often just a string like "Error: File does not exist."
+            is_error = result_data.startswith("Error") or "error" in result_data.lower()
+            content = result_data
+
+            # Try to find the tool call this result belongs to
+            # Claude Code sends results with the message content containing tool_use_id
+            tool_use_id = msg.get("content", [{}])[0].get("tool_use_id") if isinstance(
+                msg.get("content"), list
+            ) else None
+
+            if tool_use_id and tool_use_id in tool_calls_by_id:
+                tool_calls_by_id[tool_use_id].result = ToolResult(
+                    tool_use_id=tool_use_id,
+                    is_error=is_error,
+                    content=content[:500],  # Truncate for memory
+                    timestamp=timestamp,
+                )
+        elif isinstance(result_data, dict):
+            # Structured result
+            result_type = result_data.get("type", "")
+            is_error = result_data.get("isError", False)
+
+            # Extract content preview
+            if result_type == "text" and "file" in result_data:
+                file_info = result_data["file"]
+                content = f"Read {file_info.get('filePath', 'unknown')} ({file_info.get('numLines', 0)} lines)"
+                is_error = False
+            elif "stdout" in result_data:
+                content = result_data.get("stdout", "")[:200]
+                stderr = result_data.get("stderr", "")
+                if stderr:
+                    is_error = True
+                    content = stderr[:200]
+            else:
+                content = str(result_data)[:200]
+
+            # Find corresponding tool call - check message content for tool_use_id
+            tool_use_id = None
+            msg_content = msg.get("content", [])
+            if isinstance(msg_content, list) and msg_content:
+                first_block = msg_content[0] if msg_content else {}
+                if isinstance(first_block, dict):
+                    tool_use_id = first_block.get("tool_use_id")
+
+            if tool_use_id and tool_use_id in tool_calls_by_id:
+                tool_calls_by_id[tool_use_id].result = ToolResult(
+                    tool_use_id=tool_use_id,
+                    is_error=is_error,
+                    content=content,
+                    timestamp=timestamp,
+                )
 
     def parse_all_sessions(self, session_dir: Path) -> list[Session]:
         """Parse all sessions in a directory."""
