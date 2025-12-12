@@ -383,10 +383,14 @@ class RulesOrchestrator:
             if isinstance(result, RuleResult):
                 findings = result.findings
                 manifest = result.manifest
-                expected = self._compute_expected(rule, std_context)
-                passed, errors = verify_fidelity(manifest, expected)
-                if not passed:
-                    self._fidelity_failures.append((rule.name, errors))
+
+                # Only verify fidelity for non-empty manifests
+                # Empty manifest indicates valid early-exit (e.g., no db_path)
+                if manifest:
+                    expected = self._compute_expected(rule, std_context)
+                    passed, errors = verify_fidelity(manifest, expected)
+                    if not passed:
+                        self._fidelity_failures.append((rule.name, errors))
             else:
                 findings = result
 

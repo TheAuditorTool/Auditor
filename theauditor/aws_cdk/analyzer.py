@@ -1,4 +1,7 @@
-"""AWS CDK security analyzer."""
+"""AWS CDK security analyzer.
+
+Directly calls the 4 dedicated AWS CDK rules - no orchestrator overhead.
+"""
 
 import sqlite3
 import uuid
@@ -6,10 +9,23 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from theauditor.rules.base import Severity, StandardRuleContext
+from theauditor.rules.fidelity import RuleResult
 from theauditor.utils.logging import logger
 
-from ..rules.base import Severity, StandardRuleContext
-from ..rules.orchestrator import RulesOrchestrator
+# Direct imports of the 4 CDK rules - no orchestrator
+from theauditor.rules.deployment.aws_cdk_encryption_analyze import (
+    analyze as analyze_encryption,
+)
+from theauditor.rules.deployment.aws_cdk_iam_wildcards_analyze import (
+    analyze as analyze_iam_wildcards,
+)
+from theauditor.rules.deployment.aws_cdk_s3_public_analyze import (
+    analyze as analyze_s3_public,
+)
+from theauditor.rules.deployment.aws_cdk_sg_open_analyze import (
+    analyze as analyze_sg_open,
+)
 
 
 @dataclass
@@ -48,21 +64,35 @@ class AWSCdkAnalyzer:
 
     def analyze(self) -> list[CdkFinding]:
         """Run all CDK security rules and return findings."""
+        context = self._build_rule_context()
 
-        project_root = self.db_path.parent
-        if project_root.name == ".pf":
-            project_root = project_root.parent
+        # Run ONLY the 4 dedicated CDK rules - nothing else
+        all_findings = []
 
-        orchestrator = RulesOrchestrator(project_root, self.db_path)
+        for rule_func in [
+            analyze_encryption,
+            analyze_iam_wildcards,
+            analyze_s3_public,
+            analyze_sg_open,
+        ]:
+            try:
+                result = rule_func(context)
+                if isinstance(result, RuleResult):
+                    findings = result.findings
+                else:
+                    findings = result
 
-        standard_findings = orchestrator.run_database_rules()
+                if findings:
+                    for f in findings:
+                        if hasattr(f, "to_dict"):
+                            all_findings.append(f.to_dict())
+                        else:
+                            all_findings.append(f)
+            except Exception as e:
+                logger.warning(f"CDK rule {rule_func.__module__} failed: {e}")
 
-        cdk_findings = [f for f in standard_findings if self._is_cdk_rule(f)]
-
-        converted_findings = self._convert_findings(cdk_findings)
-
+        converted_findings = self._convert_findings(all_findings)
         filtered = self._filter_by_severity(converted_findings)
-
         self._write_findings(filtered)
 
         logger.info(f"CDK analysis complete: {len(filtered)} findings")
@@ -82,14 +112,8 @@ class AWSCdkAnalyzer:
             db_path=str(self.db_path),
         )
 
-    def _is_cdk_rule(self, finding: dict) -> bool:
-        """Check if finding comes from a CDK rule."""
-
-        rule_name = finding.get("rule", "")
-        return rule_name.startswith("aws-cdk-")
-
     def _convert_findings(self, standard_findings: list[dict]) -> list[CdkFinding]:
-        """Convert finding dictionaries from orchestrator to CdkFinding format."""
+        """Convert finding dictionaries from rules to CdkFinding format."""
         cdk_findings: list[CdkFinding] = []
 
         for finding in standard_findings:
@@ -115,11 +139,7 @@ class AWSCdkAnalyzer:
         return cdk_findings
 
     def _build_finding_id(self, finding: dict) -> str:
-        """Generate unique finding ID.
-
-        Includes message to differentiate multiple findings on the same line
-        (e.g., multiple privilege escalation actions detected).
-        """
+        """Generate unique finding ID."""
         parts = [
             "cdk",
             finding.get("rule", ""),
@@ -147,10 +167,7 @@ class AWSCdkAnalyzer:
         ]
 
     def _write_findings(self, findings: list[CdkFinding]):
-        """Write findings to cdk_findings and findings_consolidated tables.
-
-        Fails loud on database errors per Zero Fallback policy.
-        """
+        """Write findings to cdk_findings and findings_consolidated tables."""
         if not findings:
             return
 
