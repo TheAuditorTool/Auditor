@@ -510,6 +510,11 @@ def trace_validation_chains(
                 _trace_flask_chains(cursor, frameworks["flask"], max_entries, db_path)
             )
 
+        if "django" in frameworks:
+            results.extend(
+                _trace_django_chains(cursor, frameworks["django"], max_entries, db_path)
+            )
+
         # Step 3: Generic fallback for remaining entry points (Go/Rust/unknown)
         remaining = max_entries - len(results)
         if remaining > 0:
@@ -556,6 +561,8 @@ def trace_validation_chain(
             return _trace_single_fastapi_chain(cursor, entry_file, entry_line, db_path)
         elif "flask" in frameworks:
             return _trace_single_flask_chain(cursor, entry_file, entry_line, db_path)
+        elif "django" in frameworks:
+            return _trace_single_django_chain(cursor, entry_file, entry_line, db_path)
         else:
             return _trace_single_generic_chain(cursor, entry_file, entry_line, db_path)
 
@@ -576,6 +583,30 @@ EXPRESS_VALIDATION_MIDDLEWARE = [
     "zodMiddleware",
     "joiMiddleware",
     "yupMiddleware",
+]
+
+# Django middleware patterns that provide validation/security
+DJANGO_VALIDATION_MIDDLEWARE = [
+    "csrfviewmiddleware",
+    "authenticationmiddleware",
+    "sessionmiddleware",
+    "securitymiddleware",
+    "xframeoptions",
+    "contenttype",
+    "validation",
+    "sanitize",
+    "permission",
+]
+
+# Django decorator patterns that indicate security controls
+DJANGO_SECURITY_DECORATORS = [
+    "login_required",
+    "permission_required",
+    "user_passes_test",
+    "csrf_protect",
+    "require_http_methods",
+    "require_post",
+    "require_get",
 ]
 
 
@@ -1035,6 +1066,212 @@ def _trace_flask_chains(
     return results
 
 
+def _trace_django_chains(
+    cursor: sqlite3.Cursor,
+    framework_info: list[dict],
+    max_entries: int,
+    db_path: str,
+) -> list[ValidationChain]:
+    """Trace validation chains for Django entry points.
+
+    Django's validation architecture:
+    1. Global middleware (MIDDLEWARE setting) - runs BEFORE views
+       - Middleware with process_request runs before URL dispatch
+       - Middleware with process_view runs after URL dispatch
+    2. View decorators (@login_required, @csrf_protect, etc.)
+    3. View permission checks (has_permission_check in class-based views)
+    4. In-view validation (forms, serializers, manual checks)
+
+    Uses:
+    - python_django_middleware for global middleware
+    - python_decorators for view decorators
+    - python_django_views for CBV permission checks
+    - python_routes for entry points (framework='django')
+    """
+    results: list[ValidationChain] = []
+
+    # Step 1: Get global middleware (applies to ALL routes)
+    global_middleware = []
+    cursor.execute("""
+        SELECT file, line, middleware_class_name,
+               has_process_request, has_process_view
+        FROM python_django_middleware
+    """)
+    for row in cursor.fetchall():
+        file, line, class_name, has_req, has_view = row
+        middleware_lower = class_name.lower() if class_name else ""
+
+        is_validation = any(
+            pat in middleware_lower for pat in DJANGO_VALIDATION_MIDDLEWARE
+        )
+
+        global_middleware.append({
+            "file": file,
+            "line": line,
+            "class_name": class_name,
+            "has_process_request": bool(has_req),
+            "has_process_view": bool(has_view),
+            "is_validation": is_validation,
+        })
+
+    # Step 2: Get Django routes
+    cursor.execute("""
+        SELECT file, line, pattern, method, handler_function
+        FROM python_routes
+        WHERE framework = 'django'
+        LIMIT ?
+    """, (max_entries,))
+    routes = cursor.fetchall()
+
+    for file, line, pattern, method, handler_function in routes:
+        entry_point = f"{method or 'GET'} {pattern or '/'}"
+
+        hops: list[ChainHop] = []
+        chain_status = "no_validation"
+        break_index: int | None = None
+        has_validation = False
+
+        # Step 3: Add middleware hops (distance 0-1)
+        for mw in global_middleware:
+            if mw["is_validation"]:
+                if mw["has_process_request"]:
+                    has_validation = True
+                    chain_status = "intact"
+                    hops.append(ChainHop(
+                        function=mw["class_name"],
+                        file=mw["file"],
+                        line=mw["line"],
+                        type_info="middleware",
+                        validation_status="validated",
+                        break_reason=None,
+                    ))
+                elif mw["has_process_view"]:
+                    has_validation = True
+                    if chain_status != "intact":
+                        chain_status = "intact"
+                    hops.append(ChainHop(
+                        function=mw["class_name"],
+                        file=mw["file"],
+                        line=mw["line"],
+                        type_info="middleware",
+                        validation_status="validated",
+                        break_reason=None,
+                    ))
+
+        # Step 4: Check view decorators (distance 2)
+        if handler_function:
+            cursor.execute("""
+                SELECT decorator_name, line
+                FROM python_decorators
+                WHERE file = ? AND target_name = ?
+            """, (file, handler_function))
+
+            for dec_name, dec_line in cursor.fetchall():
+                dec_lower = dec_name.lower() if dec_name else ""
+                is_security_decorator = any(
+                    pat in dec_lower for pat in DJANGO_SECURITY_DECORATORS
+                )
+                if is_security_decorator:
+                    has_validation = True
+                    if chain_status != "intact":
+                        chain_status = "intact"
+                    hops.append(ChainHop(
+                        function=f"@{dec_name}",
+                        file=file,
+                        line=dec_line,
+                        type_info="decorator",
+                        validation_status="validated",
+                        break_reason=None,
+                    ))
+
+        # Step 5: Check class-based view permission checks
+        cursor.execute("""
+            SELECT view_class_name, has_permission_check
+            FROM python_django_views
+            WHERE file = ? AND line = ?
+        """, (file, line))
+        view_row = cursor.fetchone()
+        if view_row and view_row[1]:  # has_permission_check
+            has_validation = True
+            if chain_status != "intact":
+                chain_status = "intact"
+            hops.append(ChainHop(
+                function=f"{view_row[0]}.has_permission",
+                file=file,
+                line=line,
+                type_info="permission_check",
+                validation_status="validated",
+                break_reason=None,
+            ))
+
+        # Step 6: Add handler hop
+        type_info = _get_type_annotation(cursor, file, line, handler_function) or "unknown"
+
+        # Check for type: ignore comments (Python-specific)
+        if is_python_type_ignored(type_info):
+            if has_validation:
+                chain_status = "broken"
+                break_index = len(hops)
+            hops.append(ChainHop(
+                function=handler_function or "handler",
+                file=file,
+                line=line,
+                type_info=type_info,
+                validation_status="broken",
+                break_reason="Type checking disabled (type: ignore)",
+            ))
+        else:
+            hops.append(ChainHop(
+                function=handler_function or "handler",
+                file=file,
+                line=line,
+                type_info=type_info,
+                validation_status="preserved" if has_validation else "unknown",
+                break_reason=None,
+            ))
+
+        # Step 7: Trace callees from handler
+        if handler_function and chain_status == "intact":
+            callees = _get_callees_from_function(cursor, file, handler_function, max_depth=5)
+            for callee in callees:
+                callee_type = _get_type_annotation(
+                    cursor, callee["file"], callee["line"], callee["function"]
+                ) or "unknown"
+
+                if is_python_type_ignored(callee_type):
+                    chain_status = "broken"
+                    break_index = len(hops)
+                    hops.append(ChainHop(
+                        function=callee["function"],
+                        file=callee["file"],
+                        line=callee["line"],
+                        type_info=callee_type,
+                        validation_status="broken",
+                        break_reason="Type checking disabled (type: ignore)",
+                    ))
+                    break
+                else:
+                    hops.append(ChainHop(
+                        function=callee["function"],
+                        file=callee["file"],
+                        line=callee["line"],
+                        type_info=callee_type,
+                        validation_status="preserved",
+                        break_reason=None,
+                    ))
+
+        results.append(ValidationChain(
+            entry_point=entry_point,
+            entry_file=file,
+            entry_line=line,
+            hops=hops,
+            chain_status=chain_status,
+            break_index=break_index,
+        ))
+
+    return results
+
+
 def _trace_generic_chains(
     cursor: sqlite3.Cursor,
     max_entries: int,
@@ -1364,6 +1601,98 @@ def _trace_single_flask_chain(
         entry_line=entry_line,
         hops=hops,
         chain_status="no_validation",
+        break_index=None,
+    )
+
+
+def _trace_single_django_chain(
+    cursor: sqlite3.Cursor,
+    entry_file: str,
+    entry_line: int,
+    db_path: str,
+) -> ValidationChain:
+    """Trace validation chain for a single Django entry point."""
+    cursor.execute(
+        """
+        SELECT method, pattern, handler_function
+        FROM python_routes
+        WHERE file = ? AND line = ? AND framework = 'django'
+        LIMIT 1
+        """,
+        (entry_file, entry_line),
+    )
+    row = cursor.fetchone()
+    if not row:
+        return ValidationChain(
+            entry_point=f"Django entry at {entry_file}:{entry_line}",
+            entry_file=entry_file,
+            entry_line=entry_line,
+            chain_status="unknown",
+        )
+
+    method, pattern, handler_function = row
+    entry_point = f"{method or 'GET'} {pattern or '/'}"
+
+    # Check for global middleware validation
+    has_validation = False
+    hops: list[ChainHop] = []
+
+    # Check python_django_middleware
+    cursor.execute("""
+        SELECT middleware_class_name, file, line, has_process_request, has_process_view
+        FROM python_django_middleware
+    """)
+    for mw_name, mw_file, mw_line, has_req, has_view in cursor.fetchall():
+        mw_lower = mw_name.lower() if mw_name else ""
+        is_validation = any(pat in mw_lower for pat in DJANGO_VALIDATION_MIDDLEWARE)
+        if is_validation and (has_req or has_view):
+            has_validation = True
+            hops.append(ChainHop(
+                function=mw_name,
+                file=mw_file,
+                line=mw_line,
+                type_info="middleware",
+                validation_status="validated",
+                break_reason=None,
+            ))
+
+    # Check decorators
+    if handler_function:
+        cursor.execute("""
+            SELECT decorator_name, line
+            FROM python_decorators
+            WHERE file = ? AND target_name = ?
+        """, (entry_file, handler_function))
+        for dec_name, dec_line in cursor.fetchall():
+            dec_lower = dec_name.lower() if dec_name else ""
+            if any(pat in dec_lower for pat in DJANGO_SECURITY_DECORATORS):
+                has_validation = True
+                hops.append(ChainHop(
+                    function=f"@{dec_name}",
+                    file=entry_file,
+                    line=dec_line,
+                    type_info="decorator",
+                    validation_status="validated",
+                    break_reason=None,
+                ))
+
+    # Add handler hop
+    type_info = _get_type_annotation(cursor, entry_file, entry_line, handler_function) or "unknown"
+    hops.append(ChainHop(
+        function=handler_function or "handler",
+        file=entry_file,
+        line=entry_line,
+        type_info=type_info,
+        validation_status="preserved" if has_validation else "unknown",
+        break_reason=None,
+    ))
+
+    return ValidationChain(
+        entry_point=entry_point,
+        entry_file=entry_file,
+        entry_line=entry_line,
+        hops=hops,
+        chain_status="intact" if has_validation else "no_validation",
         break_index=None,
     )
 

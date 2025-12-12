@@ -15,6 +15,33 @@ VALIDATION_PATTERNS = ["validate", "parse", "check", "sanitize", "clean", "schem
 # Framework-specific validation middleware patterns
 EXPRESS_VALIDATION_PATTERNS = ["validate", "validateBody", "validateParams", "validateQuery", "parse", "schema"]
 
+# Django middleware patterns that provide validation/security
+DJANGO_VALIDATION_MIDDLEWARE = [
+    "csrfviewmiddleware",
+    "authenticationmiddleware",
+    "sessionmiddleware",
+    "securitymiddleware",
+    "xframeoptions",
+    "contenttype",
+    "validation",
+    "sanitize",
+    "permission",
+]
+
+# Django decorator patterns that indicate security controls
+DJANGO_SECURITY_DECORATORS = [
+    "login_required",
+    "permission_required",
+    "user_passes_test",
+    "csrf_protect",
+    "require_http_methods",
+    "require_POST",
+    "require_GET",
+    "sensitive_post_parameters",
+    "sensitive_variables",
+    "never_cache",
+]
+
 
 def _table_exists(cursor, table_name: str) -> bool:
     """Check if a table exists in the database."""
@@ -182,12 +209,195 @@ def _analyze_express_boundaries(cursor, framework_info: list[dict], max_entries:
     return results
 
 
+def _analyze_django_boundaries(cursor, framework_info: list[dict], max_entries: int) -> list[dict]:
+    """Analyze boundaries for Django projects using middleware + decorators.
+
+    Django's validation architecture:
+    1. Global middleware (MIDDLEWARE setting) - runs BEFORE views
+       - CsrfViewMiddleware, AuthenticationMiddleware, etc.
+       - Middleware with has_process_request/has_process_view runs before handler
+    2. View decorators (@login_required, @csrf_protect, etc.)
+    3. View permission checks (has_permission_check in class-based views)
+    4. Explicit validation in view code (forms, serializers)
+
+    Distance calculation:
+    - Middleware with process_request = distance 0 (runs first)
+    - Middleware with process_view = distance 1 (runs after URL routing)
+    - Decorators = distance 2 (applied to view)
+    - In-view validation = distance 3+ (inside handler)
+    """
+    results = []
+
+    # Step 1: Get global middleware (applies to ALL routes)
+    global_middleware = []
+    if _table_exists(cursor, "python_django_middleware"):
+        cursor.execute("""
+            SELECT file, line, middleware_class_name,
+                   has_process_request, has_process_view,
+                   has_process_response, has_process_exception
+            FROM python_django_middleware
+        """)
+        for row in cursor.fetchall():
+            file, line, class_name, has_req, has_view, has_resp, has_exc = row
+            middleware_lower = class_name.lower() if class_name else ""
+
+            # Check if this is a validation/security middleware
+            is_validation = any(
+                pat in middleware_lower for pat in DJANGO_VALIDATION_MIDDLEWARE
+            )
+
+            global_middleware.append({
+                "file": file,
+                "line": line,
+                "class_name": class_name,
+                "has_process_request": bool(has_req),
+                "has_process_view": bool(has_view),
+                "is_validation": is_validation,
+            })
+
+    # Step 2: Get Django routes
+    if not _table_exists(cursor, "python_routes"):
+        return results
+
+    cursor.execute("""
+        SELECT file, line, pattern, method, handler_function
+        FROM python_routes
+        WHERE framework = 'django'
+    """)
+    routes = cursor.fetchall()
+
+    for file, line, pattern, method, handler_function in routes:
+        entry_name = f"{method or 'GET'} {pattern or '/'}"
+        validation_controls = []
+
+        # Step 3: Check global middleware (distance 0-1)
+        for mw in global_middleware:
+            if mw["is_validation"]:
+                # process_request runs before URL dispatch = distance 0
+                # process_view runs after URL dispatch = distance 1
+                if mw["has_process_request"]:
+                    validation_controls.append({
+                        "control_function": mw["class_name"],
+                        "control_file": mw["file"],
+                        "control_line": mw["line"],
+                        "distance": 0,
+                        "path": [f"middleware:{mw['class_name']}"],
+                        "control_type": "middleware_request",
+                    })
+                elif mw["has_process_view"]:
+                    validation_controls.append({
+                        "control_function": mw["class_name"],
+                        "control_file": mw["file"],
+                        "control_line": mw["line"],
+                        "distance": 1,
+                        "path": [f"middleware:{mw['class_name']}"],
+                        "control_type": "middleware_view",
+                    })
+
+        # Step 4: Check view decorators (distance 2)
+        if _table_exists(cursor, "python_decorators") and handler_function:
+            cursor.execute("""
+                SELECT decorator_name, line
+                FROM python_decorators
+                WHERE file = ? AND target_name = ?
+            """, (file, handler_function))
+
+            for dec_name, dec_line in cursor.fetchall():
+                dec_lower = dec_name.lower() if dec_name else ""
+                is_security_decorator = any(
+                    pat in dec_lower for pat in DJANGO_SECURITY_DECORATORS
+                )
+                if is_security_decorator:
+                    validation_controls.append({
+                        "control_function": dec_name,
+                        "control_file": file,
+                        "control_line": dec_line,
+                        "distance": 2,
+                        "path": [f"decorator:@{dec_name}", handler_function or "view"],
+                        "control_type": "decorator",
+                    })
+
+        # Step 5: Check class-based view permission checks (distance 2)
+        if _table_exists(cursor, "python_django_views"):
+            cursor.execute("""
+                SELECT view_class_name, has_permission_check
+                FROM python_django_views
+                WHERE file = ? AND line = ?
+            """, (file, line))
+            view_row = cursor.fetchone()
+            if view_row and view_row[1]:  # has_permission_check
+                validation_controls.append({
+                    "control_function": f"{view_row[0]}.has_permission",
+                    "control_file": file,
+                    "control_line": line,
+                    "distance": 2,
+                    "path": [f"view:{view_row[0]}", "permission_check"],
+                    "control_type": "view_permission",
+                })
+
+        # Step 6: Check for validators in the view file (distance 3+)
+        if _table_exists(cursor, "python_validators"):
+            cursor.execute("""
+                SELECT validator_method, line
+                FROM python_validators
+                WHERE file = ?
+                LIMIT 5
+            """, (file,))
+            for val_method, val_line in cursor.fetchall():
+                validation_controls.append({
+                    "control_function": val_method,
+                    "control_file": file,
+                    "control_line": val_line,
+                    "distance": 3,
+                    "path": [handler_function or "view", val_method],
+                    "control_type": "validator",
+                })
+
+        # Use measure_boundary_quality for consistent scoring
+        quality = measure_boundary_quality(validation_controls)
+
+        # Build violations
+        violations = []
+        if quality["quality"] == "missing":
+            violations.append({
+                "type": "NO_VALIDATION",
+                "severity": "CRITICAL",
+                "message": "Django route has no validation middleware, decorators, or validators",
+                "facts": quality["facts"],
+            })
+        elif quality["quality"] == "fuzzy":
+            for control in validation_controls:
+                if control["distance"] >= 3:
+                    violations.append({
+                        "type": "VALIDATION_DISTANCE",
+                        "severity": "HIGH",
+                        "message": f"Validation '{control['control_function']}' at distance {control['distance']}",
+                        "facts": [
+                            f"Request passes through {control['distance']} layers before validation",
+                            "Earlier middleware/code may process unvalidated data",
+                        ],
+                    })
+
+        results.append({
+            "entry_point": entry_name,
+            "entry_file": file,
+            "entry_line": line,
+            "controls": validation_controls,
+            "quality": quality,
+            "violations": violations,
+            "framework": "django",
+        })
+
+    return results
+
+
 def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> list[dict]:
     """Analyze input validation boundaries across all entry points.
 
     Uses framework-aware analysis when possible:
     - Express: Checks express_middleware_chains for validation middleware
-    - FastAPI/Django: (TODO) Check python decorators and validators
+    - Django: Checks python_django_middleware, decorators, and view permissions
+    - FastAPI: (TODO) Check python decorators and validators
     - Go/Rust: (TODO) Check framework-specific patterns
 
     Falls back to generic call graph BFS for unknown frameworks.
@@ -215,9 +425,14 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
         # if "fastapi" in frameworks:
         #     results.extend(_analyze_fastapi_boundaries(cursor, frameworks["fastapi"], max_entries))
 
-        # TODO: Add Django analyzer
-        # if "django" in frameworks:
-        #     results.extend(_analyze_django_boundaries(cursor, frameworks["django"], max_entries))
+        # Django analyzer - queries python_django_middleware for global middleware awareness
+        if "django" in frameworks:
+            django_results = _analyze_django_boundaries(
+                cursor, frameworks["django"], max_entries
+            )
+            results.extend(django_results)
+            for r in django_results:
+                analyzed_files.add((r["entry_file"], r["entry_line"]))
 
         # Step 3: Fall back to generic BFS for remaining entry points
         remaining_entries = max_entries - len(results)
