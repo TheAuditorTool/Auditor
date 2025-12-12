@@ -373,12 +373,16 @@ def full(root, quiet, exclude_self, offline, subprocess_taint, wipecache, index_
                     "cdk": "AWS CDK Security",
                     "github-actions-rules": "GitHub Actions",
                     "vulnerability_scanner": "Dependency Vulns (OSV)",
+                    "indexer": "Indexer Errors",  # Parse failures should block deployment
                     # Quality tools (visible but don't affect exit code)
                     "ruff": "Ruff (Python)",
                     "eslint": "ESLint (JS/TS)",
                     "mypy": "Mypy (Types)",
                     "cfg-analysis": "CFG Analysis",
-                    "indexer": "Indexer Errors",
+                    "graph-analysis": "Graph Analysis",
+                    "clippy": "Clippy (Rust)",
+                    "golangci-lint": "golangci-lint (Go)",
+                    "shellcheck": "ShellCheck (Bash)",
                 }
 
                 # Sort by total findings (highest first)

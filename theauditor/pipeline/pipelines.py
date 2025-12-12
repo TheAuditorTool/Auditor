@@ -45,8 +45,24 @@ SECURITY_TOOLS = frozenset(
         "cdk",
         "github-actions-rules",
         "vulnerability_scanner",
+        "indexer",  # Parse/syntax errors are real failures that should block deployment
     }
 )
+
+
+def _normalize_severity(raw_severity: str) -> str:
+    """Normalize severity names to standard set: critical, high, medium, low.
+
+    Different tools use different severity names:
+    - OSV: "moderate" -> "medium"
+    - Linters/indexer: "error" -> "high", "warning" -> "medium"
+    """
+    mapping = {
+        "moderate": "medium",
+        "error": "high",
+        "warning": "medium",
+    }
+    return mapping.get(raw_severity, raw_severity)
 
 
 def get_command_timeout(cmd: list[str]) -> int:
@@ -340,9 +356,12 @@ async def run_chain_silent(
 def _get_findings_from_db(root: Path) -> dict:
     """Query findings_consolidated for severity counts, broken down by tool.
 
+    Uses a single query with consistent severity normalization for both
+    totals (SECURITY_TOOLS only) and by_tool breakdown (all tools).
+
     Returns:
         dict with:
-            - critical/high/medium/low: total counts per severity
+            - critical/high/medium/low: total counts per severity (SECURITY_TOOLS only)
             - total_vulnerabilities: sum of all security tool findings
             - by_tool: dict mapping tool_name -> {critical, high, medium, low}
     """
@@ -353,60 +372,44 @@ def _get_findings_from_db(root: Path) -> dict:
     conn = sqlite3.connect(str(db_path))
     cursor = conn.cursor()
 
-    placeholders = ",".join("?" * len(SECURITY_TOOLS))
-
-    # Get total counts by severity (existing behavior)
-    cursor.execute(
-        f"""
-        SELECT severity, COUNT(*)
-        FROM findings_consolidated
-        WHERE tool IN ({placeholders})
-        GROUP BY severity
-    """,
-        tuple(SECURITY_TOOLS),
-    )
-    raw_severity_counts = dict(cursor.fetchall())
-
-    # Normalize severity names (OSV uses "moderate" instead of "medium")
-    severity_counts = {
-        "critical": raw_severity_counts.get("critical", 0),
-        "high": raw_severity_counts.get("high", 0),
-        "medium": raw_severity_counts.get("medium", 0) + raw_severity_counts.get("moderate", 0),
-        "low": raw_severity_counts.get("low", 0),
-    }
-
-    # Get breakdown by tool AND severity (ALL tools, not just security)
-    # This gives visibility into linter findings even though they don't affect exit code
+    # Single query to get all findings by tool and severity
     cursor.execute(
         """
-        SELECT tool, severity, COUNT(*)
+        SELECT tool, severity, COUNT(*) as cnt
         FROM findings_consolidated
         GROUP BY tool, severity
     """
     )
 
+    # Initialize accumulators
     by_tool: dict[str, dict[str, int]] = {}
-    for tool, severity, count in cursor.fetchall():
+    totals = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+
+    for tool, raw_severity, count in cursor.fetchall():
+        # Normalize severity ONCE using shared helper
+        severity = _normalize_severity(raw_severity)
+
+        # Skip unknown severities (e.g., "info", "note")
+        if severity not in totals:
+            continue
+
+        # Accumulate by_tool (ALL tools for visibility)
         if tool not in by_tool:
             by_tool[tool] = {"critical": 0, "high": 0, "medium": 0, "low": 0}
-        # Normalize severity names (OSV: moderate->medium, linters: error->high, warning->medium)
-        if severity == "moderate":
-            severity = "medium"
-        elif severity == "error":
-            severity = "high"
-        elif severity == "warning":
-            severity = "medium"
-        if severity in by_tool[tool]:
-            by_tool[tool][severity] = count
+        by_tool[tool][severity] += count
+
+        # Accumulate totals (SECURITY_TOOLS only - these affect exit code)
+        if tool in SECURITY_TOOLS:
+            totals[severity] += count
 
     conn.close()
 
     return {
-        "critical": severity_counts.get("critical", 0),
-        "high": severity_counts.get("high", 0),
-        "medium": severity_counts.get("medium", 0),
-        "low": severity_counts.get("low", 0),
-        "total_vulnerabilities": sum(severity_counts.values()),
+        "critical": totals["critical"],
+        "high": totals["high"],
+        "medium": totals["medium"],
+        "low": totals["low"],
+        "total_vulnerabilities": sum(totals.values()),
         "by_tool": by_tool,
     }
 
