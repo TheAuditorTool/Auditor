@@ -1,7 +1,13 @@
-"""Input Validation Boundary Analyzer."""
+"""Input Validation Boundary Analyzer.
+
+Binary quality assessment: validated or unvalidated.
+Uses taint registry for input detection and middleware classification.
+"""
 
 import sqlite3
 from pathlib import Path
+
+from loguru import logger
 
 from theauditor.boundaries.distance import (
     _build_graph_index,
@@ -12,8 +18,95 @@ from theauditor.graph.store import XGraphStore
 
 VALIDATION_PATTERNS = ["validate", "parse", "check", "sanitize", "clean", "schema", "validator"]
 
-# Framework-specific validation middleware patterns
-EXPRESS_VALIDATION_PATTERNS = ["validate", "validateBody", "validateParams", "validateQuery", "parse", "schema"]
+# Middleware classification - determines what counts toward "distance"
+MIDDLEWARE_TYPES = {
+    "AUTH": ["requireAuth", "authenticate", "verifyToken", "passport", "guard", "jwt", "session"],
+    "RATE_LIMIT": ["rateLimit", "slowDown", "throttle"],
+    "CONTEXT": ["tenant", "context", "cors", "compression", "helmet"],
+    "PARSER": ["json", "urlencoded", "multer", "upload", "bodyParser", "cookieParser"],
+    "VALIDATION": [
+        "validate", "validateBody", "validateParams", "validateQuery",
+        "check", "schema", "zod", "joi", "yup", "parse",
+    ],
+}
+
+# Input source patterns (user input detection)
+INPUT_SOURCE_PATTERNS = [
+    "req.body", "req.query", "req.params", "request.body", "request.query",
+    "request.data", "request.json", "request.form", "request.args",
+    "ctx.request.body", "ctx.params", "ctx.query",
+]
+
+
+def classify_middleware(handler_expr: str) -> str:
+    """Classify middleware by type. AUTH/RATE_LIMIT/CONTEXT don't count toward distance."""
+    if not handler_expr:
+        return "UNKNOWN"
+
+    expr_lower = handler_expr.lower()
+
+    for mw_type, patterns in MIDDLEWARE_TYPES.items():
+        if any(p.lower() in expr_lower for p in patterns):
+            return mw_type
+
+    return "UNKNOWN"
+
+
+def _check_taint_coverage(cursor, file: str) -> bool:
+    """Check if this file has flows in resolved_flow_audit (taint already analyzed it)."""
+    try:
+        cursor.execute("""
+            SELECT 1 FROM resolved_flow_audit
+            WHERE source_file = ? AND status IN ('VULNERABLE', 'SANITIZED', 'REACHABLE')
+            LIMIT 1
+        """, (file,))
+        return cursor.fetchone() is not None
+    except sqlite3.OperationalError:
+        # Table doesn't exist - taint hasn't run
+        logger.warning("resolved_flow_audit not found. Run 'aud full' for complete analysis.")
+        return False
+
+
+def _route_accepts_input(cursor, route_file: str) -> bool:
+    """Check if route's handler uses request input. Polyglot-aware.
+
+    Derives handler file from route file and queries variable_usage table.
+    - Express: routes/*.routes.ts -> controllers/*.controller.ts
+    - Python: handler is in same file as route decorator
+    - Go/Rust: NOT YET SUPPORTED (variable_usage not indexed)
+    """
+    # Express: routes/*.routes.ts -> controllers/*.controller.ts
+    if "/routes/" in route_file and ".routes." in route_file:
+        handler_file = route_file.replace("/routes/", "/controllers/").replace(
+            ".routes.", ".controller."
+        )
+        var_name = "req"
+
+    # Python (Flask/Django/FastAPI): handler is in same file as route
+    elif route_file.endswith(".py"):
+        handler_file = route_file
+        var_name = "request"
+
+    # Default: assume same file, look for req
+    else:
+        handler_file = route_file
+        var_name = "req"
+
+    # Single query - no fallback
+    cursor.execute(
+        """
+        SELECT 1 FROM variable_usage
+        WHERE file = ? AND variable_name = ? AND usage_type = 'read'
+        LIMIT 1
+    """,
+        (handler_file, var_name),
+    )
+
+    return cursor.fetchone() is not None
+
+
+# Framework-specific validation middleware patterns (legacy, kept for compatibility)
+EXPRESS_VALIDATION_PATTERNS = MIDDLEWARE_TYPES["VALIDATION"]
 
 # Django middleware patterns that provide validation/security
 DJANGO_VALIDATION_MIDDLEWARE = [
@@ -81,35 +174,45 @@ def _detect_frameworks(cursor) -> dict[str, list[dict]]:
     return frameworks
 
 
+def _get_global_middleware(cursor) -> list[tuple]:
+    """Get global middleware applied via router.use() or app.use().
+
+    Global middleware applies to ALL routes and should be virtually prepended.
+    """
+    if not _table_exists(cursor, "express_middleware_chains"):
+        return []
+
+    cursor.execute("""
+        SELECT execution_order, handler_expr, handler_type
+        FROM express_middleware_chains
+        WHERE route_path IN ('/', '*', '')
+        ORDER BY execution_order ASC
+    """)
+
+    return cursor.fetchall()
+
+
 def _analyze_express_boundaries(cursor, framework_info: list[dict], max_entries: int) -> list[dict]:
     """Analyze boundaries for Express.js projects using middleware chains.
 
-    Express middleware runs BEFORE the handler, so we check express_middleware_chains
-    for validation middleware rather than doing call graph traversal.
+    Express middleware runs BEFORE the handler. Uses middleware classification
+    to ignore AUTH/RATE_LIMIT for distance calculation (they don't process input).
 
-    Key insight (from GPT/Gemini): We derive entry points directly from
-    express_middleware_chains instead of joining with api_endpoints.
-    Distance = execution_order of validation middleware (0 = first, 1 = second, etc.)
+    Quality is binary: validated or unvalidated.
     """
     results = []
 
     if not _table_exists(cursor, "express_middleware_chains"):
         return results
 
-    # Check if this project uses Zod/Joi for validation (from validation_framework_usage)
-    has_validation_framework = False
-    if _table_exists(cursor, "validation_framework_usage"):
-        cursor.execute("""
-            SELECT COUNT(*) FROM validation_framework_usage
-            WHERE framework IN ('zod', 'joi', 'yup', 'superstruct') AND is_validator = 1
-        """)
-        has_validation_framework = cursor.fetchone()[0] > 0
+    # Get global middleware (router.use/app.use) to virtually prepend
+    global_middleware = _get_global_middleware(cursor)
 
-    # Derive entry points directly from express_middleware_chains (GROUP BY unique routes)
-    # No LIMIT here - SQL queries are O(1), no performance reason to cap
+    # Derive entry points directly from express_middleware_chains
     cursor.execute("""
         SELECT DISTINCT file, route_line, route_path, route_method
         FROM express_middleware_chains
+        WHERE route_path NOT IN ('/', '*', '')
     """)
 
     routes = cursor.fetchall()
@@ -129,7 +232,7 @@ def _analyze_express_boundaries(cursor, framework_info: list[dict], max_entries:
 
         entry_name = f"{route_method or 'GET'} {full_path}"
 
-        # Get the full middleware chain for this route, ordered by execution
+        # Get the route-specific middleware chain
         cursor.execute("""
             SELECT execution_order, handler_expr, handler_type
             FROM express_middleware_chains
@@ -137,64 +240,55 @@ def _analyze_express_boundaries(cursor, framework_info: list[dict], max_entries:
             ORDER BY execution_order ASC
         """, (file, route_line))
 
-        chain = cursor.fetchall()
+        route_chain = cursor.fetchall()
 
-        # Find validation middleware and controller in the chain
+        # Virtual prepend: global middleware + route-specific chain
+        full_chain = list(global_middleware) + list(route_chain)
+
+        # Find validation middleware using classification
         validation_controls = []
-        controller_order = None
+        effective_distance = 0  # Only count PARSER/UNKNOWN middleware
 
-        for exec_order, handler_expr, handler_type in chain:
+        for _exec_order, handler_expr, handler_type in full_chain:
             if handler_type == "controller":
-                controller_order = exec_order
                 continue
 
             if handler_type != "middleware":
                 continue
 
-            # Check if this middleware is a validation middleware
-            handler_lower = handler_expr.lower() if handler_expr else ""
-            is_validation = any(
-                pat.lower() in handler_lower
-                for pat in EXPRESS_VALIDATION_PATTERNS
-            )
+            mw_type = classify_middleware(handler_expr)
 
-            if is_validation:
-                # Distance = execution_order (0 = first middleware = immediate validation)
-                # If validation is at order 0, it's the first thing that runs = distance 0
-                # If validation is at order 2, two other middlewares ran first = distance 2
+            # AUTH/RATE_LIMIT/CONTEXT don't count toward distance
+            if mw_type in ["AUTH", "RATE_LIMIT", "CONTEXT"]:
+                continue
+
+            if mw_type == "VALIDATION":
                 validation_controls.append({
                     "control_function": handler_expr,
                     "control_file": file,
                     "control_line": route_line,
-                    "distance": exec_order,
-                    "path": [f"middleware[{i}]:{h}" for i, h, _ in chain[:exec_order + 1]],
+                    "distance": effective_distance,
+                    "middleware_type": mw_type,
                 })
+            elif mw_type in ["PARSER", "UNKNOWN"]:
+                # Only PARSER and UNKNOWN increase effective distance
+                effective_distance += 1
 
-        # Use measure_boundary_quality for consistent scoring
-        quality = measure_boundary_quality(validation_controls)
+        # Check if route accepts input (queries controller file via variable_usage)
+        accepts_input = _route_accepts_input(cursor, file)
+
+        # Binary quality assessment
+        quality = measure_boundary_quality(validation_controls, accepts_input)
 
         # Build violations based on quality
         violations = []
-        if quality["quality"] == "missing":
+        if quality["quality"] == "unvalidated":
             violations.append({
                 "type": "NO_VALIDATION",
-                "severity": "CRITICAL",
-                "message": "Express route has no validation middleware in chain",
+                "severity": "MEDIUM",
+                "message": "Express route accepts input but has no validation middleware",
                 "facts": quality["facts"],
             })
-        elif quality["quality"] == "fuzzy":
-            # Check for distance issues
-            for control in validation_controls:
-                if control["distance"] >= 3:
-                    violations.append({
-                        "type": "VALIDATION_DISTANCE",
-                        "severity": "HIGH",
-                        "message": f"Validation '{control['control_function']}' at position {control['distance']} in middleware chain",
-                        "facts": [
-                            f"Data passes through {control['distance']} middleware(s) before validation",
-                            "Earlier middleware may process unvalidated data",
-                        ],
-                    })
 
         results.append({
             "entry_point": entry_name,
@@ -204,6 +298,7 @@ def _analyze_express_boundaries(cursor, framework_info: list[dict], max_entries:
             "quality": quality,
             "violations": violations,
             "framework": "express",
+            "accepts_input": accepts_input,
         })
 
     return results
@@ -378,30 +473,21 @@ def _analyze_django_boundaries(cursor, framework_info: list[dict], max_entries: 
                     "control_type": "validator",
                 })
 
-        # Use measure_boundary_quality for consistent scoring
-        quality = measure_boundary_quality(validation_controls)
+        # Check if route accepts input (queries same file for Python)
+        accepts_input = _route_accepts_input(cursor, file)
+
+        # Binary quality assessment
+        quality = measure_boundary_quality(validation_controls, accepts_input)
 
         # Build violations
         violations = []
-        if quality["quality"] == "missing":
+        if quality["quality"] == "unvalidated":
             violations.append({
                 "type": "NO_VALIDATION",
-                "severity": "CRITICAL",
-                "message": "Django route has no validation middleware, decorators, or validators",
+                "severity": "MEDIUM",
+                "message": "Django route accepts input but has no validation",
                 "facts": quality["facts"],
             })
-        elif quality["quality"] == "fuzzy":
-            for control in validation_controls:
-                if control["distance"] >= 3:
-                    violations.append({
-                        "type": "VALIDATION_DISTANCE",
-                        "severity": "HIGH",
-                        "message": f"Validation '{control['control_function']}' at distance {control['distance']}",
-                        "facts": [
-                            f"Request passes through {control['distance']} layers before validation",
-                            "Earlier middleware/code may process unvalidated data",
-                        ],
-                    })
 
         results.append({
             "entry_point": entry_name,
@@ -411,6 +497,7 @@ def _analyze_django_boundaries(cursor, framework_info: list[dict], max_entries: 
             "quality": quality,
             "violations": violations,
             "framework": "django",
+            "accepts_input": accepts_input,
         })
 
     return results
@@ -448,7 +535,7 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
 
         # TODO: Add FastAPI analyzer
         # if "fastapi" in frameworks:
-        #     results.extend(_analyze_fastapi_boundaries(cursor, frameworks["fastapi"], max_entries))
+        #     results.extend(_analyze_fastapi_boundaries(...))
 
         # Django analyzer - queries python_django_middleware for global middleware awareness
         if "django" in frameworks:
@@ -599,47 +686,23 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                 call_graph=call_graph,
             )
 
-            quality = measure_boundary_quality(controls)
+            # Check if entry accepts input (generic check - assume yes for HTTP routes)
+            accepts_input = True  # Generic routes are HTTP, assume input
+
+            # Binary quality assessment
+            quality = measure_boundary_quality(controls, accepts_input)
 
             violations = []
 
-            if quality["quality"] == "missing":
+            if quality["quality"] == "unvalidated":
                 violations.append(
                     {
                         "type": "NO_VALIDATION",
-                        "severity": "CRITICAL",
-                        "message": "Entry point accepts external data without validation control in call chain",
+                        "severity": "MEDIUM",
+                        "message": "Entry point accepts input without validation",
                         "facts": quality["facts"],
                     }
                 )
-
-            elif quality["quality"] == "fuzzy":
-                if len(controls) > 1:
-                    control_names = [c["control_function"] for c in controls]
-                    violations.append(
-                        {
-                            "type": "SCATTERED_VALIDATION",
-                            "severity": "MEDIUM",
-                            "message": f"Multiple validation controls: {', '.join(control_names)}",
-                            "facts": quality["facts"],
-                        }
-                    )
-
-                for control in controls:
-                    if control["distance"] >= 3:
-                        violations.append(
-                            {
-                                "type": "VALIDATION_DISTANCE",
-                                "severity": "HIGH",
-                                "message": f"Validation '{control['control_function']}' occurs at distance {control['distance']}",
-                                "control": control,
-                                "facts": [
-                                    f"Data flows through {control['distance']} functions before validation",
-                                    f"Call path: {' -> '.join(control['path'])}",
-                                    f"Distance {control['distance']} creates {control['distance']} potential unvalidated code paths",
-                                ],
-                            }
-                        )
 
             results.append(
                 {
@@ -649,6 +712,7 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
                     "controls": controls,
                     "quality": quality,
                     "violations": violations,
+                    "accepts_input": accepts_input,
                 }
             )
 
@@ -659,15 +723,19 @@ def analyze_input_validation_boundaries(db_path: str, max_entries: int = 50) -> 
 
 
 def generate_report(analysis_results: list[dict]) -> str:
-    """Generate human-readable boundary analysis report."""
-    total = len(analysis_results)
-    clear = sum(1 for r in analysis_results if r["quality"]["quality"] == "clear")
-    acceptable = sum(1 for r in analysis_results if r["quality"]["quality"] == "acceptable")
-    fuzzy = sum(1 for r in analysis_results if r["quality"]["quality"] == "fuzzy")
-    missing = sum(1 for r in analysis_results if r["quality"]["quality"] == "missing")
+    """Generate human-readable boundary analysis report.
 
-    critical_violations = []
-    high_violations = []
+    Quality levels:
+    - validated: Has validation middleware
+    - unvalidated: Accepts input but no validation
+    - no_input: Route doesn't accept user input
+    """
+    total = len(analysis_results)
+    validated = sum(1 for r in analysis_results if r["quality"]["quality"] == "validated")
+    unvalidated = sum(1 for r in analysis_results if r["quality"]["quality"] == "unvalidated")
+    no_input = sum(1 for r in analysis_results if r["quality"]["quality"] == "no_input")
+
+    # Collect violations by severity
     medium_violations = []
 
     for result in analysis_results:
@@ -675,92 +743,57 @@ def generate_report(analysis_results: list[dict]) -> str:
             violation["entry"] = result["entry_point"]
             violation["file"] = result["entry_file"]
             violation["line"] = result["entry_line"]
-
-            if violation["severity"] == "CRITICAL":
-                critical_violations.append(violation)
-            elif violation["severity"] == "HIGH":
-                high_violations.append(violation)
-            else:
-                medium_violations.append(violation)
+            medium_violations.append(violation)
 
     report = []
     report.append("=== INPUT VALIDATION BOUNDARY ANALYSIS ===\n")
     report.append(f"Entry Points Analyzed: {total}")
-    report.append(f"  Clear Boundaries:      {clear} ({clear * 100 // total if total else 0}%)")
-    report.append(
-        f"  Acceptable Boundaries: {acceptable} ({acceptable * 100 // total if total else 0}%)"
-    )
-    report.append(f"  Fuzzy Boundaries:      {fuzzy} ({fuzzy * 100 // total if total else 0}%)")
-    report.append(f"  Missing Boundaries:    {missing} ({missing * 100 // total if total else 0}%)")
-    report.append(f"\nBoundary Score: {(clear + acceptable) * 100 // total if total else 0}%\n")
+    report.append(f"  Validated:     {validated} ({validated * 100 // total if total else 0}%)")
+    report.append(f"  Unvalidated:   {unvalidated} ({unvalidated * 100 // total if total else 0}%)")
+    report.append(f"  No Input:      {no_input} ({no_input * 100 // total if total else 0}%)")
 
-    # Show 5 from each category for balanced visibility
-    display_limit = 5
+    # Score = validated + no_input (routes without input don't need validation)
+    score = (validated + no_input) * 100 // total if total else 0
+    report.append(f"\nBoundary Score: {score}%\n")
 
-    if critical_violations:
-        report.append(f"\n[CRITICAL] FINDINGS ({len(critical_violations)}):\n")
-        for i, v in enumerate(critical_violations[:display_limit], 1):
-            report.append(f"{i}. {v['entry']}")
-            report.append(f"   File: {v['file']}:{v['line']}")
-            report.append(f"   Observation: {v['message']}")
-            if "facts" in v and v["facts"]:
-                report.append(f"   Facts: {v['facts'][0]}\n")
-            else:
-                report.append("")
+    display_limit = 10
 
-    if high_violations:
-        report.append(f"\n[HIGH] FINDINGS ({len(high_violations)}):\n")
-        for i, v in enumerate(high_violations[:display_limit], 1):
-            report.append(f"{i}. {v['entry']}")
-            report.append(f"   File: {v['file']}:{v['line']}")
-            report.append(f"   Observation: {v['message']}")
-            if "facts" in v and v["facts"]:
-                for fact in v["facts"]:
-                    report.append(f"   - {fact}")
-                report.append("")
+    # Show unvalidated routes (action items)
+    if unvalidated > 0:
+        report.append(f"\n[UNVALIDATED] ({unvalidated}):\n")
+        unvalidated_examples = [
+            r for r in analysis_results if r["quality"]["quality"] == "unvalidated"
+        ]
+        for i, example in enumerate(unvalidated_examples[:display_limit], 1):
+            report.append(f"{i}. {example['entry_point']}")
+            report.append(f"   File: {example['entry_file']}:{example['entry_line']}")
+            report.append(f"   Status: {example['quality']['reason']}\n")
+        if unvalidated > display_limit:
+            report.append(f"   ... and {unvalidated - display_limit} more\n")
 
-    if medium_violations:
-        report.append(f"\n[MEDIUM] FINDINGS ({len(medium_violations)}):\n")
-        for i, v in enumerate(medium_violations[:display_limit], 1):
-            report.append(f"{i}. {v['entry']}")
-            report.append(f"   File: {v['file']}:{v['line']}")
-            report.append(f"   Observation: {v['message']}")
-            if "facts" in v and v["facts"]:
-                report.append(f"   Facts: {v['facts'][0]}\n")
-            else:
-                report.append("")
-
-    if clear > 0:
-        report.append(f"\n[CLEAR] BOUNDARIES ({clear}):\n")
-        good_examples = [r for r in analysis_results if r["quality"]["quality"] == "clear"]
-        for i, example in enumerate(good_examples[:display_limit], 1):
+    # Show validated routes (good examples)
+    if validated > 0:
+        report.append(f"\n[VALIDATED] ({validated}):\n")
+        validated_examples = [r for r in analysis_results if r["quality"]["quality"] == "validated"]
+        for i, example in enumerate(validated_examples[:display_limit], 1):
             report.append(f"{i}. {example['entry_point']}")
             report.append(f"   File: {example['entry_file']}:{example['entry_line']}")
             if example["controls"]:
                 control = example["controls"][0]
-                report.append(f"   Control: {control['control_function']} at distance 0")
+                report.append(f"   Control: {control['control_function']}")
             report.append(f"   Status: {example['quality']['reason']}\n")
+        if validated > display_limit:
+            report.append(f"   ... and {validated - display_limit} more\n")
 
-    if acceptable > 0:
-        report.append(f"\n[ACCEPTABLE] BOUNDARIES ({acceptable}):\n")
-        acceptable_examples = [r for r in analysis_results if r["quality"]["quality"] == "acceptable"]
-        for i, example in enumerate(acceptable_examples[:display_limit], 1):
+    # Show no_input routes (informational)
+    if no_input > 0:
+        report.append(f"\n[NO INPUT] ({no_input}):\n")
+        no_input_examples = [r for r in analysis_results if r["quality"]["quality"] == "no_input"]
+        for i, example in enumerate(no_input_examples[:5], 1):
             report.append(f"{i}. {example['entry_point']}")
             report.append(f"   File: {example['entry_file']}:{example['entry_line']}")
-            if example["controls"]:
-                control = example["controls"][0]
-                report.append(f"   Control: {control['control_function']} at distance {control.get('distance', '?')}")
-            report.append(f"   Status: {example['quality']['reason']}\n")
-
-    if fuzzy > 0:
-        report.append(f"\n[FUZZY] BOUNDARIES ({fuzzy}):\n")
-        fuzzy_examples = [r for r in analysis_results if r["quality"]["quality"] == "fuzzy"]
-        for i, example in enumerate(fuzzy_examples[:display_limit], 1):
-            report.append(f"{i}. {example['entry_point']}")
-            report.append(f"   File: {example['entry_file']}:{example['entry_line']}")
-            if example["controls"]:
-                control = example["controls"][0]
-                report.append(f"   Control: {control['control_function']} at distance {control.get('distance', '?')}")
-            report.append(f"   Status: {example['quality']['reason']}\n")
+            report.append("   Status: No user input detected\n")
+        if no_input > 5:
+            report.append(f"   ... and {no_input - 5} more\n")
 
     return "\n".join(report)

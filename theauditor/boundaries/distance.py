@@ -288,66 +288,45 @@ def _get_function_line(cursor, file_path: str | None, func_name: str) -> int | N
     return result[0] if result else None
 
 
-def measure_boundary_quality(controls: list[dict]) -> dict:
-    """Assess boundary quality based on control distances."""
+def measure_boundary_quality(controls: list[dict], accepts_input: bool = True) -> dict:
+    """Assess boundary quality. Binary: validated or unvalidated.
+
+    Args:
+        controls: List of validation control points found
+        accepts_input: Whether the route accepts user input (req.body, req.query, etc.)
+
+    Returns:
+        Quality assessment with severity level.
+    """
+    if not accepts_input:
+        return {
+            "quality": "no_input",
+            "severity": "INFO",
+            "reason": "Route does not accept user input",
+            "facts": ["No user input detected in handler"],
+        }
+
     if not controls:
         return {
-            "quality": "missing",
-            "reason": "No validation, sanitization, or checks found in call chain",
+            "quality": "unvalidated",
+            "severity": "MEDIUM",
+            "reason": "Route accepts input but has no validation middleware",
             "facts": [
-                "Entry point accepts external data",
-                "No validation control detected within search depth",
-                "Data flows to downstream functions without validation gate",
+                "User input detected",
+                "No validation control found",
             ],
         }
 
-    if len(controls) == 1:
-        distance = controls[0]["distance"]
-        control_func = controls[0]["control_function"]
+    validators = [c["control_function"] for c in controls]
+    min_distance = min(c["distance"] for c in controls)
 
-        if distance == 0:
-            return {
-                "quality": "clear",
-                "reason": f"Single control point '{control_func}' at distance 0 (same function as entry)",
-                "facts": [
-                    "Validation occurs in entry function",
-                    "External data validated before use",
-                    "No intermediate functions between entry and validation",
-                ],
-            }
-        elif distance <= 2:
-            return {
-                "quality": "acceptable",
-                "reason": f"Single control point '{control_func}' at distance {distance}",
-                "facts": [
-                    f"Validation occurs {distance} function call(s) after entry",
-                    f"Data flows through {distance} intermediate function(s) before validation",
-                    "Single validation control point detected",
-                ],
-            }
-        else:
-            return {
-                "quality": "fuzzy",
-                "reason": f"Single control point '{control_func}' at distance {distance}",
-                "facts": [
-                    f"Validation occurs {distance} function calls after entry",
-                    f"Data flows through {distance} intermediate functions before validation control",
-                    f"Distance {distance} creates {distance} potential code paths without validation",
-                ],
-            }
-    else:
-        distances = [c["distance"] for c in controls]
-        min_dist = min(distances)
-        max_dist = max(distances)
-        control_names = [c["control_function"] for c in controls]
-
-        return {
-            "quality": "fuzzy",
-            "reason": f"Multiple control points detected: {', '.join(control_names)}",
-            "facts": [
-                f"{len(controls)} different validation controls found",
-                f"Control distances range from {min_dist} to {max_dist}",
-                "Multiple validation points indicate distributed boundary enforcement",
-                "Different code paths may encounter different validation controls",
-            ],
-        }
+    return {
+        "quality": "validated",
+        "severity": "PASS",
+        "reason": f"Protected by: {', '.join(validators)}",
+        "facts": [f"Found {len(controls)} validation control(s)"],
+        "metrics": {
+            "validator_count": len(controls),
+            "min_distance": min_distance,
+        },
+    }
