@@ -40,7 +40,7 @@ calibrator = IsotonicRegression(out_of_bounds="clip")
 
 ## Feature Engineering (109 Dimensions)
 
-### 15 Feature Tiers
+### 16 Feature Tiers
 
 | Tier | Features | Source |
 |------|----------|--------|
@@ -59,8 +59,7 @@ calibrator = IsotonicRegression(out_of_bounds="clip")
 | 13. Control Flow | cfg_blocks, cyclomatic_complexity | CFG tables |
 | 14. Impact Radius | blast_radius, coupling_score | Impact analyzer |
 | 15. AI Agent Behavior | blind_edit_count, hallucination_rate | Session logs |
-
-### Text Features (50 dimensions)
+| 16. Text Features | Hashed path components (50 dims) | FNV-1a hash |
 ```python
 # Fowler-Noll-Vo hash for path components and RCA messages
 for part in Path(path).parts:
@@ -180,5 +179,5 @@ When training on <500 samples:
 | File metadata | `repo_index.db` | Indexer |
 | Security findings | `findings_consolidated` | Linters + rules |
 | Git history | `.git/` | Git CLI |
-| Session logs | `~/.claude/projects/` | Session analyzer |
+| Session logs | `~/.claude/projects/` (default) | Session analyzer (`--session-dir` for custom) |
 | Historical journal | `.pf/history/` | Pipeline logger |

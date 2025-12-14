@@ -18,7 +18,8 @@ A **Tier 5 (ML training) pipeline** that:
 - Reads `.jsonl` session files
 - Extracts: user messages, assistant messages, tool calls
 - Creates `Session` dataclass with chronological turns
-- Location: `~/.claude/projects/` or `~/.codex/sessions/`
+- Default locations: `~/.claude/projects/` or `~/.codex/sessions/`
+- Custom path: Use `--session-dir` flag
 
 ### 2. Activity Classifier (`activity_metrics.py`)
 

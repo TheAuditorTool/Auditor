@@ -66,13 +66,13 @@ User Input (aud manual <topic>)
 | Topic | Summary |
 |-------|---------|
 | `taint` | Track untrusted data flow from sources to sinks |
-| `patterns` | 2000+ security vulnerability pattern detection |
+| `patterns` | 25 rule categories with 200+ detection functions |
 | `boundaries` | Measure distance from entry points to controls |
 
 ### Analysis Architecture
 | Topic | Summary |
 |-------|---------|
-| `pipeline` | 20-phase execution pipeline |
+| `pipeline` | 24-phase execution pipeline |
 | `cfg` | Control flow graphs for complexity |
 | `graph` | Import and call graphs |
 | `fce` | Multi-vector correlation engine |

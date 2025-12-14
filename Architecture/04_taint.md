@@ -16,6 +16,9 @@ Traces **untrusted data from sources to dangerous sinks** across the entire code
 - Vulnerability Types: 18+ classes (SQLi, XSS, Command Injection, SSRF, etc.)
 - Performance: 5-10x faster with in-memory caching
 
+**Requirements:**
+- **Python 3.14+**: Required for PEP 649 (Deferred Evaluation of Annotations). TheAuditor uses deferred annotation evaluation to resolve Pydantic models and FastAPI dependencies without runtime import errors, enabling static taint tracking through framework code that cannot be imported.
+
 ---
 
 ## Dual-Mode Architecture

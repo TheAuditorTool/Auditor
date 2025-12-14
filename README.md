@@ -1,38 +1,63 @@
 # TheAuditor
 
-**The Database-First Code Intelligence Platform**
+**Database-First Static Analysis and Code Context Intelligence**
 
-> Modern static analysis reimagined: Database-driven, AI-optimized, zero-fallback architecture for Python, JavaScript/TypeScript, Go, and Rust projects
+> Multi-language security analysis platform with strict data fidelity guarantees for Python, JavaScript/TypeScript, Go, Rust, Bash, and Terraform/HCL projects
+
+**🔒 Privacy-First**: All code analysis runs locally. Your source code never leaves your machine.
+
+**Network Features** (fully optional - use `--offline` to disable):
+- Dependency version checks (npm, pip, cargo registries)
+- Documentation fetching for improved AI context
+- Public vulnerability database updates
+
+Default mode includes network calls. Run `aud full --offline` for air-gapped operation.
+
 ---
 
 ## What is TheAuditor?
 
+TheAuditor is a **database-first code intelligence platform** that indexes your entire codebase into a structured SQLite database, enabling:
 
-TheAuditor is a **production-grade offline SAST and Code Context for AIs tool** that indexes your entire codebase into a structured SQLite database, enabling:
-
-- **200+ security vulnerability patterns** with framework-aware detection
+- **25 rule categories with 200+ detection functions** for framework-aware vulnerability detection
 - **Complete data flow analysis** with cross-file taint tracking
 - **Architectural intelligence** with hotspot detection and circular dependency analysis
-- **AI-optimized output** designed for LLM consumption (<65KB chunks)
+- **Deterministic query tools** providing ground truth for AI agents (prevents hallucination)
 - **Database-first queries** replacing slow file I/O with indexed lookups
-- **Framework-aware detection** for Django, Flask, FastAPI, React, Vue, Express, and 15+ more
+- **Framework-aware detection** for Django, Flask, FastAPI, React, Vue, Next.js, Express, Angular, SQLAlchemy, Prisma, Sequelize, TypeORM, Celery, GraphQL, Terraform, AWS CDK, GitHub Actions
 
-**Key Differentiator**: While most SAST tools scan files repeatedly, TheAuditor **indexes once, queries infinitely** - enabling sub-second queries across 100K+ LOC.
+**Key Differentiator**: While most SAST tools re-parse files for every query, TheAuditor **indexes incrementally and queries from the database** - enabling sub-second queries across 100K+ LOC. Re-index only when files change, branches switch, or after code edits.
+
+---
+
+## 📺 See the A/B Test
+
+**TheAuditor vs. Standard AI: Head-to-Head Refactor**
+
+[![Watch the video](https://img.youtube.com/vi/512uqMaZlTg/0.jpg)](https://www.youtube.com/watch?v=512uqMaZlTg)
+
+> **The Experiment:** We ran an A/B test giving the exact same problem statement to two Claude Code sessions.
+> * **Session A (Standard):** File reading, grepping, assumptions about the codebase.
+> * **Session B (TheAuditor):** Used `aud planning` to verify the problem, `aud impact` for blast radius, and `aud refactor` to guide implementation.
+>
+> **Result:** Watch how the database-first approach verifies the fix *before* writing code, preventing the hallucinations and incomplete refactors seen in Session A.
 
 ---
 
 ```bash
-# Index your codebase (once)
+# Index your codebase
 aud full
 
-# Query anything instantly
+# Query from the database
 aud query --symbol validateUser --show-callers --depth 3
 aud blueprint --security
 aud taint --severity critical
 aud impact --symbol AuthService --planning-context
-```
 
-**One index. Infinite queries.**
+# Re-index after changes (incremental via workset)
+aud workset --diff main..HEAD
+aud full --index
+```
 
 ---
 
@@ -83,11 +108,55 @@ Tree-sitter provides fast structural parsing for Go, Rust, and Bash. The heavy l
 
 | Traditional Tools | TheAuditor |
 |-------------------|------------|
-| Re-parse files per query | Parse once, query forever |
+| Re-parse files per query | Index incrementally, query from database |
 | Single analysis dimension | 4-vector convergence (static + structural + process + flow) |
-| Human-only interfaces | AI-agent native with anti-hallucination safeguards |
+| Human-only interfaces | Deterministic query tools for AI agents |
 | File-based navigation | Database-first with recursive CTEs |
 | Point-in-time analysis | ML models trained on your codebase history |
+
+---
+
+## Limitations & Trade-offs
+
+**Analysis Speed vs Correctness:**
+- We prioritize correctness over speed
+- Full indexing: 1-10 minutes depending on codebase size (framework-heavy projects slower)
+- Complete call graph construction rather than approximate heuristics
+
+**Language Support Fidelity:**
+- **Python & TypeScript/JavaScript**: Full semantic analysis via native compilers
+- **Go & Rust**: Structural analysis via Tree-sitter (no type resolution)
+- **C++**: Not currently supported
+
+**Database Size:**
+- `repo_index.db`: 50MB (5K LOC) to 500MB+ (100K+ LOC)
+- `graphs.db`: 30MB (5K LOC) to 300MB+ (100K+ LOC)
+- Trade-off: Disk space for instant queries
+
+**Setup Overhead:**
+- Requires initial `aud full` run before querying (1-10 min first-time)
+- Not suitable for quick one-off file scans
+- Designed for sustained development on a codebase
+
+**Current Scope:**
+- Security-focused static analysis, not a linter replacement
+- Complements (doesn't replace) language-specific tools like mypy, eslint
+- No IDE integration (CLI-only, designed for terminal and AI agent workflows)
+
+### What This Is NOT
+
+**Not a Traditional SAST:**
+- We don't provide "risk scores" or subjective ratings
+- We provide facts (FCE shows evidence convergence, not risk opinions)
+- You interpret the findings based on your context
+
+**Not a Code Formatter:**
+- We detect patterns, we don't fix them
+- See findings as signals to investigate, not auto-fix targets
+
+**Not a Replacement for Linters:**
+- TheAuditor focuses on security patterns and architecture
+- Use alongside Ruff, ESLint, Clippy for comprehensive coverage
 
 ---
 
@@ -105,7 +174,9 @@ pip install -e .
 aud setup-ai
 ```
 
-**Requirements**: Python 3.12+
+**Prerequisites:**
+* **Python 3.14+** (Strict Requirement)
+  * *Why?* We rely on **PEP 649 (Deferred Evaluation of Annotations)** for accurate type resolution in the Taint Engine. We cannot track data flow through Pydantic models or FastAPI endpoints correctly without it.
 
 ---
 
@@ -136,9 +207,9 @@ aud query --symbol authenticate --show-callers
 
 | Command | Purpose |
 |---------|---------|
-| `aud full` | Comprehensive 20-phase indexing pipeline |
+| `aud full` | Comprehensive 24-phase indexing pipeline |
 | `aud workset` | Create focused file subsets for targeted analysis |
-| `aud detect-patterns` | 200+ security vulnerability patterns |
+| `aud detect-patterns` | 25 rule categories with 200+ detection functions |
 | `aud taint` | Source-to-sink data flow tracking |
 | `aud boundaries` | Security boundary enforcement analysis |
 
@@ -297,39 +368,43 @@ aud deadcode --format summary
 
 ## AI Agent Integration
 
-TheAuditor is designed for AI agents with **anti-hallucination safeguards**.
+TheAuditor **provides ground truth for AI agents** by offering deterministic database queries instead of forcing LLMs to read thousands of lines and infer relationships. The LLM gets verified facts from indexed data, not generated assumptions.
 
-### Slash Commands
+### How It Helps LLMs
+
+Rather than forcing the LLM to read thousands of lines and infer relationships, TheAuditor provides:
+- **Deterministic queries**: `aud query --symbol X --show-callers` returns exact facts from the database
+- **Verified relationships**: Call graphs, import graphs, and data flow are pre-computed and indexed
+- **Scoped context**: `aud explain` provides only relevant context for a symbol/file, not entire codebases
+
+The LLM uses these tools to answer questions with **database facts** instead of **generated assumptions**.
+
+### Available Tools
 
 ```bash
-/onboard      # Initialize session with rules
-/start        # Load ticket, verify, brief
-/audit        # Comprehensive code audit
-/explore      # Explore codebase architecture
-/theauditor:planning   # Database-first planning
-/theauditor:security   # Security analysis
-/theauditor:impact     # Blast radius analysis
+aud query       # Symbol relationships, callers, callees
+aud explain     # Complete context for any file/symbol
+aud blueprint   # Architecture facts
+aud impact      # Blast radius calculation
+aud refactor    # Verification of refactoring completeness
+aud taint       # Data flow analysis results
 ```
 
-### Agent Execution Protocol
+### Slash Commands (For Claude/AI Agents)
 
-**MANDATORY for AI Agents**:
-1. Run `aud blueprint --structure` before ANY planning
-2. Use `aud query` instead of reading files directly
-3. Cite every query result with evidence
-4. Follow Phase -> Task -> Job hierarchy
-
-**FORBIDDEN**:
-- "Let me read the file..." (use `aud explain`)
-- "Based on typical patterns..." (use database facts)
-- Making recommendations without query evidence
+```bash
+/onboard                 # Initialize session with rules
+/theauditor:planning     # Database-first planning workflow
+/theauditor:security     # Security analysis with taint tracking
+/theauditor:impact       # Blast radius before changes
+```
 
 ### Token Efficiency
 
 | Traditional AI | TheAuditor Agent |
 |----------------|------------------|
 | Read 2000 lines to find functions | `aud query --file X --list functions` |
-| Grep entire codebase | `aud blueprint` (instant) |
+| Grep entire codebase | `aud blueprint` (sub-second) |
 | Assume callers exist | `aud query --symbol X --show-callers` |
 
 **Result**: Queries return indexed facts from the database, not generated assumptions
@@ -362,18 +437,28 @@ aud suggest --topk 10
 - **Next Edit Predictor**: Which files need modification?
 - **Risk Regression**: Quantified change risk (0-1)
 
-### Session Analysis
+### Session Analysis & Agent Behavior Tracking
 
-Analyze AI agent interactions for quality metrics:
+Analyze AI agent interactions for quality metrics and workflow patterns:
 
 ```bash
 aud session activity
+aud session analyze
 ```
 
-**Metrics**:
+**Workflow Metrics**:
 - `work_to_talk_ratio`: Working tokens / (Planning + Conversation)
 - `research_to_work_ratio`: Research tokens / Working tokens
 - `tokens_per_edit`: Efficiency measure
+
+**Behavioral Features** (extracted for ML training):
+- **Blind Edit Detection**: Tracks when agents edit files without reading them first
+- **Duplicate Implementation Rate**: Detects when agents recreate existing code
+- **Comment Hallucination**: Identifies references to non-existent comments
+- **Read Efficiency**: Ratio of file reads to edits (lower = more confident)
+- **Search Effectiveness**: Tracks when agents miss existing implementations
+
+These features help ML models learn that certain agent behaviors correlate with higher failure rates. For example, code written during sessions with 5+ blind edits shows 80% higher likelihood of requiring corrections.
 
 ---
 
@@ -494,7 +579,7 @@ aud manual boundaries    # Boundary analysis
 
 ## CLI Help System
 
-Rich-formatted help with 9 command categories:
+Rich-formatted help with 30+ commands across 9 categories:
 
 ```bash
 aud --help              # Dashboard view
@@ -514,23 +599,35 @@ aud taint --help        # Per-command help with examples
 
 All analysis stored in `.pf/` directory:
 
-| Database | Contents |
-|----------|----------|
-| `repo_index.db` | Symbols, calls, imports, findings |
-| `graphs.db` | Dependency graph, call graph |
-| `fce.db` | Vector convergence data |
-| `ml/session_history.db` | AI session analysis |
-| `planning.db` | Task management |
+| Database | Contents | Typical Size |
+|----------|----------|--------------|
+| `repo_index.db` | Symbols, calls, imports, findings | 50MB (5K LOC) - 500MB+ (100K+ LOC) |
+| `graphs.db` | Dependency graph, call graph | 30MB (5K LOC) - 300MB+ (100K+ LOC) |
+| `fce.db` | Vector convergence data | <10MB |
+| `ml/session_history.db` | AI session analysis | <50MB |
+| `planning.db` | Task management | <5MB |
 
 ---
 
 ## Performance
 
-| Codebase Size | Index Time | Query Time | RAM |
-|---------------|------------|------------|-----|
-| <5K LOC | ~5s | <10ms | ~100MB |
-| 20K LOC | ~15s | <50ms | ~200MB |
-| 100K+ LOC | ~60s | <100ms | ~500MB |
+**Indexing times vary widely based on codebase characteristics:**
+
+| Codebase Size | Typical Range | Notes |
+|---------------|---------------|-------|
+| <5K LOC | 5-30s | Simple projects vs framework-heavy |
+| 20K LOC | 15s-2min | Framework depth matters most |
+| 100K+ LOC | 1-10min | Heavy ORM/framework analysis is expensive |
+
+**Query times** (after indexing): <1s for most operations, regardless of codebase size.
+
+*Index Time = parsing only (`aud full --index`). Full pipeline (`aud full`) typically adds 2-10 minutes for taint analysis, linting, and graph construction - but can be longer for large codebases with complex frameworks.*
+
+*Benchmarks from mixed Python/TypeScript projects on AMD Ryzen 7 7800X3D, 32GB RAM, NVMe SSD. Real-world performance depends on:*
+- *Language mix (Python/TypeScript slower than Go/Rust due to deeper semantic analysis)*
+- *Framework complexity (Django ORM extraction vs vanilla Python)*
+- *Dependency graph size (more edges = longer graph construction)*
+- *Available system resources*
 
 **Optimizations**:
 - SQLite WAL mode for concurrent reads
@@ -565,28 +662,18 @@ ml:
 
 ---
 
-## Contributing
+## Source & Contributions
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+TheAuditor is **Source Available** under AGPL-3.0.
 
-### Development Setup
+**Development Status:** This is a solo-dev project maintained in my limited free time outside of full-time work. I'm currently focused on stabilizing the core architecture (800+ commits in 5 months) and prefer to invest available time in development rather than PR review/integration overhead.
 
-```bash
-git clone https://github.com/yourorg/theauditor.git
-cd theauditor
-python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -e ".[dev]"
+**Contributions:**
+- **Bug Reports**: Highly appreciated! Please open Issues with reproduction steps.
+- **Feature Discussions**: Welcome! Open a Discussion to propose ideas.
+- **Pull Requests**: Not accepting at this time. The codebase is evolving rapidly and I don't have capacity for review/merge cycles. This may change post-v2.0 stabilization.
 
-# Run tests
-pytest
-
-# Type checking
-mypy theauditor
-
-# Linting
-ruff check theauditor
-```
+Feel free to fork for your own needs. If you find this useful, starring the repo helps visibility.
 
 ---
 

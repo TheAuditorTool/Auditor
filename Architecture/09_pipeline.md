@@ -2,7 +2,7 @@
 
 ## Overview
 
-The `aud full` command orchestrates a **20-phase security audit pipeline** organized into **4 sequential stages** with intelligent parallelization.
+The `aud full` command orchestrates a **24-phase security audit pipeline** organized into **4 sequential stages** with intelligent parallelization.
 
 Built on **Python asyncio** with Rich terminal UI, comprehensive error recovery, timeout management, and ML-friendly audit journaling.
 
@@ -44,7 +44,7 @@ Built on **Python asyncio** with Rich terminal UI, comprehensive error recovery,
 
 ---
 
-## The 20 Phases
+## The 24 Phases
 
 | # | Phase | Stage | Timeout |
 |---|-------|-------|---------|

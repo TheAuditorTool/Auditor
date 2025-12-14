@@ -1,6 +1,6 @@
 # TheAuditor: Complete Usage Guide
 
-TheAuditor is a **multi-language, database-first security and code analysis platform** that indexes your entire codebase into SQLite, then provides instant queries, taint analysis, ML predictions, and AI-optimized context bundles.
+TheAuditor is a **multi-language, database-first security and code analysis platform** that indexes your entire codebase into SQLite, then provides fast queries, taint analysis, ML predictions, and deterministic context bundles for AI agents.
 
 ---
 
@@ -41,7 +41,7 @@ aud explain src/auth/service.ts
 
 **What Just Happened:**
 - `setup-ai` creates a `.pf/` directory with databases and cache
-- `full` runs a 20-phase pipeline: indexing, linting, graph building, taint analysis, and more
+- `full` runs a 24-phase pipeline: indexing, linting, graph building, taint analysis, and more
 - `blueprint` shows codebase architecture facts
 - `taint` finds injection vulnerabilities (SQLi, XSS, command injection)
 - `explain` provides comprehensive context on any code target
@@ -52,11 +52,11 @@ aud explain src/auth/service.ts
 
 ### Database-First Philosophy
 
-TheAuditor parses your code ONCE, stores everything in SQLite, then answers questions in milliseconds:
+TheAuditor parses your code ONCE, stores everything in SQLite, then answers questions fast:
 
 ```
 Traditional: User asks → Read files → Parse ASTs → Traverse → Return (seconds)
-TheAuditor:  aud full → Parse once → Store in SQLite → Query instantly (ms)
+TheAuditor:  aud full → Parse once → Store in SQLite → Query (<1s typically)
 ```
 
 ### The .pf Directory
@@ -78,16 +78,16 @@ After running `aud full`, you'll have:
 
 ### Zero Fallback Policy
 
-TheAuditor never silently fails. If analysis fails, it fails HARD:
-- No retry logic on FK violations
-- Fidelity errors are FATAL
-- Parse errors stop processing (fix or exclude the file)
+TheAuditor prioritizes correctness over convenience. When critical issues occur, the pipeline stops rather than continuing with incomplete data:
+- No retry logic on foreign key violations (indicates schema bugs)
+- Fidelity errors stop the pipeline (indicates data corruption risk)
+- Parse errors halt indexing for that language (fix syntax or exclude problematic files)
 
 ---
 
 ## The Pipeline
 
-The `aud full` command runs a **20-phase pipeline** in 4 stages:
+The `aud full` command runs a **24-phase pipeline** in 4 stages:
 
 ### Stage 1: Foundation (Sequential, REQUIRED)
 | Phase | Command | Purpose |
@@ -629,7 +629,7 @@ aud context --file oauth_migration.yaml
 ### Core Analysis
 | Command | Description |
 |---------|-------------|
-| `aud full` | Run complete 20-phase pipeline |
+| `aud full` | Run complete 24-phase pipeline |
 | `aud full --offline` | Skip network I/O |
 | `aud full --index` | Index only, skip analysis |
 | `aud workset` | Compute targeted file subset |
@@ -637,7 +637,7 @@ aud context --file oauth_migration.yaml
 ### Security
 | Command | Description |
 |---------|-------------|
-| `aud detect-patterns` | Detect 2000+ security patterns |
+| `aud detect-patterns` | Detect 200+ security patterns |
 | `aud detect-frameworks` | Display detected frameworks |
 | `aud taint` | IFDS taint analysis |
 | `aud boundaries` | Security boundary analysis |

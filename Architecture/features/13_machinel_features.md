@@ -10,7 +10,7 @@ TheAuditor's ML feature system extracts **109 dimensional features** from code r
 
 ---
 
-## 15 Feature Tiers (109 Dimensions)
+## 16 Feature Tiers (109 Dimensions)
 
 ### Tier 1: File Metadata (4 features)
 ```

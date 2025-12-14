@@ -1,6 +1,6 @@
 # TheAuditor Architecture
 
-A comprehensive polyglot security analysis platform with 12 specialized engines for deep code understanding, vulnerability detection, and AI-assisted development workflows.
+A comprehensive polyglot security analysis platform with modular architecture for deep code understanding, vulnerability detection, and code context intelligence.
 
 ---
 
@@ -11,7 +11,7 @@ A comprehensive polyglot security analysis platform with 12 specialized engines 
                                          |
                                          v
                               +------------------+
-                              |   CLI Commands   |  (36 commands, 9 categories)
+                              |   CLI Commands   |  (30+ commands, 9 categories)
                               +------------------+
                                          |
                     +--------------------+--------------------+
@@ -80,6 +80,10 @@ Source Files → AST Parser → Extractors → DataStorer → SQLite
 ```
 
 ### The "Holy Trio" Fidelity System
+
+**Purpose**: Prevents storage layer bugs from silently dropping data. This catches issues like incorrect SQL INSERTs, schema mismatches, or database connection failures.
+
+**What it does NOT catch**: Human coding errors in extractors (e.g., incorrectly classifying a class as a variable). The fidelity system verifies "data extracted" matches "data stored" - it cannot validate semantic correctness.
 
 **1. Manifest Generation** (`fidelity_utils.py`)
 ```python
@@ -1039,7 +1043,7 @@ When training on <500 samples:
 
 ## Engine 9: Pipeline & Orchestration
 
-The `aud full` command orchestrates a **20-phase security audit pipeline** organized into **4 sequential stages** with intelligent parallelization.
+The `aud full` command orchestrates a **24-phase security audit pipeline** organized into **4 sequential stages** with intelligent parallelization.
 
 ### Pipeline Architecture
 
@@ -1064,7 +1068,7 @@ The `aud full` command orchestrates a **20-phase security audit pipeline** organ
         └── Phases 21-25: CFG, churn, FCE, session analysis
 ```
 
-### The 20 Phases
+### The 24 Phases
 
 | # | Phase | Stage | Timeout |
 |---|-------|-------|---------|
@@ -1128,14 +1132,14 @@ async def run_command_async(cmd, cwd, timeout=900):
 
 | Stage | On Failure |
 |-------|------------|
-| **1 & 2** | Hard fail - STOP PIPELINE |
-| **3 & 4** | Continue with partial results |
+| **1 & 2** | Pipeline stops - foundational data required for later stages |
+| **3 & 4** | Continue with partial results, log errors |
 
 ### Pipeline Modes
 
 | Mode | Flag | Behavior |
 |------|------|----------|
-| **Full** | (default) | All 20 phases |
+| **Full** | (default) | All 24 phases |
 | **Offline** | `--offline` | Skip Track C (network I/O) |
 | **Index-Only** | `--index` | Only Stages 1 & 2 |
 
@@ -1492,7 +1496,7 @@ aud session list       # List available sessions
 
 ## Engine 12: CLI Commands
 
-**36 active commands** across **9 functional categories**, managed through Rich-formatted help with categorized panels.
+**36 top-level commands** (26 standalone + 10 groups) with **77 total commands** including subcommands, organized across **9 functional categories** with Rich-formatted help.
 
 ### Command Categories
 
@@ -1508,7 +1512,13 @@ aud session list       # List available sessions
 | **INSIGHTS_ML** | insights, learn, suggest, learn-feedback, session | ML-driven analysis |
 | **UTILITIES** | planning, manual, _archive | Support functions |
 
-### Full Command List
+### Command Inventory
+
+**Top-Level Commands**: 36 commands (26 standalone + 10 groups)
+**Subcommands**: 41 subcommands within groups
+**Total**: 77 commands including all subcommands
+
+The table below lists all available commands:
 
 | # | Command | Description |
 |---|---------|-------------|
@@ -1722,11 +1732,11 @@ aud <cmd> --help    # Per-command Rich sections:
 
 ### Database Sizes
 
-| Files Indexed | repo_index.db | graphs.db |
-|---------------|---------------|-----------|
-| 500 files | ~50MB | ~30MB |
-| 2,000 files | ~181MB | ~126MB |
-| 10,000 files | ~500MB | ~300MB |
+| Codebase Size | repo_index.db | graphs.db |
+|:--- |:--- |:--- |
+| **Small (~5k LOC)** | ~50MB | ~30MB |
+| **Medium (~20k LOC)** | ~180MB | ~120MB |
+| **Large (~100k+ LOC)** | ~600MB+ | ~300MB+ |
 
 ---
 
@@ -1778,7 +1788,7 @@ aud <cmd> --help    # Per-command Rich sections:
 
 ## Summary
 
-TheAuditor is a **12-engine polyglot security analysis platform** that transforms source code into queryable facts through a sophisticated pipeline of AST extraction, graph construction, taint analysis, and ML-driven insights. The system enforces **Zero Fallback** (no silent failures), **Database-First** navigation (never re-parse during analysis), and **Evidence Over Opinion** (FCE provides facts, not subjective scores).
+TheAuditor is a **modular polyglot security analysis platform** that transforms source code into queryable facts through a sophisticated pipeline of AST extraction, graph construction, taint analysis, and ML-driven insights. The system enforces **Zero Fallback** (no silent failures), **Database-First** navigation (never re-parse during analysis), and **Evidence Over Opinion** (FCE provides facts, not subjective scores).
 
 The architecture enables:
 - Deep semantic understanding of 7+ programming languages
@@ -1786,6 +1796,6 @@ The architecture enables:
 - 4-vector evidence convergence (FCE)
 - ML-based risk prediction and impact forecasting
 - AI agent behavior analysis for quality improvement
-- Comprehensive CLI with 36 commands across 9 categories
+- Comprehensive CLI with 30+ commands across 9 categories
 
 All components share a common SQLite backend with transactional integrity (WAL mode, manifest-receipt pairing), enabling reliable incremental analysis and efficient database-first querying.

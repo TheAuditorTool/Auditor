@@ -7,7 +7,7 @@ The **EXPLAIN** command provides a comprehensive "briefing packet" for any code 
 ### Key Characteristics
 - **Single Command**: Replaces multiple query commands
 - **Auto-Detection**: Automatically detects file vs symbol vs component
-- **AI-Optimized**: Saves 5,000-10,000 context tokens per task
+- **Deterministic Context**: Provides ground truth facts, saving 5,000-10,000 context tokens per task
 - **Fast**: <100ms for files with <50 symbols
 - **Database-First**: No file re-parsing
 

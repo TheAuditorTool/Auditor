@@ -125,7 +125,7 @@ class AIContextBundle:
 | Risk scoring (CRITICAL/HIGH) | Pure fact reporting |
 | Individual tool findings | Vector-based aggregation |
 | Single dimension | 4 orthogonal vectors |
-| Human-focused output | AI-optimized bundles |
+| Human-focused output | Deterministic context bundles |
 
 ---
 

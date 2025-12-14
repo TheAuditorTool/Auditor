@@ -18,21 +18,7 @@ TheAuditor's AGENTS system is a **database-first, AI-friendly framework** that e
 
 ## Slash Commands
 
-### Core Workflow Commands
-
-| Command | Purpose |
-|---------|---------|
-| `/onboard` | Initialize session with roles, rules |
-| `/start` | Load ticket, verify, brief before implementation |
-| `/spec` | Create atomic OpenSpec proposals |
-| `/check` | Due diligence for OpenSpec proposals |
-| `/audit` | Run comprehensive code audit |
-| `/review` | Quality review without over-engineering |
-| `/explore` | Explore codebase, produce architecture docs |
-| `/docs` | Generate component documentation |
-| `/sop` | Generate completion report with evidence |
-| `/git` | Generate professional commit messages |
-| `/progress` | Re-onboard after compaction |
+**Note:** Slash commands are protocol prompts for AI agents (Claude, Cursor, etc.) to invoke TheAuditor tools. These are NOT terminal commands. Use `aud <command>` in your terminal for actual CLI operations.
 
 ### TheAuditor Integration Commands
 

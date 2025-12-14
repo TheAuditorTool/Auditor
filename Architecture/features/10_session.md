@@ -6,7 +6,7 @@ The **SESSION Analyzer** analyzes AI agent (Claude Code, Codex) session interact
 
 **Core Question**: "How much do we talk to the AI vs how much does it work vs plan?"
 
-**Input**: Session JSONL files from `~/.claude/projects/` or `~/.codex/sessions/`
+**Input**: Session JSONL files from `~/.claude/projects/` or `~/.codex/sessions/` (default locations, use `--session-dir` for custom paths)
 **Output**: `.pf/ml/session_history.db`, activity metrics, findings, ML training data
 
 ---
