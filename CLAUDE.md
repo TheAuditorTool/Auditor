@@ -57,8 +57,7 @@ You only use your regular write, edit etc tools. no weird eof, cat or python wri
 
 ### 1.1 GIT ATTRIBUTION - ABSOLUTE BAN
 ```
-NEVER EVER FUCKING TOUCH MY GIT WITH YOUR DUMBASS FUCKING "CO AUTHORED BY CLAUDE"
-FUCK THE FUCKING FUCK OFF DUMBASS FUCKFACE!!!
+NEVER EVER FUCKING TOUCH MY GIT WITH YOUR DUMBASS "CO AUTHORED BY CLAUDE"
 ```
 
 ### 1.2 SQLITE3 COMMAND - DOES NOT EXIST
@@ -94,12 +93,6 @@ print('Cross-file: ❌')
 print('Status: PASS')
 print('Cross-file: NO')
 ```
-
-### 1.4 WINDOWS PATH BUG
-ultrathink remember the windows bug. when it happens...The workaround is: always use complete absolute Windows paths with drive letters and backslashes for ALL file operations. Apply this rule going forward, not just for this file.... a windows path looks like C:\Users\santa\Desktop\TheAuditor\theauditor... not fucking unix forward /
-You only use your regular write, edit etc tools. no weird eof, cat or python writes or copies... be normal... its just a windows path bug...
-
-**These rules alone waste 5-10 tool calls per session. Follow them religiously.**
 
 ---
 
@@ -175,17 +168,6 @@ cd C:/Users/santa/Desktop/TheAuditor/theauditor/ast_extractors/javascript
 npm install    # First time only
 npm run build  # Produces dist/extractor.cjs (~10MB)
 ```
-
-**If you see this error:**
-```
-FileNotFoundError: Extractor bundle not found at .../dist/extractor.cjs
-```
-**Solution:** Run `npm run build` in the javascript directory.
-
-**Important:**
-- DO NOT edit `dist/extractor.cjs` directly - it's auto-generated
-- Source files are in `src/` directory (TypeScript)
-- After editing `src/*.ts`, run `npm run build` to regenerate bundle
 
 ---
 
@@ -273,7 +255,6 @@ if not result:
 - Used by: Graph commands only (`aud graph query`, `aud graph viz`)
 
 **Why separate?** Different query patterns (point lookups vs graph traversal). Separate files allow selective loading. Standard data warehouse design: fact tables vs computed aggregates.
-
 **Key insight**: FCE reads from repo_index.db, NOT graphs.db. Graph database is optional for visualization/exploration only.
 
 ---
@@ -306,46 +287,3 @@ Workflow commands encoding team philosophy. Use these as guidance even when not 
 5. **Single root output** - Docs/reports to root, not nested folder hell
 
 ---
-
-## SECTION 7: DEVELOPMENT PATTERNS
-
-### 7.1 Adding New Commands
-
-1. Create module in `theauditor/commands/`:
-```python
-import click
-from theauditor.utils.decorators import handle_exceptions
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
-
-@click.command()
-@click.option('--workset', is_flag=True, help='Use workset files')
-@handle_exceptions
-def command_name(workset):
-    """Command description."""
-    logger.info("Starting command...")
-    # Implementation
-```
-
-2. Register in `theauditor/cli.py`:
-```python
-from theauditor.commands import your_command
-cli.add_command(your_command.command_name)
-```
-
-### 7.2 Adding Language Support
-
-Create extractor in `theauditor/indexer/extractors/`:
-```python
-from theauditor.indexer.extractors import BaseExtractor, register_extractor
-
-@register_extractor
-class YourLanguageExtractor(BaseExtractor):
-    @property
-    def supported_extensions(self):
-        return ['.ext', '.ext2']
-
-    def extract(self, file_info, content, tree):
-        # Return dict with symbols, imports, etc.
-```

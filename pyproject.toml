@@ -75,6 +75,9 @@ aud = "theauditor.cli:main"
 [tool.hatch.build.targets.wheel]
 packages = ["theauditor"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"theauditor/ast_extractors/javascript/dist/extractor.cjs" = "theauditor/ast_extractors/javascript/dist/extractor.cjs"
+
 [tool.ruff]
 line-length = 100
 target-version = "py314"

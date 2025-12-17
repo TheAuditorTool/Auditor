@@ -8,6 +8,7 @@ import shutil
 import subprocess
 import tomllib
 import venv
+from importlib.resources import files
 from pathlib import Path
 
 from theauditor.package_managers.deps import check_latest_versions
@@ -124,7 +125,11 @@ def _get_runtime_packages(pyproject_path: Path, package_names: list[str]) -> lis
 
 
 def find_theauditor_root() -> Path:
-    """Find TheAuditor project root by walking up from __file__ to pyproject.toml."""
+    """Find TheAuditor project root by walking up from __file__ to pyproject.toml.
+
+    For editable installs: Returns project root containing pyproject.toml
+    For pip installs: Returns site-packages directory (agents bundled in theauditor/)
+    """
     current = Path(__file__).resolve().parent
 
     while current != current.parent:
@@ -134,7 +139,17 @@ def find_theauditor_root() -> Path:
                 return current
         current = current.parent
 
-    raise RuntimeError("Could not find TheAuditor project root (pyproject.toml)")
+    # Fallback for pip-installed package: use importlib.resources
+    # Returns site-packages path where theauditor package is installed
+    try:
+        package_path = files("theauditor")
+        # files() returns a Traversable, convert to Path and get parent (site-packages)
+        return Path(str(package_path)).parent
+    except Exception as e:
+        raise RuntimeError(
+            f"Could not find TheAuditor installation root: {e}\n"
+            f"Neither pyproject.toml nor importlib.resources could locate the package."
+        ) from e
 
 
 def _inject_agents_md(target_dir: Path) -> None:
@@ -925,54 +940,84 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
         else:
             logger.warning(f"\\ Python config not found at {python_config_source}")
 
-        agents_source = theauditor_root / "agents"
+        # Try file path first (editable install), then importlib.resources (pip install)
+        agents_source = theauditor_root / "theauditor" / "agents"
         agents_dest = sandbox_dir / "agents"
 
+        agent_files = []
         if agents_source.exists() and agents_source.is_dir():
+            agent_files = list(agents_source.glob("*.md"))
+        else:
+            # Pip-installed package: use importlib.resources
+            try:
+                agents_package = files("theauditor.agents")
+                agents_dest.mkdir(exist_ok=True)
+                for item in agents_package.iterdir():
+                    if item.name.endswith(".md"):
+                        dest_file = agents_dest / item.name
+                        dest_file.write_text(item.read_text(), encoding="utf-8")
+                        agent_files.append(dest_file)
+            except Exception as e:
+                logger.warning(f"\\ Could not access agents via importlib.resources: {e}")
+
+        if agent_files:
             agents_dest.mkdir(exist_ok=True)
 
-            agent_files = list(agents_source.glob("*.md"))
-            if agent_files:
+            # Copy files if using file path approach
+            if agents_source.exists():
                 for agent_file in agent_files:
                     dest_file = agents_dest / agent_file.name
                     shutil.copy2(str(agent_file), str(dest_file))
 
-                check_mark = "[OK]"
-                logger.info(
-                    f"    {check_mark} Planning agents copied to sandbox ({len(agent_files)} agents)"
-                )
-                logger.info(f"        -> {agents_dest}")
+            check_mark = "[OK]"
+            logger.info(
+                f"    {check_mark} Planning agents copied to sandbox ({len(agent_files)} agents)"
+            )
+            logger.info(f"        -> {agents_dest}")
 
-                _inject_agents_md(target_dir)
-            else:
-                logger.warning(f"\\ No agent files found in {agents_source}")
+            _inject_agents_md(target_dir)
         else:
-            logger.warning(f"\\ Agents directory not found at {agents_source}")
+            logger.warning(f"\\ No agent files found in {agents_source}")
 
-        commands_source = theauditor_root / "agents" / "commands"
+        # Try file path first (editable install), then importlib.resources (pip install)
+        commands_source = theauditor_root / "theauditor" / "agents" / "commands"
         commands_dest = target_dir / ".claude" / "commands" / "theauditor"
 
+        command_files = []
         if commands_source.exists() and commands_source.is_dir():
+            command_files = list(commands_source.glob("*.md"))
+        else:
+            # Pip-installed package: use importlib.resources
+            try:
+                commands_package = files("theauditor.agents.commands")
+                commands_dest.mkdir(parents=True, exist_ok=True)
+                for item in commands_package.iterdir():
+                    if item.name.endswith(".md"):
+                        dest_file = commands_dest / item.name
+                        dest_file.write_text(item.read_text(), encoding="utf-8")
+                        command_files.append(dest_file)
+            except Exception as e:
+                logger.warning(f"\\ Could not access commands via importlib.resources: {e}")
+
+        if command_files:
             commands_dest.mkdir(parents=True, exist_ok=True)
 
-            command_files = list(commands_source.glob("*.md"))
-            if command_files:
+            # Copy files if using file path approach
+            if commands_source.exists():
                 for command_file in command_files:
                     dest_file = commands_dest / command_file.name
                     shutil.copy2(str(command_file), str(dest_file))
 
-                check_mark = "[OK]" if IS_WINDOWS else "✓"
-                logger.info(
-                    f"    {check_mark} Slash commands copied to project ({len(command_files)} commands)"
-                )
-                logger.info(f"        -> {commands_dest}")
-                logger.info(
-                    "        Available: /theauditor:planning, /theauditor:security, /theauditor:refactor, /theauditor:dataflow"
-                )
-            else:
-                logger.warning(f"\\ No command files found in {commands_source}")
+            check_mark = "[OK]" if IS_WINDOWS else "✓"
+            logger.info(
+                f"    {check_mark} Slash commands copied to project ({len(command_files)} commands)"
+            )
+            logger.info(f"        -> {commands_dest}")
+            logger.info(
+                "        Available: /theauditor:planning, /theauditor:security, /theauditor:refactor, /theauditor:dataflow"
+            )
         else:
-            logger.warning(f"\\ Commands directory not found at {commands_source}")
+            logger.warning(f"\\ No command files found in {commands_source}")
 
         tsconfig = sandbox_dir / "tsconfig.json"
         tsconfig_data = {

@@ -11,6 +11,7 @@ __pycache__/
 build/
 develop-eggs/
 dist/
+!theauditor/ast_extractors/javascript/dist/
 downloads/
 eggs/
 .eggs/
@@ -74,6 +75,8 @@ docs/
 .pf/
 .claude/
 audit/
+scripts/
+tests/
 manifest.json
 repo_index.db
 *.db
@@ -85,7 +88,6 @@ node_modules/
 .auditor_venv
 
 # JavaScript extractor build artifacts
-theauditor/ast_extractors/javascript/dist/
 theauditor/ast_extractors/javascript/node_modules/
 
 # Test and temporary files
