@@ -11,11 +11,11 @@ permissions:
 
 jobs:
   build-and-publish:
-    name: Build and publish to TestPyPI
+    name: Build and publish to PyPI
     runs-on: ubuntu-latest
     environment:
       name: release
-      url: https://test.pypi.org/project/theauditor/
+      url: https://pypi.org/project/theauditor/
 
     steps:
       - name: Checkout repository
@@ -46,8 +46,7 @@ jobs:
           echo "Built packages:"
           ls dist/
 
-      - name: Publish to TestPyPI
+      - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
-          repository-url: https://test.pypi.org/legacy/
           print-hash: true
