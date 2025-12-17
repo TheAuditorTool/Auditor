@@ -1,0 +1,1 @@
+"""Bundled JavaScript/TypeScript extractor."""
