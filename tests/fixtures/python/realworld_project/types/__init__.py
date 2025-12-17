@@ -1,1 +1,0 @@
-"""Advanced type system module."""
