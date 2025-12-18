@@ -17,11 +17,54 @@ class MypyLinter(BaseLinter):
 
     Executes mypy with JSON output (JSONL - one JSON object per line).
     No batching - Mypy needs full project context for cross-file type inference.
+
+    Prefers project's mypy configuration (pyproject.toml, mypy.ini, .mypy.ini,
+    setup.cfg) over TheAuditor's bundled defaults.
     """
 
     @property
     def name(self) -> str:
         return "mypy"
+
+    def _find_project_mypy_config(self) -> str | None:
+        """Check if project has its own mypy configuration.
+
+        Searches for mypy config in standard locations, in priority order:
+        1. mypy.ini - dedicated mypy config file
+        2. .mypy.ini - hidden dedicated mypy config file
+        3. pyproject.toml - if contains [tool.mypy] section
+        4. setup.cfg - if contains [mypy] section
+
+        Returns:
+            Path to config file if found, None otherwise.
+        """
+        # Check for dedicated mypy config files first (highest priority)
+        for config_name in ["mypy.ini", ".mypy.ini"]:
+            config_path = self.root / config_name
+            if config_path.exists():
+                return str(config_path)
+
+        # Check pyproject.toml for [tool.mypy] section
+        pyproject = self.root / "pyproject.toml"
+        if pyproject.exists():
+            try:
+                content = pyproject.read_text()
+                if "[tool.mypy]" in content:
+                    return str(pyproject)
+            except Exception:
+                pass
+
+        # Check setup.cfg for [mypy] section
+        setup_cfg = self.root / "setup.cfg"
+        if setup_cfg.exists():
+            try:
+                content = setup_cfg.read_text()
+                if "[mypy]" in content:
+                    return str(setup_cfg)
+            except Exception:
+                pass
+
+        return None
 
     async def run(self, files: list[str]) -> LinterResult:
         """Run Mypy on Python files.
@@ -39,16 +82,26 @@ class MypyLinter(BaseLinter):
         if not mypy_bin:
             return LinterResult.skipped(self.name, "Mypy not found")
 
-        config_path = self.toolbox.get_python_linter_config()
-        if not config_path.exists():
-            return LinterResult.skipped(self.name, f"Mypy config not found: {config_path}")
+        # Prefer project's mypy config over TheAuditor's bundled default
+        project_config = self._find_project_mypy_config()
+        if project_config:
+            config_path = project_config
+            logger.debug(f"[{self.name}] Using project config: {config_path}")
+        else:
+            default_config = self.toolbox.get_python_linter_config()
+            if not default_config.exists():
+                return LinterResult.skipped(
+                    self.name, f"Mypy config not found: {default_config}"
+                )
+            config_path = str(default_config)
+            logger.debug(f"[{self.name}] Using TheAuditor default config: {config_path}")
 
         start_time = time.perf_counter()
 
         cmd = [
             str(mypy_bin),
             "--config-file",
-            str(config_path),
+            config_path,
             "--output",
             "json",
             *files,
