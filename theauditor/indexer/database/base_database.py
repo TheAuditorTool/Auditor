@@ -43,6 +43,39 @@ class BaseDatabaseManager:
 
         self.jwt_patterns_batch: list[dict] = []
 
+    @staticmethod
+    def _is_external_path(file_path: str) -> bool:
+        """Check if file path is external to the project (typeshed, system Python, etc.).
+
+        External paths are filtered out to prevent FK constraint failures when mypy
+        reports errors from typeshed or system Python locations that don't exist in
+        the files table.
+
+        Args:
+            file_path: Normalized file path to check
+
+        Returns:
+            True if path is external (should be filtered), False otherwise
+        """
+        if not file_path:
+            return True
+
+        # Typeshed paths (mypy's standard library stubs)
+        if "typeshed" in file_path.lower():
+            return True
+
+        # System Python installation paths
+        external_indicators = [
+            "/lib/python",  # Unix system Python
+            "/lib64/python",  # Unix system Python (64-bit)
+            "\\lib\\site-packages\\",  # Windows system Python
+            "/site-packages/",  # Unix system Python packages
+            "<install>",  # Mypy placeholder for installed packages
+            "<string>",  # Mypy inline code
+        ]
+
+        return any(indicator in file_path for indicator in external_indicators)
+
     def begin_transaction(self) -> None:
         """Start a new transaction."""
         self.conn.execute("BEGIN IMMEDIATE")
@@ -732,6 +765,10 @@ class BaseDatabaseManager:
                 tf_remediation = details.get("remediation")
                 tf_graph_context = details.get("graph_context_json")
 
+            # Skip external paths (typeshed, system Python) to prevent FK failures
+            if self._is_external_path(file_path):
+                continue
+
             normalized.append(
                 (
                     file_path,
@@ -770,6 +807,14 @@ class BaseDatabaseManager:
                     tf_remediation,
                     tf_graph_context,
                 )
+            )
+
+        # Log if findings were filtered
+        filtered_count = len(findings) - len(normalized)
+        if filtered_count > 0:
+            logger.debug(
+                f"Filtered {filtered_count} external path findings from {tool_name} "
+                "(typeshed/system Python)"
             )
 
         for i in range(0, len(normalized), self.batch_size):

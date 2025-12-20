@@ -6,8 +6,11 @@ configs when present.
 """
 
 import json
+import re
 import shutil
 import sqlite3
+import sys
+import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -44,6 +47,21 @@ ESLINT_CONFIG_FILES = [
     ".eslintrc.json",
     ".eslintrc",
 ]
+
+# Python config file detection order
+PYTHON_CONFIG_FILES = [
+    "pyproject.toml",
+    "mypy.ini",
+    ".mypy.ini",
+    "setup.cfg",
+]
+
+# Framework to mypy plugin mapping
+MYPY_PLUGIN_MAP = {
+    "pydantic": "pydantic.mypy",
+    "django": "mypy_django_plugin.main",
+    "sqlalchemy": "sqlalchemy.ext.mypy.plugin",
+}
 
 
 class ConfigGenerator:
@@ -125,6 +143,166 @@ class ConfigGenerator:
             logger.debug(f"Found project tsconfig: {tsconfig_path}")
             return tsconfig_path
         return None
+
+    def _detect_project_python_config(self) -> Path | None:
+        """Detect existing Python/mypy config in project root.
+
+        Checks for config files in order: pyproject.toml (with [tool.mypy]),
+        mypy.ini, .mypy.ini, setup.cfg.
+
+        Returns:
+            Path to project Python config, or None if not found
+        """
+        for config_name in PYTHON_CONFIG_FILES:
+            config_path = self.root / config_name
+            if not config_path.exists():
+                continue
+
+            if config_name == "pyproject.toml":
+                try:
+                    data = tomllib.loads(config_path.read_text(encoding="utf-8"))
+                    if "mypy" in data.get("tool", {}):
+                        logger.debug(f"Found project mypy config in: {config_path}")
+                        return config_path
+                except Exception as e:
+                    logger.warning(f"Failed to parse {config_path}: {e}")
+                    continue
+            elif "mypy" in config_name or config_name == "setup.cfg":
+                logger.debug(f"Found project mypy config: {config_path}")
+                return config_path
+
+        return None
+
+    def _detect_python_version(self) -> str:
+        """Detect Python version from project's pyproject.toml.
+
+        Uses requires-python field to extract minimum version.
+        Falls back to runtime Python version if not specified.
+
+        Returns:
+            Python version string (e.g., "3.12")
+        """
+        pyproject = self.root / "pyproject.toml"
+        if pyproject.exists():
+            try:
+                data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+                requires = data.get("project", {}).get("requires-python", "")
+
+                # Extract version from spec like ">=3.12", ">=3.8,<4.0", etc.
+                version_match = re.search(r"(\d+\.\d+)", requires)
+                if version_match:
+                    version = version_match.group(1)
+                    logger.debug(f"Detected Python version from requires-python: {version}")
+                    return version
+            except Exception as e:
+                logger.warning(f"Failed to parse {pyproject}: {e}")
+
+        # Fallback to runtime Python version
+        runtime_version = f"{sys.version_info.major}.{sys.version_info.minor}"
+        logger.debug(f"Using runtime Python version: {runtime_version}")
+        return runtime_version
+
+    def _detect_required_plugins_from_db(self) -> list[str]:
+        """Query frameworks table for detected Python frameworks.
+
+        Maps detected frameworks to their corresponding mypy plugins.
+
+        Returns:
+            List of mypy plugin import paths (e.g., ["pydantic.mypy"])
+        """
+        cursor = self.conn.cursor()
+        cursor.execute("SELECT DISTINCT name FROM frameworks WHERE language = 'python'")
+
+        plugins = []
+        for row in cursor.fetchall():
+            framework_name = row["name"].lower()
+            if framework_name in MYPY_PLUGIN_MAP:
+                plugin = MYPY_PLUGIN_MAP[framework_name]
+                plugins.append(plugin)
+                logger.debug(f"Detected framework '{framework_name}' -> plugin '{plugin}'")
+
+        return plugins
+
+    def generate_python_config(self) -> Path:
+        """Generate mypy config for Python linting.
+
+        Detects project Python version and required plugins, then generates
+        a mypy.ini config file in temp directory.
+
+        Returns:
+            Path to generated mypy.ini file
+
+        Raises:
+            RuntimeError: If config generation fails
+        """
+        # Check for existing project config first
+        project_config = self._detect_project_python_config()
+        if project_config:
+            logger.info(f"Using project mypy config: {project_config}")
+            return project_config
+
+        # Ensure temp directory exists
+        self.temp_dir.mkdir(parents=True, exist_ok=True)
+
+        # Detect Python version and plugins
+        python_version = self._detect_python_version()
+        plugins = self._detect_required_plugins_from_db()
+
+        # Generate mypy.ini content
+        config_lines = [
+            "[mypy]",
+            f"python_version = {python_version}",
+            "",
+            "# Strict type checking",
+            "strict = True",
+            "disallow_untyped_defs = True",
+            "disallow_any_unimported = True",
+            "no_implicit_optional = True",
+            "check_untyped_defs = True",
+            "warn_return_any = True",
+            "warn_unused_configs = True",
+            "warn_redundant_casts = True",
+            "warn_unused_ignores = True",
+            "warn_no_return = True",
+            "warn_unreachable = True",
+            "strict_optional = True",
+            "strict_equality = True",
+            "",
+            "# Output formatting",
+            "no_pretty = True",
+            "show_column_numbers = True",
+            "show_error_codes = True",
+            "show_error_context = True",
+            "",
+        ]
+
+        # Add plugins if detected
+        if plugins:
+            plugins_str = ", ".join(plugins)
+            config_lines.append(f"plugins = {plugins_str}")
+            config_lines.append("")
+
+        # Add exclude patterns
+        config_lines.extend([
+            "# Exclude patterns",
+            "exclude = (?x)(",
+            "    \\.pf",
+            "    | \\.auditor_venv",
+            "    | __pycache__",
+            "    | \\.eggs",
+            "    | build",
+            "    | dist",
+            ")",
+        ])
+
+        config_content = "\n".join(config_lines)
+
+        # Write config file
+        config_path = self.temp_dir / "mypy.ini"
+        config_path.write_text(config_content, encoding="utf-8")
+        logger.info(f"Generated mypy config at {config_path}")
+
+        return config_path
 
     def _generate_tsconfig(self, frameworks: list[dict], extensions: dict[str, int]) -> str:
         """Generate tsconfig.json content based on project analysis.

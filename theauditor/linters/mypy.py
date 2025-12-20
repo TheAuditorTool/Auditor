@@ -9,6 +9,7 @@ import json
 import time
 
 from theauditor.linters.base import BaseLinter, Finding, LinterResult
+from theauditor.linters.config_generator import ConfigGenerator
 from theauditor.utils.logging import logger
 
 
@@ -39,9 +40,19 @@ class MypyLinter(BaseLinter):
         if not mypy_bin:
             return LinterResult.skipped(self.name, "Mypy not found")
 
-        config_path = self.toolbox.get_python_linter_config()
-        if not config_path.exists():
-            return LinterResult.skipped(self.name, f"Mypy config not found: {config_path}")
+        # Generate mypy config dynamically based on project analysis
+        db_path = self.root / ".pf" / "repo_index.db"
+        if not db_path.exists():
+            return LinterResult.skipped(
+                self.name, "Database not found - run indexing first (aud full --index)"
+            )
+
+        try:
+            with ConfigGenerator(self.root, db_path) as config_gen:
+                config_path = config_gen.generate_python_config()
+        except Exception as e:
+            logger.warning(f"Failed to generate mypy config: {e}")
+            return LinterResult.skipped(self.name, f"Config generation failed: {e}")
 
         start_time = time.perf_counter()
 

@@ -853,7 +853,19 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
             pyproject_path = theauditor_root / "pyproject.toml"
             linter_packages = _get_runtime_packages(
                 pyproject_path,
-                ["ruff", "mypy", "black", "bandit", "pylint", "sqlparse", "dockerfile-parse"],
+                [
+                    "ruff",
+                    "mypy",
+                    "black",
+                    "bandit",
+                    "pylint",
+                    "sqlparse",
+                    "dockerfile-parse",
+                    # Mypy plugins for framework-specific type checking
+                    "pydantic>=2.0",  # Includes pydantic.mypy plugin
+                    "django-stubs>=5.0.0",  # Includes mypy_django_plugin.main
+                    "sqlalchemy[mypy]>=2.0",  # Includes sqlalchemy.ext.mypy.plugin
+                ],
             )
 
             result = subprocess.run(
