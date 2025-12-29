@@ -289,7 +289,7 @@ class IndexerOrchestrator:
                 output_dir = Path(__file__).parent / "schemas"
                 SchemaCodeGenerator.write_generated_code(output_dir)
                 logger.error("[SCHEMA FIX] Generated code updated successfully")
-                logger.error("[SCHEMA FIX] Please re-run the indexing command")
+                logger.error('[SCHEMA FIX] Please rerun "aud full" / "aud full --index"')
                 sys.exit(ExitCodes.SCHEMA_STALE)
             except Exception as e:
                 logger.error(f"[SCHEMA ERROR] Failed to regenerate code: {e}")
