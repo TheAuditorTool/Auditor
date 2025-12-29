@@ -289,17 +289,20 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
     except subprocess.TimeoutExpired:
         logger.info("Warning: pip show timed out, proceeding with install")
 
-    logger.info(f"Installing TheAuditor from {theauditor_root}...")
+    is_source_tree = (theauditor_root / "pyproject.toml").exists()
 
-    cmd = [
-        str(python_exe),
-        "-m",
-        "pip",
-        "install",
-        "--no-cache-dir",
-        "-e",
-        f"{theauditor_root}[all]",
-    ]
+    cmd = [str(python_exe), "-m", "pip", "install", "--no-cache-dir"]
+
+    if is_source_tree:
+        logger.info(f"Installing TheAuditor (editable) from {theauditor_root}...")
+        cmd.extend(["-e", f"{theauditor_root}[all]"])
+    else:
+        from theauditor import __version__
+
+        logger.info(
+            f"Source config not found (user mode). Installing v{__version__} from PyPI..."
+        )
+        cmd.append(f"theauditor[all]=={__version__}")
 
     try:
         result = subprocess.run(
@@ -309,7 +312,7 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
             encoding="utf-8",
             errors="replace",
             timeout=120,
-            cwd=str(venv_path.parent),
+            cwd=str(venv_path.parent) if is_source_tree else None,
         )
 
         if result.returncode != 0:
@@ -318,7 +321,10 @@ def install_theauditor_editable(venv_path: Path, theauditor_root: Path | None = 
             return False
 
         check_mark = "[OK]"
-        logger.info(f"{check_mark} Installed TheAuditor (editable) from {theauditor_root}")
+        if is_source_tree:
+            logger.info(f"{check_mark} Installed TheAuditor (editable) from {theauditor_root}")
+        else:
+            logger.info(f"{check_mark} Installed TheAuditor from PyPI")
 
         if aud_exe.exists():
             check_mark = "[OK]"
@@ -1136,6 +1142,32 @@ def setup_project_venv(target_dir: Path, force: bool = False) -> tuple[Path, boo
                 logger.info(
                     "    [warning]This may be a network issue. Try running setup again.[/warning]"
                 )
+
+            extractor_dir = Path(__file__).parent / "ast_extractors" / "javascript"
+            if extractor_dir.exists():
+                logger.info("  Installing JS extractor dependencies using bundled Node.js...")
+                extractor_result = subprocess.run(
+                    full_cmd,
+                    cwd=str(extractor_dir),
+                    capture_output=True,
+                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
+                    timeout=120,
+                    shell=False,
+                )
+                if extractor_result.returncode == 0:
+                    check_mark = "[OK]"
+                    logger.info(f"    {check_mark} JS extractor dependencies installed")
+                else:
+                    logger.warning(
+                        f"\\ npm install failed (js extractor): {extractor_result.stderr[:500]}"
+                    )
+                    logger.info(
+                        "    [warning]JS extractor rebuilds will fail without dependencies[/warning]"
+                    )
+            else:
+                logger.warning(f"\\ JS extractor package not found: {extractor_dir}")
 
         except RuntimeError as e:
             logger.warning(f"\\ Could not set up bundled Node.js: {e}")

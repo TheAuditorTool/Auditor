@@ -223,11 +223,14 @@ class ConfigGenerator:
 
         return plugins
 
-    def generate_python_config(self) -> Path:
+    def generate_python_config(self, force_strict: bool = False) -> Path:
         """Generate mypy config for Python linting.
 
         Detects project Python version and required plugins, then generates
         a mypy.ini config file in temp directory.
+
+        Args:
+            force_strict: If True, ignores project config and generates strict defaults.
 
         Returns:
             Path to generated mypy.ini file
@@ -235,11 +238,12 @@ class ConfigGenerator:
         Raises:
             RuntimeError: If config generation fails
         """
-        # Check for existing project config first
-        project_config = self._detect_project_python_config()
-        if project_config:
-            logger.info(f"Using project mypy config: {project_config}")
-            return project_config
+        # Check for existing project config first (unless forcing strict config)
+        if not force_strict:
+            project_config = self._detect_project_python_config()
+            if project_config:
+                logger.info(f"Using project mypy config: {project_config}")
+                return project_config
 
         # Ensure temp directory exists
         self.temp_dir.mkdir(parents=True, exist_ok=True)

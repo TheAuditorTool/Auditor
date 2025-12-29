@@ -7,6 +7,7 @@ for cross-file type inference, so we pass all files in a single invocation
 
 import json
 import time
+from pathlib import Path
 
 from theauditor.linters.base import BaseLinter, Finding, LinterResult
 from theauditor.linters.config_generator import ConfigGenerator
@@ -23,6 +24,43 @@ class MypyLinter(BaseLinter):
     @property
     def name(self) -> str:
         return "mypy"
+
+    async def _run_pass(
+        self,
+        files: list[str],
+        mypy_bin: Path,
+        config_path: Path,
+    ) -> list[Finding]:
+        """Run a single mypy pass with the provided config."""
+        cmd = [
+            str(mypy_bin),
+            "--config-file",
+            str(config_path),
+            "--output",
+            "json",
+            *files,
+        ]
+
+        _returncode, stdout, _stderr = await self._run_command(cmd)
+
+        if not stdout.strip():
+            return []
+
+        findings: list[Finding] = []
+        for line in stdout.splitlines():
+            if not line.strip():
+                continue
+
+            try:
+                item = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            finding = self._parse_mypy_item(item)
+            if finding:
+                findings.append(finding)
+
+        return findings
 
     async def run(self, files: list[str]) -> LinterResult:
         """Run Mypy on Python files.
@@ -49,50 +87,76 @@ class MypyLinter(BaseLinter):
 
         try:
             with ConfigGenerator(self.root, db_path) as config_gen:
-                config_path = config_gen.generate_python_config()
+                config_path = config_gen.generate_python_config(force_strict=False)
         except Exception as e:
             logger.warning(f"Failed to generate mypy config: {e}")
             return LinterResult.skipped(self.name, f"Config generation failed: {e}")
 
+        generated_config = self.root / ".pf" / "temp" / "mypy.ini"
+        use_project_config = config_path.resolve() != generated_config.resolve()
+
         start_time = time.perf_counter()
 
-        cmd = [
-            str(mypy_bin),
-            "--config-file",
-            str(config_path),
-            "--output",
-            "json",
-            *files,
-        ]
-
         try:
-            _returncode, stdout, _stderr = await self._run_command(cmd)
+            findings = await self._run_pass(files, mypy_bin, config_path)
         except TimeoutError:
             return LinterResult.failed(self.name, "Timed out", time.perf_counter() - start_time)
+        except Exception as e:
+            return LinterResult.failed(self.name, f"Run failed: {e}", time.perf_counter() - start_time)
 
-        if not stdout.strip():
-            duration = time.perf_counter() - start_time
-            logger.debug(f"[{self.name}] No issues found")
-            return LinterResult.success(self.name, [], duration)
-
-        findings = []
-        for line in stdout.splitlines():
-            if not line.strip():
-                continue
-
+        suppressed_count = 0
+        if use_project_config:
+            logger.info(f"[{self.name}] Project config detected. Running audit pass...")
+            strict_config: Path | None = None
             try:
-                item = json.loads(line)
-            except json.JSONDecodeError:
-                continue
+                with ConfigGenerator(self.root, db_path) as config_gen:
+                    strict_config = config_gen.generate_python_config(force_strict=True)
+            except Exception as e:
+                logger.warning(f"[{self.name}] Audit config generation failed: {e}")
 
-            finding = self._parse_mypy_item(item)
-            if finding:
-                findings.append(finding)
+            if strict_config:
+                try:
+                    strict_findings = await self._run_pass(files, mypy_bin, strict_config)
+                except TimeoutError:
+                    logger.warning(f"[{self.name}] Audit pass timed out")
+                    strict_findings = []
+                except Exception as e:
+                    logger.warning(f"[{self.name}] Audit pass failed: {e}")
+                    strict_findings = []
+
+                if strict_findings:
+                    seen = {(f.file, f.line, f.column, f.rule) for f in findings}
+                    for finding in strict_findings:
+                        key = (finding.file, finding.line, finding.column, finding.rule)
+                        if key in seen:
+                            continue
+
+                        finding.category = "suppressed-risk"
+                        finding.severity = "warning"
+                        finding.message = (
+                            f"[SUPPRESSED RISK] {finding.message}"
+                            if finding.message
+                            else "[SUPPRESSED RISK]"
+                        )
+                        additional = finding.additional_info or {}
+                        additional["audit_finding"] = True
+                        finding.additional_info = additional
+                        findings.append(finding)
+                        suppressed_count += 1
 
         duration = time.perf_counter() - start_time
-        logger.info(
-            f"[{self.name}] Found {len(findings)} issues in {len(files)} files ({duration:.2f}s)"
-        )
+
+        if not findings:
+            logger.debug(f"[{self.name}] No issues found")
+        else:
+            logger.info(
+                f"[{self.name}] Found {len(findings)} issues in {len(files)} files "
+                f"({duration:.2f}s)"
+            )
+
+        if suppressed_count:
+            logger.info(f"[{self.name}] Audit revealed {suppressed_count} suppressed issues")
+
         return LinterResult.success(self.name, findings, duration)
 
     def _parse_mypy_item(self, item: dict) -> Finding | None:
