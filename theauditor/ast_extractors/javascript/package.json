@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "esbuild src/main.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/extractor.cjs --packages=external",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node18 --format=cjs --outfile=dist/extractor.cjs",
     "test": "tsx src/test_extractor.ts",
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
