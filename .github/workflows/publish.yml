@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - 'v*'  # Trigger on version tags like v2.0.2, v2.1.0, etc.
+      - '[0-9]*'  # Trigger on bare version tags like 2.0.3rc1
 
 permissions:
   contents: read
