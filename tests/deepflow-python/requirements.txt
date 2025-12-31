@@ -1,0 +1,9 @@
+# DeepFlow Python - Multi-hop taint validation fixture
+# Pinned versions for reproducibility
+
+fastapi==0.109.0
+uvicorn==0.27.0
+pydantic==2.5.3
+
+# Note: Using SQLite for simplicity (no psycopg2 needed)
+# The fixture demonstrates vulnerability patterns, not production DB setup
