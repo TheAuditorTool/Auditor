@@ -8,7 +8,7 @@
 
 ## Project Overview
 
-TheAuditor is an offline-first, AI-centric SAST platform written in Python (>=3.11). It performs comprehensive security auditing for Python and JavaScript/TypeScript projects, producing AI-consumable reports optimized for LLM context windows.
+TheAuditor is an offline-first, AI-centric SAST platform written in Python (>=3.14). It performs comprehensive security auditing for Python, JavaScript/TypeScript, Go, Rust, Bash, Terraform, and common config formats (Docker, GraphQL, SQL, GitHub Actions), producing AI-consumable reports optimized for LLM context windows.
 
 **Core Philosophy**: Truth Courier, Not Mind Reader
 - TheAuditor finds where code doesn't match itself (inconsistencies)
@@ -66,14 +66,14 @@ return [{
 
 ### Schema Contract System
 
-**Single Source of Truth**: `theauditor/indexer/schema.py`
+**Single Source of Truth**: `theauditor/indexer/schema.py` (aggregates `theauditor/indexer/schemas/*.py`)
 
-All 36+ table schemas defined here. Features:
+All table schemas are defined in `theauditor/indexer/schemas/*.py` and assembled here. Features:
 - Columns: Type-safe definitions with nullability, defaults
 - Indexes: Performance optimization
 - Primary Keys: Single-column and composite
 - UNIQUE Constraints: Multi-column uniqueness
-- **FOREIGN KEY Pattern**: Intentionally omitted from schema.py (defined in database.py to avoid circular dependencies)
+- **FOREIGN KEY Pattern**: Declared in schema definitions via `TableSchema.foreign_keys`
 
 **Usage in Rules/Analysis**:
 ```python
@@ -159,9 +159,7 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 ```python
 import click
 from theauditor.utils.decorators import handle_exceptions
-from theauditor.utils.logger import setup_logger
-
-logger = setup_logger(__name__)
+from theauditor.utils.logging import logger
 
 @click.command()
 @click.option('--workset', is_flag=True, help='Use workset files')
@@ -244,11 +242,11 @@ def analyze(context: StandardRuleContext) -> List[StandardFinding]:
 Structure:
 - `__init__.py` - IndexerOrchestrator class (main coordination)
 - `config.py` - Constants, patterns
-- `database.py` - DatabaseManager class (92KB)
+- `database/` - DatabaseManager + language mixins (core, python, node, rust, go, etc.)
 - `core.py` - FileWalker, ASTCache
 - `schema.py` - Schema contract system (40KB)
 - `metadata_collector.py` - Git churn, test coverage
-- `extractors/` - Language-specific extractors (Python, JS/TS, Docker, SQL, etc.)
+- `extractors/` - Language-specific extractors (Python, JS/TS, Go, Rust, Bash, Terraform, Docker, SQL, GraphQL, GitHub Actions, Prisma)
 
 **Dynamic Extractor Registry**: Extractors auto-discovered via `@register_extractor` decorator.
 
@@ -256,7 +254,7 @@ Structure:
 
 ---
 
-### Pipeline System (`theauditor/pipelines.py`)
+### Pipeline System (`theauditor/pipeline/pipelines.py`)
 
 **4-Stage Optimized Structure**:
 
@@ -266,19 +264,20 @@ Structure:
 
 **Stage 2 (Sequential)**: Data Preparation
 - `workset` - Identify changed files
-- `graph build` - Build dependency graph
+- `graph build` / `graph build-dfg` - Build dependency + data flow graphs
+- `terraform provision` - IaC provisioning graph (when detected)
 - `cfg analyze` - Control flow analysis
-- `metadata` - Git churn analysis
+- `metadata churn` - Git churn analysis
 
 **Stage 3 (Parallel)**: Heavy Analysis - 3 concurrent tracks
 - **Track A**: Taint analysis (isolated, ~30s with v1.2 cache)
-- **Track B**: Static & graph analysis (lint, patterns, graph analyze/viz, OSV-Scanner)
-- **Track C**: Network I/O (deps --check-latest, docs) - skipped in offline mode
+- **Track B**: Static & graph analysis (lint, detect-patterns, graph analyze/viz, deps --vuln-scan, terraform/cdk/workflows analyze)
+- **Track C**: Network I/O (deps --check-latest, docs fetch) - skipped in offline mode
 
 **Stage 4 (Sequential)**: Final Aggregation
 - `fce` - Factual Correlation Engine
-- `report` - Generate consolidated report
-- `summary` - Executive summary
+- `session analyze` - Aggregate session analysis
+- `learn` - ML learning pass
 
 **Performance Optimizations**:
 - Batched database inserts (200 records per batch)
@@ -314,10 +313,9 @@ Structure:
 
 ### Vulnerability Scanner (`theauditor/vulnerability_scanner.py`)
 
-**3-Source Cross-Validation**:
+**Cross-Reference Sources**:
 - **npm audit**: JavaScript/TypeScript vulnerabilities (may query registry)
-- **OSV-Scanner (PyPI)**: Python vulnerabilities sourced from the offline OSV database
-- **OSV-Scanner**: Google's offline vulnerability database (ALWAYS offline)
+- **OSV-Scanner**: Offline OSV database (PyPI + other ecosystems)
 
 **OSV-Scanner: 100% Offline**:
 - Binary: `.auditor_venv/.theauditor_tools/osv-scanner/osv-scanner.exe`
@@ -366,9 +364,9 @@ Structure:
 - Spread operators: `{ ...base }`
 
 **Architecture**:
-- **Extraction**: `indexer/extractors/javascript.py:304`
+- **Extraction**: `ast_extractors/javascript/src/main.ts` and `ast_extractors/python/core_extractors.py`
+- **Ingestion**: `indexer/extractors/javascript.py` maps `extracted_data["object_literals"]`
 - **Storage**: `object_literals` table
-- **Implementation**: `ast_extractors/__init__.py:310`
 - **Consumption**: Taint analyzer queries for dispatch resolution
 - **Detection**: `dynamic_dispatch` sink category
 
@@ -407,20 +405,15 @@ Features:
 `.pf/` directory:
 ```
 .pf/
-├── raw/                # Immutable tool outputs (ground truth)
-├── readthis/          # AI-optimized chunks (<65KB each, max 3 chunks per file)
+├── raw/                # Legacy raw artifacts (deprecated; slated for removal)
 ├── repo_index.db      # SQLite database of code symbols
 ├── pipeline.log       # Execution trace
+├── error.log          # Pipeline error log
 ├── .cache/            # AST cache
 ├── graphs.db          # Graph analysis database
+├── graphs/            # Graph visualizations
 └── context/           # Semantic context analysis
 ```
-
-**Chunking Behavior**:
-- Files >65KB split into chunks (configurable: `THEAUDITOR_LIMITS_MAX_CHUNK_SIZE`)
-- Max 3 chunks per file (configurable: `THEAUDITOR_LIMITS_MAX_CHUNKS_PER_FILE`)
-- Format: `patterns_chunk01.json`, `patterns_chunk02.json`, etc.
-- If `truncated: true` in `chunk_info`, more findings existed
 
 ---
 
@@ -506,9 +499,9 @@ black theauditor tests
 ## Known Issues & Context
 
 ### Schema Contract System (v1.1+)
-- jwt_patterns table synchronized (was missing from schema.py registry)
+- jwt_patterns table synchronized (was missing from schema registry)
 - UNIQUE constraint architecture enhanced
-- FOREIGN KEY pattern codified (intentionally in database.py, not schema.py)
+- FOREIGN KEY pattern codified in schema definitions (`indexer/schemas/*.py`)
 
 ### Auth Rules Expansion (v1.1+)
 - OAuth, password, session analyzers added to `theauditor/rules/auth/`
@@ -560,9 +553,9 @@ aud full                     # Complete 4-stage pipeline
 aud full --offline           # Skip network operations
 
 # Core analysis
-aud index                    # Build code index database
+aud full --index             # Build code index database (Stage 1 + 2 only)
 aud detect-patterns          # Run 100+ security pattern rules
-aud taint-analyze            # Perform taint flow analysis
+aud taint                    # Perform taint flow analysis
 
 # Graph & architecture
 aud graph build              # Build dependency graph
@@ -575,7 +568,6 @@ aud deps --vuln-scan         # Run npm audit + OSV-Scanner
 
 # Reporting
 aud fce                      # Run Factual Correlation Engine
-aud report                   # Generate consolidated report
 ```
 
 ---

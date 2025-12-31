@@ -1,0 +1,21 @@
+## 0. Verification
+- [x] Evidence captured in `C:\Users\santa\Desktop\TheAuditor\openspec\changes\add-svelte-extraction\verification.md`.
+- [x] .svelte not supported in JS/TS extension lists or parser mapping (C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\extractors\javascript.py:18-20, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\extractors\javascript_resolvers.py:466-469, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\extractors\javascript_resolvers.py:533-536, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\ast_parser.py:287-305, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\config.py:80-101, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\orchestrator.py:313-318).
+- [x] Vue SFC preprocessing and manifest attach are the current pattern to mirror (C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\main.ts:164-417, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\main.ts:964-973, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\fidelity.ts:46-66).
+- [x] Node schema/storage and JS extractor schema include Vue tables only (C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\schemas\node_schema.py:127-147, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\schemas\node_schema.py:1048-1061, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\storage\node_storage.py:147-209, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\database\node_database.py:133-243, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\schema.ts:623-660).
+
+## Why
+Svelte files are currently skipped by the JS/TS extraction path, which breaks call graph coverage and line/column provenance for Svelte projects. This change adds first-class `.svelte` extraction using a source-mapped transform so template expressions contribute to the call chain with full fidelity.
+
+## What Changes
+- Add `.svelte` support across extension lists and JS batch parsing (C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\extractors\javascript.py:18-20, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\extractors\javascript_resolvers.py:466-469, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\extractors\javascript_resolvers.py:533-536, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\ast_parser.py:287-305, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\config.py:80-101, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\orchestrator.py:313-318).
+- Transform `.svelte` to TSX using `svelte2tsx`, map all extracted facts back to original `.svelte` lines/cols via `@jridgewell/trace-mapping` (line 1-based, col 0-based), and hard-fail on transform or mapping errors (patterned after Vue SFC preprocessing in C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\main.ts:164-417).
+- Add `svelte_files` table for Svelte metadata, persisted sourcemaps, and prop bindings (`component_props_json`), with `is_route_component` defaulting to false and `route_id` left null until SvelteKit routing assigns it (new table in node schema alongside Vue tables in C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\schemas\node_schema.py:127-147 and `NODE_TABLES` registration at C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\schemas\node_schema.py:1048-1061).
+- Emit Svelte metadata in JS extractor output and include it in the fidelity manifest/receipt reconciliation (C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\main.ts:964-973, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\fidelity.ts:46-66, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\extractors\javascript.py:428-446, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\storage\__init__.py:108-161, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\orchestrator.py:798-806).
+- Add JS extractor dependencies: `svelte2tsx@0.7.46`, `svelte@5.46.1`, `@jridgewell/trace-mapping@0.3.31`.
+
+## Impact
+- Affected specs: `svelte-extraction` (new capability).
+- Affected code paths: JS extractor preprocessing, AST parser extension mapping, indexer schema/storage, and fidelity reconciliation (see citations above).
+- New dependencies land in `C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\package.json`.
+- Rust: no changes required.

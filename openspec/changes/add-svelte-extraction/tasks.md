@@ -1,0 +1,18 @@
+## 0. Verification
+- [x] 0.1 Populate verification.md with hypotheses and evidence (C:\Users\santa\Desktop\TheAuditor\openspec\changes\add-svelte-extraction\verification.md).
+- [x] 0.2 Capture baseline line references for JS extractor preprocessing and manifests (C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\main.ts:164-417, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\main.ts:964-973, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\fidelity.ts:46-66).
+
+## 1. Implementation
+- [ ] 1.1 Add `svelte_files` table definition (including `component_props_json`, defaults, and indexes) and register in `NODE_TABLES` (C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\schemas\node_schema.py:127-147, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\schemas\node_schema.py:1048-1061).
+- [ ] 1.2 Register `svelte_files` in schema `TABLES` and `FLUSH_ORDER` (C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\schema.py:20-55).
+- [ ] 1.3 Add database batch writer for `svelte_files` (C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\database\node_database.py:133-243).
+- [ ] 1.4 Add storage handler and counts for `svelte_files` (C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\storage\node_storage.py:147-209, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\storage\__init__.py:16-62, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\storage\__init__.py:108-161).
+- [ ] 1.5 Extend JS extractor output schema with `svelte_files` (including `component_props_json`) (C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\schema.ts:623-660).
+- [ ] 1.6 Add `svelte2tsx@0.7.46`, `svelte@5.46.1`, and `@jridgewell/trace-mapping@0.3.31` dependencies and wire the transform pipeline (C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\package.json:11-20, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\main.ts:164-417, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\main.ts:395-417, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\main.ts:964-973).
+- [ ] 1.7 Implement `svelte_mode`/`has_ts` detection and `component_props_json` extraction for `export let` and `$props()` destructuring.
+- [ ] 1.8 Map virtual paths back to `.svelte` sources with `@jridgewell/trace-mapping` and hard-fail on missing/invalid sourcemaps (C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\javascript\src\main.ts:77-118, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\ast_parser.py:275-283).
+- [ ] 1.9 Expand `.svelte` extension support in parser and import resolution (C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\extractors\javascript.py:18-20, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\extractors\javascript_resolvers.py:466-469, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\extractors\javascript_resolvers.py:533-536, C:\Users\santa\Desktop\TheAuditor\theauditor\ast_extractors\ast_parser.py:287-305, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\config.py:80-101, C:\Users\santa\Desktop\TheAuditor\theauditor\indexer\orchestrator.py:313-318).
+- [ ] 1.10 Add fidelity tests: verify line/column mapping for at least 20 call sites spanning template and script blocks.
+- [ ] 1.11 Add props binding tests: `export let data`, `$props()` destructuring, and skipped patterns.
+- [ ] 1.12 Add call-chain completeness tests: template handlers and inline expressions must appear in callers/callees outputs.
+- [ ] 1.13 Add fixture coverage for Svelte 5 runes and legacy `export let data`, plus manifest/receipt validation.
