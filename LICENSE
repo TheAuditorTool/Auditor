@@ -1,0 +1,73 @@
+Proprietary Software License
+Copyright (C) 2024-2026 TheAuditor. All Rights Reserved.
+
+================================================================================
+
+NOTICE: This software was previously released under the GNU Affero General
+Public License v3.0 (AGPL-3.0). Effective January 25, 2026, the project has
+been relicensed under this proprietary license by the sole copyright holder.
+
+Prior AGPL-3.0 recipients retain their rights under that license for the
+specific versions they received. This license governs all subsequent versions.
+
+================================================================================
+
+1. GRANT OF LICENSE
+
+   This software and associated documentation ("Software") is the exclusive
+   property of TheAuditor ("Licensor"). No license, right, or interest
+   in the Software is granted to any person or entity except under the terms
+   of a separate written agreement executed by the Licensor.
+
+2. RESTRICTIONS
+
+   Without a valid license agreement, you may NOT:
+   (a) Use, copy, modify, merge, publish, or distribute the Software;
+   (b) Sublicense, sell, lease, or otherwise transfer the Software;
+   (c) Reverse engineer, decompile, or disassemble the Software;
+   (d) Create derivative works based on the Software;
+   (e) Use the Software for commercial, non-commercial, or any other purpose.
+
+3. INTELLECTUAL PROPERTY
+
+   The Software, including but not limited to its source code, database schema
+   design, graph algorithms, AST extraction pipeline, and all associated
+   documentation, constitutes the original creative and intellectual work of
+   the Licensor.
+
+   The database schema (tables, columns, indexes, relationships within
+   generated databases) is separately protected intellectual property.
+   Rights under EU Directive 96/9/EC (sui generis database right) are
+   expressly reserved.
+
+4. THIRD-PARTY COMPONENTS
+
+   This Software incorporates third-party open-source components distributed
+   under their original licenses. These components and their licenses are
+   documented in THIRD_PARTY_LICENSES.txt. The inclusion of these components
+   does not grant any additional rights to the proprietary portions of this
+   Software.
+
+5. NO WARRANTY
+
+   THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT.
+
+6. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL THE LICENSOR BE LIABLE FOR ANY CLAIM, DAMAGES, OR
+   OTHER LIABILITY ARISING FROM THE USE OF OR INABILITY TO USE THE SOFTWARE.
+
+7. GOVERNING LAW
+
+   This license shall be governed by the laws of the European Union and the
+   member state in which the Licensor is domiciled.
+
+8. COMMERCIAL LICENSING
+
+   For commercial licensing inquiries, acquisition, or partnership:
+   TheAuditorTool
+   https://github.com/TheAuditorTool
+
+================================================================================

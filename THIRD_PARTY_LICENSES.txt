@@ -1,0 +1,218 @@
+THIRD-PARTY SOFTWARE LICENSES
+==============================
+
+TheAuditor bundles the following open-source libraries. Each is used
+under its respective license, reproduced below.
+
+----------------------------------------------------------------------
+click - BSD-3-Clause
+https://github.com/pallets/click
+
+Copyright 2014 Pallets
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright
+   notice, this list of conditions and the following disclaimer.
+2. Redistributions in binary form must reproduce the above copyright
+   notice, this list of conditions and the following disclaimer in the
+   documentation and/or other materials provided with the distribution.
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A
+PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES.
+
+----------------------------------------------------------------------
+rich - MIT License
+https://github.com/Textualize/rich
+
+Copyright (c) 2020 Will McGugan
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files, to deal in
+the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+----------------------------------------------------------------------
+loguru - MIT License
+https://github.com/Delgan/loguru
+
+Copyright (c) 2017 Delgan
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files, to deal in
+the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+----------------------------------------------------------------------
+sqlcipher3-wheels - zlib/libpng License
+https://github.com/laggykiller/sqlcipher3
+
+This software is provided 'as-is', without any express or implied
+warranty. In no event will the authors be held liable for any damages
+arising from the use of this software.
+
+Permission is granted to anyone to use this software for any purpose,
+including commercial applications, and to alter it and redistribute it
+freely, subject to the following restrictions:
+
+1. The origin of this software must not be misrepresented.
+2. Altered source versions must be plainly marked as such.
+3. This notice may not be removed or altered from any source distribution.
+
+----------------------------------------------------------------------
+tree-sitter - MIT License
+https://github.com/tree-sitter/py-tree-sitter
+
+Copyright (c) 2019 GitHub
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files, to deal in
+the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense,
+and/or sell copies of the Software, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included
+in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+----------------------------------------------------------------------
+tree-sitter-language-pack - MIT License OR Apache-2.0
+https://github.com/nicholasgasior/tree-sitter-language-pack
+
+Dual-licensed under MIT or Apache 2.0 at your option.
+
+----------------------------------------------------------------------
+numpy - BSD License
+https://github.com/numpy/numpy
+
+Copyright (c) 2005-2025, NumPy Developers. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are
+met:
+
+1. Redistributions of source code must retain the above copyright notice.
+2. Redistributions in binary form must reproduce the above copyright notice.
+3. Neither the name of the NumPy Developers nor the names of any
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES ARE DISCLAIMED.
+
+----------------------------------------------------------------------
+scikit-learn - BSD-3-Clause
+https://github.com/scikit-learn/scikit-learn
+
+Copyright (c) 2007-2025 The scikit-learn developers. All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted under the same BSD-3-Clause terms as above.
+
+----------------------------------------------------------------------
+joblib - BSD License
+https://github.com/joblib/joblib
+
+Copyright (c) 2008-2021, The joblib developers. All rights reserved.
+
+----------------------------------------------------------------------
+networkx - BSD License
+https://github.com/networkx/networkx
+
+Copyright (c) 2004-2025, NetworkX Developers. All rights reserved.
+
+----------------------------------------------------------------------
+pydantic - MIT License
+https://github.com/pydantic/pydantic
+
+Copyright (c) 2017-2025 Samuel Colvin and other contributors.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files, to deal in
+the Software without restriction, subject to the MIT License terms.
+
+----------------------------------------------------------------------
+PyYAML - MIT License
+https://github.com/yaml/pyyaml
+
+Copyright (c) 2017-2021 Ingy dot Net
+Copyright (c) 2006-2016 Kirill Simonov
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files, to deal in
+the Software without restriction, subject to the MIT License terms.
+
+----------------------------------------------------------------------
+httpx - BSD License
+https://github.com/encode/httpx
+
+Copyright (c) 2019, Encode OSS Ltd. All rights reserved.
+
+----------------------------------------------------------------------
+beautifulsoup4 - MIT License
+https://www.crummy.com/software/BeautifulSoup/
+
+Copyright (c) Leonard Richardson.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files, to deal in
+the Software without restriction, subject to the MIT License terms.
+
+----------------------------------------------------------------------
+markdownify - MIT License
+https://github.com/matthewwithanm/python-markdownify
+
+Copyright (c) Matthew Dapena-Tretter.
+
+----------------------------------------------------------------------
+sqlparse - BSD License
+https://github.com/andialbrecht/sqlparse
+
+Copyright (c) 2009, Andi Albrecht. All rights reserved.
+
+----------------------------------------------------------------------
+graphql-core - MIT License
+https://github.com/graphql-python/graphql-core
+
+Copyright (c) 2015-2025 Syrus Akbary, Christoph Zwerschke.
+
+----------------------------------------------------------------------
+dockerfile-parse - BSD License
+https://github.com/containerbuildsystem/dockerfile-parse
+
+Copyright (c) 2015, Red Hat, Inc. All rights reserved.
+
+----------------------------------------------------------------------
+COMPILATION TOOL (not bundled in binary)
+
+Nuitka - Apache 2.0 (runtime), AGPLv3+ (compiler)
+https://github.com/Nuitka/Nuitka
+
+The Nuitka compiler is used to produce the binary. The runtime support
+code embedded in the output binary is licensed under Apache 2.0. The
+compiler itself (AGPLv3+) is not distributed with TheAuditor.
+
+======================================================================
+END OF THIRD-PARTY LICENSES
